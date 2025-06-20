@@ -68,8 +68,10 @@ impl MapStore {
         name: &str,
     ) -> Result<Entity>
     {
-        let schema = self.get_entity_schema(&entity_type)?;
-
+        if !self.schema.contains_key(&entity_type) {
+            return Err(EntityTypeNotFound(entity_type.clone()).into());
+        }
+        
         if let Some(parent) = parent_id {
             if !self.entity_exists(&parent) {
                 return Err(EntityNotFound(parent).into());
@@ -81,18 +83,25 @@ impl MapStore {
             return Err(EntityExists(entity_id).into());
         }
 
-        let entities = self.entity.entry(entity_type.clone()).or_insert_with(Vec::new);
-        entities.push(entity_id.clone());
+        {
+            let entities = self.entity.entry(entity_type.clone()).or_insert_with(Vec::new);
+            entities.push(entity_id.clone());
+        }
 
-        self.field.entry(entity_id.clone()).or_insert_with(HashMap::new);
+        {
+            self.field.entry(entity_id.clone()).or_insert_with(HashMap::new);
+        }
 
-        let requests: Vec<Request> = Vec::new();
-
-        schema.fields
-            .iter()
-            .map(|(field_type, field_schema)| {
-                Request::new(&entity_id, field_type, Some(field_schema.default_value.clone().into()));
-            });
+        {
+            let requests = self.schema.get(&entity_type)
+                .map(|s| &s.fields)
+                .into_iter()
+                .flat_map(|fields| fields.iter())
+                .map(|(field_type, field_schema)| {
+                    Request::new(&entity_id, field_type, Some(field_schema.default_value.clone().into()))
+                })
+                .collect::<Vec<Request>>();
+        }
 
         Ok(Entity::new(entity_id))
     }
@@ -103,5 +112,11 @@ impl MapStore {
 
     pub fn entity_exists(&self, entity_id: &EntityId) -> bool {
         self.field.contains_key(entity_id)
+    }
+
+    pub fn field_exists(&self, entity_type: &EntityType, field_type: &FieldType) -> bool {
+        self.schema.get(entity_type)
+            .map(|schema| schema.fields.contains_key(field_type))
+            .unwrap_or(false)
     }
 }
