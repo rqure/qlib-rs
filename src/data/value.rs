@@ -1,4 +1,4 @@
-use crate::data::Shared;
+use crate::data::{Shared, Timestamp};
 
 
 #[derive(Debug, Clone, PartialEq)]
@@ -11,7 +11,7 @@ pub enum Value {
     Float(f64),
     Int(i64),
     String(String),
-    Timestamp(chrono::DateTime<chrono::Utc>),
+    Timestamp(Timestamp),
 }
 
 impl Into<Shared<Value>> for Value {
@@ -117,7 +117,7 @@ impl Value {
         }
     }
 
-    pub fn as_timestamp(&self) -> Option<chrono::DateTime<chrono::Utc>> {
+    pub fn as_timestamp(&self) -> Option<Timestamp> {
         if let Value::Timestamp(t) = self {
             Some(*t)
         } else {
@@ -157,7 +157,7 @@ impl Value {
         Value::Choice(c)
     }
 
-    pub fn from_timestamp(t: chrono::DateTime<chrono::Utc>) -> Self {
+    pub fn from_timestamp(t: Timestamp) -> Self {
         Value::Timestamp(t)
     }
 }

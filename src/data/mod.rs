@@ -9,7 +9,7 @@ mod snowflake;
 mod value;
 mod store;
 
-use std::sync::Arc;
+use std::{sync::Arc};
 
 pub use entity_id::EntityId;
 pub use entity::Entity;
@@ -18,16 +18,20 @@ pub use field::Field;
 pub use field_schema::FieldSchema;
 pub use request::Request;
 pub use snowflake::Snowflake;
-use tokio::sync::RwLock;
+use tokio::sync::{RwLock, RwLockReadGuard};
 pub use value::Value;
 pub use store::MapStore;
 
-pub type Timestamp = chrono::DateTime<chrono::Utc>;
+pub type Timestamp = std::time::SystemTime;
 pub type EntityType = String;
 pub type FieldType = String;
 
 pub fn now() -> Timestamp {
-    chrono::Utc::now()
+    std::time::SystemTime::now()
+}
+
+pub fn epoch() -> Timestamp {
+    std::time::UNIX_EPOCH
 }
 
 #[derive(Debug, Clone)]
@@ -52,5 +56,15 @@ impl<T> Shared<T> {
 
     pub fn clone(&self) -> Self {
         Shared(self.0.clone())
+    }
+
+    pub async fn get(&self) -> RwLockReadGuard<'_, T> {
+        let lock = self.0.read().await;
+        lock
+    }
+
+    pub async fn set(&self, value: T) {
+        let mut lock = self.0.write().await;
+        *lock = value;
     }
 }

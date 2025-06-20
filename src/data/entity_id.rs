@@ -17,8 +17,8 @@ impl EntityId {
         }
     }
 
-    pub fn get_type(&self) -> &str {
-        self.typ.as_str()
+    pub fn get_type(&self) -> &EntityType {
+        &self.typ
     }
 
     pub fn get_id(&self) -> String {
