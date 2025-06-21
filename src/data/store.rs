@@ -242,3 +242,103 @@ impl MapStore {
         Ok(())
     }
 }
+
+pub async fn resolve_indirection(
+    store: &mut MapStore,
+    entity_id: &EntityId,
+    field_type: &FieldType,
+) -> Result<(EntityId, FieldType)> {
+    let fields = field_type.split("->").collect::<Vec<&str>>();
+    
+    if fields.len() == 1 {
+        return Ok((entity_id.clone(), field_type.clone()));
+    }
+    
+    let mut current_entity_id = entity_id.clone();
+    
+    for i in 0..fields.len() - 1 {
+        let field = fields[i];
+        
+        // Handle array index navigation (for EntityList fields)
+        if i > 0 && field.parse::<i64>().is_ok() {
+            let index = field.parse::<i64>().unwrap();
+            if index < 0 {
+                return Err(format!("negative index: {}", index).into());
+            }
+            
+            // The previous field should have been an EntityList
+            let prev_field = fields[i-1];
+            
+            let mut request = vec![Request::Read {
+                entity_id: current_entity_id.clone(),
+                field_type: prev_field.to_string(),
+                value: Shared::new(None),
+                write_time: Shared::new(None),
+                writer_id: Shared::new(None),
+            }];
+            
+            let context = &Context{};
+            store.perform(&context, &mut request).await?;
+            
+            if let Request::Read { value, .. } = &request[0] {
+                let value_lock = value.get().await;
+                
+                if let Some(Value::EntityList(entities)) = &*value_lock {
+                    let index_usize = index as usize;
+                    if index_usize >= entities.len() {
+                        return Err(format!("array index out of bounds: {} >= {}", index_usize, entities.len()).into());
+                    }
+                    
+                    current_entity_id = EntityId::try_from(entities[index_usize].as_str())
+                        .map_err(|e| format!("invalid entity id: {}", e))?;
+                } else {
+                    return Err(format!("expected EntityList, got: {:?}", value_lock).into());
+                }
+            }
+            
+            continue;
+        }
+        
+        // Normal field resolution
+        let mut request = vec![Request::Read {
+            entity_id: current_entity_id.clone(),
+            field_type: field.to_string(),
+            value: Shared::new(None),
+            write_time: Shared::new(None),
+            writer_id: Shared::new(None),
+        }];
+        
+        let context = &Context{};
+        if let Err(e) = store.perform(&context, &mut request).await {
+            return Err(format!("failed to resolve field: {} ({})", field, e).into());
+        }
+        
+        if let Request::Read { value, .. } = &request[0] {
+            let value_lock = value.get().await;
+            
+            if let Some(Value::EntityReference(reference)) = &*value_lock {
+                if reference.is_empty() {
+                    return Err("empty entity reference".into());
+                }
+                
+                current_entity_id = EntityId::try_from(reference.as_str())
+                    .map_err(|e| format!("invalid entity id: {}", e))?;
+                
+                continue;
+            }
+            
+            if let Some(Value::EntityList(_)) = &*value_lock {
+                // If next segment is not an index, this is an error
+                if i + 1 >= fields.len() - 1 || fields[i + 1].parse::<i64>().is_err() {
+                    return Err(format!("expected index after EntityList, got: {}", fields[i + 1]).into());
+                }
+                // The index will be processed in the next iteration
+                continue;
+            }
+            
+            return Err(format!("field is not a reference type: {}", field).into());
+        }
+    }
+    
+    Ok((current_entity_id, fields[fields.len() - 1].to_string()))
+}
