@@ -20,7 +20,7 @@ pub use request::Request;
 pub use snowflake::Snowflake;
 use tokio::sync::{RwLock, RwLockReadGuard};
 pub use value::Value;
-pub use store::{MapStore, resolve_indirection};
+pub use store::{MapStore, resolve_indirection, INDIRECTION_DELIMITER};
 
 pub type Timestamp = std::time::SystemTime;
 pub type EntityType = String;

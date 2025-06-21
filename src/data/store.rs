@@ -2,6 +2,8 @@ use std::{collections::HashMap, error, mem::discriminant};
 
 use crate::{data::{now, request::WriteOption, EntityType, FieldType, Shared, Timestamp}, Entity, EntityId, EntitySchema, Field, Request, Result, Snowflake, Value};
 
+pub const INDIRECTION_DELIMITER: &str = "->";
+
 #[derive(Debug, Clone)]
 pub struct EntityExists(EntityId);
 impl error::Error for EntityExists {}
@@ -45,6 +47,69 @@ impl error::Error for ValueTypeMismatch {}
 impl std::fmt::Display for ValueTypeMismatch {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "Value type mismatch for entity {} field {}: expected {:?}, got {:?}", self.0, self.1, self.2, self.3)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct NegativeIndex(i64);
+impl error::Error for NegativeIndex {}
+impl std::fmt::Display for NegativeIndex {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Negative index: {}", self.0)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct ArrayIndexOutOfBounds(usize, usize);
+impl error::Error for ArrayIndexOutOfBounds {}
+impl std::fmt::Display for ArrayIndexOutOfBounds {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Array index out of bounds: {} >= {}", self.0, self.1)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct EmptyEntityReference;
+impl error::Error for EmptyEntityReference {}
+impl std::fmt::Display for EmptyEntityReference {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Empty entity reference")
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct InvalidEntityId(String);
+impl error::Error for InvalidEntityId {}
+impl std::fmt::Display for InvalidEntityId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Invalid entity id: {}", self.0)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct UnexpectedValueType(FieldType, String);
+impl error::Error for UnexpectedValueType {}
+impl std::fmt::Display for UnexpectedValueType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Field is not a reference type: {}", self.0)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct ExpectedIndexAfterEntityList(FieldType);
+impl error::Error for ExpectedIndexAfterEntityList {}
+impl std::fmt::Display for ExpectedIndexAfterEntityList {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Expected index after EntityList, got: {}", self.0)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct FailedToResolveField(FieldType, String);
+impl error::Error for FailedToResolveField {}
+impl std::fmt::Display for FailedToResolveField {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Failed to resolve field: {} ({})", self.0, self.1)
     }
 }
 
@@ -248,7 +313,7 @@ pub async fn resolve_indirection(
     entity_id: &EntityId,
     field_type: &FieldType,
 ) -> Result<(EntityId, FieldType)> {
-    let fields = field_type.split("->").collect::<Vec<&str>>();
+    let fields = field_type.split(INDIRECTION_DELIMITER).collect::<Vec<&str>>();
     
     if fields.len() == 1 {
         return Ok((entity_id.clone(), field_type.clone()));
@@ -263,7 +328,7 @@ pub async fn resolve_indirection(
         if i > 0 && field.parse::<i64>().is_ok() {
             let index = field.parse::<i64>().unwrap();
             if index < 0 {
-                return Err(format!("negative index: {}", index).into());
+                return Err(NegativeIndex(index).into());
             }
             
             // The previous field should have been an EntityList
@@ -286,13 +351,13 @@ pub async fn resolve_indirection(
                 if let Some(Value::EntityList(entities)) = &*value_lock {
                     let index_usize = index as usize;
                     if index_usize >= entities.len() {
-                        return Err(format!("array index out of bounds: {} >= {}", index_usize, entities.len()).into());
+                        return Err(ArrayIndexOutOfBounds(index_usize, entities.len()).into());
                     }
                     
                     current_entity_id = EntityId::try_from(entities[index_usize].as_str())
-                        .map_err(|e| format!("invalid entity id: {}", e))?;
+                        .map_err(|_| InvalidEntityId(entities[index_usize].clone()))?;
                 } else {
-                    return Err(format!("expected EntityList, got: {:?}", value_lock).into());
+                    return Err(UnexpectedValueType(prev_field.to_string(), format!("{:?}", value_lock)).into());
                 }
             }
             
@@ -310,7 +375,7 @@ pub async fn resolve_indirection(
         
         let context = &Context{};
         if let Err(e) = store.perform(&context, &mut request).await {
-            return Err(format!("failed to resolve field: {} ({})", field, e).into());
+            return Err(FailedToResolveField(field.to_string(), e.to_string()).into());
         }
         
         if let Request::Read { value, .. } = &request[0] {
@@ -318,11 +383,11 @@ pub async fn resolve_indirection(
             
             if let Some(Value::EntityReference(reference)) = &*value_lock {
                 if reference.is_empty() {
-                    return Err("empty entity reference".into());
+                    return Err(EmptyEntityReference.into());
                 }
                 
                 current_entity_id = EntityId::try_from(reference.as_str())
-                    .map_err(|e| format!("invalid entity id: {}", e))?;
+                    .map_err(|_| InvalidEntityId(reference.clone()))?;
                 
                 continue;
             }
@@ -330,13 +395,13 @@ pub async fn resolve_indirection(
             if let Some(Value::EntityList(_)) = &*value_lock {
                 // If next segment is not an index, this is an error
                 if i + 1 >= fields.len() - 1 || fields[i + 1].parse::<i64>().is_err() {
-                    return Err(format!("expected index after EntityList, got: {}", fields[i + 1]).into());
+                    return Err(ExpectedIndexAfterEntityList(fields[i + 1].to_string()).into());
                 }
                 // The index will be processed in the next iteration
                 continue;
             }
             
-            return Err(format!("field is not a reference type: {}", field).into());
+            return Err(UnexpectedValueType(field.to_string(), format!("{:?}", value_lock)).into());
         }
     }
     
