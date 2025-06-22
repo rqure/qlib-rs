@@ -156,7 +156,7 @@ macro_rules! sref {
 
 /// Create a Some(Value::EntityList) for direct use in write requests
 #[macro_export]
-macro_rules! slist {
+macro_rules! sreflist {
     [] => {
         Some($crate::Value::EntityList(Vec::new()))
     };
@@ -192,7 +192,7 @@ macro_rules! stimestamp {
 
 /// Create a Some(Value::BinaryFile) for direct use in write requests
 #[macro_export]
-macro_rules! sbin {
+macro_rules! sbinfile {
     ($value:expr) => {
         Some($crate::Value::BinaryFile($value))
     };
@@ -203,7 +203,6 @@ macro_rules! sbin {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::data::{request::WriteOption, now};
 
     #[test]
     fn it_works() {
