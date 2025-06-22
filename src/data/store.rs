@@ -1,8 +1,7 @@
 use std::{collections::HashMap, error, mem::discriminant};
 
 use crate::{
-    Entity, EntityId, EntitySchema, Field, Request, Result, Snowflake, Value,
-    data::{EntityType, FieldType, Shared, Timestamp, now, request::WriteOption},
+    data::{now, request::WriteOption, EntityType, FieldType, Shared, Timestamp}, sread, Entity, EntityId, EntitySchema, Field, Request, Result, Snowflake, Value
 };
 
 pub const INDIRECTION_DELIMITER: &str = "->";
@@ -397,13 +396,9 @@ pub async fn resolve_indirection(
             // The previous field should have been an EntityList
             let prev_field = fields[i - 1];
 
-            let mut request = vec![Request::Read {
-                entity_id: current_entity_id.clone(),
-                field_type: prev_field.to_string(),
-                value: Shared::new(None),
-                write_time: Shared::new(None),
-                writer_id: Shared::new(None),
-            }];
+            let mut request = vec![
+                sread!(current_entity_id, prev_field),
+            ];
 
             let context = &Context {};
             store.perform(&context, &mut request).await?;

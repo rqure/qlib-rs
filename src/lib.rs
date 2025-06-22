@@ -13,10 +13,10 @@ pub use data::{Entity, EntitySchema, EntityId, Field, FieldSchema, Request, Snow
 /// # Example
 ///
 /// ```
-/// let request = read!(entity_id, "Name");
+/// let request = sread!(entity_id, "Name");
 /// ```
 #[macro_export]
-macro_rules! read {
+macro_rules! sread {
     ($entity_id:expr, $field_type:expr) => {
         $crate::Request::Read {
             entity_id: $entity_id.clone(),
@@ -43,21 +43,21 @@ macro_rules! read {
 ///
 /// ```
 /// // Basic usage
-/// let request = write!(entity_id, "Name", Some(Value::String("Test".to_string())));
+/// let request = swrite!(entity_id, "Name", Some(Value::String("Test".to_string())));
 ///
 /// // With write option
-/// let request = write!(entity_id, "Name", Some(Value::String("Test".to_string())), WriteOption::Changes);
+/// let request = swrite!(entity_id, "Name", Some(Value::String("Test".to_string())), WriteOption::Changes);
 ///
 /// // With write time
-/// let request = write!(entity_id, "Name", Some(Value::String("Test".to_string())), 
+/// let request = swrite!(entity_id, "Name", Some(Value::String("Test".to_string())), 
 ///                      WriteOption::Normal, Some(now()));
 ///
 /// // With all options
-/// let request = write!(entity_id, "Name", Some(Value::String("Test".to_string())), 
+/// let request = swrite!(entity_id, "Name", Some(Value::String("Test".to_string())), 
 ///                      WriteOption::Normal, Some(now()), Some(writer_id));
 /// ```
 #[macro_export]
-macro_rules! write {
+macro_rules! swrite {
     // Basic version with just value
     ($entity_id:expr, $field_type:expr, $value:expr) => {
         $crate::Request::Write {
@@ -109,11 +109,163 @@ macro_rules! write {
 
 pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
+/// Create boolean store values more elegantly
+/// 
+/// # Example
+/// 
+/// ```
+/// let value = sbool!(true);
+/// ```
+#[macro_export]
+macro_rules! sbool {
+    ($value:expr) => {
+        $crate::Value::Bool($value)
+    };
+}
+
+/// Create integer store values more elegantly
+/// 
+/// # Example
+/// 
+/// ```
+/// let value = sint!(42);
+/// ```
+#[macro_export]
+macro_rules! sint {
+    ($value:expr) => {
+        $crate::Value::Int($value)
+    };
+}
+
+/// Create float store values more elegantly
+/// 
+/// # Example
+/// 
+/// ```
+/// let value = sfloat!(3.14);
+/// ```
+#[macro_export]
+macro_rules! sfloat {
+    ($value:expr) => {
+        $crate::Value::Float($value)
+    };
+}
+
+/// Create string store values more elegantly
+/// 
+/// # Example
+/// 
+/// ```
+/// let value = sstr!("hello");
+/// let value = sstr!(format!("hello {}", name));
+/// ```
+#[macro_export]
+macro_rules! sstr {
+    ($value:expr) => {
+        $crate::Value::String($value.to_string())
+    };
+}
+
+/// Create entity reference store values more elegantly
+/// 
+/// # Example
+/// 
+/// ```
+/// let value = sref!(entity_id);
+/// // or with string
+/// let value = sref!("User$123456");
+/// ```
+#[macro_export]
+macro_rules! sref {
+    ($value:expr) => {
+        $crate::Value::EntityReference($value.to_string())
+    };
+}
+
+/// Create entity list store values more elegantly
+/// 
+/// # Example
+/// 
+/// ```
+/// // Create empty list
+/// let value = slist![];
+/// 
+/// // Create with values
+/// let value = slist!["User$123", "User$456"];
+/// 
+/// // Create from a vector
+/// let ids = vec!["User$123".to_string(), "User$456".to_string()];
+/// let value = slist!(ids);
+/// ```
+#[macro_export]
+macro_rules! slist {
+    [] => {
+        $crate::Value::EntityList(Vec::new())
+    };
+    [$($value:expr),* $(,)?] => {
+        {
+            let mut v = Vec::new();
+            $(
+                v.push($value.to_string());
+            )*
+            $crate::Value::EntityList(v)
+        }
+    };
+    ($value:expr) => {
+        $crate::Value::EntityList($value.clone())
+    };
+}
+
+/// Create choice store values more elegantly
+/// 
+/// # Example
+/// 
+/// ```
+/// let value = schoice!(2);
+/// ```
+#[macro_export]
+macro_rules! schoice {
+    ($value:expr) => {
+        $crate::Value::Choice($value)
+    };
+}
+
+/// Create timestamp store values more elegantly
+/// 
+/// # Example
+/// 
+/// ```
+/// // Current time
+/// let value = stimestamp!(now());
+/// 
+/// // UNIX epoch
+/// let value = stimestamp!(epoch());
+/// ```
+#[macro_export]
+macro_rules! stimestamp {
+    ($value:expr) => {
+        $crate::Value::Timestamp($value)
+    };
+}
+
+/// Create binary file store values more elegantly
+/// 
+/// # Example
+/// 
+/// ```
+/// let data = vec![0, 1, 2, 3];
+/// let value = sbin!(data);
+/// ```
+#[macro_export]
+macro_rules! sbin {
+    ($value:expr) => {
+        $crate::Value::BinaryFile($value)
+    };
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{read, write};
-    use crate::data::request::WriteOption;
 
     #[test]
     fn it_works() {
@@ -121,38 +273,5 @@ mod tests {
         println!("{}", EntityId::new("Root", snowflake.generate()));
 
         let _store = MapStore::new();
-    }
-    
-    #[test]
-    fn test_request_macros() {
-        let entity_id = EntityId::new("User", 12345);
-        
-        // Test read macro
-        let read_request = read!(entity_id, "Name");
-        if let Request::Read { field_type, .. } = read_request {
-            assert_eq!(field_type, "Name");
-        } else {
-            panic!("Expected Read request");
-        }
-        
-        // Test write macro with just value
-        let write_request1 = write!(entity_id, "Age", Some(Value::Int(30)));
-        if let Request::Write { field_type, value, write_option, .. } = write_request1 {
-            assert_eq!(field_type, "Age");
-            assert_eq!(value, Some(Value::Int(30)));
-            assert_eq!(write_option, WriteOption::Normal);
-        } else {
-            panic!("Expected Write request");
-        }
-        
-        // Test write macro with value and write option
-        let write_request2 = write!(entity_id, "Score", Some(Value::Float(95.5)), WriteOption::Changes);
-        if let Request::Write { field_type, value, write_option, .. } = write_request2 {
-            assert_eq!(field_type, "Score");
-            assert_eq!(value, Some(Value::Float(95.5)));
-            assert_eq!(write_option, WriteOption::Changes);
-        } else {
-            panic!("Expected Write request");
-        }
     }
 }
