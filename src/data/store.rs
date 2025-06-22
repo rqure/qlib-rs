@@ -1,7 +1,7 @@
 use std::{collections::HashMap, error, mem::discriminant};
 
 use crate::{
-    Entity, EntityId, EntitySchema, Field, Request, Result, Snowflake, Value,
+    Entity, EntityId, EntitySchema, Field, FieldSchema, Request, Result, Snowflake, Value,
     data::{EntityType, FieldType, Shared, Timestamp, now, request::WriteOption},
     sread, sref, sreflist, sstr, swrite,
 };
@@ -122,6 +122,51 @@ impl std::fmt::Display for BadIndirection {
 
 pub struct Context {}
 
+/// Pagination options for retrieving lists of items
+#[derive(Debug, Clone)]
+pub struct PageOpts {
+    /// The maximum number of items to return
+    pub limit: usize,
+    /// The starting point for pagination
+    pub cursor: Option<String>,
+}
+
+impl Default for PageOpts {
+    fn default() -> Self {
+        PageOpts {
+            limit: 100,
+            cursor: None,
+        }
+    }
+}
+
+impl PageOpts {
+    pub fn new(limit: usize, cursor: Option<String>) -> Self {
+        PageOpts { limit, cursor }
+    }
+}
+
+/// Result of a paginated query
+#[derive(Debug, Clone)]
+pub struct PageResult<T> {
+    /// The items returned in this page
+    pub items: Vec<T>,
+    /// The total number of items available
+    pub total: usize,
+    /// Cursor for retrieving the next page, if available
+    pub next_cursor: Option<String>,
+}
+
+impl<T> PageResult<T> {
+    pub fn new(items: Vec<T>, total: usize, next_cursor: Option<String>) -> Self {
+        PageResult {
+            items,
+            total,
+            next_cursor,
+        }
+    }
+}
+
 pub struct MapStore {
     schema: HashMap<EntityType, EntitySchema>,
     entity: HashMap<EntityType, Vec<EntityId>>,
@@ -232,6 +277,77 @@ impl MapStore {
         self.schema
             .get(entity_type)
             .ok_or_else(|| EntityTypeNotFound(entity_type.clone()).into())
+    }
+
+    /// Set or update the schema for an entity type
+    pub async fn set_entity_schema(
+        &mut self,
+        _: &Context,
+        entity_schema: &EntitySchema,
+    ) -> Result<()> {
+        let entity_type = entity_schema.entity_type.clone();
+        self.schema.insert(entity_type.clone(), entity_schema.clone());
+        
+        // Make sure the entity type is tracked in our types list
+        if !self.entity.contains_key(&entity_type) {
+            self.entity.insert(entity_type.clone(), Vec::new());
+        }
+        
+        // Update the types list if needed
+        if !self.types.contains(&entity_type) {
+            self.types.push(entity_type);
+        }
+        
+        Ok(())
+    }
+
+    /// Get the schema for a specific field
+    pub async fn get_field_schema(
+        &self,
+        _: &Context,
+        entity_type: &EntityType,
+        field_type: &FieldType,
+    ) -> Result<&FieldSchema> {
+        // First get the entity schema
+        let entity_schema = self.get_entity_schema(&Context {}, entity_type).await?;
+        
+        // Then get the field schema
+        entity_schema
+            .fields
+            .get(field_type)
+            .ok_or_else(|| FieldNotFound(EntityId::new(entity_type, 0), field_type.clone()).into())
+    }
+
+    /// Set or update the schema for a specific field
+    pub async fn set_field_schema(
+        &mut self,
+        _: &Context,
+        entity_type: &EntityType,
+        field_type: &FieldType,
+        field_schema: &FieldSchema,
+    ) -> Result<()> {
+        // Make sure the entity type exists
+        if !self.schema.contains_key(entity_type) {
+            // Create a new entity schema
+            let entity_schema = EntitySchema::new(entity_type.clone());
+            self.schema.insert(entity_type.clone(), entity_schema);
+            
+            // Make sure the entity type is tracked
+            if !self.entity.contains_key(entity_type) {
+                self.entity.insert(entity_type.clone(), Vec::new());
+            }
+            
+            // Update types list if needed
+            if !self.types.contains(entity_type) {
+                self.types.push(entity_type.clone());
+            }
+        }
+        
+        // Get the entity schema and update it
+        let entity_schema = self.schema.get_mut(entity_type).unwrap();
+        entity_schema.fields.insert(field_type.clone(), field_schema.clone());
+        
+        Ok(())
     }
 
     pub async fn entity_exists(&self, _: &Context, entity_id: &EntityId) -> bool {
@@ -396,6 +512,122 @@ impl MapStore {
 
         Ok(())
     }
+
+    /// Deletes an entity and all its fields
+    /// Returns an error if the entity doesn't exist
+    pub async fn delete_entity(&mut self, _: &Context, entity_id: &EntityId) -> Result<()> {
+        // Check if the entity exists
+        if !self.field.contains_key(entity_id) {
+            return Err(EntityNotFound(entity_id.clone()).into());
+        }
+
+        // Remove fields
+        self.field.remove(entity_id);
+
+        // Remove from entity type list
+        if let Some(entities) = self.entity.get_mut(entity_id.get_type()) {
+            entities.retain(|id| id != entity_id);
+        }
+
+        Ok(())
+    }
+
+    /// Find entities of a specific type with pagination
+    pub async fn find_entities(
+        &self,
+        _: &Context,
+        entity_type: &EntityType,
+        page_opts: Option<PageOpts>,
+    ) -> Result<PageResult<EntityId>> {
+        let opts = page_opts.unwrap_or_default();
+        
+        // Check if entity type exists
+        if !self.entity.contains_key(entity_type) {
+            return Ok(PageResult {
+                items: Vec::new(),
+                total: 0,
+                next_cursor: None,
+            });
+        }
+
+        let all_entities = self.entity.get(entity_type).unwrap();
+        let total = all_entities.len();
+
+        // Find the starting index based on cursor
+        let start_idx = if let Some(cursor) = &opts.cursor {
+            match cursor.parse::<usize>() {
+                Ok(idx) => idx,
+                Err(_) => 0,
+            }
+        } else {
+            0
+        };
+
+        // Get the slice of entities for this page
+        let end_idx = std::cmp::min(start_idx + opts.limit, total);
+        let items: Vec<EntityId> = if start_idx < total {
+            all_entities[start_idx..end_idx].to_vec()
+        } else {
+            Vec::new()
+        };
+
+        // Calculate the next cursor
+        let next_cursor = if end_idx < total {
+            Some(end_idx.to_string())
+        } else {
+            None
+        };
+
+        Ok(PageResult {
+            items,
+            total,
+            next_cursor,
+        })
+    }
+
+    /// Get all entity types with pagination
+    pub async fn get_entity_types(
+        &self,
+        _: &Context,
+        page_opts: Option<PageOpts>,
+    ) -> Result<PageResult<EntityType>> {
+        let opts = page_opts.unwrap_or_default();
+        
+        // Collect all types from schema
+        let all_types: Vec<EntityType> = self.schema.keys().cloned().collect();
+        let total = all_types.len();
+
+        // Find the starting index based on cursor
+        let start_idx = if let Some(cursor) = &opts.cursor {
+            match cursor.parse::<usize>() {
+                Ok(idx) => idx,
+                Err(_) => 0,
+            }
+        } else {
+            0
+        };
+
+        // Get the slice of types for this page
+        let end_idx = std::cmp::min(start_idx + opts.limit, total);
+        let items: Vec<EntityType> = if start_idx < total {
+            all_types[start_idx..end_idx].to_vec()
+        } else {
+            Vec::new()
+        };
+
+        // Calculate the next cursor
+        let next_cursor = if end_idx < total {
+            Some(end_idx.to_string())
+        } else {
+            None
+        };
+
+        Ok(PageResult {
+            items,
+            total,
+            next_cursor,
+        })
+    }
 }
 
 pub async fn resolve_indirection(
@@ -471,13 +703,9 @@ pub async fn resolve_indirection(
         }
 
         // Normal field resolution
-        let mut request = vec![Request::Read {
-            entity_id: current_entity_id.clone(),
-            field_type: field.to_string(),
-            value: Shared::new(None),
-            write_time: Shared::new(None),
-            writer_id: Shared::new(None),
-        }];
+        let mut request = vec![
+            sread!(current_entity_id, field),
+        ];
 
         let context = &Context {};
         if let Err(e) = store.perform(&context, &mut request).await {

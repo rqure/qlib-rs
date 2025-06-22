@@ -20,7 +20,8 @@ pub use request::{
 };
 pub use snowflake::Snowflake;
 pub use store::{
-    BadIndirection, BadIndirectionReason, INDIRECTION_DELIMITER, MapStore, resolve_indirection,
+    BadIndirection, BadIndirectionReason, INDIRECTION_DELIMITER, MapStore, PageOpts, PageResult,
+    resolve_indirection,
 };
 use tokio::sync::{RwLock, RwLockReadGuard};
 pub use value::Value;

@@ -2,7 +2,7 @@ mod data;
 
 pub use data::{Entity, EntitySchema, EntityId, Field, FieldSchema, Request, Snowflake, Value, 
     MapStore, resolve_indirection, INDIRECTION_DELIMITER, BadIndirection, BadIndirectionReason,
-    WriteOption, Timestamp, FieldType, Shared, now, epoch};
+    WriteOption, Timestamp, FieldType, Shared, now, epoch, PageOpts, PageResult};
 
 /// Create a Read request with minimal syntax
 ///
