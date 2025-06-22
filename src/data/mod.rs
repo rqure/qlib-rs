@@ -15,7 +15,9 @@ pub use entity_id::EntityId;
 pub use entity_schema::EntitySchema;
 pub use field::Field;
 pub use field_schema::FieldSchema;
-pub use request::Request;
+pub use request::{
+    Request, WriteOption,
+};
 pub use snowflake::Snowflake;
 pub use store::{
     BadIndirection, BadIndirectionReason, INDIRECTION_DELIMITER, MapStore, resolve_indirection,

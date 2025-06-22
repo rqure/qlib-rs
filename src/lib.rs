@@ -1,7 +1,8 @@
 mod data;
 
 pub use data::{Entity, EntitySchema, EntityId, Field, FieldSchema, Request, Snowflake, Value, 
-    MapStore, resolve_indirection, INDIRECTION_DELIMITER, BadIndirection, BadIndirectionReason};
+    MapStore, resolve_indirection, INDIRECTION_DELIMITER, BadIndirection, BadIndirectionReason,
+    WriteOption, Timestamp, FieldType, Shared, now, epoch};
 
 /// Create a Read request with minimal syntax
 ///
@@ -63,6 +64,18 @@ macro_rules! sread {
 /// ```
 #[macro_export]
 macro_rules! swrite {
+    // Basic version with no value: handle Some/None
+    ($entity_id:expr, $field_type:expr) => {
+        $crate::Request::Write {
+            entity_id: $entity_id.clone(),
+            field_type: $field_type.into(),
+            value: None,
+            write_option: $crate::data::request::WriteOption::Normal,
+            write_time: None,
+            writer_id: None,
+        }
+    };
+
     // Basic version with just value: handle Some/None
     ($entity_id:expr, $field_type:expr, $value:expr) => {
         $crate::Request::Write {

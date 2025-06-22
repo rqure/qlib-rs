@@ -1,7 +1,7 @@
 use std::{collections::HashMap, error, mem::discriminant};
 
 use crate::{
-    data::{now, request::WriteOption, EntityType, FieldType, Shared, Timestamp}, sread, Entity, EntityId, EntitySchema, Field, Request, Result, Snowflake, Value
+    data::{now, request::WriteOption, EntityType, FieldType, Shared, Timestamp}, sread, sref, sstr, swrite, Entity, EntityId, EntitySchema, Field, Request, Result, Snowflake, Value
 };
 
 pub const INDIRECTION_DELIMITER: &str = "->";
@@ -150,9 +150,9 @@ impl MapStore {
             return Err(EntityTypeNotFound(entity_type.clone()).into());
         }
 
-        if let Some(parent) = parent_id {
+        if let Some(parent) = &parent_id {
             if !self.entity_exists(context, &parent).await {
-                return Err(EntityNotFound(parent).into());
+                return Err(EntityNotFound(parent.clone()).into());
             }
         }
 
@@ -182,13 +182,19 @@ impl MapStore {
                 .map(|s| &s.fields)
                 .into_iter()
                 .flat_map(|fields| fields.iter())
-                .map(|(field_type, _)| Request::Write {
-                    entity_id: entity_id.clone(),
-                    field_type: field_type.clone(),
-                    value: None,
-                    write_time: None,
-                    writer_id: None,
-                    write_option: WriteOption::Normal,
+                .map(|(field_type, _)| match field_type.as_str() {
+                    "Name" => {
+                        swrite!(entity_id, field_type, sstr!(name))
+                    },
+                    "Parent" => {
+                        match &parent_id {
+                            Some(parent) => swrite!(entity_id, field_type, sref!(parent)),
+                            None => swrite!(entity_id, field_type),
+                        }
+                    },
+                    _ => {
+                        swrite!(entity_id, field_type)
+                    }
                 })
                 .collect::<Vec<Request>>();
         }
