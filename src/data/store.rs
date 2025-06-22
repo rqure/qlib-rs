@@ -141,7 +141,7 @@ impl MapStore {
 
     pub async fn create_entity(
         &mut self,
-        context: &Context,
+        ctx: &Context,
         entity_type: EntityType,
         parent_id: Option<EntityId>,
         name: &str,
@@ -151,7 +151,7 @@ impl MapStore {
         }
 
         if let Some(parent) = &parent_id {
-            if !self.entity_exists(context, &parent).await {
+            if !self.entity_exists(ctx, &parent).await {
                 return Err(EntityNotFound(parent.clone()).into());
             }
         }
@@ -176,7 +176,7 @@ impl MapStore {
         }
 
         {
-            let requests = self
+            let mut requests = self
                 .schema
                 .get(&entity_type)
                 .map(|s| &s.fields)
@@ -197,6 +197,8 @@ impl MapStore {
                     }
                 })
                 .collect::<Vec<Request>>();
+
+            self.perform(ctx, &mut requests).await?;
         }
 
         Ok(Entity::new(entity_id))
