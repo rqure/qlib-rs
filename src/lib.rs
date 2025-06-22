@@ -34,7 +34,7 @@ macro_rules! sread {
 ///
 /// * `entity_id` - The entity ID to write to
 /// * `field_type` - The field type to write
-/// * `value` - The value to write (optional)
+/// * `value` - The value to write (must be a Some(Value) or None)
 /// * `write_option` - (optional) The write option, defaults to Normal
 /// * `write_time` - (optional) The write time
 /// * `writer_id` - (optional) The writer ID
@@ -42,23 +42,28 @@ macro_rules! sread {
 /// # Examples
 ///
 /// ```
-/// // Basic usage
-/// let request = swrite!(entity_id, "Name", Some(Value::String("Test".to_string())));
+/// // Use with sw* macros that automatically wrap values in Some()
+/// let request = swrite!(entity_id, "Name", sstr!("Test"));
+/// let request = swrite!(entity_id, "Age", sint!(42));
+/// let request = swrite!(entity_id, "Active", sbool!(true));
+/// 
+/// // With None for deletion
+/// let request = swrite!(entity_id, "Name", None);
 ///
 /// // With write option
-/// let request = swrite!(entity_id, "Name", Some(Value::String("Test".to_string())), WriteOption::Changes);
+/// let request = swrite!(entity_id, "Name", sstr!("Test"), WriteOption::Changes);
 ///
 /// // With write time
-/// let request = swrite!(entity_id, "Name", Some(Value::String("Test".to_string())), 
+/// let request = swrite!(entity_id, "Name", sstr!("Test"), 
 ///                      WriteOption::Normal, Some(now()));
 ///
 /// // With all options
-/// let request = swrite!(entity_id, "Name", Some(Value::String("Test".to_string())), 
+/// let request = swrite!(entity_id, "Name", sstr!("Test"), 
 ///                      WriteOption::Normal, Some(now()), Some(writer_id));
 /// ```
 #[macro_export]
 macro_rules! swrite {
-    // Basic version with just value
+    // Basic version with just value: handle Some/None
     ($entity_id:expr, $field_type:expr, $value:expr) => {
         $crate::Request::Write {
             entity_id: $entity_id.clone(),
@@ -109,163 +114,96 @@ macro_rules! swrite {
 
 pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
-/// Create boolean store values more elegantly
-/// 
-/// # Example
-/// 
-/// ```
-/// let value = sbool!(true);
-/// ```
+/// Create a Some(Value::Bool) for direct use in write requests
 #[macro_export]
 macro_rules! sbool {
     ($value:expr) => {
-        $crate::Value::Bool($value)
+        Some($crate::Value::Bool($value))
     };
 }
 
-/// Create integer store values more elegantly
-/// 
-/// # Example
-/// 
-/// ```
-/// let value = sint!(42);
-/// ```
+/// Create a Some(Value::Int) for direct use in write requests
 #[macro_export]
 macro_rules! sint {
     ($value:expr) => {
-        $crate::Value::Int($value)
+        Some($crate::Value::Int($value))
     };
 }
 
-/// Create float store values more elegantly
-/// 
-/// # Example
-/// 
-/// ```
-/// let value = sfloat!(3.14);
-/// ```
+/// Create a Some(Value::Float) for direct use in write requests
 #[macro_export]
 macro_rules! sfloat {
     ($value:expr) => {
-        $crate::Value::Float($value)
+        Some($crate::Value::Float($value))
     };
 }
 
-/// Create string store values more elegantly
-/// 
-/// # Example
-/// 
-/// ```
-/// let value = sstr!("hello");
-/// let value = sstr!(format!("hello {}", name));
-/// ```
+/// Create a Some(Value::String) for direct use in write requests
 #[macro_export]
 macro_rules! sstr {
     ($value:expr) => {
-        $crate::Value::String($value.to_string())
+        Some($crate::Value::String($value.to_string()))
     };
 }
 
-/// Create entity reference store values more elegantly
-/// 
-/// # Example
-/// 
-/// ```
-/// let value = sref!(entity_id);
-/// // or with string
-/// let value = sref!("User$123456");
-/// ```
+/// Create a Some(Value::EntityReference) for direct use in write requests
 #[macro_export]
 macro_rules! sref {
     ($value:expr) => {
-        $crate::Value::EntityReference($value.to_string())
+        Some($crate::Value::EntityReference($value.to_string()))
     };
 }
 
-/// Create entity list store values more elegantly
-/// 
-/// # Example
-/// 
-/// ```
-/// // Create empty list
-/// let value = slist![];
-/// 
-/// // Create with values
-/// let value = slist!["User$123", "User$456"];
-/// 
-/// // Create from a vector
-/// let ids = vec!["User$123".to_string(), "User$456".to_string()];
-/// let value = slist!(ids);
-/// ```
+/// Create a Some(Value::EntityList) for direct use in write requests
 #[macro_export]
 macro_rules! slist {
     [] => {
-        $crate::Value::EntityList(Vec::new())
+        Some($crate::Value::EntityList(Vec::new()))
     };
-    [$($value:expr),* $(,)?] => {
+    [$($value:expr),*] => {
         {
-            let mut v = Vec::new();
+            let mut v = Vec::<String>::new();
             $(
                 v.push($value.to_string());
             )*
-            $crate::Value::EntityList(v)
+            Some($crate::Value::EntityList(v))
         }
     };
     ($value:expr) => {
-        $crate::Value::EntityList($value.clone())
+        Some($crate::Value::EntityList($value.clone()))
     };
 }
 
-/// Create choice store values more elegantly
-/// 
-/// # Example
-/// 
-/// ```
-/// let value = schoice!(2);
-/// ```
+/// Create a Some(Value::Choice) for direct use in write requests
 #[macro_export]
 macro_rules! schoice {
     ($value:expr) => {
-        $crate::Value::Choice($value)
+        Some($crate::Value::Choice($value))
     };
 }
 
-/// Create timestamp store values more elegantly
-/// 
-/// # Example
-/// 
-/// ```
-/// // Current time
-/// let value = stimestamp!(now());
-/// 
-/// // UNIX epoch
-/// let value = stimestamp!(epoch());
-/// ```
+/// Create a Some(Value::Timestamp) for direct use in write requests
 #[macro_export]
 macro_rules! stimestamp {
     ($value:expr) => {
-        $crate::Value::Timestamp($value)
+        Some($crate::Value::Timestamp($value))
     };
 }
 
-/// Create binary file store values more elegantly
-/// 
-/// # Example
-/// 
-/// ```
-/// let data = vec![0, 1, 2, 3];
-/// let value = sbin!(data);
-/// ```
+/// Create a Some(Value::BinaryFile) for direct use in write requests
 #[macro_export]
 macro_rules! sbin {
     ($value:expr) => {
-        $crate::Value::BinaryFile($value)
+        Some($crate::Value::BinaryFile($value))
     };
 }
+
+
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::data::{request::WriteOption, now};
 
     #[test]
     fn it_works() {
