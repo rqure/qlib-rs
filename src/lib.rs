@@ -274,7 +274,7 @@ macro_rules! sstr {
 #[macro_export]
 macro_rules! sref {
     ($value:expr) => {
-        Some($crate::Value::EntityReference($value.to_string()))
+        Some($crate::Value::EntityReference($value))
     };
 }
 
@@ -322,9 +322,9 @@ macro_rules! sreflist {
     };
     [$($value:expr),*] => {
         {
-            let mut v = Vec::<String>::new();
+            let mut v = Vec::<EntityId>::new();
             $(
-                v.push($value.to_string());
+                v.push($value);
             )*
             Some($crate::Value::EntityList(v))
         }
@@ -522,19 +522,9 @@ mod tests {
     #[test]
     fn test_entity_reference_macro() {
         // Test with string literal
-        let ref_lit = sref!("User$123");
-        assert!(matches!(ref_lit, Some(Value::EntityReference(s)) if s == "User$123"));
-
-        // Test with String
-        let string = String::from("Group$456");
-        let ref_obj = sref!(string);
-        assert!(matches!(ref_obj, Some(Value::EntityReference(s)) if s == "Group$456"));
-
-        // Test with EntityId converted to string
-        let entity_id = EntityId::new("Item", 789);
-        let entity_str = entity_id.to_string();
-        let ref_eid = sref!(entity_str);
-        assert!(matches!(ref_eid, Some(Value::EntityReference(s)) if s == entity_id.to_string()));
+        let entity_id = Some(EntityId::try_from("User$123").unwrap());
+        let ref_lit = sref!(entity_id.clone());
+        assert!(matches!(ref_lit, Some(Value::EntityReference(s)) if s == entity_id));
     }
 
     #[test]
@@ -544,12 +534,15 @@ mod tests {
         assert!(matches!(empty, Some(Value::EntityList(v)) if v.is_empty()));
 
         // Test list with multiple items
-        let multi = sreflist!["User$1", "User$2", "User$3"];
+        let user1 = EntityId::try_from("User$1").unwrap();
+        let user2 = EntityId::try_from("User$2").unwrap();
+        let user3 = EntityId::try_from("User$3").unwrap();
+        let multi = sreflist![user1.clone(), user2.clone(), user3.clone()];
         if let Some(Value::EntityList(list)) = multi {
             assert_eq!(list.len(), 3);
-            assert_eq!(list[0], "User$1");
-            assert_eq!(list[1], "User$2");
-            assert_eq!(list[2], "User$3");
+            assert_eq!(list[0], user1);
+            assert_eq!(list[1], user2);
+            assert_eq!(list[2], user3);
         } else {
             panic!("Expected Some(Value::EntityList)");
         }

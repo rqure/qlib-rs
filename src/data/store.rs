@@ -1,7 +1,9 @@
 use std::{collections::HashMap, error, mem::discriminant};
 
 use crate::{
-    data::{now, request::WriteOption, EntityType, FieldType, Shared, Timestamp}, sread, sref, sstr, swrite, Entity, EntityId, EntitySchema, Field, Request, Result, Snowflake, Value
+    Entity, EntityId, EntitySchema, Field, Request, Result, Snowflake, Value,
+    data::{EntityType, FieldType, Shared, Timestamp, now, request::WriteOption},
+    sread, sref, sreflist, sstr, swrite,
 };
 
 pub const INDIRECTION_DELIMITER: &str = "->";
@@ -60,7 +62,7 @@ pub enum BadIndirectionReason {
     NegativeIndex(i64),
     ArrayIndexOutOfBounds(usize, usize),
     EmptyEntityReference,
-    InvalidEntityId(String),
+    InvalidEntityId(EntityId),
     UnexpectedValueType(FieldType, String),
     ExpectedIndexAfterEntityList(FieldType),
     FailedToResolveField(FieldType, String),
@@ -176,7 +178,7 @@ impl MapStore {
         }
 
         {
-            let mut requests = self
+            let mut writes = self
                 .schema
                 .get(&entity_type)
                 .map(|s| &s.fields)
@@ -185,12 +187,10 @@ impl MapStore {
                 .map(|(field_type, _)| match field_type.as_str() {
                     "Name" => {
                         swrite!(entity_id, field_type, sstr!(name))
-                    },
-                    "Parent" => {
-                        match &parent_id {
-                            Some(parent) => swrite!(entity_id, field_type, sref!(parent)),
-                            None => swrite!(entity_id, field_type),
-                        }
+                    }
+                    "Parent" => match &parent_id {
+                        Some(parent) => swrite!(entity_id, field_type, sref!(Some(parent.clone()))),
+                        None => swrite!(entity_id, field_type),
                     },
                     _ => {
                         swrite!(entity_id, field_type)
@@ -198,7 +198,27 @@ impl MapStore {
                 })
                 .collect::<Vec<Request>>();
 
-            self.perform(ctx, &mut requests).await?;
+            if let Some(parent) = &parent_id {
+                let mut children = Field::new(parent, "Children");
+                self.perform(ctx, &mut vec![children.read_request().await])
+                    .await?;
+
+                children.get_value().await.and_then(|value| {
+                    if let Value::EntityList(mut entities) = value {
+                        entities.push(entity_id.clone());
+
+                        writes.push(swrite!(
+                            parent,
+                            "Children",
+                            Some(Value::EntityList(entities))
+                        ));
+                    }
+
+                    Some(())
+                });
+            }
+
+            self.perform(ctx, &mut writes).await?;
         }
 
         Ok(Entity::new(entity_id))
@@ -240,8 +260,15 @@ impl MapStore {
                     write_time,
                     writer_id,
                 } => {
-                    self.read(ctx, entity_id, field_type, value, write_time, writer_id)
-                        .await?;
+                    let indir = Box::pin(resolve_indirection(self, entity_id, field_type)).await?;
+                    self.read(
+                        ctx, 
+                        &indir.0, 
+                        &indir.1,
+                        value,
+                        write_time,
+                        writer_id
+                    ).await?;
                 }
                 Request::Write {
                     entity_id,
@@ -251,16 +278,16 @@ impl MapStore {
                     writer_id,
                     write_option,
                 } => {
+                    let indir = Box::pin(resolve_indirection(self, entity_id, field_type)).await?;
                     self.write(
                         ctx,
-                        entity_id,
-                        field_type,
+                        &indir.0,
+                        &indir.1,
                         value,
                         write_time,
                         writer_id,
                         write_option,
-                    )
-                    .await?;
+                    ).await?;
                 }
             }
         }
@@ -315,7 +342,7 @@ impl MapStore {
 
         let field = fields
             .entry(field_type.clone())
-            .or_insert_with(|| Field::new(entity_id.clone(), field_type.clone()));
+            .or_insert_with(|| Field::new(entity_id, field_type));
 
         let mut new_value: Option<Value> = value.clone();
         // Check that the value being written is the same type as the field schema
@@ -404,9 +431,7 @@ pub async fn resolve_indirection(
             // The previous field should have been an EntityList
             let prev_field = fields[i - 1];
 
-            let mut request = vec![
-                sread!(current_entity_id, prev_field),
-            ];
+            let mut request = vec![sread!(current_entity_id, prev_field)];
 
             let context = &Context {};
             store.perform(&context, &mut request).await?;
@@ -428,16 +453,7 @@ pub async fn resolve_indirection(
                         .into());
                     }
 
-                    current_entity_id = EntityId::try_from(entities[index_usize].as_str())
-                        .map_err(|_| {
-                            BadIndirection::new(
-                                current_entity_id.clone(),
-                                field_type.clone(),
-                                BadIndirectionReason::InvalidEntityId(
-                                    entities[index_usize].clone(),
-                                ),
-                            )
-                        })?;
+                    current_entity_id = entities[index_usize].clone();
                 } else {
                     return Err(BadIndirection::new(
                         current_entity_id.clone(),
@@ -477,7 +493,7 @@ pub async fn resolve_indirection(
             let value_lock = value.get().await;
 
             if let Some(Value::EntityReference(reference)) = &*value_lock {
-                if reference.is_empty() {
+                if reference.is_none() {
                     return Err(BadIndirection::new(
                         current_entity_id.clone(),
                         field_type.clone(),
@@ -485,14 +501,6 @@ pub async fn resolve_indirection(
                     )
                     .into());
                 }
-
-                current_entity_id = EntityId::try_from(reference.as_str()).map_err(|_| {
-                    BadIndirection::new(
-                        current_entity_id.clone(),
-                        field_type.clone(),
-                        BadIndirectionReason::InvalidEntityId(reference.clone()),
-                    )
-                })?;
 
                 continue;
             }

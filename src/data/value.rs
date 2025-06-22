@@ -1,4 +1,4 @@
-use crate::data::{Shared, Timestamp};
+use crate::{data::{Shared, Timestamp}, EntityId};
 
 
 #[derive(Debug, Clone, PartialEq)]
@@ -6,8 +6,8 @@ pub enum Value {
     BinaryFile(Vec<u8>),
     Bool(bool),
     Choice(i64),
-    EntityList(Vec<String>),
-    EntityReference(String),
+    EntityList(Vec<EntityId>),
+    EntityReference(Option<EntityId>),
     Float(f64),
     Int(i64),
     String(String),
@@ -93,7 +93,7 @@ impl Value {
         }
     }
 
-    pub fn as_entity_reference(&self) -> Option<&String> {
+    pub fn as_entity_reference(&self) -> Option<&Option<EntityId>> {
         if let Value::EntityReference(e) = self {
             Some(e)
         } else {
@@ -101,7 +101,7 @@ impl Value {
         }
     }
 
-    pub fn as_entity_list(&self) -> Option<&Vec<String>> {
+    pub fn as_entity_list(&self) -> Option<&Vec<EntityId>> {
         if let Value::EntityList(e) = self {
             Some(e)
         } else {
@@ -145,11 +145,11 @@ impl Value {
         Value::BinaryFile(b)
     }
 
-    pub fn from_entity_reference(e: String) -> Self {
+    pub fn from_entity_reference(e: Option<EntityId>) -> Self {
         Value::EntityReference(e)
     }
 
-    pub fn from_entity_list(e: Vec<String>) -> Self {
+    pub fn from_entity_list(e: Vec<EntityId>) -> Self {
         Value::EntityList(e)
     }
 

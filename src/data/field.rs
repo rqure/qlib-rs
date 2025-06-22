@@ -11,12 +11,12 @@ pub struct Field {
 
 impl Field {
     pub fn new(
-        entity_id: EntityId,
-        field_type: FieldType,
+        entity_id: &EntityId,
+        field_type: impl Into<FieldType>,
     ) -> Self {
         Field {
-            entity_id,
-            field_type,
+            entity_id: entity_id.clone(),
+            field_type: field_type.into(),
             value: Shared::new(None),
             write_time: Shared::new(None),
             writer_id: Shared::new(None),
