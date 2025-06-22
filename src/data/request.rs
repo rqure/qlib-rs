@@ -6,6 +6,12 @@ pub enum WriteOption {
     Changes
 }
 
+pub enum AdjustOption {
+    Increment,
+    Push,
+    Pop,
+}
+
 #[derive(Debug, Clone)]
 pub enum Request {
     Read {
