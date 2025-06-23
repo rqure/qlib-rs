@@ -1,4 +1,4 @@
-use crate::{data::{Shared, Timestamp}, EntityId};
+use crate::{data::{Timestamp}, EntityId};
 use serde::{Deserialize, Serialize};
 
 
@@ -13,12 +13,6 @@ pub enum Value {
     Int(i64),
     String(String),
     Timestamp(Timestamp),
-}
-
-impl Into<Shared<Value>> for Value {
-    fn into(self) -> Shared<Value> {
-        Shared::new(self)
-    }
 }
 
 impl Value {

@@ -8,27 +8,83 @@ mod snowflake;
 mod store;
 mod value;
 
-use std::sync::Arc;
+use std::fmt;
 
 pub use entity::Entity;
 pub use entity_id::EntityId;
 pub use entity_schema::EntitySchema;
 pub use field::Field;
 pub use field_schema::FieldSchema;
-pub use request::{
-    Request, WriteOption,
-};
+pub use request::{AdjustBehavior, PushCondition, Request};
+use serde::{Deserialize, Serialize};
 pub use snowflake::Snowflake;
 pub use store::{
-    BadIndirection, BadIndirectionReason, INDIRECTION_DELIMITER, MapStore, PageOpts, PageResult,
-    resolve_indirection, Context,
+    resolve_indirection, BadIndirection, BadIndirectionReason, Context, MapStore, PageOpts,
+    PageResult, INDIRECTION_DELIMITER,
 };
-use tokio::sync::{RwLock, RwLockReadGuard};
 pub use value::Value;
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash)]
+pub struct EntityType(String);
+impl From<String> for EntityType {
+    fn from(s: String) -> Self {
+        EntityType(s)
+    }
+}
+
+impl From<&str> for EntityType {
+    fn from(s: &str) -> Self {
+        EntityType(s.to_string())
+    }
+}
+
+impl AsRef<EntityType> for EntityType {
+    fn as_ref(&self) -> &EntityType {
+        self
+    }
+}
+
+impl fmt::Display for EntityType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash)]
+pub struct FieldType(String);
+
+impl From<String> for FieldType {
+    fn from(s: String) -> Self {
+        FieldType(s)
+    }
+}
+
+impl From<&str> for FieldType {
+    fn from(s: &str) -> Self {
+        FieldType(s.to_string())
+    }
+}
+
+impl AsRef<FieldType> for FieldType {
+    fn as_ref(&self) -> &FieldType {
+        self
+    }
+}
+
+
+impl AsRef<str> for FieldType {
+    fn as_ref(&self) -> &str {
+        &self.0
+    }
+}
+
+impl fmt::Display for FieldType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
 pub type Timestamp = std::time::SystemTime;
-pub type EntityType = String;
-pub type FieldType = String;
 
 pub fn now() -> Timestamp {
     std::time::SystemTime::now()
@@ -36,45 +92,4 @@ pub fn now() -> Timestamp {
 
 pub fn epoch() -> Timestamp {
     std::time::UNIX_EPOCH
-}
-
-#[derive(Debug, Clone)]
-pub struct Shared<T>(Arc<RwLock<T>>);
-
-impl<T: Default> Default for Shared<T> {
-    fn default() -> Self {
-        Shared::new(T::default())
-    }
-}
-
-impl<T> Shared<T>
-where
-    T: PartialEq + Send + Sync,
-{
-    pub async fn async_eq(&self, other: &Self) -> bool {
-        // Compare the inner values for equality
-        let self_lock = self.0.read().await;
-        let other_lock = other.0.read().await;
-        *self_lock == *other_lock
-    }
-}
-
-impl<T> Shared<T> {
-    pub fn new(value: T) -> Self {
-        Shared(Arc::new(RwLock::new(value)))
-    }
-
-    pub fn clone(&self) -> Self {
-        Shared(self.0.clone())
-    }
-
-    pub async fn get(&self) -> RwLockReadGuard<'_, T> {
-        let lock = self.0.read().await;
-        lock
-    }
-
-    pub async fn set(&self, value: T) {
-        let mut lock = self.0.write().await;
-        *lock = value;
-    }
 }

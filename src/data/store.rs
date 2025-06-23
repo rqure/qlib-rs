@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     Entity, EntityId, EntitySchema, Field, FieldSchema, Request, Result, Snowflake, Value,
-    data::{EntityType, FieldType, Shared, Timestamp, now, request::WriteOption},
+    data::{EntityType, FieldType, Timestamp, now, request::PushCondition},
     sread, sref, sreflist, sstr, swrite,
 };
 
@@ -188,24 +188,24 @@ impl MapStore {
         }
     }
 
-    pub async fn create_entity(
+    pub fn create_entity(
         &mut self,
         ctx: &Context,
-        entity_type: EntityType,
+        entity_type: impl AsRef<EntityType>,
         parent_id: Option<EntityId>,
-        name: &str,
+        name: impl Into<String>,
     ) -> Result<Entity> {
-        if !self.schema.contains_key(&entity_type) {
-            return Err(EntityTypeNotFound(entity_type.clone()).into());
+        if !self.schema.contains_key(entity_type.as_ref()) {
+            return Err(EntityTypeNotFound(entity_type.as_ref().clone()).into());
         }
 
         if let Some(parent) = &parent_id {
-            if !self.entity_exists(ctx, &parent).await {
+            if !self.entity_exists(ctx, &parent) {
                 return Err(EntityNotFound(parent.clone()).into());
             }
         }
 
-        let entity_id = EntityId::new(&entity_type, self.snowflake.generate());
+        let entity_id = EntityId::new(entity_type.into(), self.snowflake.generate());
         if self.field.contains_key(&entity_id) {
             return Err(EntityExists(entity_id).into());
         }
@@ -213,7 +213,7 @@ impl MapStore {
         {
             let entities = self
                 .entity
-                .entry(entity_type.clone())
+                .entry(entity_type.as_ref().clone())
                 .or_insert_with(Vec::new);
             entities.push(entity_id.clone());
         }
@@ -227,69 +227,69 @@ impl MapStore {
         {
             let mut writes = self
                 .schema
-                .get(&entity_type)
+                .get(entity_type.as_ref())
                 .map(|s| &s.fields)
                 .into_iter()
                 .flat_map(|fields| fields.iter())
-                .map(|(field_type, _)| match field_type.as_str() {
+                .map(|(field_type, _)| match field_type.as_ref() {
                     "Name" => {
-                        swrite!(entity_id, field_type, sstr!(name))
+                        swrite!(entity_id.clone(), field_type, sstr!(name))
                     }
                     "Parent" => match &parent_id {
-                        Some(parent) => swrite!(entity_id, field_type, sref!(Some(parent.clone()))),
-                        None => swrite!(entity_id, field_type),
+                        Some(parent) => swrite!(entity_id.clone(), field_type, sref!(Some(parent.clone()))),
+                        None => swrite!(entity_id.clone(), field_type),
                     },
                     _ => {
-                        swrite!(entity_id, field_type)
+                        // Write the field with its default value
+                        swrite!(entity_id.clone(), field_type)
                     }
                 })
-                .collect::<Vec<Request>>();
+                .collect::<Vec<&mut Request>>();
 
             if let Some(parent) = &parent_id {
-                let mut children = Field::new(parent, "Children");
-                self.perform(ctx, &mut vec![children.read_request().await])
-                    .await?;
+                let children = sread!(parent.clone(), "Children");
+                self.perform(ctx, &mut vec![&mut children])
+                    ?;
 
-                children.get_value().await.and_then(|value| {
-                    if let Value::EntityList(mut entities) = value {
+                if let Request::Read { value: children, .. } = &children {
+                    if let Some(Value::EntityList(mut entities)) = children {
                         entities.push(entity_id.clone());
 
                         writes.push(swrite!(
-                            parent,
+                            parent.clone(),
                             "Children",
                             Some(Value::EntityList(entities))
                         ));
                     }
+                }
 
-                    Some(())
-                });
             }
 
-            self.perform(ctx, &mut writes).await?;
+            self.perform(ctx, &writes)?;
         }
 
         Ok(Entity::new(entity_id))
     }
 
-    pub async fn get_entity_schema(
+    pub fn get_entity_schema(
         &self,
         _: &Context,
-        entity_type: &EntityType,
+        entity_type: impl AsRef<EntityType>,
     ) -> Result<&EntitySchema> {
         self.schema
-            .get(entity_type)
-            .ok_or_else(|| EntityTypeNotFound(entity_type.clone()).into())
+            .get(entity_type.as_ref())
+            .ok_or_else(|| EntityTypeNotFound(entity_type.as_ref().clone()).into())
     }
 
     /// Set or update the schema for an entity type
-    pub async fn set_entity_schema(
+    pub fn set_entity_schema(
         &mut self,
         _: &Context,
-        entity_schema: &EntitySchema,
+        entity_schema: impl AsRef<EntitySchema>,
     ) -> Result<()> {
-        let entity_type = entity_schema.entity_type.clone();
-        self.schema.insert(entity_type.clone(), entity_schema.clone());
-        
+        let entity_type = entity_schema.as_ref().entity_type.clone();
+        self.schema.insert(entity_type.clone(), entity_schema.as_ref().clone());
+
         // Make sure the entity type is tracked in our types list
         if !self.entity.contains_key(&entity_type) {
             self.entity.insert(entity_type.clone(), Vec::new());
@@ -304,14 +304,14 @@ impl MapStore {
     }
 
     /// Get the schema for a specific field
-    pub async fn get_field_schema(
+    pub fn get_field_schema(
         &self,
         _: &Context,
-        entity_type: &EntityType,
-        field_type: &FieldType,
+        entity_type: impl AsRef<EntityType>,
+        field_type: impl AsRef<FieldType>,
     ) -> Result<&FieldSchema> {
         // First get the entity schema
-        let entity_schema = self.get_entity_schema(&Context {}, entity_type).await?;
+        let entity_schema = self.get_entity_schema(&Context {}, entity_type)?;
         
         // Then get the field schema
         entity_schema
@@ -321,54 +321,54 @@ impl MapStore {
     }
 
     /// Set or update the schema for a specific field
-    pub async fn set_field_schema(
+    pub fn set_field_schema(
         &mut self,
         _: &Context,
-        entity_type: &EntityType,
-        field_type: &FieldType,
-        field_schema: &FieldSchema,
+        entity_type: impl AsRef<EntityType>,
+        field_type: impl AsRef<FieldType>,
+        field_schema: impl Into<FieldSchema>,
     ) -> Result<()> {
         // Make sure the entity type exists
-        if !self.schema.contains_key(entity_type) {
+        if !self.schema.contains_key(entity_type.as_ref()) {
             // Create a new entity schema
-            let entity_schema = EntitySchema::new(entity_type.clone());
-            self.schema.insert(entity_type.clone(), entity_schema);
-            
+            let entity_schema = EntitySchema::new(entity_type.as_ref().clone());
+            self.schema.insert(entity_type.as_ref().clone(), entity_schema);
+
             // Make sure the entity type is tracked
-            if !self.entity.contains_key(entity_type) {
-                self.entity.insert(entity_type.clone(), Vec::new());
+            if !self.entity.contains_key(entity_type.as_ref()) {
+                self.entity.insert(entity_type.as_ref().clone(), Vec::new());
             }
             
             // Update types list if needed
-            if !self.types.contains(entity_type) {
-                self.types.push(entity_type.clone());
+            if !self.types.contains(entity_type.as_ref()) {
+                self.types.push(entity_type.as_ref().clone());
             }
         }
         
         // Get the entity schema and update it
-        let entity_schema = self.schema.get_mut(entity_type).unwrap();
-        entity_schema.fields.insert(field_type.clone(), field_schema.clone());
-        
+        let entity_schema = self.schema.get_mut(entity_type.as_ref()).unwrap();
+        entity_schema.fields.insert(field_type.as_ref().clone(), field_schema.into());
+
         Ok(())
     }
 
-    pub async fn entity_exists(&self, _: &Context, entity_id: &EntityId) -> bool {
+    pub fn entity_exists(&self, _: &Context, entity_id: &EntityId) -> bool {
         self.field.contains_key(entity_id)
     }
 
-    pub async fn field_exists(
+    pub fn field_exists(
         &self,
         _: &Context,
-        entity_type: &EntityType,
-        field_type: &FieldType,
+        entity_type: impl AsRef<EntityType>,
+        field_type: impl AsRef<FieldType>,
     ) -> bool {
         self.schema
-            .get(entity_type)
-            .map(|schema| schema.fields.contains_key(field_type))
+            .get(entity_type.as_ref())
+            .map(|schema| schema.fields.contains_key(field_type.as_ref()))
             .unwrap_or(false)
     }
 
-    pub async fn perform(&mut self, ctx: &Context, requests: &mut Vec<Request>) -> Result<()> {
+    pub fn perform(&mut self, ctx: &Context, requests: &Vec<&mut Request>) -> Result<()> {
         for request in requests {
             match request {
                 Request::Read {
@@ -378,15 +378,15 @@ impl MapStore {
                     write_time,
                     writer_id,
                 } => {
-                    let indir = Box::pin(resolve_indirection(self, entity_id, field_type)).await?;
+                    let indir: (EntityId, FieldType) = resolve_indirection(self, entity_id, field_type)?;
                     self.read(
                         ctx, 
-                        &indir.0, 
-                        &indir.1,
-                        value,
-                        write_time,
-                        writer_id
-                    ).await?;
+                        indir.0, 
+                        indir.1,
+                        &mut value,
+                        &mut write_time,
+                        &mut writer_id
+                    )?;
                 }
                 Request::Write {
                     entity_id,
@@ -394,42 +394,46 @@ impl MapStore {
                     value,
                     write_time,
                     writer_id,
-                    write_option,
+                    push_condition: write_option,
+                    adjust_behavior: _,
                 } => {
-                    let indir = Box::pin(resolve_indirection(self, entity_id, field_type)).await?;
+                    let indir = resolve_indirection(self, entity_id, field_type.as_ref())?;
                     self.write(
                         ctx,
-                        &indir.0,
-                        &indir.1,
+                        indir.0.as_ref(),
+                        indir.1.as_ref(),
                         value,
                         write_time,
                         writer_id,
                         write_option,
-                    ).await?;
+                    )?;
                 }
             }
         }
         Ok(())
     }
 
-    async fn read(
+    fn read(
         &self,
         _: &Context,
-        entity_id: &EntityId,
-        field_type: &FieldType,
-        value: &Shared<Option<Value>>,
-        write_time: &Shared<Option<Timestamp>>,
-        writer_id: &Shared<Option<EntityId>>,
+        entity_id: impl AsRef<EntityId>,
+        field_type: impl AsRef<FieldType>,
+        value: &mut Option<Value>,
+        write_time: &mut Option<Timestamp>,
+        writer_id: &mut Option<EntityId>,
     ) -> Result<()> {
+        let entity_id = entity_id.as_ref();
+        let field_type = field_type.as_ref();
+
         let field = self
             .field
-            .get(entity_id)
+            .get(&entity_id)
             .and_then(|fields| fields.get(field_type));
 
         if let Some(field) = field {
-            value.set(field.get_value().await).await;
-            write_time.set(field.get_write_time().await).await;
-            writer_id.set(field.get_writer_id().await).await;
+            *value = Some(field.value.clone());
+            *write_time = Some(field.write_time.clone());
+            *writer_id = field.writer_id.clone();
         } else {
             return Err(FieldNotFound(entity_id.clone(), field_type.clone()).into());
         }
@@ -437,16 +441,19 @@ impl MapStore {
         Ok(())
     }
 
-    async fn write(
+    fn write(
         &mut self,
         _: &Context,
-        entity_id: &EntityId,
-        field_type: &FieldType,
+        entity_id: impl AsRef<EntityId>,
+        field_type: impl AsRef<FieldType>,
         value: &Option<Value>,
         write_time: &Option<Timestamp>,
         writer_id: &Option<EntityId>,
-        write_option: &WriteOption,
+        write_option: &PushCondition,
     ) -> Result<()> {
+        let entity_id = entity_id.as_ref();
+        let field_type = field_type.as_ref();
+
         let field_schema = self
             .schema
             .get(entity_id.get_type())
@@ -460,9 +467,15 @@ impl MapStore {
 
         let field = fields
             .entry(field_type.clone())
-            .or_insert_with(|| Field::new(entity_id, field_type));
+            .or_insert_with(|| Field {
+                entity_id: entity_id.clone(),
+                field_type: field_type.clone(),
+                value: field_schema.default_value.clone(),
+                write_time: now(),
+                writer_id: None,
+            });
 
-        let mut new_value: Option<Value> = value.clone();
+        let mut new_value = field_schema.default_value.clone();
         // Check that the value being written is the same type as the field schema
         // If the value is None, use the default value from the schema
         if let Some(value) = value {
@@ -475,38 +488,38 @@ impl MapStore {
                 )
                 .into());
             }
-        } else {
-            new_value = Some(field_schema.default_value.clone().into());
+
+            new_value = value.clone();
         }
 
         match write_option {
-            WriteOption::Normal => {
-                // Normal write, overwrite existing value
-                field.set_value(new_value).await;
+            PushCondition::Always => {
+                field.value = new_value;
+
                 if let Some(write_time) = write_time {
-                    field.set_write_time(Some(write_time.clone())).await;
+                    field.write_time = *write_time;
                 } else {
-                    field.set_write_time(Some(now())).await;
+                    field.write_time = now();
                 }
                 if let Some(writer_id) = writer_id {
-                    field.set_writer_id(Some(writer_id.clone())).await;
+                    field.writer_id = Some(writer_id.clone());
                 } else {
-                    field.set_writer_id(None).await;
+                    field.writer_id = None;
                 }
             }
-            WriteOption::Changes => {
+            PushCondition::Changes => {
                 // Changes write, only update if the value is different
-                if field.get_value().await != new_value {
-                    field.set_value(new_value).await;
+                if field.value != new_value {
+                    field.value = new_value;
                     if let Some(write_time) = write_time {
-                        field.set_write_time(Some(write_time.clone())).await;
+                        field.write_time = *write_time;
                     } else {
-                        field.set_write_time(Some(now())).await;
+                        field.write_time = now();
                     }
                     if let Some(writer_id) = writer_id {
-                        field.set_writer_id(Some(writer_id.clone())).await;
+                        field.writer_id = Some(writer_id.clone());
                     } else {
-                        field.set_writer_id(None).await;
+                        field.writer_id = None;
                     }
                 }
             }
@@ -517,7 +530,7 @@ impl MapStore {
 
     /// Deletes an entity and all its fields
     /// Returns an error if the entity doesn't exist
-    pub async fn delete_entity(&mut self, _: &Context, entity_id: &EntityId) -> Result<()> {
+    pub fn delete_entity(&mut self, _: &Context, entity_id: &EntityId) -> Result<()> {
         // Check if the entity exists
         if !self.field.contains_key(entity_id) {
             return Err(EntityNotFound(entity_id.clone()).into());
@@ -535,7 +548,7 @@ impl MapStore {
     }
 
     /// Find entities of a specific type with pagination
-    pub async fn find_entities(
+    pub fn find_entities(
         &self,
         _: &Context,
         entity_type: &EntityType,
@@ -588,7 +601,7 @@ impl MapStore {
     }
 
     /// Get all entity types with pagination
-    pub async fn get_entity_types(
+    pub fn get_entity_types(
         &self,
         _: &Context,
         page_opts: Option<PageOpts>,
@@ -632,11 +645,14 @@ impl MapStore {
     }
 }
 
-pub async fn resolve_indirection(
+pub fn resolve_indirection(
     store: &mut MapStore,
-    entity_id: &EntityId,
-    field_type: &FieldType,
+    entity_id: impl AsRef<EntityId>,
+    field_type: impl AsRef<FieldType>,
 ) -> Result<(EntityId, FieldType)> {
+    let entity_id = entity_id.as_ref();
+    let field_type = field_type.as_ref();
+
     let fields = field_type
         .split(INDIRECTION_DELIMITER)
         .collect::<Vec<&str>>();
@@ -665,15 +681,13 @@ pub async fn resolve_indirection(
             // The previous field should have been an EntityList
             let prev_field = fields[i - 1];
 
-            let mut request = vec![sread!(current_entity_id, prev_field)];
+            let request = vec![&mut sread!(current_entity_id.clone(), prev_field)];
 
             let context = &Context {};
-            store.perform(&context, &mut request).await?;
+            store.perform(&context, &request)?;
 
             if let Request::Read { value, .. } = &request[0] {
-                let value_lock = value.get().await;
-
-                if let Some(Value::EntityList(entities)) = &*value_lock {
+                if let Some(Value::EntityList(entities)) = value {
                     let index_usize = index as usize;
                     if index_usize >= entities.len() {
                         return Err(BadIndirection::new(
@@ -693,8 +707,8 @@ pub async fn resolve_indirection(
                         current_entity_id.clone(),
                         field_type.clone(),
                         BadIndirectionReason::UnexpectedValueType(
-                            prev_field.to_string(),
-                            format!("{:?}", value_lock),
+                            prev_field.into(),
+                            format!("{:?}", value),
                         ),
                     )
                     .into());
@@ -705,12 +719,12 @@ pub async fn resolve_indirection(
         }
 
         // Normal field resolution
-        let mut request = vec![
-            sread!(current_entity_id, field),
+        let request = vec![
+            &mut sread!(current_entity_id.clone(), field),
         ];
 
         let context = &Context {};
-        if let Err(e) = store.perform(&context, &mut request).await {
+        if let Err(e) = store.perform(&context, &request) {
             return Err(BadIndirection::new(
                 current_entity_id.clone(),
                 field_type.clone(),
@@ -720,9 +734,7 @@ pub async fn resolve_indirection(
         }
 
         if let Request::Read { value, .. } = &request[0] {
-            let value_lock = value.get().await;
-
-            if let Some(Value::EntityReference(reference)) = &*value_lock {
+            if let Some(Value::EntityReference(reference)) = value {
                 if reference.is_none() {
                     return Err(BadIndirection::new(
                         current_entity_id.clone(),
@@ -735,7 +747,7 @@ pub async fn resolve_indirection(
                 continue;
             }
 
-            if let Some(Value::EntityList(_)) = &*value_lock {
+            if let Some(Value::EntityList(_)) = value {
                 // If next segment is not an index, this is an error
                 if i + 1 >= fields.len() - 1 || fields[i + 1].parse::<i64>().is_err() {
                     return Err(BadIndirection::new(
@@ -756,7 +768,7 @@ pub async fn resolve_indirection(
                 field_type.clone(),
                 BadIndirectionReason::UnexpectedValueType(
                     field.to_string(),
-                    format!("{:?}", value_lock),
+                    format!("{:?}", value),
                 ),
             )
             .into());

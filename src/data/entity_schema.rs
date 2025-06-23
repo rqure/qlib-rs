@@ -10,9 +10,9 @@ pub struct EntitySchema {
 }
 
 impl EntitySchema {
-    pub fn new(entity_type: EntityType) -> Self {
+    pub fn new(entity_type: impl Into<EntityType>) -> Self {
         EntitySchema {
-            entity_type,
+            entity_type: entity_type.into(),
             fields: HashMap::new(),
         }
     }

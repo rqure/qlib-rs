@@ -9,9 +9,9 @@ pub struct Entity {
 }
 
 impl Entity {
-    pub fn new(entity_id: EntityId) -> Self {
+    pub fn new(entity_id: impl Into<EntityId>) -> Self {
         Entity {
-            entity_id,
+            entity_id: entity_id.into(),
             fields: HashMap::new(),
         }
     }

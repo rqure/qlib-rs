@@ -11,10 +11,10 @@ pub struct EntityId {
 impl EntityId {
     const SEPARATOR: &str = "$";
 
-    pub fn new(typ: &str, id: u64) -> Self {
+    pub fn new(typ: impl Into<EntityType>, id: u64) -> Self {
         EntityId {
             typ: typ.into(),
-            id: id.clone(),
+            id,
         }
     }
 
@@ -40,7 +40,7 @@ impl TryFrom<&str> for EntityId {
         let typ = parts[0].to_string();
         let id = parts[1].parse::<u64>().map_err(|e| format!("Invalid id: {}", e))?;
 
-        Ok(EntityId { typ, id })
+        Ok(EntityId { typ: typ.into(), id })
     }
 }
 
@@ -53,5 +53,11 @@ impl Into<String> for EntityId {
 impl std::fmt::Display for EntityId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.get_id())
+    }
+}
+
+impl AsRef<EntityId> for EntityId {
+    fn as_ref(&self) -> &EntityId {
+        self
     }
 }

@@ -1,17 +1,17 @@
-use crate::{data::{EntityId, FieldType, Shared, Timestamp, Value}};
+use crate::{data::{EntityId, FieldType, Timestamp, Value}};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub enum WriteOption {
-    Normal,
+pub enum PushCondition {
+    Always,
     Changes
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum AdjustOption {
-    Increment,
-    Push,
-    Pop,
+pub enum AdjustBehavior {
+    Set,
+    Add,
+    Subtract,
 }
 
 #[derive(Debug, Clone)]
@@ -19,18 +19,16 @@ pub enum Request {
     Read {
         entity_id: EntityId,
         field_type: FieldType,
-        #[allow(dead_code)]
-        value: Shared<Option<Value>>,
-        #[allow(dead_code)]
-        write_time: Shared<Option<Timestamp>>,
-        #[allow(dead_code)]
-        writer_id: Shared<Option<EntityId>>,
+        value: Option<Value>,
+        write_time: Option<Timestamp>,
+        writer_id: Option<EntityId>,
     },
     Write {
         entity_id: EntityId,
         field_type: FieldType,
         value: Option<Value>,
-        write_option: WriteOption,
+        push_condition: PushCondition,
+        adjust_behavior: AdjustBehavior,
         write_time: Option<Timestamp>,
         writer_id: Option<EntityId>,
     },
