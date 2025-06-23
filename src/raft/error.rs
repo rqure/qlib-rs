@@ -1,6 +1,5 @@
 //! Error types for the Raft implementation.
 
-use std::fmt;
 use thiserror::Error;
 
 use crate::raft::types::NodeId;
@@ -14,7 +13,7 @@ pub enum RaftError {
     
     /// An error from the underlying Raft consensus library
     #[error("Raft consensus error: {0}")]
-    Consensus(#[from] async_raft::Error),
+    Consensus(String),
     
     /// An error with the Raft storage implementation
     #[error("Storage error: {0}")]
@@ -49,14 +48,20 @@ pub enum RaftError {
     InvalidState(String),
 }
 
-impl From<async_raft::error::ClientWriteError<async_raft::RaftError>> for RaftError {
-    fn from(error: async_raft::error::ClientWriteError<async_raft::RaftError>) -> Self {
+impl From<async_raft::error::ClientWriteError<RaftCommand>> for RaftError {
+    fn from(error: async_raft::error::ClientWriteError<RaftCommand>) -> Self {
         match error {
-            async_raft::error::ClientWriteError::ForwardToLeader(leader) => {
-                RaftError::NotLeader(leader)
+            async_raft::error::ClientWriteError::ForwardToLeader { leader_id, .. } => {
+                RaftError::NotLeader(leader_id)
             }
-            _ => RaftError::Consensus(error.into()),
+            _ => RaftError::Consensus(format!("{:?}", error)),
         }
+    }
+}
+
+impl From<async_raft::RaftError> for RaftError {
+    fn from(error: async_raft::RaftError) -> Self {
+        RaftError::Consensus(format!("{:?}", error))
     }
 }
 

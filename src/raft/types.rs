@@ -4,6 +4,8 @@ use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::io;
 
+use async_raft::AppData;
+use async_raft::AppDataResponse;
 use crate::{Context, EntityId, EntitySchema, FieldSchema, Request};
 
 /// Unique identifier for a Raft node
@@ -14,10 +16,12 @@ pub type NodeId = u64;
 pub struct RaftTypesConfig;
 
 impl async_raft::RaftTypeConfig for RaftTypesConfig {
+    type D = RaftCommand;
+    type R = RaftCommand;
     type NodeId = NodeId;
+    type Node = ();
     type Entry = async_raft::raft::Entry<RaftCommand>;
     type SnapshotData = io::Cursor<Vec<u8>>;
-    type R = RaftCommand;
 }
 
 /// Commands that can be replicated through the Raft consensus protocol
@@ -46,6 +50,14 @@ pub enum RaftCommand {
         field_schema: FieldSchema,
     },
 }
+
+// Implement AppData trait for RaftCommand
+impl AppData for RaftCommand {
+    type Entry = Self;
+}
+
+// Implement AppDataResponse trait for RaftCommand
+impl AppDataResponse for RaftCommand {}
 
 impl fmt::Display for RaftCommand {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

@@ -5,7 +5,7 @@ use rustls::{Certificate, PrivateKey};
 use std::time::Duration;
 
 /// Generates a self-signed certificate for testing
-fn generate_self_signed_cert() -> (Certificate, PrivateKey) {
+pub fn generate_self_signed_cert() -> (Certificate, PrivateKey) {
     let cert = rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap();
     let key = PrivateKey(cert.serialize_private_key_der());
     let cert = Certificate(cert.serialize_der().unwrap());

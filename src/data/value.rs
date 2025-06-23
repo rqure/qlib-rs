@@ -1,7 +1,8 @@
 use crate::{data::{Shared, Timestamp}, EntityId};
+use serde::{Deserialize, Serialize};
 
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Value {
     BinaryFile(Vec<u8>),
     Bool(bool),

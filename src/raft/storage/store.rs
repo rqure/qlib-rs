@@ -1,17 +1,19 @@
 //! Storage implementation for the Raft consensus protocol.
 
 use std::{sync::Arc, io};
+use anyhow::Result;
 use tokio::sync::RwLock;
 use async_raft::{
     storage::{CurrentSnapshotData, HardState, InitialState},
-    RaftStorage, raft::{Entry, EntryPayload, MembershipConfig}
+    raft::{Entry, EntryPayload, MembershipConfig},
+    RaftStorage
 };
 use async_trait::async_trait;
-use log::{info, error};
+use log::info;
 
-use crate::{MapStore, Context};
+use crate::{MapStore, Context, Request};
 use crate::raft::{
-    types::{RaftCommand, RaftTypesConfig, NodeId},
+    types::{RaftCommand, RaftTypesConfig, NodeId, ClientResponse},
     error::RaftError,
     storage::state::RaftState,
 };
@@ -49,8 +51,7 @@ impl RaftStore {
         &self,
         command: &RaftCommand,
         context: &Context,
-    ) -> Result<crate::raft::ClientResponse, RaftError> {
-        use crate::raft::ClientResponse;
+    ) -> Result<ClientResponse, RaftError> {
         
         let mut store = self.map_store.write().await;
         
@@ -87,8 +88,7 @@ impl RaftStore {
         &self,
         command: &RaftCommand,
         context: &Context,
-    ) -> Result<crate::raft::ClientResponse, Box<dyn std::error::Error + Send + Sync>> {
-        use crate::raft::ClientResponse;
+    ) -> Result<ClientResponse, Box<dyn std::error::Error + Send + Sync>> {
         
         let mut store = self.map_store.write().await;
         info!("Applying command: {}", command);
@@ -124,12 +124,12 @@ impl RaftStorage<RaftTypesConfig> for RaftStore {
     type Snapshot = io::Cursor<Vec<u8>>;
     type ShutdownError = io::Error;
 
-    async fn get_membership_config(&self) -> Result<MembershipConfig, async_raft::StorageError> {
+    async fn get_membership_config(&self) -> Result<MembershipConfig> {
         let state = self.state.read().await;
         Ok(state.membership.clone())
     }
 
-    async fn get_initial_state(&self) -> Result<InitialState, async_raft::StorageError> {
+    async fn get_initial_state(&self) -> Result<InitialState> {
         let state = self.state.read().await;
         
         // Get the last log index and term
@@ -146,10 +146,11 @@ impl RaftStorage<RaftTypesConfig> for RaftStore {
             last_log_term,
             hard_state,
             membership: state.membership.clone(),
+            last_applied_log: state.last_applied_log,
         })
     }
 
-    async fn save_hard_state(&self, hard_state: &HardState) -> Result<(), async_raft::StorageError> {
+    async fn save_hard_state(&self, hard_state: &HardState) -> Result<()> {
         let mut state = self.state.write().await;
         state.hard_state = Some(hard_state.clone());
         Ok(())
@@ -159,7 +160,7 @@ impl RaftStorage<RaftTypesConfig> for RaftStore {
         &self,
         start: u64,
         stop: u64,
-    ) -> Result<Vec<Entry<RaftCommand>>, async_raft::StorageError> {
+    ) -> Result<Vec<Entry<RaftCommand>>> {
         let state = self.state.read().await;
         let entries = state
             .log
@@ -174,7 +175,7 @@ impl RaftStorage<RaftTypesConfig> for RaftStore {
         &self,
         start: u64,
         stop: Option<u64>,
-    ) -> Result<(), async_raft::StorageError> {
+    ) -> Result<()> {
         let mut state = self.state.write().await;
         let stop = stop.unwrap_or(u64::MAX);
         
@@ -185,7 +186,7 @@ impl RaftStorage<RaftTypesConfig> for RaftStore {
     async fn append_entry_to_log(
         &self,
         entry: &Entry<RaftCommand>,
-    ) -> Result<(), async_raft::StorageError> {
+    ) -> Result<()> {
         let mut state = self.state.write().await;
         state.log.push(entry.clone());
         
@@ -202,7 +203,7 @@ impl RaftStorage<RaftTypesConfig> for RaftStore {
     async fn replicate_to_log(
         &self,
         entries: &[Entry<RaftCommand>],
-    ) -> Result<(), async_raft::StorageError> {
+    ) -> Result<()> {
         let mut state = self.state.write().await;
         
         // Add all entries to the log
@@ -231,61 +232,64 @@ impl RaftStorage<RaftTypesConfig> for RaftStore {
         &self,
         index: u64,
         data: &RaftCommand,
-        term: u64,
-    ) -> Result<(), async_raft::StorageError> {
+    ) -> Result<()> {
         // Apply the command to our MapStore
         let context = Context {};
         match self.apply_command(data, &context).await {
             Ok(_) => {
                 // Update last applied log
                 let mut state = self.state.write().await;
-                state.update_applied(index, term);
+                state.update_applied(index, self.get_log_entry(index).await?.term);
                 Ok(())
             },
             Err(e) => {
-                Err(async_raft::StorageError::Other { 
-                    error: format!("Failed to apply entry: {}", e).into() 
-                })
+                anyhow::bail!("Failed to apply entry: {}", e)
             }
         }
     }
 
     async fn replicate_to_state_machine(
         &self,
-        entries: &[(&Entry<RaftCommand>, &RaftCommand)],
-    ) -> Result<(), async_raft::StorageError> {
+        entries: &[(u64, &RaftCommand)],
+    ) -> Result<()> {
         let context = Context {};
         
-        for (entry, command) in entries {
+        for (index, command) in entries {
             match self.apply_command(command, &context).await {
                 Ok(_) => {
                     // Update last applied log
+                    let entry = self.get_log_entry(*index).await?;
                     let mut state = self.state.write().await;
-                    state.update_applied(entry.index, entry.term);
+                    state.update_applied(*index, entry.term);
                 },
                 Err(e) => {
-                    return Err(async_raft::StorageError::Other { 
-                        error: format!("Failed to apply entry: {}", e).into() 
-                    });
+                    anyhow::bail!("Failed to apply entry: {}", e);
                 }
             }
         }
         Ok(())
     }
+    
+    // Helper method to get a log entry by index
+    async fn get_log_entry(&self, index: u64) -> Result<Entry<RaftCommand>> {
+        let state = self.state.read().await;
+        state.log.iter()
+            .find(|e| e.index == index)
+            .cloned()
+            .ok_or_else(|| anyhow::anyhow!("Log entry not found: {}", index))
+    }
 
-    async fn do_log_compaction(&self) -> Result<CurrentSnapshotData<Self::Snapshot>, async_raft::StorageError> {
+    async fn do_log_compaction(&self) -> Result<CurrentSnapshotData<Self::Snapshot>> {
         // Create a snapshot of the MapStore
         let state = self.state.read().await;
         let store = self.map_store.read().await;
         
         // For simplicity, we're using bincode to serialize the entire store
-        let data = bincode::serialize(&*store).map_err(|e| async_raft::StorageError::Other {
-            error: format!("Serialization error: {}", e).into(),
-        })?;
+        let data = bincode::serialize(&*store)
+            .map_err(|e| anyhow::anyhow!("Serialization error: {}", e))?;
         
-        let (last_index, last_term) = state.last_applied_log.ok_or_else(|| async_raft::StorageError::Other {
-            error: "No logs applied yet".into(),
-        })?;
+        let (last_index, last_term) = state.last_applied_log
+            .ok_or_else(|| anyhow::anyhow!("No logs applied yet"))?;
         
         let snapshot = CurrentSnapshotData {
             index: last_index,
@@ -301,7 +305,7 @@ impl RaftStorage<RaftTypesConfig> for RaftStore {
         Ok(snapshot)
     }
 
-    async fn create_snapshot(&self) -> Result<(Self::Snapshot, u64), async_raft::StorageError> {
+    async fn create_snapshot(&self) -> Result<(Self::Snapshot, u64)> {
         // Create a snapshot
         let snapshot_data = self.do_log_compaction().await?;
         
@@ -309,43 +313,44 @@ impl RaftStorage<RaftTypesConfig> for RaftStore {
         Ok((snapshot_data.snapshot, snapshot_data.index))
     }
 
-    async fn get_current_snapshot(&self) -> Result<Option<CurrentSnapshotData<Self::Snapshot>>, async_raft::StorageError> {
+    async fn get_current_snapshot(&self) -> Result<Option<CurrentSnapshotData<Self::Snapshot>>> {
         let state = self.state.read().await;
         Ok(state.current_snapshot.clone())
     }
 
-    async fn install_snapshot(
+    async fn finalize_snapshot_installation(
         &self,
-        meta: &CurrentSnapshotData<Self::Snapshot>,
-        snapshot: Self::Snapshot,
-    ) -> Result<(), async_raft::StorageError> {
+        index: u64,
+        term: u64,
+        delete_through: Option<u64>,
+        id: String,
+        snapshot: Box<Self::Snapshot>,
+    ) -> Result<()> {
         // Install a snapshot from another node
         let mut state = self.state.write().await;
         
+        let membership = state.membership.clone(); // Use the current membership
+        
         // Update the current snapshot
         state.current_snapshot = Some(CurrentSnapshotData {
-            index: meta.index,
-            term: meta.term,
-            membership: meta.membership.clone(),
-            snapshot: snapshot.clone(),
+            index,
+            term,
+            membership: membership.clone(),
+            snapshot: *snapshot.clone(),
         });
         
-        // Update the membership
-        state.membership = meta.membership.clone();
-        
         // Update the last applied log index
-        state.last_applied_log = Some((meta.index, meta.term));
+        state.last_applied_log = Some((index, term));
         
-        // Remove log entries up to the snapshot
-        state.log.retain(|entry| entry.index > meta.index);
+        // Remove log entries up to the snapshot if specified
+        if let Some(delete_through) = delete_through {
+            state.log.retain(|entry| entry.index > delete_through);
+        }
         
         // Deserialize the MapStore from the snapshot
         let bytes = snapshot.get_ref();
-        let new_store: MapStore = bincode::deserialize(bytes).map_err(|e| {
-            async_raft::StorageError::Other {
-                error: format!("Deserialization error: {}", e).into(),
-            }
-        })?;
+        let new_store: MapStore = bincode::deserialize(bytes)
+            .map_err(|e| anyhow::anyhow!("Deserialization error: {}", e))?;
         
         // Update our MapStore
         let mut store = self.map_store.write().await;

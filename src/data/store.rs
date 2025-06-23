@@ -1,4 +1,5 @@
 use std::{collections::HashMap, error, mem::discriminant};
+use serde::{Deserialize, Serialize};
 
 use crate::{
     Entity, EntityId, EntitySchema, Field, FieldSchema, Request, Result, Snowflake, Value,
@@ -167,11 +168,13 @@ impl<T> PageResult<T> {
     }
 }
 
+#[derive(Serialize, Deserialize)]
 pub struct MapStore {
     schema: HashMap<EntityType, EntitySchema>,
     entity: HashMap<EntityType, Vec<EntityId>>,
     types: Vec<EntityType>,
     field: HashMap<EntityId, HashMap<FieldType, Field>>,
+    #[serde(skip)]
     snowflake: Snowflake,
 }
 

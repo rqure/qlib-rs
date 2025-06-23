@@ -1,8 +1,9 @@
 use std::collections::HashMap;
+use serde::{Deserialize, Serialize};
 
 use crate::data::{EntityType, FieldSchema, FieldType};
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct EntitySchema {
     pub entity_type: EntityType,
     pub fields: HashMap<FieldType, FieldSchema>,

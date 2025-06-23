@@ -11,12 +11,8 @@ mod storage;
 mod network;
 
 // Re-export core types for easier access
-pub use client::{ClientRequest, ClientResponse};
+pub use types::{ClientRequest, ClientResponse, NodeId, RaftCommand};
 pub use error::RaftError;
 pub use node::RaftNode;
 pub use storage::RaftStore;
-pub use types::{NodeId, RaftCommand};
 pub use network::{NetworkConfig, QuicTransport};
-
-// Re-export async_raft for external use as needed
-pub use async_raft;

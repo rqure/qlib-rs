@@ -1,7 +1,8 @@
 use crate::{data::{EntityType, FieldType}, EntityId, Value};
+use serde::{Deserialize, Serialize};
 
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct FieldSchema {
     pub entity_type: EntityType,
     pub field_type: FieldType,

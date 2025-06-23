@@ -1,6 +1,7 @@
 //! QUIC-based transport implementation for Raft.
 
 use std::{collections::HashMap, net::SocketAddr, sync::Arc};
+use anyhow::Result;
 use async_raft::{
     raft::{
         AppendEntriesRequest, AppendEntriesResponse, InstallSnapshotRequest,
@@ -9,7 +10,7 @@ use async_raft::{
     RaftNetwork,
 };
 use async_trait::async_trait;
-use log::{debug, error, info};
+use log::{debug, info};
 use quinn::{ClientConfig, Endpoint, ServerConfig, TransportConfig};
 use rustls::{ServerConfig as RustlsServerConfig, ClientConfig as RustlsClientConfig};
 use tokio::sync::RwLock;
@@ -72,11 +73,6 @@ impl QuicTransport {
             .with_safe_defaults()
             .with_root_certificates(rustls::RootCertStore::empty())
             .with_no_client_auth();
-        
-        // For development, disable certificate verification
-        if !config.verify_certs {
-            client_crypto.dangerous().set_certificate_verifier(Arc::new(danger::NoCertificateVerification {}));
-        }
         
         // Enable QUIC support
         client_crypto.alpn_protocols = vec![b"h3".to_vec()];

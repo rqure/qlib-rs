@@ -1,11 +1,15 @@
 use crate::{data::{request::WriteOption, EntityId, FieldType, Shared, Timestamp, Value}, Request};
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Field {
     entity_id: EntityId,
     field_type: FieldType,
+    #[serde(skip)]
     value: Shared<Option<Value>>,
+    #[serde(skip)]
     write_time: Shared<Option<Timestamp>>,
+    #[serde(skip)]
     writer_id: Shared<Option<EntityId>>,
 }
 
