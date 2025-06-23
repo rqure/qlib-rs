@@ -96,31 +96,41 @@ impl RaftStore {
         match command {
             RaftCommand::PerformRequests(requests) => {
                 let mut req_copy = requests.clone();
-                store.perform(context, &mut req_copy).await?;
-                Ok(ClientResponse::Success)
+                match store.perform(context, &mut req_copy).await {
+                    Ok(_) => Ok(ClientResponse::Success),
+                    Err(e) => Err(Box::new(anyhow::Error::msg(e.to_string())))
+                }
             },
             RaftCommand::CreateEntity { entity_type, parent_id, name } => {
-                let entity = store.create_entity(context, entity_type.clone(), parent_id.clone(), name).await?;
-                Ok(ClientResponse::EntityCreated(entity.entity_id))
+                match store.create_entity(context, entity_type.clone(), parent_id.clone(), name).await {
+                    Ok(entity) => Ok(ClientResponse::EntityCreated(entity.entity_id)),
+                    Err(e) => Err(Box::new(anyhow::Error::msg(e.to_string())))
+                }
             },
             RaftCommand::DeleteEntity(entity_id) => {
-                store.delete_entity(context, entity_id).await?;
-                Ok(ClientResponse::Success)
+                match store.delete_entity(context, entity_id).await {
+                    Ok(_) => Ok(ClientResponse::Success),
+                    Err(e) => Err(Box::new(anyhow::Error::msg(e.to_string())))
+                }
             },
             RaftCommand::SetEntitySchema(schema) => {
-                store.set_entity_schema(context, schema).await?;
-                Ok(ClientResponse::Success)
+                match store.set_entity_schema(context, schema).await {
+                    Ok(_) => Ok(ClientResponse::Success),
+                    Err(e) => Err(Box::new(anyhow::Error::msg(e.to_string())))
+                }
             },
             RaftCommand::SetFieldSchema { entity_type, field_type, field_schema } => {
-                store.set_field_schema(context, entity_type, field_type, field_schema).await?;
-                Ok(ClientResponse::Success)
+                match store.set_field_schema(context, entity_type, field_type, field_schema).await {
+                    Ok(_) => Ok(ClientResponse::Success),
+                    Err(e) => Err(Box::new(anyhow::Error::msg(e.to_string())))
+                }
             }
         }
     }
 }
 
 #[async_trait]
-impl RaftStorage<RaftTypesConfig> for RaftStore {
+impl RaftStorage<RaftCommand, RaftCommand> for RaftStore {
     type Snapshot = io::Cursor<Vec<u8>>;
     type ShutdownError = io::Error;
 
@@ -239,7 +249,13 @@ impl RaftStorage<RaftTypesConfig> for RaftStore {
             Ok(_) => {
                 // Update last applied log
                 let mut state = self.state.write().await;
-                state.update_applied(index, self.get_log_entry(index).await?.term);
+                // Get the term from logs - look up by index
+                let term = state.log.iter()
+                    .find(|entry| entry.index == index)
+                    .map(|entry| entry.term)
+                    .unwrap_or(0); // Default to 0 if not found
+                
+                state.update_applied(index, term);
                 Ok(())
             },
             Err(e) => {
@@ -258,9 +274,15 @@ impl RaftStorage<RaftTypesConfig> for RaftStore {
             match self.apply_command(command, &context).await {
                 Ok(_) => {
                     // Update last applied log
-                    let entry = self.get_log_entry(*index).await?;
                     let mut state = self.state.write().await;
-                    state.update_applied(*index, entry.term);
+                    
+                    // Get the term from logs directly
+                    let term = state.log.iter()
+                        .find(|entry| entry.index == *index)
+                        .map(|entry| entry.term)
+                        .unwrap_or(0); // Default to 0 if not found
+                    
+                    state.update_applied(*index, term);
                 },
                 Err(e) => {
                     anyhow::bail!("Failed to apply entry: {}", e);
@@ -268,15 +290,6 @@ impl RaftStorage<RaftTypesConfig> for RaftStore {
             }
         }
         Ok(())
-    }
-    
-    // Helper method to get a log entry by index
-    async fn get_log_entry(&self, index: u64) -> Result<Entry<RaftCommand>> {
-        let state = self.state.read().await;
-        state.log.iter()
-            .find(|e| e.index == index)
-            .cloned()
-            .ok_or_else(|| anyhow::anyhow!("Log entry not found: {}", index))
     }
 
     async fn do_log_compaction(&self) -> Result<CurrentSnapshotData<Self::Snapshot>> {

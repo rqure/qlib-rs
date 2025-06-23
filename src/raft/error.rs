@@ -2,7 +2,7 @@
 
 use thiserror::Error;
 
-use crate::raft::types::NodeId;
+use crate::raft::types::{NodeId, RaftCommand};
 
 /// Comprehensive error type for Raft operations
 #[derive(Error, Debug)]

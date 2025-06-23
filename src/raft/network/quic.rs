@@ -10,7 +10,7 @@ use async_raft::{
     RaftNetwork,
 };
 use async_trait::async_trait;
-use log::{debug, info};
+use log::{debug, error, info};
 use quinn::{ClientConfig, Endpoint, ServerConfig, TransportConfig};
 use rustls::{ServerConfig as RustlsServerConfig, ClientConfig as RustlsClientConfig};
 use tokio::sync::RwLock;
@@ -66,7 +66,9 @@ impl QuicTransport {
                     }).1)
                 .unwrap()))
         };
-        server_config.transport = Arc::new(transport_config.clone());
+        let transport_config_arc = Arc::new(transport_config);
+        server_config = ServerConfig::with_crypto(server_config.crypto.clone());
+        server_config = server_config.transport_config(transport_config_arc.clone());
         
         // Configure client
         let mut client_crypto = RustlsClientConfig::builder()
@@ -78,7 +80,7 @@ impl QuicTransport {
         client_crypto.alpn_protocols = vec![b"h3".to_vec()];
         
         let mut client_config = ClientConfig::new(Arc::new(client_crypto));
-        client_config.transport = Arc::new(transport_config);
+        client_config = client_config.transport_config(transport_config_arc);
         
         // Create the endpoint
         let mut endpoint = Endpoint::server(server_config, config.addr)
@@ -146,7 +148,7 @@ impl QuicTransport {
                         
                         // Read the rest of the message
                         let mut data = Vec::new();
-                        if let Err(e) = recv.read_to_end(&mut data).await {
+                        if let Err(e) = recv.read_to_end(1_000_000).await.map(|bytes| data = bytes) {
                             error!("Failed to read message data: {}", e);
                             continue;
                         }
@@ -227,7 +229,7 @@ impl QuicTransport {
         // Read the response
         use tokio::io::AsyncReadExt;
         let mut response_data = Vec::new();
-        recv.read_to_end(&mut response_data).await
+        recv.read_to_end(1_000_000).await.map(|bytes| response_data = bytes)
             .map_err(|e| RaftError::Network(format!("Failed to read response: {}", e)))?;
             
         // Deserialize the response
@@ -237,12 +239,12 @@ impl QuicTransport {
 }
 
 #[async_trait]
-impl RaftNetwork<RaftTypesConfig> for QuicTransport {
+impl RaftNetwork<RaftCommand> for QuicTransport {
     async fn append_entries(
         &self,
         target: NodeId,
         request: AppendEntriesRequest<RaftCommand>,
-    ) -> Result<AppendEntriesResponse, async_raft::RaftError> {
+    ) -> Result<AppendEntriesResponse> {
         debug!("Sending AppendEntries to node {}", target);
         
         self.send_request(target, "append_entries", request)
@@ -254,7 +256,7 @@ impl RaftNetwork<RaftTypesConfig> for QuicTransport {
         &self,
         target: NodeId,
         request: InstallSnapshotRequest,
-    ) -> Result<InstallSnapshotResponse, async_raft::RaftError> {
+    ) -> Result<InstallSnapshotResponse> {
         debug!("Sending InstallSnapshot to node {}", target);
         
         self.send_request(target, "install_snapshot", request)
@@ -266,7 +268,7 @@ impl RaftNetwork<RaftTypesConfig> for QuicTransport {
         &self,
         target: NodeId,
         request: VoteRequest,
-    ) -> Result<VoteResponse, async_raft::RaftError> {
+    ) -> Result<VoteResponse> {
         debug!("Sending Vote to node {}", target);
         
         self.send_request(target, "vote", request)

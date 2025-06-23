@@ -3,8 +3,8 @@
 use std::io;
 use serde::{Deserialize, Serialize};
 use async_raft::{
-    raft::Entry,
-    storage::{CurrentSnapshotData, HardState, MembershipConfig},
+    raft::{Entry, MembershipConfig},
+    storage::{CurrentSnapshotData, HardState},
 };
 
 use crate::raft::types::RaftCommand;

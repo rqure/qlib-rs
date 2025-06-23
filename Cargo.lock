@@ -754,6 +754,7 @@ dependencies = [
 name = "qlib-rs"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "async-raft",
  "async-std",
  "async-trait",

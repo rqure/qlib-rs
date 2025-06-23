@@ -12,17 +12,14 @@ use crate::{Context, EntityId, EntitySchema, FieldSchema, Request};
 pub type NodeId = u64;
 
 /// Configuration for Raft types
+// In async-raft 0.6.1, it uses a different approach with AppData/AppDataResponse
+// Instead of RaftTypeConfig, we'll directly use RaftCommand
+
+/// Dummy type for backward compatibility (will be removed)
 #[derive(Debug, Clone)]
 pub struct RaftTypesConfig;
 
-impl async_raft::RaftTypeConfig for RaftTypesConfig {
-    type D = RaftCommand;
-    type R = RaftCommand;
-    type NodeId = NodeId;
-    type Node = ();
-    type Entry = async_raft::raft::Entry<RaftCommand>;
-    type SnapshotData = io::Cursor<Vec<u8>>;
-}
+// We'll use RaftCommand directly with the AppData trait implementations
 
 /// Commands that can be replicated through the Raft consensus protocol
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -52,9 +49,7 @@ pub enum RaftCommand {
 }
 
 // Implement AppData trait for RaftCommand
-impl AppData for RaftCommand {
-    type Entry = Self;
-}
+impl AppData for RaftCommand {}
 
 // Implement AppDataResponse trait for RaftCommand
 impl AppDataResponse for RaftCommand {}

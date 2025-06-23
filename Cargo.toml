@@ -5,7 +5,7 @@ edition = "2021"
 
 [dependencies]
 tokio = { version = "1.28", features = ["full"] }
-async-raft = { version = "0.6.1", features = ["serde"] }
+async-raft = "0.6.1"
 anyhow = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 thiserror = "1.0"

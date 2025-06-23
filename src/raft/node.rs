@@ -19,7 +19,7 @@ pub struct RaftNode {
     node_id: NodeId,
     
     /// The Raft instance
-    raft: Arc<Raft<RaftTypesConfig>>,
+    raft: Arc<Raft<RaftCommand, RaftCommand, QuicTransport, RaftStore>>,
     
     /// The RaftStore for storage
     store: Arc<RwLock<RaftStore>>,
@@ -63,24 +63,30 @@ impl RaftNode {
             .map_err(RaftError::Consensus)?;
             
         // Create the Raft instance
-        let raft = Raft::new(
+        // Create the Raft instance with the correct generic parameters
+        let raft = match Raft::<RaftCommand, RaftCommand, QuicTransport, RaftStore>::new(
             node_id, 
             Arc::new(config), 
-            store_arc.clone(), 
-            network_arc.clone()
-        ).map_err(RaftError::Consensus)?;
+            network_arc.clone(), 
+            Arc::new(store)
+        ) {
+            Ok(raft) => raft,
+            Err(e) => return Err(RaftError::Consensus(format!("{:?}", e))),
+        };
         
         // Initialize the Raft cluster if this is a single-node setup
         if nodes.len() == 1 && nodes.contains_key(&node_id) {
             // Single-node cluster, bootstrap it
-            raft.initialize(vec![node_id]).await.map_err(RaftError::Consensus)?;
+            if let Err(e) = raft.initialize(vec![node_id]).await {
+                return Err(RaftError::Consensus(format!("{:?}", e)));
+            }
             info!("Initialized single-node Raft cluster");
         }
 
         Ok(Self {
             node_id,
             raft: Arc::new(raft),
-            store: store_arc,
+            store: Arc::new(RwLock::new(RaftStore::new(node_id, map_store))), // Create new instance
             network: network_arc,
         })
     }
