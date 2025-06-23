@@ -2,7 +2,7 @@ mod data;
 
 pub use data::{Entity, EntitySchema, EntityId, Field, FieldSchema, Request, Snowflake, Value, 
     MapStore, resolve_indirection, INDIRECTION_DELIMITER, BadIndirection, BadIndirectionReason,
-    WriteOption, Timestamp, FieldType, Shared, now, epoch, PageOpts, PageResult};
+    WriteOption, Timestamp, FieldType, Shared, now, epoch, PageOpts, PageResult, Context};
 
 /// Create a Read request with minimal syntax
 ///
@@ -431,7 +431,7 @@ macro_rules! sbinfile {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::time::{SystemTime, UNIX_EPOCH};
+    use std::time::UNIX_EPOCH;
 
     #[test]
     fn it_works() {
@@ -567,7 +567,7 @@ mod tests {
     #[test]
     fn test_timestamp_macro() {
         // Test with current time
-        let now = SystemTime::now();
+        let now = now();
         let ts_now = stimestamp!(now);
         if let Some(Value::Timestamp(ts)) = ts_now {
             assert_eq!(ts, now);
@@ -674,7 +674,7 @@ mod tests {
         }
         
         // Write with time
-        let now = SystemTime::now();
+        let now = now();
         let request4 = swrite!(entity_id, "LastLogin", stimestamp!(now), WriteOption::Normal, Some(now));
         match request4 {
             Request::Write { write_time, .. } => assert_eq!(write_time, Some(now)),
@@ -697,5 +697,386 @@ mod tests {
             },
             _ => panic!("Expected Request::Write"),
         }
+    }
+}
+
+#[cfg(test)]
+mod mapstore_tests {
+    use super::*;
+    use std::time::SystemTime;
+    use tokio;
+
+    // Helper to create an entity schema with basic fields
+    async fn create_entity_schema(store: &mut MapStore, entity_type: &str) -> Result<()> {
+        let mut schema = EntitySchema::new(entity_type.to_string());
+        
+        // Add default fields common to all entities
+        let name_schema = FieldSchema {
+            entity_type: entity_type.to_string(),
+            field_type: "Name".to_string(),
+            default_value: Value::String("".to_string()),
+            rank: 0,
+            read_permission: None,
+            write_permission: None,
+            choices: None,
+        };
+        
+        let parent_schema = FieldSchema {
+            entity_type: entity_type.to_string(),
+            field_type: "Parent".to_string(),
+            default_value: Value::EntityReference(None),
+            rank: 1,
+            read_permission: None,
+            write_permission: None,
+            choices: None,
+        };
+        
+        let children_schema = FieldSchema {
+            entity_type: entity_type.to_string(),
+            field_type: "Children".to_string(),
+            default_value: Value::EntityList(Vec::new()),
+            rank: 2,
+            read_permission: None,
+            write_permission: None,
+            choices: None,
+        };
+        
+        schema.fields.insert("Name".to_string(), name_schema);
+        schema.fields.insert("Parent".to_string(), parent_schema);
+        schema.fields.insert("Children".to_string(), children_schema);
+        
+        store.set_entity_schema(&Context {}, &schema).await?;
+        Ok(())
+    }
+    
+    // Helper to set up a basic database structure for testing
+    async fn setup_test_database() -> Result<MapStore> {
+        let mut store = MapStore::new();
+        let ctx = Context {};
+        
+        // Create schemas for different entity types
+        create_entity_schema(&mut store, "Root").await?;
+        create_entity_schema(&mut store, "Folder").await?;
+        create_entity_schema(&mut store, "User").await?;
+        create_entity_schema(&mut store, "Role").await?;
+        
+        // Add custom fields to User schema
+        let email_schema = FieldSchema {
+            entity_type: "User".to_string(),
+            field_type: "Email".to_string(),
+            default_value: Value::String("".to_string()),
+            rank: 3,
+            read_permission: None,
+            write_permission: None,
+            choices: None,
+        };
+        
+        store.set_field_schema(&ctx, &"User".to_string(), &"Email".to_string(), &email_schema).await?;
+        
+        // Create root entity
+        let root = store.create_entity(&ctx, "Root".to_string(), None, "Root").await?;
+        
+        Ok(store)
+    }
+
+    #[tokio::test]
+    async fn test_create_entity_hierarchy() -> Result<()> {
+        let mut store = setup_test_database().await?;
+        let ctx = Context {};
+        
+        // Get the Root entity
+        let root_entities = store.find_entities(&ctx, &"Root".to_string(), None).await?;
+        assert_eq!(root_entities.items.len(), 1);
+        let root_id = root_entities.items[0].clone();
+        
+        // Create a folder under root
+        let security_models = store.create_entity(
+            &ctx, 
+            "Folder".to_string(), 
+            Some(root_id.clone()),
+            "Security Models"
+        ).await?;
+        
+        // Create subfolders
+        let users_folder = store.create_entity(
+            &ctx,
+            "Folder".to_string(),
+            Some(security_models.entity_id.clone()),
+            "Users"
+        ).await?;
+        
+        let roles_folder = store.create_entity(
+            &ctx,
+            "Folder".to_string(),
+            Some(security_models.entity_id.clone()),
+            "Roles"
+        ).await?;
+        
+        // Create a user and role
+        let user = store.create_entity(
+            &ctx,
+            "User".to_string(),
+            Some(users_folder.entity_id.clone()),
+            "qei"
+        ).await?;
+        
+        let role = store.create_entity(
+            &ctx,
+            "Role".to_string(),
+            Some(roles_folder.entity_id.clone()),
+            "Admin"
+        ).await?;
+        
+        // Read children of security models folder
+        let mut request = vec![sread!(security_models.entity_id.clone(), "Children")];
+        store.perform(&ctx, &mut request).await?;
+        
+        if let Request::Read { value, .. } = &request[0] {
+            let value_lock = value.get().await;
+            if let Some(Value::EntityList(children)) = &*value_lock {
+                assert_eq!(children.len(), 2);
+            } else {
+                panic!("Expected Children to be an EntityList");
+            }
+        }
+        
+        // Verify user's parent is the users folder
+        let mut request = vec![sread!(user.entity_id.clone(), "Parent")];
+        store.perform(&ctx, &mut request).await?;
+        
+        if let Request::Read { value, .. } = &request[0] {
+            let value_lock = value.get().await;
+            if let Some(Value::EntityReference(parent)) = &*value_lock {
+                assert_eq!(parent, &Some(users_folder.entity_id.clone()));
+            } else {
+                panic!("Expected Parent to be an EntityReference");
+            }
+        }
+        
+        Ok(())
+    }
+    
+    #[tokio::test]
+    async fn test_field_operations() -> Result<()> {
+        let mut store = setup_test_database().await?;
+        let ctx = Context {};
+        
+        // Create a user entity
+        let root_entities = store.find_entities(&ctx, &"Root".to_string(), None).await?;
+        let root_id = root_entities.items[0].clone();
+        
+        let users_folder = store.create_entity(
+            &ctx,
+            "Folder".to_string(),
+            Some(root_id.clone()),
+            "Users"
+        ).await?;
+        
+        let user = store.create_entity(
+            &ctx,
+            "User".to_string(),
+            Some(users_folder.entity_id.clone()),
+            "testuser"
+        ).await?;
+        
+        // Test writing to a field
+        let mut write_request = vec![
+            swrite!(user.entity_id.clone(), "Email", sstr!("test@example.com"))
+        ];
+        store.perform(&ctx, &mut write_request).await?;
+        
+        // Test reading the field
+        let mut request = vec![sread!(user.entity_id.clone(), "Email")];
+        store.perform(&ctx, &mut request).await?;
+        
+        if let Request::Read { value, .. } = &request[0] {
+            let value_lock = value.get().await;
+            assert_eq!(
+                *value_lock,
+                Some(Value::String("test@example.com".to_string()))
+            );
+        }
+        
+        // Test field update with write option
+        let mut update_request = vec![
+            swrite!(
+                user.entity_id.clone(),
+                "Email",
+                sstr!("updated@example.com"),
+                WriteOption::Changes
+            )
+        ];
+        store.perform(&ctx, &mut update_request).await?;
+        
+        // Verify update
+        let mut verify_request = vec![sread!(user.entity_id.clone(), "Email")];
+        store.perform(&ctx, &mut verify_request).await?;
+        
+        if let Request::Read { value, .. } = &verify_request[0] {
+            let value_lock = value.get().await;
+            assert_eq!(
+                *value_lock,
+                Some(Value::String("updated@example.com".to_string()))
+            );
+        }
+        
+        Ok(())
+    }
+    
+    #[tokio::test]
+    async fn test_indirection_resolution() -> Result<()> {
+        let mut store = setup_test_database().await?;
+        let ctx = Context {};
+        
+        // Create a hierarchy of entities
+        let root_entities = store.find_entities(&ctx, &"Root".to_string(), None).await?;
+        let root_id = root_entities.items[0].clone();
+        
+        let security_folder = store.create_entity(
+            &ctx,
+            "Folder".to_string(),
+            Some(root_id.clone()),
+            "Security"
+        ).await?;
+        
+        let users_folder = store.create_entity(
+            &ctx,
+            "Folder".to_string(),
+            Some(security_folder.entity_id.clone()),
+            "Users"
+        ).await?;
+        
+        let admin_user = store.create_entity(
+            &ctx,
+            "User".to_string(),
+            Some(users_folder.entity_id.clone()),
+            "admin"
+        ).await?;
+        
+        // Set the email for admin user
+        store.perform(
+            &ctx, 
+            &mut vec![swrite!(admin_user.entity_id.clone(), "Email", sstr!("admin@example.com"))]
+        ).await?;
+        
+        // Test indirection to read the admin's email through path
+        // First get users folder from security folder
+        let mut request = vec![
+            sread!(
+                security_folder.entity_id.clone(), 
+                format!("Children->0->Children->0->Email")
+            )
+        ];
+        
+        store.perform(&ctx, &mut request).await?;
+        
+        if let Request::Read { value, .. } = &request[0] {
+            let value_lock = value.get().await;
+            assert_eq!(
+                *value_lock,
+                Some(Value::String("admin@example.com".to_string()))
+            );
+        }
+        
+        Ok(())
+    }
+    
+    #[tokio::test]
+    async fn test_entity_deletion() -> Result<()> {
+        let mut store = setup_test_database().await?;
+        let ctx = Context {};
+        
+        // Create a folder and a user
+        let root_entities = store.find_entities(&ctx, &"Root".to_string(), None).await?;
+        let root_id = root_entities.items[0].clone();
+        
+        let users_folder = store.create_entity(
+            &ctx,
+            "Folder".to_string(),
+            Some(root_id.clone()),
+            "Users"
+        ).await?;
+        
+        let user = store.create_entity(
+            &ctx,
+            "User".to_string(),
+            Some(users_folder.entity_id.clone()),
+            "temp_user"
+        ).await?;
+        
+        // Verify user exists
+        assert!(store.entity_exists(&ctx, &user.entity_id).await);
+        
+        // Delete the user
+        store.delete_entity(&ctx, &user.entity_id).await?;
+        
+        // Verify user no longer exists
+        assert!(!store.entity_exists(&ctx, &user.entity_id).await);
+        
+        // Check if the user was removed from the parent's children list
+        let mut request = vec![sread!(users_folder.entity_id.clone(), "Children")];
+        store.perform(&ctx, &mut request).await?;
+        
+        if let Request::Read { value, .. } = &request[0] {
+            let value_lock = value.get().await;
+            if let Some(Value::EntityList(children)) = &*value_lock {
+                assert!(
+                    !children.contains(&user.entity_id),
+                    "User should have been removed from parent's children list"
+                );
+            }
+        }
+        
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_entity_listing_with_pagination() -> Result<()> {
+        let mut store = setup_test_database().await?;
+        let ctx = Context {};
+        
+        // Create multiple entities of the same type
+        let root_entities = store.find_entities(&ctx, &"Root".to_string(), None).await?;
+        let root_id = root_entities.items[0].clone();
+        
+        let users_folder = store.create_entity(
+            &ctx,
+            "Folder".to_string(),
+            Some(root_id.clone()),
+            "Users"
+        ).await?;
+        
+        // Create 10 users
+        for i in 1..=10 {
+            store.create_entity(
+                &ctx,
+                "User".to_string(),
+                Some(users_folder.entity_id.clone()),
+                &format!("user{}", i)
+            ).await?;
+        }
+        
+        // Test pagination - first page (5 items)
+        let page_opts = PageOpts::new(5, None);
+        let page1 = store.find_entities(&ctx, &"User".to_string(), Some(page_opts)).await?;
+        
+        assert_eq!(page1.items.len(), 5);
+        assert_eq!(page1.total, 10);
+        assert!(page1.next_cursor.is_some());
+        
+        // Test pagination - second page
+        let page_opts = PageOpts::new(5, page1.next_cursor.clone());
+        let page2 = store.find_entities(&ctx, &"User".to_string(), Some(page_opts)).await?;
+        
+        assert_eq!(page2.items.len(), 5);
+        assert_eq!(page2.total, 10);
+        assert!(page2.next_cursor.is_none());
+        
+        // Verify we got different sets of users
+        for item in &page1.items {
+            assert!(!page2.items.contains(item));
+        }
+        
+        Ok(())
     }
 }

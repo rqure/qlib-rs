@@ -21,7 +21,7 @@ pub use request::{
 pub use snowflake::Snowflake;
 pub use store::{
     BadIndirection, BadIndirectionReason, INDIRECTION_DELIMITER, MapStore, PageOpts, PageResult,
-    resolve_indirection,
+    resolve_indirection, Context,
 };
 use tokio::sync::{RwLock, RwLockReadGuard};
 pub use value::Value;
