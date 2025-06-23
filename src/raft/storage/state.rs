@@ -7,7 +7,7 @@ use async_raft::{
     raft::{Entry, HardState, MembershipConfig},
 };
 
-use crate::raft2::types::RaftCommand;
+use crate::raft::types::RaftCommand;
 
 /// State stored for Raft consensus
 #[derive(Serialize, Deserialize, Debug, Default, Clone)]

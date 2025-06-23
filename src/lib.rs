@@ -1,18 +1,14 @@
 mod data;
 mod raft;
-mod raft2;  // Add the new implementation
 
 pub use data::{Entity, EntitySchema, EntityId, Field, FieldSchema, Request, Snowflake, Value, 
     MapStore, resolve_indirection, INDIRECTION_DELIMITER, BadIndirection, BadIndirectionReason,
     WriteOption, Timestamp, FieldType, Shared, now, epoch, PageOpts, PageResult, Context};
 
-// Export the original Raft implementation
-pub use raft::{RaftNode, RaftStore, ClientRequest, ClientResponse, RaftCommand, RaftError};
-
 // Export the new Raft implementation
-pub use raft2::{RaftNode as Raft2Node, RaftStore as Raft2Store, 
-               ClientRequest as Raft2ClientRequest, ClientResponse as Raft2ClientResponse,
-               RaftCommand as Raft2Command, RaftError as Raft2Error, NodeId as Raft2NodeId};
+pub use raft::{RaftNode, RaftStore, 
+               ClientRequest, ClientResponse,
+               RaftCommand, RaftError, NodeId};
 
 /// Create a Read request with minimal syntax
 ///

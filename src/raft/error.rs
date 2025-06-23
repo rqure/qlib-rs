@@ -3,7 +3,7 @@
 use std::fmt;
 use thiserror::Error;
 
-use crate::raft2::types::NodeId;
+use crate::raft::types::NodeId;
 
 /// Comprehensive error type for Raft operations
 #[derive(Error, Debug)]

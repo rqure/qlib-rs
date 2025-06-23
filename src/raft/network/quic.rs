@@ -14,34 +14,11 @@ use quinn::{ClientConfig, Endpoint, ServerConfig, TransportConfig};
 use rustls::{ServerConfig as RustlsServerConfig, ClientConfig as RustlsClientConfig};
 use tokio::sync::RwLock;
 
-use crate::raft2::{
+use crate::raft::{
     types::{NodeId, RaftTypesConfig, RaftCommand},
     error::RaftError,
     network::config::NetworkConfig,
 };
-
-/// Certificate verification for development
-mod danger {
-    use std::sync::Arc;
-    use rustls::{Certificate, Error, ServerName};
-    use rustls::client::ServerCertVerifier;
-    
-    pub struct NoCertificateVerification {}
-    
-    impl ServerCertVerifier for NoCertificateVerification {
-        fn verify_server_cert(
-            &self,
-            _end_entity: &Certificate,
-            _intermediates: &[Certificate],
-            _server_name: &ServerName,
-            _scts: &mut dyn Iterator<Item = &[u8]>,
-            _ocsp_response: &[u8],
-            _now: std::time::SystemTime,
-        ) -> Result<rustls::client::ServerCertVerified, Error> {
-            Ok(rustls::client::ServerCertVerified::assertion())
-        }
-    }
-}
 
 /// Network implementation using QUIC for Raft communication
 pub struct QuicTransport {
@@ -79,11 +56,11 @@ impl QuicTransport {
                 .with_no_client_auth()
                 .with_single_cert(
                     vec![config.server_cert.unwrap_or_else(|| {
-                        use crate::raft2::network::config::generate_self_signed_cert;
+                        use crate::raft::network::config::generate_self_signed_cert;
                         generate_self_signed_cert()
                     }).0], 
                     config.server_cert.unwrap_or_else(|| {
-                        use crate::raft2::network::config::generate_self_signed_cert;
+                        use crate::raft::network::config::generate_self_signed_cert;
                         generate_self_signed_cert()
                     }).1)
                 .unwrap()))
@@ -269,41 +246,35 @@ impl RaftNetwork<RaftTypesConfig> for QuicTransport {
         &self,
         target: NodeId,
         request: AppendEntriesRequest<RaftCommand>,
-    ) -> Result<AppendEntriesResponse, async_raft::NetworkError> {
+    ) -> Result<AppendEntriesResponse, async_raft::RaftError> {
         debug!("Sending AppendEntries to node {}", target);
         
         self.send_request(target, "append_entries", request)
             .await
-            .map_err(|e| async_raft::NetworkError::Other { 
-                error: format!("Network error: {}", e).into()
-             })
+            .map_err(|e| async_raft::RaftError::RaftNetwork(format!("Network error: {}", e).into()))
     }
 
     async fn install_snapshot(
         &self,
         target: NodeId,
         request: InstallSnapshotRequest,
-    ) -> Result<InstallSnapshotResponse, async_raft::NetworkError> {
+    ) -> Result<InstallSnapshotResponse, async_raft::RaftError> {
         debug!("Sending InstallSnapshot to node {}", target);
         
         self.send_request(target, "install_snapshot", request)
             .await
-            .map_err(|e| async_raft::NetworkError::Other { 
-                error: format!("Network error: {}", e).into()
-             })
+            .map_err(|e| async_raft::RaftError::RaftNetwork(format!("Network error: {}", e).into()))
     }
 
     async fn vote(
         &self,
         target: NodeId,
         request: VoteRequest,
-    ) -> Result<VoteResponse, async_raft::NetworkError> {
+    ) -> Result<VoteResponse, async_raft::RaftError> {
         debug!("Sending Vote to node {}", target);
         
         self.send_request(target, "vote", request)
             .await
-            .map_err(|e| async_raft::NetworkError::Other { 
-                error: format!("Network error: {}", e).into()
-             })
+            .map_err(|e| async_raft::RaftError::RaftNetwork(format!("Network error: {}", e).into()))
     }
 }

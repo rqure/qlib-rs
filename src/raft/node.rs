@@ -6,7 +6,7 @@ use async_raft::{Raft, Config};
 use log::{info, error};
 
 use crate::MapStore;
-use crate::raft2::{
+use crate::raft::{
     error::RaftError,
     storage::RaftStore,
     network::{NetworkConfig, QuicTransport},

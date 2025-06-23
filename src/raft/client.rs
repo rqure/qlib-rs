@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use std::{sync::Arc, time::Duration};
 
 use crate::Context;
-use crate::raft2::{
+use crate::raft::{
     error::RaftError,
     types::{ClientRequest, ClientResponse, RaftCommand},
     node::RaftNode,

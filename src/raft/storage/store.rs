@@ -10,7 +10,7 @@ use async_trait::async_trait;
 use log::{info, error};
 
 use crate::{MapStore, Context};
-use crate::raft2::{
+use crate::raft::{
     types::{RaftCommand, RaftTypesConfig, NodeId},
     error::RaftError,
     storage::state::RaftState,
@@ -49,8 +49,8 @@ impl RaftStore {
         &self,
         command: &RaftCommand,
         context: &Context,
-    ) -> Result<crate::raft2::ClientResponse, RaftError> {
-        use crate::raft2::ClientResponse;
+    ) -> Result<crate::raft::ClientResponse, RaftError> {
+        use crate::raft::ClientResponse;
         
         let mut store = self.map_store.write().await;
         
@@ -87,8 +87,8 @@ impl RaftStore {
         &self,
         command: &RaftCommand,
         context: &Context,
-    ) -> Result<crate::raft2::ClientResponse, Box<dyn std::error::Error + Send + Sync>> {
-        use crate::raft2::ClientResponse;
+    ) -> Result<crate::raft::ClientResponse, Box<dyn std::error::Error + Send + Sync>> {
+        use crate::raft::ClientResponse;
         
         let mut store = self.map_store.write().await;
         info!("Applying command: {}", command);
