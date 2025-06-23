@@ -7,12 +7,8 @@ mod client;
 mod error;
 mod node;
 mod types;
-mod storage;
-mod network;
 
 // Re-export core types for easier access
 pub use types::{ClientRequest, ClientResponse, NodeId, RaftCommand};
 pub use error::RaftError;
 pub use node::RaftNode;
-pub use storage::RaftStore;
-pub use network::{NetworkConfig, QuicTransport};

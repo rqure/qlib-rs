@@ -2,31 +2,15 @@
 
 use serde::{Deserialize, Serialize};
 use std::fmt;
-use std::io;
 
-use async_raft::AppData;
-use async_raft::AppDataResponse;
-use crate::{Context, EntityId, EntitySchema, FieldSchema, Request};
+use crate::{EntityId, EntitySchema, FieldSchema};
 
 /// Unique identifier for a Raft node
 pub type NodeId = u64;
 
-/// Configuration for Raft types
-// In async-raft 0.6.1, it uses a different approach with AppData/AppDataResponse
-// Instead of RaftTypeConfig, we'll directly use RaftCommand
-
-/// Dummy type for backward compatibility (will be removed)
-#[derive(Debug, Clone)]
-pub struct RaftTypesConfig;
-
-// We'll use RaftCommand directly with the AppData trait implementations
-
 /// Commands that can be replicated through the Raft consensus protocol
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum RaftCommand {
-    /// Performs one or more read/write operations
-    PerformRequests(Vec<Request>),
-    
     /// Creates a new entity
     CreateEntity {
         entity_type: String,
@@ -48,16 +32,9 @@ pub enum RaftCommand {
     },
 }
 
-// Implement AppData trait for RaftCommand
-impl AppData for RaftCommand {}
-
-// Implement AppDataResponse trait for RaftCommand
-impl AppDataResponse for RaftCommand {}
-
 impl fmt::Display for RaftCommand {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            RaftCommand::PerformRequests(requests) => write!(f, "PerformRequests({})", requests.len()),
             RaftCommand::CreateEntity { entity_type, .. } => write!(f, "CreateEntity({})", entity_type),
             RaftCommand::DeleteEntity(id) => write!(f, "DeleteEntity({})", id),
             RaftCommand::SetEntitySchema(schema) => write!(f, "SetEntitySchema({})", schema.entity_type),
@@ -73,8 +50,6 @@ impl fmt::Display for RaftCommand {
 pub struct ClientRequest {
     /// The command to execute
     pub command: RaftCommand,
-    /// Request context
-    pub context: Context,
     /// Client request ID (for deduplication)
     pub request_id: Option<String>,
 }

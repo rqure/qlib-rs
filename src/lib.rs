@@ -5,8 +5,8 @@ pub use data::{Entity, EntitySchema, EntityId, Field, FieldSchema, Request, Snow
     MapStore, resolve_indirection, INDIRECTION_DELIMITER, BadIndirection, BadIndirectionReason,
     WriteOption, Timestamp, FieldType, Shared, now, epoch, PageOpts, PageResult, Context};
 
-// Export the new Raft implementation
-pub use raft::{RaftNode, RaftStore, 
+// Export the new Raft implementation (simplified)
+pub use raft::{RaftNode, 
                ClientRequest, ClientResponse,
                RaftCommand, RaftError, NodeId};
 

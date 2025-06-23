@@ -2,8 +2,6 @@
 
 use serde::{Deserialize, Serialize};
 use std::{sync::Arc, time::Duration};
-
-use crate::Context;
 use crate::raft::{
     error::RaftError,
     types::{ClientRequest, ClientResponse, RaftCommand},
@@ -64,20 +62,18 @@ impl RaftClient {
     }
     
     /// Send a request with default options
-    pub async fn send(&self, command: RaftCommand, context: Context) -> Result<ClientResponse, RaftError> {
-        self.send_with_options(command, context, &self.options).await
+    pub async fn send(&self, command: RaftCommand) -> Result<ClientResponse, RaftError> {
+        self.send_with_options(command, &self.options).await
     }
     
     /// Send a request with custom options
     pub async fn send_with_options(
         &self, 
         command: RaftCommand,
-        context: Context,
         options: &ClientOptions
     ) -> Result<ClientResponse, RaftError> {
         let request = ClientRequest {
             command,
-            context,
             request_id: options.request_id.clone(),
         };
         

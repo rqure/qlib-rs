@@ -13,7 +13,7 @@ use log::info;
 
 use crate::{MapStore, Context, Request};
 use crate::raft::{
-    types::{RaftCommand, RaftTypesConfig, NodeId, ClientResponse},
+    types::{RaftCommand, NodeId, ClientResponse},
     error::RaftError,
     storage::state::RaftState,
 };

@@ -41,6 +41,12 @@ pub fn epoch() -> Timestamp {
 #[derive(Debug, Clone)]
 pub struct Shared<T>(Arc<RwLock<T>>);
 
+impl<T: Default> Default for Shared<T> {
+    fn default() -> Self {
+        Shared::new(T::default())
+    }
+}
+
 impl<T> Shared<T>
 where
     T: PartialEq + Send + Sync,

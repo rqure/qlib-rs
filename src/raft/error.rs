@@ -2,7 +2,7 @@
 
 use thiserror::Error;
 
-use crate::raft::types::{NodeId, RaftCommand};
+use crate::raft::types::NodeId;
 
 /// Comprehensive error type for Raft operations
 #[derive(Error, Debug)]
@@ -46,23 +46,6 @@ pub enum RaftError {
     /// Invalid state
     #[error("Invalid state: {0}")]
     InvalidState(String),
-}
-
-impl From<async_raft::error::ClientWriteError<RaftCommand>> for RaftError {
-    fn from(error: async_raft::error::ClientWriteError<RaftCommand>) -> Self {
-        match error {
-            async_raft::error::ClientWriteError::ForwardToLeader { leader_id, .. } => {
-                RaftError::NotLeader(leader_id)
-            }
-            _ => RaftError::Consensus(format!("{:?}", error)),
-        }
-    }
-}
-
-impl From<async_raft::RaftError> for RaftError {
-    fn from(error: async_raft::RaftError) -> Self {
-        RaftError::Consensus(format!("{:?}", error))
-    }
 }
 
 impl From<std::io::Error> for RaftError {

@@ -121,6 +121,7 @@ impl std::fmt::Display for BadIndirection {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Context {}
 
 /// Pagination options for retrieving lists of items
@@ -168,13 +169,11 @@ impl<T> PageResult<T> {
     }
 }
 
-#[derive(Serialize, Deserialize)]
 pub struct MapStore {
     schema: HashMap<EntityType, EntitySchema>,
     entity: HashMap<EntityType, Vec<EntityId>>,
     types: Vec<EntityType>,
     field: HashMap<EntityId, HashMap<FieldType, Field>>,
-    #[serde(skip)]
     snowflake: Snowflake,
 }
 

@@ -16,7 +16,7 @@ use rustls::{ServerConfig as RustlsServerConfig, ClientConfig as RustlsClientCon
 use tokio::sync::RwLock;
 
 use crate::raft::{
-    types::{NodeId, RaftTypesConfig, RaftCommand},
+    types::{NodeId, RaftCommand},
     error::RaftError,
     network::config::NetworkConfig,
 };
