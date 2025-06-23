@@ -1,33 +1,26 @@
-use async_raft::NodeId;
+//! Core type definitions for the Raft implementation.
+
 use serde::{Deserialize, Serialize};
 use std::fmt;
-use thiserror::Error;
+use std::io;
 
-use crate::{Context, EntityId, EntitySchema, EntityType, FieldSchema, FieldType, PageOpts, Request};
+use crate::{Context, EntityId, EntitySchema, FieldSchema, Request};
 
 /// Unique identifier for a Raft node
-pub type NodeId = async_raft::NodeId;
+pub type NodeId = u64;
 
-/// Error types for Raft operations
-#[derive(Error, Debug)]
-pub enum RaftError {
-    #[error("Not the leader: current leader is {0:?}")]
-    NotLeader(Option<NodeId>),
-    
-    #[error("Raft error: {0}")]
-    RaftError(#[from] async_raft::error::RaftError),
-    
-    #[error("Storage error: {0}")]
-    StorageError(#[from] Box<dyn std::error::Error + Send + Sync>),
-    
-    #[error("Serialization error: {0}")]
-    SerializationError(#[from] bincode::Error),
-    
-    #[error("Client error: {0}")]
-    ClientError(String),
+/// Configuration for Raft types
+#[derive(Debug, Clone)]
+pub struct RaftTypesConfig;
+
+impl async_raft::RaftTypeConfig for RaftTypesConfig {
+    type NodeId = NodeId;
+    type Entry = async_raft::raft::Entry<RaftCommand>;
+    type SnapshotData = io::Cursor<Vec<u8>>;
+    type R = RaftCommand;
 }
 
-/// Commands that can be replicated through Raft
+/// Commands that can be replicated through the Raft consensus protocol
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum RaftCommand {
     /// Performs one or more read/write operations
@@ -35,7 +28,7 @@ pub enum RaftCommand {
     
     /// Creates a new entity
     CreateEntity {
-        entity_type: EntityType,
+        entity_type: String,
         parent_id: Option<EntityId>,
         name: String,
     },
@@ -46,10 +39,10 @@ pub enum RaftCommand {
     /// Sets entity schema
     SetEntitySchema(EntitySchema),
     
-    /// Sets field schema
+    /// Sets field schema for an entity type
     SetFieldSchema {
-        entity_type: EntityType,
-        field_type: FieldType,
+        entity_type: String,
+        field_type: String,
         field_schema: FieldSchema,
     },
 }
@@ -62,8 +55,8 @@ impl fmt::Display for RaftCommand {
             RaftCommand::DeleteEntity(id) => write!(f, "DeleteEntity({})", id),
             RaftCommand::SetEntitySchema(schema) => write!(f, "SetEntitySchema({})", schema.entity_type),
             RaftCommand::SetFieldSchema { entity_type, field_type, .. } => {
-                write!(f, "SetFieldSchema({}, {})", entity_type, field_type)
-            }
+                write!(f, "SetFieldSchema({}.{})", entity_type, field_type)
+            },
         }
     }
 }
@@ -71,8 +64,12 @@ impl fmt::Display for RaftCommand {
 /// Client request to the Raft cluster
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ClientRequest {
+    /// The command to execute
     pub command: RaftCommand,
+    /// Request context
     pub context: Context,
+    /// Client request ID (for deduplication)
+    pub request_id: Option<String>,
 }
 
 /// Response from the Raft cluster to a client
@@ -84,7 +81,7 @@ pub enum ClientResponse {
     FieldSchema(FieldSchema),
     FieldExists(bool),
     FindEntities(Vec<EntityId>, usize, Option<String>), // items, total, next_cursor
-    EntityTypes(Vec<EntityType>, usize, Option<String>), // items, total, next_cursor
+    EntityTypes(Vec<String>, usize, Option<String>), // items, total, next_cursor
     
     // Write responses
     Success,
