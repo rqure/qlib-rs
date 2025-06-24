@@ -640,9 +640,10 @@ mod tests {
     #[test]
     fn test_swrite_macro() {
         let entity_id = EntityId::new("User", 456);
+        let ft_username = FieldType::from("Username");
 
         // Basic write with just a value
-        let request1 = swrite!(entity_id.clone(), "Username".into(), sstr!("alice"));
+        let request1 = swrite!(entity_id.clone(), ft_username.clone(), sstr!("alice"));
         match request1 {
             Request::Write {
                 entity_id: req_entity_id,
@@ -654,15 +655,15 @@ mod tests {
                 writer_id,
             } => {
                 assert_eq!(req_entity_id, entity_id);
-                assert_eq!(field_type, "Username".into());
+                assert_eq!(field_type, ft_username);
                 assert!(matches!(value, Some(Value::String(s)) if s == "alice"));
                 assert!(matches!(
                     push_condition,
-                    data::request::PushCondition::Always
+                    PushCondition::Always
                 ));
                 assert!(matches!(
                     adjust_behavior,
-                    data::request::AdjustBehavior::Set
+                    AdjustBehavior::Set
                 ));
                 assert!(write_time.is_none());
                 assert!(writer_id.is_none());
@@ -671,17 +672,16 @@ mod tests {
         }
 
         // Write with None (deletion)
-        let request2 = swrite!(entity_id.clone(), "Username".into(), None);
+        let request2 = swrite!(entity_id.clone(), ft_username.clone(), None);
         match request2 {
             Request::Write { value, .. } => assert!(value.is_none()),
             _ => panic!("Expected Request::Write"),
         }
 
         // Write with custom write option
-        use data::request::PushCondition;
         let request3 = swrite!(
             entity_id.clone(),
-            "Username".into(),
+            ft_username.clone(),
             sstr!("bob"),
             PushCondition::Changes
         );
@@ -695,9 +695,10 @@ mod tests {
 
         // Write with time
         let now = now();
+        let ft_last_login = FieldType::from("LastLogin");
         let request4 = swrite!(
             entity_id.clone(),
-            "LastLogin".into(),
+            ft_last_login.clone(),
             stimestamp!(now),
             PushCondition::Always,
             Some(now)
@@ -711,7 +712,7 @@ mod tests {
         let writer_id = EntityId::new("Admin", 1);
         let request5 = swrite!(
             entity_id.clone(),
-            "Username".into(),
+            ft_username.clone(),
             sstr!("carol"),
             PushCondition::Always,
             Some(now),
@@ -806,7 +807,7 @@ mod mapstore_tests {
             &ctx,
             EntityType::from("User").as_ref(),
             FieldType::from("Email").as_ref(),
-            email_schema
+            email_schema,
         )?;
 
         // Create root entity
@@ -820,53 +821,53 @@ mod mapstore_tests {
         let ctx = Context {};
 
         // Get the Root entity
-        let root_entities = store.find_entities(&ctx, &"Root".to_string(), None)?;
+        let root_entities = store.find_entities(&ctx, "Root".into(), None)?;
         assert_eq!(root_entities.items.len(), 1);
         let root_id = root_entities.items[0].clone();
 
         // Create a folder under root
         let security_models = store.create_entity(
             &ctx,
-            "Folder".to_string(),
-            Some(root_id.clone()),
+            "Folder".into(),
+            &Some(root_id.clone()),
             "Security Models",
         )?;
 
         // Create subfolders
         let users_folder = store.create_entity(
             &ctx,
-            "Folder".to_string(),
-            Some(security_models.entity_id.clone()),
+            "Folder".into(),
+            &Some(security_models.entity_id.clone()),
             "Users",
         )?;
 
         let roles_folder = store.create_entity(
             &ctx,
-            "Folder".to_string(),
-            Some(security_models.entity_id.clone()),
+            "Folder".into(),
+            &Some(security_models.entity_id.clone()),
             "Roles",
         )?;
 
         // Create a user and role
         let user = store.create_entity(
             &ctx,
-            "User".to_string(),
-            Some(users_folder.entity_id.clone()),
+            "User".into(),
+            &Some(users_folder.entity_id.clone()),
             "qei",
         )?;
 
         let role = store.create_entity(
             &ctx,
-            "Role".to_string(),
-            Some(roles_folder.entity_id.clone()),
+            "Role".into(),
+            &Some(roles_folder.entity_id.clone()),
             "Admin",
         )?;
 
         // Read children of security models folder
-        let request = vec![&mut sread!(security_models.entity_id, "Children")];
-        store.perform(&ctx, &request)?;
+        let mut reqs = vec![sread!(security_models.entity_id, "Children".into())];
+        store.perform(&ctx, &mut reqs)?;
 
-        if let Request::Read { value, .. } = &request[0] {
+        if let Request::Read { value, .. } = &reqs[0] {
             if let Some(Value::EntityList(children)) = value {
                 assert_eq!(children.len(), 2);
             } else {
@@ -875,10 +876,10 @@ mod mapstore_tests {
         }
 
         // Verify user's parent is the users folder
-        let request = vec![&mut sread!(user.entity_id, "Parent")];
-        store.perform(&ctx, &request)?;
+        let mut reqs = vec![sread!(user.entity_id, "Parent".into())];
+        store.perform(&ctx, &mut reqs)?;
 
-        if let Request::Read { value, .. } = &request[0] {
+        if let Request::Read { value, .. } = &reqs[0] {
             if let Some(Value::EntityReference(parent)) = value {
                 assert_eq!(*parent, Some(users_folder.entity_id));
             } else {
@@ -893,50 +894,49 @@ mod mapstore_tests {
         let mut store = setup_test_database()?;
         let ctx = Context {};
 
-        // Create a user entity
-        let root_entities = store.find_entities(&ctx, &"Root".to_string(), None)?;
+        let root_entities = store.find_entities(&ctx, "Root".into(), None)?;
         let root_id = root_entities.items[0].clone();
 
         let users_folder =
-            store.create_entity(&ctx, "Folder".to_string(), Some(root_id.clone()), "Users")?;
+            store.create_entity(&ctx, "Folder".into(), &Some(root_id.clone()), "Users")?;
 
         let user = store.create_entity(
             &ctx,
-            "User".to_string(),
-            Some(users_folder.entity_id),
+            "User".into(),
+            &Some(users_folder.entity_id),
             "testuser",
         )?;
 
         // Test writing to a field
-        let write_request = vec![&mut swrite!(
+        let mut writes = vec![swrite!(
             user.entity_id.clone(),
-            "Email",
+            "Email".into(),
             sstr!("test@example.com")
         )];
-        store.perform(&ctx, &write_request)?;
+        store.perform(&ctx, &mut writes)?;
 
         // Test reading the field
-        let request = vec![&mut sread!(user.entity_id.clone(), "Email")];
-        store.perform(&ctx, &request)?;
+        let mut reads = vec![sread!(user.entity_id.clone(), "Email".into())];
+        store.perform(&ctx, &mut reads)?;
 
-        if let Request::Read { value, .. } = &request[0] {
+        if let Request::Read { value, .. } = &reads[0] {
             assert_eq!(*value, Some(Value::String("test@example.com".to_string())));
         }
 
         // Test field update with write option
-        let update_request = vec![&mut swrite!(
+        let mut updates = vec![swrite!(
             user.entity_id.clone(),
-            "Email",
+            "Email".into(),
             sstr!("updated@example.com"),
             PushCondition::Changes
         )];
-        store.perform(&ctx, &update_request)?;
+        store.perform(&ctx, &mut updates)?;
 
         // Verify update
-        let verify_request = vec![&mut sread!(user.entity_id.clone(), "Email")];
-        store.perform(&ctx, &verify_request)?;
+        let mut verify = vec![sread!(user.entity_id.clone(), "Email".into())];
+        store.perform(&ctx, &mut verify)?;
 
-        if let Request::Read { value, .. } = &verify_request[0] {
+        if let Request::Read { value, .. } = &verify[0] {
             assert_eq!(
                 *value,
                 Some(Value::String("updated@example.com".to_string()))
@@ -950,51 +950,44 @@ mod mapstore_tests {
         let mut store = setup_test_database()?;
         let ctx = Context {};
 
-        // Create a hierarchy of entities
-        let root_entities = store.find_entities(&ctx, &"Root".to_string(), None)?;
+        // Create entities
+        let root_entities = store.find_entities(&ctx, "Root".into(), None)?;
         let root_id = root_entities.items[0].clone();
 
-        let security_folder = store.create_entity(
-            &ctx,
-            "Folder".to_string(),
-            Some(root_id.clone()),
-            "Security",
-        )?;
+        let security_folder =
+            store.create_entity(&ctx, "Folder".into(), &Some(root_id.clone()), "Security")?;
 
         let users_folder = store.create_entity(
             &ctx,
-            "Folder".to_string(),
-            Some(security_folder.entity_id.clone()),
+            "Folder".into(),
+            &Some(security_folder.entity_id.clone()),
             "Users",
         )?;
 
         let admin_user = store.create_entity(
             &ctx,
-            "User".to_string(),
-            Some(users_folder.entity_id.clone()),
+            "User".into(),
+            &Some(users_folder.entity_id.clone()),
             "admin",
         )?;
 
-        // Set the email for admin user
-        store.perform(
-            &ctx,
-            &vec![&mut swrite!(
-                admin_user.entity_id.clone(),
-                "Email",
-                sstr!("admin@example.com")
-            )],
-        )?;
+        // Set email
+        let mut writes = vec![swrite!(
+            admin_user.entity_id.clone(),
+            "Email".into(),
+            sstr!("admin@example.com")
+        )];
+        store.perform(&ctx, &mut writes)?;
 
-        // Test indirection to read the admin's email through path
-        // First get users folder from security folder
-        let request = vec![&mut sread!(
+        // Test indirection
+        let mut reqs = vec![sread!(
             security_folder.entity_id.clone(),
-            format!("Children->0->Children->0->Email")
+            format!("Children->0->Children->0->Email").into()
         )];
 
-        store.perform(&ctx, &request)?;
+        store.perform(&ctx, &mut reqs)?;
 
-        if let Request::Read { value, .. } = &request[0] {
+        if let Request::Read { value, .. } = &reqs[0] {
             assert_eq!(*value, Some(Value::String("admin@example.com".to_string())));
         }
 

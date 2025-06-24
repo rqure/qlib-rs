@@ -3,7 +3,7 @@ mod entity_id;
 mod entity_schema;
 mod field;
 mod field_schema;
-pub mod request;
+mod request;
 mod snowflake;
 mod store;
 mod value;
