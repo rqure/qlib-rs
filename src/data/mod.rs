@@ -25,7 +25,7 @@ pub use store::{
 pub use value::Value;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash)]
-pub struct EntityType(String);
+pub struct EntityType(pub String);
 impl From<String> for EntityType {
     fn from(s: String) -> Self {
         EntityType(s)
@@ -51,7 +51,7 @@ impl fmt::Display for EntityType {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash)]
-pub struct FieldType(String);
+pub struct FieldType(pub String);
 
 impl From<String> for FieldType {
     fn from(s: String) -> Self {
@@ -71,7 +71,6 @@ impl AsRef<FieldType> for FieldType {
     }
 }
 
-
 impl AsRef<str> for FieldType {
     fn as_ref(&self) -> &str {
         &self.0
@@ -81,6 +80,14 @@ impl AsRef<str> for FieldType {
 impl fmt::Display for FieldType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.0)
+    }
+}
+
+impl FieldType {
+    pub fn indirect_fields(&self) -> Vec<Self> {
+        return self.0.split(INDIRECTION_DELIMITER)
+            .map(|s| s.into())
+            .collect::<Vec<Self>>();
     }
 }
 

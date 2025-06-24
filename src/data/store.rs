@@ -1,10 +1,8 @@
-use std::{collections::HashMap, error, mem::discriminant};
+use std::{collections::HashMap, error, mem::discriminant, sync::Arc};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    Entity, EntityId, EntitySchema, Field, FieldSchema, Request, Result, Snowflake, Value,
-    data::{EntityType, FieldType, Timestamp, now, request::PushCondition},
-    sread, sref, sreflist, sstr, swrite,
+    data::{now, request::PushCondition, EntityType, FieldType, Timestamp}, sread, sref, sreflist, sstr, swrite, AdjustBehavior, Entity, EntityId, EntitySchema, Field, FieldSchema, Request, Result, Snowflake, Value
 };
 
 pub const INDIRECTION_DELIMITER: &str = "->";
@@ -174,26 +172,26 @@ pub struct MapStore {
     entity: HashMap<EntityType, Vec<EntityId>>,
     types: Vec<EntityType>,
     field: HashMap<EntityId, HashMap<FieldType, Field>>,
-    snowflake: Snowflake,
+    snowflake: Arc<Snowflake>,
 }
 
 impl MapStore {
-    pub fn new() -> Self {
+    pub fn new(snowflake: Arc<Snowflake>) -> Self {
         MapStore {
             schema: HashMap::new(),
             entity: HashMap::new(),
             types: Vec::new(),
             field: HashMap::new(),
-            snowflake: Snowflake::new(),
+            snowflake,
         }
     }
 
     pub fn create_entity(
         &mut self,
         ctx: &Context,
-        entity_type: impl AsRef<EntityType>,
-        parent_id: Option<EntityId>,
-        name: impl Into<String>,
+        entity_type: &EntityType,
+        parent_id: &Option<EntityId>,
+        name: &str,
     ) -> Result<Entity> {
         if !self.schema.contains_key(entity_type.as_ref()) {
             return Err(EntityTypeNotFound(entity_type.as_ref().clone()).into());
@@ -274,7 +272,7 @@ impl MapStore {
     pub fn get_entity_schema(
         &self,
         _: &Context,
-        entity_type: impl AsRef<EntityType>,
+        entity_type: &EntityType,
     ) -> Result<&EntitySchema> {
         self.schema
             .get(entity_type.as_ref())
@@ -285,7 +283,7 @@ impl MapStore {
     pub fn set_entity_schema(
         &mut self,
         _: &Context,
-        entity_schema: impl AsRef<EntitySchema>,
+        entity_schema: &EntitySchema,
     ) -> Result<()> {
         let entity_type = entity_schema.as_ref().entity_type.clone();
         self.schema.insert(entity_type.clone(), entity_schema.as_ref().clone());
@@ -324,30 +322,30 @@ impl MapStore {
     pub fn set_field_schema(
         &mut self,
         _: &Context,
-        entity_type: impl AsRef<EntityType>,
-        field_type: impl AsRef<FieldType>,
-        field_schema: impl Into<FieldSchema>,
+        entity_type: &EntityType,
+        field_type: &FieldType,
+        field_schema: FieldSchema,
     ) -> Result<()> {
         // Make sure the entity type exists
         if !self.schema.contains_key(entity_type.as_ref()) {
             // Create a new entity schema
             let entity_schema = EntitySchema::new(entity_type.as_ref().clone());
-            self.schema.insert(entity_type.as_ref().clone(), entity_schema);
+            self.schema.insert(entity_type.clone(), entity_schema);
 
             // Make sure the entity type is tracked
             if !self.entity.contains_key(entity_type.as_ref()) {
-                self.entity.insert(entity_type.as_ref().clone(), Vec::new());
+                self.entity.insert(entity_type.clone(), Vec::new());
             }
             
             // Update types list if needed
             if !self.types.contains(entity_type.as_ref()) {
-                self.types.push(entity_type.as_ref().clone());
+                self.types.push(entity_type.clone());
             }
         }
         
         // Get the entity schema and update it
         let entity_schema = self.schema.get_mut(entity_type.as_ref()).unwrap();
-        entity_schema.fields.insert(field_type.as_ref().clone(), field_schema.into());
+        entity_schema.fields.insert(field_type.clone(), field_schema.into());
 
         Ok(())
     }
@@ -359,8 +357,8 @@ impl MapStore {
     pub fn field_exists(
         &self,
         _: &Context,
-        entity_type: impl AsRef<EntityType>,
-        field_type: impl AsRef<FieldType>,
+        entity_type: &EntityType,
+        field_type: &FieldType,
     ) -> bool {
         self.schema
             .get(entity_type.as_ref())
@@ -416,15 +414,12 @@ impl MapStore {
     fn read(
         &self,
         _: &Context,
-        entity_id: impl AsRef<EntityId>,
-        field_type: impl AsRef<FieldType>,
+        entity_id: &EntityId,
+        field_type: &FieldType,
         value: &mut Option<Value>,
         write_time: &mut Option<Timestamp>,
         writer_id: &mut Option<EntityId>,
     ) -> Result<()> {
-        let entity_id = entity_id.as_ref();
-        let field_type = field_type.as_ref();
-
         let field = self
             .field
             .get(&entity_id)
@@ -444,12 +439,13 @@ impl MapStore {
     fn write(
         &mut self,
         _: &Context,
-        entity_id: impl AsRef<EntityId>,
-        field_type: impl AsRef<FieldType>,
+        entity_id: &EntityId,
+        field_type: &FieldType,
         value: &Option<Value>,
         write_time: &Option<Timestamp>,
         writer_id: &Option<EntityId>,
         write_option: &PushCondition,
+        adjust_behavior: &Option<AdjustBehavior>,
     ) -> Result<()> {
         let entity_id = entity_id.as_ref();
         let field_type = field_type.as_ref();
@@ -647,15 +643,10 @@ impl MapStore {
 
 pub fn resolve_indirection(
     store: &mut MapStore,
-    entity_id: impl AsRef<EntityId>,
-    field_type: impl AsRef<FieldType>,
+    entity_id: &EntityId,
+    field_type: &FieldType,
 ) -> Result<(EntityId, FieldType)> {
-    let entity_id = entity_id.as_ref();
-    let field_type = field_type.as_ref();
-
-    let fields = field_type
-        .split(INDIRECTION_DELIMITER)
-        .collect::<Vec<&str>>();
+    let fields = field_type.indirect_fields();
 
     if fields.len() == 1 {
         return Ok((entity_id.clone(), field_type.clone()));
@@ -664,11 +655,11 @@ pub fn resolve_indirection(
     let mut current_entity_id = entity_id.clone();
 
     for i in 0..fields.len() - 1 {
-        let field = fields[i];
+        let field = &fields[i];
 
         // Handle array index navigation (for EntityList fields)
-        if i > 0 && field.parse::<i64>().is_ok() {
-            let index = field.parse::<i64>().unwrap();
+        if i > 0 && field.0.parse::<i64>().is_ok() {
+            let index = field.0.parse::<i64>().unwrap();
             if index < 0 {
                 return Err(BadIndirection::new(
                     current_entity_id.clone(),
@@ -679,9 +670,9 @@ pub fn resolve_indirection(
             }
 
             // The previous field should have been an EntityList
-            let prev_field = fields[i - 1];
+            let prev_field = &fields[i - 1];
 
-            let request = vec![&mut sread!(current_entity_id.clone(), prev_field)];
+            let request = vec![&mut sread!(current_entity_id.clone(), prev_field.clone())];
 
             let context = &Context {};
             store.perform(&context, &request)?;
@@ -707,7 +698,7 @@ pub fn resolve_indirection(
                         current_entity_id.clone(),
                         field_type.clone(),
                         BadIndirectionReason::UnexpectedValueType(
-                            prev_field.into(),
+                            prev_field.clone(),
                             format!("{:?}", value),
                         ),
                     )
@@ -720,7 +711,7 @@ pub fn resolve_indirection(
 
         // Normal field resolution
         let request = vec![
-            &mut sread!(current_entity_id.clone(), field),
+            &mut sread!(current_entity_id.clone(), field.clone()),
         ];
 
         let context = &Context {};
@@ -728,7 +719,7 @@ pub fn resolve_indirection(
             return Err(BadIndirection::new(
                 current_entity_id.clone(),
                 field_type.clone(),
-                BadIndirectionReason::FailedToResolveField(field.to_string(), e.to_string()),
+                BadIndirectionReason::FailedToResolveField(field.clone(), e.to_string()),
             )
             .into());
         }
@@ -749,12 +740,12 @@ pub fn resolve_indirection(
 
             if let Some(Value::EntityList(_)) = value {
                 // If next segment is not an index, this is an error
-                if i + 1 >= fields.len() - 1 || fields[i + 1].parse::<i64>().is_err() {
+                if i + 1 >= fields.len() - 1 || fields[i + 1].0.parse::<i64>().is_err() {
                     return Err(BadIndirection::new(
                         current_entity_id.clone(),
                         field_type.clone(),
                         BadIndirectionReason::ExpectedIndexAfterEntityList(
-                            fields[i + 1].to_string(),
+                            fields[i + 1].clone(),
                         ),
                     )
                     .into());
@@ -767,7 +758,7 @@ pub fn resolve_indirection(
                 current_entity_id.clone(),
                 field_type.clone(),
                 BadIndirectionReason::UnexpectedValueType(
-                    field.to_string(),
+                    field.clone(),
                     format!("{:?}", value),
                 ),
             )
@@ -775,5 +766,5 @@ pub fn resolve_indirection(
         }
     }
 
-    Ok((current_entity_id, fields[fields.len() - 1].to_string()))
+    Ok((current_entity_id, fields.last().unwrap().clone()))
 }

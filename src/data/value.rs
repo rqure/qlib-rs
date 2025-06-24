@@ -156,3 +156,9 @@ impl Value {
         Value::Timestamp(t)
     }
 }
+
+impl Into<String> for Value {
+    fn into(self) -> String {
+        format!("{:?}", self)
+    }
+}
