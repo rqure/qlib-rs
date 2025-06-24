@@ -31,5 +31,5 @@ pub enum Request {
         adjust_behavior: AdjustBehavior,
         write_time: Option<Timestamp>,
         writer_id: Option<EntityId>,
-    },
+    }
 }

@@ -203,7 +203,7 @@ impl MapStore {
             }
         }
 
-        let entity_id = EntityId::new(entity_type.into(), self.snowflake.generate());
+        let entity_id = EntityId::new(entity_type.clone(), self.snowflake.generate());
         if self.field.contains_key(&entity_id) {
             return Err(EntityExists(entity_id).into());
         }
@@ -231,39 +231,39 @@ impl MapStore {
                 .flat_map(|fields| fields.iter())
                 .map(|(field_type, _)| match field_type.as_ref() {
                     "Name" => {
-                        swrite!(entity_id.clone(), field_type, sstr!(name))
+                        swrite!(entity_id.clone(), field_type.clone(), sstr!(name))
                     }
-                    "Parent" => match &parent_id {
-                        Some(parent) => swrite!(entity_id.clone(), field_type, sref!(Some(parent.clone()))),
-                        None => swrite!(entity_id.clone(), field_type),
+                    "Parent" => match parent_id.as_ref() {
+                        Some(parent) => swrite!(entity_id.clone(), field_type.clone(), sref!(Some(parent.clone()))),
+                        None => swrite!(entity_id.clone(), field_type.clone()),
                     },
                     _ => {
                         // Write the field with its default value
-                        swrite!(entity_id.clone(), field_type)
+                        swrite!(entity_id.clone(), field_type.clone())
                     }
                 })
-                .collect::<Vec<&mut Request>>();
+                .collect::<Vec<Request>>();
 
-            if let Some(parent) = &parent_id {
-                let children = sread!(parent.clone(), "Children");
-                self.perform(ctx, &mut vec![&mut children])
-                    ?;
+            if let Some(parent) = parent_id {
+                let mut reqs = vec![
+                    sread!(parent.clone(), "Children".into())
+                ];
+                self.perform(ctx, reqs.as_mut())?;
 
-                if let Request::Read { value: children, .. } = &children {
-                    if let Some(Value::EntityList(mut entities)) = children {
-                        entities.push(entity_id.clone());
-
-                        writes.push(swrite!(
-                            parent.clone(),
-                            "Children",
-                            Some(Value::EntityList(entities))
-                        ));
+                if let Request::Read { value, .. } = &reqs[0] {
+                    if let Some(Value::EntityList(entities)) = value {
+                        writes.push(
+                            swrite!(
+                                parent.clone(),
+                                "Children".into(),
+                                Some(Value::EntityList(entities.clone()))
+                            )
+                        );
                     }
                 }
-
             }
 
-            self.perform(ctx, &writes)?;
+            self.perform(ctx, writes.as_mut())?;
         }
 
         Ok(Entity::new(entity_id))
@@ -285,8 +285,8 @@ impl MapStore {
         _: &Context,
         entity_schema: &EntitySchema,
     ) -> Result<()> {
-        let entity_type = entity_schema.as_ref().entity_type.clone();
-        self.schema.insert(entity_type.clone(), entity_schema.as_ref().clone());
+        let entity_type = entity_schema.entity_type.clone();
+        self.schema.insert(entity_type.clone(), entity_schema.clone());
 
         // Make sure the entity type is tracked in our types list
         if !self.entity.contains_key(&entity_type) {
@@ -305,8 +305,8 @@ impl MapStore {
     pub fn get_field_schema(
         &self,
         _: &Context,
-        entity_type: impl AsRef<EntityType>,
-        field_type: impl AsRef<FieldType>,
+        entity_type: &EntityType,
+        field_type: &FieldType,
     ) -> Result<&FieldSchema> {
         // First get the entity schema
         let entity_schema = self.get_entity_schema(&Context {}, entity_type)?;
@@ -315,7 +315,7 @@ impl MapStore {
         entity_schema
             .fields
             .get(field_type)
-            .ok_or_else(|| FieldNotFound(EntityId::new(entity_type, 0), field_type.clone()).into())
+            .ok_or_else(|| FieldNotFound(EntityId::new(entity_type.clone(), 0), field_type.clone()).into())
     }
 
     /// Set or update the schema for a specific field
@@ -366,8 +366,8 @@ impl MapStore {
             .unwrap_or(false)
     }
 
-    pub fn perform(&mut self, ctx: &Context, requests: &Vec<&mut Request>) -> Result<()> {
-        for request in requests {
+    pub fn perform(&mut self, ctx: &Context, requests: &mut Vec<Request>) -> Result<()> {
+        for request in requests.iter_mut() {
             match request {
                 Request::Read {
                     entity_id,
@@ -376,14 +376,14 @@ impl MapStore {
                     write_time,
                     writer_id,
                 } => {
-                    let indir: (EntityId, FieldType) = resolve_indirection(self, entity_id, field_type)?;
+                    let indir: (EntityId, FieldType) = resolve_indirection(ctx, self, entity_id, field_type)?;
                     self.read(
                         ctx, 
-                        indir.0, 
-                        indir.1,
-                        &mut value,
-                        &mut write_time,
-                        &mut writer_id
+                        indir.0.as_ref(), 
+                        indir.1.as_ref(),
+                        value,
+                        write_time,
+                        writer_id
                     )?;
                 }
                 Request::Write {
@@ -392,10 +392,10 @@ impl MapStore {
                     value,
                     write_time,
                     writer_id,
-                    push_condition: write_option,
-                    adjust_behavior: _,
+                    push_condition,
+                    adjust_behavior,
                 } => {
-                    let indir = resolve_indirection(self, entity_id, field_type.as_ref())?;
+                    let indir = resolve_indirection(ctx, self, entity_id, field_type.as_ref())?;
                     self.write(
                         ctx,
                         indir.0.as_ref(),
@@ -403,7 +403,8 @@ impl MapStore {
                         value,
                         write_time,
                         writer_id,
-                        write_option,
+                        push_condition,
+                        adjust_behavior,
                     )?;
                 }
             }
@@ -445,7 +446,7 @@ impl MapStore {
         write_time: &Option<Timestamp>,
         writer_id: &Option<EntityId>,
         write_option: &PushCondition,
-        adjust_behavior: &Option<AdjustBehavior>,
+        adjust_behavior: &AdjustBehavior,
     ) -> Result<()> {
         let entity_id = entity_id.as_ref();
         let field_type = field_type.as_ref();
@@ -642,6 +643,7 @@ impl MapStore {
 }
 
 pub fn resolve_indirection(
+    ctx: &Context,
     store: &mut MapStore,
     entity_id: &EntityId,
     field_type: &FieldType,
@@ -672,12 +674,12 @@ pub fn resolve_indirection(
             // The previous field should have been an EntityList
             let prev_field = &fields[i - 1];
 
-            let request = vec![&mut sread!(current_entity_id.clone(), prev_field.clone())];
+            let mut reqs = vec![
+                sread!(current_entity_id.clone(), prev_field.clone())
+            ];
+            store.perform(ctx, reqs.as_mut())?;
 
-            let context = &Context {};
-            store.perform(&context, &request)?;
-
-            if let Request::Read { value, .. } = &request[0] {
+            if let Request::Read { value, .. } = &reqs[0] {
                 if let Some(Value::EntityList(entities)) = value {
                     let index_usize = index as usize;
                     if index_usize >= entities.len() {
@@ -710,12 +712,11 @@ pub fn resolve_indirection(
         }
 
         // Normal field resolution
-        let request = vec![
-            &mut sread!(current_entity_id.clone(), field.clone()),
+        let mut reqs = vec![
+            sread!(current_entity_id.clone(), field.clone()),
         ];
 
-        let context = &Context {};
-        if let Err(e) = store.perform(&context, &request) {
+        if let Err(e) = store.perform(ctx, reqs.as_mut()) {
             return Err(BadIndirection::new(
                 current_entity_id.clone(),
                 field_type.clone(),
@@ -724,7 +725,7 @@ pub fn resolve_indirection(
             .into());
         }
 
-        if let Request::Read { value, .. } = &request[0] {
+        if let Request::Read { value, .. } = &reqs[0] {
             if let Some(Value::EntityReference(reference)) = value {
                 if reference.is_none() {
                     return Err(BadIndirection::new(
