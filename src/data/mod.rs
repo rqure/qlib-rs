@@ -38,12 +38,6 @@ impl From<&str> for EntityType {
     }
 }
 
-impl AsRef<EntityType> for EntityType {
-    fn as_ref(&self) -> &EntityType {
-        self
-    }
-}
-
 impl fmt::Display for EntityType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.0)
@@ -62,12 +56,6 @@ impl From<String> for FieldType {
 impl From<&str> for FieldType {
     fn from(s: &str) -> Self {
         FieldType(s.to_string())
-    }
-}
-
-impl AsRef<FieldType> for FieldType {
-    fn as_ref(&self) -> &FieldType {
-        self
     }
 }
 

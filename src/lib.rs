@@ -649,8 +649,8 @@ mod tests {
                 entity_id: req_entity_id,
                 field_type,
                 value,
-                push_condition: push_condition,
-                adjust_behavior: adjust_behavior,
+                push_condition,
+                adjust_behavior,
                 write_time,
                 writer_id,
             } => {
@@ -687,7 +687,7 @@ mod tests {
         );
         match request3 {
             Request::Write {
-                push_condition: push_condition,
+                push_condition,
                 ..
             } => assert!(matches!(push_condition, PushCondition::Changes)),
             _ => panic!("Expected Request::Write"),
@@ -736,26 +736,17 @@ mod mapstore_tests {
     use crate::data::EntityType;
     use super::*;
 
-    // Define entity types used in tests
-    const ENTITY_ROOT: EntityType = EntityType("Root".to_string());
-    const ENTITY_FOLDER: EntityType = EntityType("Folder".to_string());
-    const ENTITY_USER: EntityType = EntityType("User".to_string()); 
-    const ENTITY_ROLE: EntityType = EntityType("Role".to_string());
-
-    // Define field types used in tests
-    const FIELD_NAME: FieldType = FieldType("Name".to_string());
-    const FIELD_PARENT: FieldType = FieldType("Parent".to_string());
-    const FIELD_CHILDREN: FieldType = FieldType("Children".to_string());
-    const FIELD_EMAIL: FieldType = FieldType("Email".to_string());
-
     // Helper to create an entity schema with basic fields
     fn create_entity_schema(store: &mut MapStore, entity_type: &EntityType) -> Result<()> {
         let mut schema = EntitySchema::new(entity_type.clone());
+        let ft_name = FieldType::from("Name");
+        let ft_parent = FieldType::from("Parent");
+        let ft_children = FieldType::from("Children");
 
         // Add default fields common to all entities
         let name_schema = FieldSchema {
             entity_type: entity_type.clone(),
-            field_type: FIELD_NAME.clone(),
+            field_type: ft_name.clone(),
             default_value: Value::String("".into()),
             rank: 0,
             read_permission: None,
@@ -765,7 +756,7 @@ mod mapstore_tests {
 
         let parent_schema = FieldSchema {
             entity_type: entity_type.clone(),
-            field_type: FIELD_PARENT.clone(), 
+            field_type: ft_parent.clone(),
             default_value: Value::EntityReference(None),
             rank: 1,
             read_permission: None,
@@ -775,7 +766,7 @@ mod mapstore_tests {
 
         let children_schema = FieldSchema {
             entity_type: entity_type.clone(),
-            field_type: FIELD_CHILDREN.clone(),
+            field_type: ft_children.clone(),
             default_value: Value::EntityList(Vec::new()),
             rank: 2,
             read_permission: None,
@@ -783,9 +774,9 @@ mod mapstore_tests {
             choices: None,
         };
 
-        schema.fields.insert(FIELD_NAME.clone(), name_schema);
-        schema.fields.insert(FIELD_PARENT.clone(), parent_schema);
-        schema.fields.insert(FIELD_CHILDREN.clone(), children_schema);
+        schema.fields.insert(ft_name.clone(), name_schema);
+        schema.fields.insert(ft_parent.clone(), parent_schema);
+        schema.fields.insert(ft_children.clone(), children_schema);
 
         store.set_entity_schema(&Context {}, &schema)?;
         Ok(())
@@ -796,16 +787,23 @@ mod mapstore_tests {
         let mut store = MapStore::new(Arc::new(Snowflake::new()));
         let ctx = Context {};
 
+        let et_root = EntityType::from("Root");
+        let et_folder = EntityType::from("Folder");
+        let et_user = EntityType::from("User");
+        let et_role = EntityType::from("Role");
+
+        let ft_email = FieldType::from("Email");
+
         // Create schemas for different entity types
-        create_entity_schema(&mut store, &ENTITY_ROOT)?;
-        create_entity_schema(&mut store, &ENTITY_FOLDER)?;
-        create_entity_schema(&mut store, &ENTITY_USER)?;
-        create_entity_schema(&mut store, &ENTITY_ROLE)?;
+        create_entity_schema(&mut store, &et_root)?;
+        create_entity_schema(&mut store, &et_folder)?;
+        create_entity_schema(&mut store, &et_user)?;
+        create_entity_schema(&mut store, &et_role)?;
 
         // Add custom fields to User schema
         let email_schema = FieldSchema {
-            entity_type: ENTITY_USER.clone(),
-            field_type: FIELD_EMAIL.clone(),
+            entity_type: et_user.clone(),
+            field_type: ft_email.clone(),
             default_value: Value::String("".into()),
             rank: 3,
             read_permission: None,
@@ -815,13 +813,13 @@ mod mapstore_tests {
 
         store.set_field_schema(
             &ctx,
-            &ENTITY_USER,
-            &FIELD_EMAIL,
+            &et_user,
+            &ft_email,
             email_schema,
         )?;
 
         // Create root entity
-        let root = store.create_entity(&ctx, ENTITY_ROOT.clone(), None, "Root")?;
+        store.create_entity(&ctx, &et_root, None, "Root")?;
 
         Ok(store)
     }
@@ -831,51 +829,59 @@ mod mapstore_tests {
         let mut store = setup_test_database()?;
         let ctx = Context {};
 
+        let et_root = EntityType::from("Root");
+        let et_folder = EntityType::from("Folder");
+        let et_user = EntityType::from("User");
+        let et_role = EntityType::from("Role");
+
+        let ft_children = FieldType::from("Children");
+        let ft_parent = FieldType::from("Parent");
+
         // Get the Root entity
-        let root_entities = store.find_entities(&ctx, &ENTITY_ROOT, None)?;
+        let root_entities = store.find_entities(&ctx, &et_root, None)?;
         assert_eq!(root_entities.items.len(), 1);
         let root_id = root_entities.items[0].clone();
 
         // Create a folder under root
         let security_models = store.create_entity(
             &ctx,
-            ENTITY_FOLDER.clone(),
-            &Some(root_id.clone()),
+            &et_folder,
+            Some(root_id.clone()),
             "Security Models",
         )?;
 
         // Create subfolders 
         let users_folder = store.create_entity(
             &ctx,
-            ENTITY_FOLDER.clone(),
-            &Some(security_models.entity_id.clone()),
+            &et_folder,
+            Some(security_models.entity_id.clone()),
             "Users",
         )?;
 
         let roles_folder = store.create_entity(
             &ctx,
-            ENTITY_FOLDER.clone(),
-            &Some(security_models.entity_id.clone()),
+            &et_folder,
+            Some(security_models.entity_id.clone()),
             "Roles",
         )?;
 
         // Create a user and role
         let user = store.create_entity(
             &ctx,
-            ENTITY_USER.clone(),
-            &Some(users_folder.entity_id.clone()),
+            &et_user,
+            Some(users_folder.entity_id.clone()),
             "qei",
         )?;
 
-        let role = store.create_entity(
+        store.create_entity(
             &ctx,
-            ENTITY_ROLE.clone(),
-            &Some(roles_folder.entity_id.clone()),
+            &et_role,
+            Some(roles_folder.entity_id.clone()),
             "Admin",
         )?;
 
         // Read children of security models folder
-        let mut reqs = vec![sread!(security_models.entity_id, FIELD_CHILDREN.clone())];
+        let mut reqs = vec![sread!(security_models.entity_id, ft_children.clone())];
         store.perform(&ctx, &mut reqs)?;
 
         if let Request::Read { value, .. } = &reqs[0] {
@@ -887,7 +893,7 @@ mod mapstore_tests {
         }
 
         // Verify user's parent is the users folder
-        let mut reqs = vec![sread!(user.entity_id, FIELD_PARENT.clone())];
+        let mut reqs = vec![sread!(user.entity_id, ft_parent.clone())];
         store.perform(&ctx, &mut reqs)?;
 
         if let Request::Read { value, .. } = &reqs[0] {
@@ -906,23 +912,29 @@ mod mapstore_tests {
         let mut store = setup_test_database()?;
         let ctx = Context {};
 
-        let root_entities = store.find_entities(&ctx, &ENTITY_ROOT, None)?;
+        let et_root = EntityType::from("Root");
+        let et_folder = EntityType::from("Folder");
+        let et_user = EntityType::from("User");
+
+        let ft_email = FieldType::from("Email");
+
+        let root_entities = store.find_entities(&ctx, &et_root, None)?;
         let root_id = root_entities.items[0].clone();
 
         let users_folder =
-            store.create_entity(&ctx, ENTITY_FOLDER.clone(), &Some(root_id.clone()), "Users")?;
+            store.create_entity(&ctx, &et_folder, Some(root_id.clone()), "Users")?;
 
         let user = store.create_entity(
             &ctx,
-            ENTITY_USER.clone(),
-            &Some(users_folder.entity_id),
+            &et_user,
+            Some(users_folder.entity_id),
             "testuser",
         )?;
 
         // Test writing to a field
         let mut writes = vec![swrite!(
             user.entity_id.clone(),
-            "Email".into(),
+            ft_email.clone(),
             sstr!("test@example.com")
         )];
         store.perform(&ctx, &mut writes)?;
@@ -938,14 +950,14 @@ mod mapstore_tests {
         // Test field update with write option
         let mut updates = vec![swrite!(
             user.entity_id.clone(),
-            "Email".into(),
+            ft_email.clone(),
             sstr!("updated@example.com"),
             PushCondition::Changes
         )];
         store.perform(&ctx, &mut updates)?;
 
         // Verify update
-        let mut verify = vec![sread!(user.entity_id.clone(), "Email".into())];
+        let mut verify = vec![sread!(user.entity_id.clone(), ft_email.clone())];
         store.perform(&ctx, &mut verify)?;
 
         if let Request::Read { value, .. } = &verify[0] {
@@ -963,33 +975,41 @@ mod mapstore_tests {
         let mut store = setup_test_database()?;
         let ctx = Context {};
 
+        let et_root = EntityType::from("Root");
+        let et_folder = EntityType::from("Folder");
+        let et_user = EntityType::from("User");
+
+        let ft_email = FieldType::from("Email");
+
         // Create entities
-        let root_entities = store.find_entities(&ctx, &ENTITY_ROOT, None)?;
+        let root_entities = store.find_entities(&ctx, &et_root, None)?;
         let root_id = root_entities.items[0].clone();
 
         let security_folder =
-            store.create_entity(&ctx, ENTITY_FOLDER.clone(), &Some(root_id.clone()), "Security")?;
+            store.create_entity(&ctx, &et_folder, Some(root_id.clone()), "Security")?;
 
         let users_folder = store.create_entity(
             &ctx,
-            ENTITY_FOLDER.clone(),
-            &Some(security_folder.entity_id.clone()),
+            &et_folder,
+            Some(security_folder.entity_id.clone()),
             "Users",
         )?;
 
         let admin_user = store.create_entity(
             &ctx,
-            ENTITY_USER.clone(),
-            &Some(users_folder.entity_id.clone()),
+            &et_user,
+            Some(users_folder.entity_id.clone()),
             "admin",
         )?;
 
         // Set email
-        let mut writes = vec![swrite!(
-            admin_user.entity_id.clone(),
-            "Email".into(),
-            sstr!("admin@example.com")
-        )];
+        let mut writes = vec![
+            swrite!(
+                admin_user.entity_id.clone(),
+                ft_email.clone(),
+                sstr!("admin@example.com")
+            )
+        ];
         store.perform(&ctx, &mut writes)?;
 
         // Test indirection
@@ -1012,16 +1032,22 @@ mod mapstore_tests {
         let mut store = setup_test_database()?;
         let ctx = Context {};
 
+        let et_root = EntityType::from("Root");
+        let et_folder = EntityType::from("Folder");
+        let et_user = EntityType::from("User");
+
+        let ft_children = FieldType::from("Children");
+
         // Create a folder and a user
-        let root_entities = store.find_entities(&ctx, &ENTITY_ROOT, None)?;
+        let root_entities = store.find_entities(&ctx, &et_root, None)?;
         let root_id = root_entities.items[0].clone();
 
         let users_folder =
-            store.create_entity(&ctx, ENTITY_FOLDER.to_string(), Some(root_id.clone()), "Users")?;
+            store.create_entity(&ctx, &et_folder, Some(root_id.clone()), "Users")?;
 
         let user = store.create_entity(
             &ctx,
-            ENTITY_USER.to_string(),
+            &et_user,
             Some(users_folder.entity_id.clone()),
             "temp_user",
         )?;
@@ -1036,8 +1062,8 @@ mod mapstore_tests {
         assert!(!store.entity_exists(&ctx, &user.entity_id));
 
         // Check if the user was removed from the parent's children list
-        let request = vec![&mut sread!(users_folder.entity_id.clone(), "Children")];
-        store.perform(&ctx, &request)?;
+        let mut request = vec![sread!(users_folder.entity_id.clone(), ft_children.clone())];
+        store.perform(&ctx, &mut request)?;
 
         if let Request::Read { value, .. } = &request[0] {
             if let Some(Value::EntityList(children)) = value {
@@ -1057,17 +1083,21 @@ mod mapstore_tests {
         let ctx = Context {};
 
         // Create multiple entities of the same type
-        let root_entities = store.find_entities(&ctx, &ENTITY_ROOT, None)?;
+        let et_root = EntityType::from("Root");
+        let et_folder = EntityType::from("Folder");
+        let et_user = EntityType::from("User");
+
+        let root_entities = store.find_entities(&ctx, &et_root, None)?;
         let root_id = root_entities.items[0].clone();
 
         let users_folder =
-            store.create_entity(&ctx, ENTITY_FOLDER.to_string(), Some(root_id.clone()), "Users")?;
+            store.create_entity(&ctx, &et_folder, Some(root_id.clone()), "Users")?;
 
         // Create 10 users
         for i in 1..=10 {
             store.create_entity(
                 &ctx,
-                ENTITY_USER.to_string(),
+                &et_user,
                 Some(users_folder.entity_id.clone()),
                 &format!("user{}", i),
             )?;
@@ -1075,7 +1105,7 @@ mod mapstore_tests {
 
         // Test pagination - first page (5 items)
         let page_opts = PageOpts::new(5, None);
-        let page1 = store.find_entities(&ctx, &ENTITY_USER, Some(page_opts))?;
+        let page1 = store.find_entities(&ctx, &et_user, Some(page_opts))?;
 
         assert_eq!(page1.items.len(), 5);
         assert_eq!(page1.total, 10);
@@ -1083,7 +1113,7 @@ mod mapstore_tests {
 
         // Test pagination - second page
         let page_opts = PageOpts::new(5, page1.next_cursor.clone());
-        let page2 = store.find_entities(&ctx, &ENTITY_USER, Some(page_opts))?;
+        let page2 = store.find_entities(&ctx, &et_user, Some(page_opts))?;
 
         assert_eq!(page2.items.len(), 5);
         assert_eq!(page2.total, 10);
