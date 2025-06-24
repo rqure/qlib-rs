@@ -2,9 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, error, mem::discriminant, sync::Arc};
 
 use crate::{
-    data::{now, request::PushCondition, EntityType, FieldType, Timestamp},
-    sread, sref, sreflist, sstr, swrite, AdjustBehavior, Entity, EntityId, EntitySchema, Field,
-    FieldSchema, Request, Result, Snowflake, Value,
+    data::{now, request::PushCondition, EntityType, FieldType, Timestamp}, sadd, sread, sref, sreflist, sstr, swrite, AdjustBehavior, Entity, EntityId, EntitySchema, Field, FieldSchema, Request, Result, Snowflake, Value
 };
 
 pub const INDIRECTION_DELIMITER: &str = "->";
@@ -269,7 +267,7 @@ impl MapStore {
 
                 if let Request::Read { value, .. } = &reqs[0] {
                     if let Some(Value::EntityList(entities)) = value {
-                        writes.push(swrite!(
+                        writes.push(sadd!(
                             parent.clone(),
                             "Children".into(),
                             Some(Value::EntityList(entities.clone()))

@@ -132,6 +132,176 @@ macro_rules! swrite {
     };
 }
 
+/// Create a Write request with Add adjustment behavior
+///
+/// This macro creates a `Request::Write` with `AdjustBehavior::Add`, which is useful for
+/// incrementing values, appending to lists, or concatenating strings.
+///
+/// # Arguments
+///
+/// * `entity_id` - The entity ID to write to
+/// * `field_type` - The field type to write
+/// * `value` - The value to add (must be a Some(Value) or None)
+/// * `push_condition` - (optional) The write option, defaults to Always
+/// * `write_time` - (optional) The write time
+/// * `writer_id` - (optional) The writer ID
+///
+/// # Examples
+///
+/// ```
+/// // Increment a counter
+/// let request = sadd!(entity_id, "Counter", sint!(1));
+///
+/// // Append to a list
+/// let request = sadd!(entity_id, "Tags", sreflist!["tag1", "tag2"]);
+///
+/// // With write option
+/// let request = sadd!(entity_id, "Counter", sint!(1), PushCondition::Changes);
+///
+/// // With all options
+/// let request = sadd!(entity_id, "Counter", sint!(1),
+///                    PushCondition::Always, Some(now()), Some(writer_id));
+/// ```
+#[macro_export]
+macro_rules! sadd {
+    // Basic version with just value
+    ($entity_id:expr, $field_type:expr, $value:expr) => {
+        $crate::Request::Write {
+            entity_id: $entity_id,
+            field_type: $field_type,
+            value: $value,
+            push_condition: $crate::PushCondition::Always,
+            adjust_behavior: $crate::AdjustBehavior::Add,
+            write_time: None,
+            writer_id: None,
+        }
+    };
+
+    // With write option
+    ($entity_id:expr, $field_type:expr, $value:expr, $push_condition:expr) => {
+        $crate::Request::Write {
+            entity_id: $entity_id,
+            field_type: $field_type,
+            value: $value,
+            push_condition: $push_condition,
+            adjust_behavior: $crate::AdjustBehavior::Add,
+            write_time: None,
+            writer_id: None,
+        }
+    };
+
+    // With write option and write time
+    ($entity_id:expr, $field_type:expr, $value:expr, $push_condition:expr, $write_time:expr) => {
+        $crate::Request::Write {
+            entity_id: $entity_id,
+            field_type: $field_type,
+            value: $value,
+            push_condition: $push_condition,
+            adjust_behavior: $crate::AdjustBehavior::Add,
+            write_time: $write_time,
+            writer_id: None,
+        }
+    };
+
+    // With write option, write time, and writer ID
+    ($entity_id:expr, $field_type:expr, $value:expr, $push_condition:expr, $write_time:expr, $writer_id:expr) => {
+        $crate::Request::Write {
+            entity_id: $entity_id,
+            field_type: $field_type,
+            value: $value,
+            push_condition: $push_condition,
+            adjust_behavior: $crate::AdjustBehavior::Add,
+            write_time: $write_time,
+            writer_id: $writer_id,
+        }
+    };
+}
+
+/// Create a Write request with Subtract adjustment behavior
+///
+/// This macro creates a `Request::Write` with `AdjustBehavior::Subtract`, which is useful for
+/// decrementing values or removing items from lists.
+///
+/// # Arguments
+///
+/// * `entity_id` - The entity ID to write to
+/// * `field_type` - The field type to write
+/// * `value` - The value to subtract (must be a Some(Value) or None)
+/// * `push_condition` - (optional) The write option, defaults to Always
+/// * `write_time` - (optional) The write time
+/// * `writer_id` - (optional) The writer ID
+///
+/// # Examples
+///
+/// ```
+/// // Decrement a counter
+/// let request = ssub!(entity_id, "Counter", sint!(1));
+///
+/// // Remove from a list
+/// let request = ssub!(entity_id, "Tags", sreflist!["tag1"]);
+///
+/// // With write option
+/// let request = ssub!(entity_id, "Counter", sint!(1), PushCondition::Changes);
+///
+/// // With all options
+/// let request = ssub!(entity_id, "Counter", sint!(1),
+///                    PushCondition::Always, Some(now()), Some(writer_id));
+/// ```
+#[macro_export]
+macro_rules! ssub {
+    // Basic version with just value
+    ($entity_id:expr, $field_type:expr, $value:expr) => {
+        $crate::Request::Write {
+            entity_id: $entity_id,
+            field_type: $field_type,
+            value: $value,
+            push_condition: $crate::PushCondition::Always,
+            adjust_behavior: $crate::AdjustBehavior::Subtract,
+            write_time: None,
+            writer_id: None,
+        }
+    };
+
+    // With write option
+    ($entity_id:expr, $field_type:expr, $value:expr, $push_condition:expr) => {
+        $crate::Request::Write {
+            entity_id: $entity_id,
+            field_type: $field_type,
+            value: $value,
+            push_condition: $push_condition,
+            adjust_behavior: $crate::AdjustBehavior::Subtract,
+            write_time: None,
+            writer_id: None,
+        }
+    };
+
+    // With write option and write time
+    ($entity_id:expr, $field_type:expr, $value:expr, $push_condition:expr, $write_time:expr) => {
+        $crate::Request::Write {
+            entity_id: $entity_id,
+            field_type: $field_type,
+            value: $value,
+            push_condition: $push_condition,
+            adjust_behavior: $crate::AdjustBehavior::Subtract,
+            write_time: $write_time,
+            writer_id: None,
+        }
+    };
+
+    // With write option, write time, and writer ID
+    ($entity_id:expr, $field_type:expr, $value:expr, $push_condition:expr, $write_time:expr, $writer_id:expr) => {
+        $crate::Request::Write {
+            entity_id: $entity_id,
+            field_type: $field_type,
+            value: $value,
+            push_condition: $push_condition,
+            adjust_behavior: $crate::AdjustBehavior::Subtract,
+            write_time: $write_time,
+            writer_id: $writer_id,
+        }
+    };
+}
+
 pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
 /// Creates a `Some(Value::Bool)` for use in write requests.
@@ -657,14 +827,8 @@ mod tests {
                 assert_eq!(req_entity_id, entity_id);
                 assert_eq!(field_type, ft_username);
                 assert!(matches!(value, Some(Value::String(s)) if s == "alice"));
-                assert!(matches!(
-                    push_condition,
-                    PushCondition::Always
-                ));
-                assert!(matches!(
-                    adjust_behavior,
-                    AdjustBehavior::Set
-                ));
+                assert!(matches!(push_condition, PushCondition::Always));
+                assert!(matches!(adjust_behavior, AdjustBehavior::Set));
                 assert!(write_time.is_none());
                 assert!(writer_id.is_none());
             }
@@ -686,10 +850,9 @@ mod tests {
             PushCondition::Changes
         );
         match request3 {
-            Request::Write {
-                push_condition,
-                ..
-            } => assert!(matches!(push_condition, PushCondition::Changes)),
+            Request::Write { push_condition, .. } => {
+                assert!(matches!(push_condition, PushCondition::Changes))
+            }
             _ => panic!("Expected Request::Write"),
         }
 
@@ -728,402 +891,613 @@ mod tests {
             _ => panic!("Expected Request::Write"),
         }
     }
-}
-
-#[cfg(test)]
-mod mapstore_tests {
-    use std::sync::Arc;
-    use crate::data::EntityType;
-    use super::*;
-
-    // Helper to create an entity schema with basic fields
-    fn create_entity_schema(store: &mut MapStore, entity_type: &EntityType) -> Result<()> {
-        let mut schema = EntitySchema::new(entity_type.clone());
-        let ft_name = FieldType::from("Name");
-        let ft_parent = FieldType::from("Parent");
-        let ft_children = FieldType::from("Children");
-
-        // Add default fields common to all entities
-        let name_schema = FieldSchema {
-            entity_type: entity_type.clone(),
-            field_type: ft_name.clone(),
-            default_value: Value::String("".into()),
-            rank: 0,
-            read_permission: None,
-            write_permission: None,
-            choices: None,
-        };
-
-        let parent_schema = FieldSchema {
-            entity_type: entity_type.clone(),
-            field_type: ft_parent.clone(),
-            default_value: Value::EntityReference(None),
-            rank: 1,
-            read_permission: None,
-            write_permission: None,
-            choices: None,
-        };
-
-        let children_schema = FieldSchema {
-            entity_type: entity_type.clone(),
-            field_type: ft_children.clone(),
-            default_value: Value::EntityList(Vec::new()),
-            rank: 2,
-            read_permission: None,
-            write_permission: None,
-            choices: None,
-        };
-
-        schema.fields.insert(ft_name.clone(), name_schema);
-        schema.fields.insert(ft_parent.clone(), parent_schema);
-        schema.fields.insert(ft_children.clone(), children_schema);
-
-        store.set_entity_schema(&Context {}, &schema)?;
-        Ok(())
-    }
-
-    // Helper to set up a basic database structure for testing
-    fn setup_test_database() -> Result<MapStore> {
-        let mut store = MapStore::new(Arc::new(Snowflake::new()));
-        let ctx = Context {};
-
-        let et_root = EntityType::from("Root");
-        let et_folder = EntityType::from("Folder");
-        let et_user = EntityType::from("User");
-        let et_role = EntityType::from("Role");
-
-        let ft_email = FieldType::from("Email");
-
-        // Create schemas for different entity types
-        create_entity_schema(&mut store, &et_root)?;
-        create_entity_schema(&mut store, &et_folder)?;
-        create_entity_schema(&mut store, &et_user)?;
-        create_entity_schema(&mut store, &et_role)?;
-
-        // Add custom fields to User schema
-        let email_schema = FieldSchema {
-            entity_type: et_user.clone(),
-            field_type: ft_email.clone(),
-            default_value: Value::String("".into()),
-            rank: 3,
-            read_permission: None,
-            write_permission: None,
-            choices: None,
-        };
-
-        store.set_field_schema(
-            &ctx,
-            &et_user,
-            &ft_email,
-            email_schema,
-        )?;
-
-        // Create root entity
-        store.create_entity(&ctx, &et_root, None, "Root")?;
-
-        Ok(store)
-    }
 
     #[test]
-    fn test_create_entity_hierarchy() -> Result<()> {
-        let mut store = setup_test_database()?;
-        let ctx = Context {};
+    fn test_sadd_macro() {
+        let entity_id = EntityId::new("User", 456);
+        let ft_counter = FieldType::from("Counter");
 
-        let et_root = EntityType::from("Root");
-        let et_folder = EntityType::from("Folder");
-        let et_user = EntityType::from("User");
-        let et_role = EntityType::from("Role");
-
-        let ft_children = FieldType::from("Children");
-        let ft_parent = FieldType::from("Parent");
-
-        // Get the Root entity
-        let root_entities = store.find_entities(&ctx, &et_root, None)?;
-        assert_eq!(root_entities.items.len(), 1);
-        let root_id = root_entities.items[0].clone();
-
-        // Create a folder under root
-        let security_models = store.create_entity(
-            &ctx,
-            &et_folder,
-            Some(root_id.clone()),
-            "Security Models",
-        )?;
-
-        // Create subfolders 
-        let users_folder = store.create_entity(
-            &ctx,
-            &et_folder,
-            Some(security_models.entity_id.clone()),
-            "Users",
-        )?;
-
-        let roles_folder = store.create_entity(
-            &ctx,
-            &et_folder,
-            Some(security_models.entity_id.clone()),
-            "Roles",
-        )?;
-
-        // Create a user and role
-        let user = store.create_entity(
-            &ctx,
-            &et_user,
-            Some(users_folder.entity_id.clone()),
-            "qei",
-        )?;
-
-        store.create_entity(
-            &ctx,
-            &et_role,
-            Some(roles_folder.entity_id.clone()),
-            "Admin",
-        )?;
-
-        // Read children of security models folder
-        let mut reqs = vec![sread!(security_models.entity_id, ft_children.clone())];
-        store.perform(&ctx, &mut reqs)?;
-
-        if let Request::Read { value, .. } = &reqs[0] {
-            if let Some(Value::EntityList(children)) = value {
-                assert_eq!(children.len(), 2);
-            } else {
-                panic!("Expected Children to be an EntityList");
+        // Basic add with just a value
+        let request1 = sadd!(entity_id.clone(), ft_counter.clone(), sint!(5));
+        match request1 {
+            Request::Write {
+                entity_id: req_entity_id,
+                field_type,
+                value,
+                push_condition,
+                adjust_behavior,
+                write_time,
+                writer_id,
+            } => {
+                assert_eq!(req_entity_id, entity_id);
+                assert_eq!(field_type, ft_counter);
+                assert!(matches!(value, Some(Value::Int(5))));
+                assert!(matches!(push_condition, PushCondition::Always));
+                assert!(matches!(adjust_behavior, AdjustBehavior::Add));
+                assert!(write_time.is_none());
+                assert!(writer_id.is_none());
             }
+            _ => panic!("Expected Request::Write"),
         }
 
-        // Verify user's parent is the users folder
-        let mut reqs = vec![sread!(user.entity_id, ft_parent.clone())];
-        store.perform(&ctx, &mut reqs)?;
-
-        if let Request::Read { value, .. } = &reqs[0] {
-            if let Some(Value::EntityReference(parent)) = value {
-                assert_eq!(*parent, Some(users_folder.entity_id));
-            } else {
-                panic!("Expected Parent to be an EntityReference");
-            }
-        }
-
-        Ok(())
-    }
-
-    #[test]
-    fn test_field_operations() -> Result<()> {
-        let mut store = setup_test_database()?;
-        let ctx = Context {};
-
-        let et_root = EntityType::from("Root");
-        let et_folder = EntityType::from("Folder");
-        let et_user = EntityType::from("User");
-
-        let ft_email = FieldType::from("Email");
-
-        let root_entities = store.find_entities(&ctx, &et_root, None)?;
-        let root_id = root_entities.items[0].clone();
-
-        let users_folder =
-            store.create_entity(&ctx, &et_folder, Some(root_id.clone()), "Users")?;
-
-        let user = store.create_entity(
-            &ctx,
-            &et_user,
-            Some(users_folder.entity_id),
-            "testuser",
-        )?;
-
-        // Test writing to a field
-        let mut writes = vec![swrite!(
-            user.entity_id.clone(),
-            ft_email.clone(),
-            sstr!("test@example.com")
-        )];
-        store.perform(&ctx, &mut writes)?;
-
-        // Test reading the field
-        let mut reads = vec![sread!(user.entity_id.clone(), "Email".into())];
-        store.perform(&ctx, &mut reads)?;
-
-        if let Request::Read { value, .. } = &reads[0] {
-            assert_eq!(*value, Some(Value::String("test@example.com".to_string())));
-        }
-
-        // Test field update with write option
-        let mut updates = vec![swrite!(
-            user.entity_id.clone(),
-            ft_email.clone(),
-            sstr!("updated@example.com"),
+        // Add with write option
+        let request2 = sadd!(
+            entity_id.clone(),
+            ft_counter.clone(),
+            sint!(10),
             PushCondition::Changes
-        )];
-        store.perform(&ctx, &mut updates)?;
-
-        // Verify update
-        let mut verify = vec![sread!(user.entity_id.clone(), ft_email.clone())];
-        store.perform(&ctx, &mut verify)?;
-
-        if let Request::Read { value, .. } = &verify[0] {
-            assert_eq!(
-                *value,
-                Some(Value::String("updated@example.com".to_string()))
-            );
+        );
+        match request2 {
+            Request::Write {
+                push_condition,
+                adjust_behavior,
+                ..
+            } => {
+                assert!(matches!(push_condition, PushCondition::Changes));
+                assert!(matches!(adjust_behavior, AdjustBehavior::Add));
+            }
+            _ => panic!("Expected Request::Write"),
         }
 
-        Ok(())
+        // Add with time
+        let now = now();
+        let request3 = sadd!(
+            entity_id.clone(),
+            ft_counter.clone(),
+            sint!(15),
+            PushCondition::Always,
+            Some(now)
+        );
+        match request3 {
+            Request::Write {
+                write_time,
+                adjust_behavior,
+                ..
+            } => {
+                assert_eq!(write_time, Some(now));
+                assert!(matches!(adjust_behavior, AdjustBehavior::Add));
+            }
+            _ => panic!("Expected Request::Write"),
+        }
+
+        // Add with writer
+        let writer_id = EntityId::new("Admin", 1);
+        let request4 = sadd!(
+            entity_id.clone(),
+            ft_counter.clone(),
+            sint!(20),
+            PushCondition::Always,
+            Some(now),
+            Some(writer_id.clone())
+        );
+        match request4 {
+            Request::Write {
+                writer_id: req_writer_id,
+                adjust_behavior,
+                ..
+            } => {
+                assert_eq!(req_writer_id, Some(writer_id));
+                assert!(matches!(adjust_behavior, AdjustBehavior::Add));
+            }
+            _ => panic!("Expected Request::Write"),
+        }
+
+        // Add with entity list (testing different value types)
+        let ft_tags = FieldType::from("Tags");
+        let tag1 = EntityId::new("Tag", 1);
+        let tag2 = EntityId::new("Tag", 2);
+        let request5 = sadd!(
+            entity_id.clone(),
+            ft_tags.clone(),
+            sreflist![tag1.clone(), tag2.clone()]
+        );
+        match request5 {
+            Request::Write {
+                adjust_behavior,
+                value,
+                ..
+            } => {
+                assert!(matches!(adjust_behavior, AdjustBehavior::Add));
+                if let Some(Value::EntityList(list)) = value {
+                    assert_eq!(list.len(), 2);
+                    assert_eq!(list[0], tag1);
+                    assert_eq!(list[1], tag2);
+                } else {
+                    panic!("Expected Some(Value::EntityList)");
+                }
+            }
+            _ => panic!("Expected Request::Write"),
+        }
     }
 
     #[test]
-    fn test_indirection_resolution() -> Result<()> {
-        let mut store = setup_test_database()?;
-        let ctx = Context {};
+    fn test_ssub_macro() {
+        let entity_id = EntityId::new("User", 789);
+        let ft_counter = FieldType::from("Counter");
 
-        let et_root = EntityType::from("Root");
-        let et_folder = EntityType::from("Folder");
-        let et_user = EntityType::from("User");
+        // Basic subtract with just a value
+        let request1 = ssub!(entity_id.clone(), ft_counter.clone(), sint!(3));
+        match request1 {
+            Request::Write {
+                entity_id: req_entity_id,
+                field_type,
+                value,
+                push_condition,
+                adjust_behavior,
+                write_time,
+                writer_id,
+            } => {
+                assert_eq!(req_entity_id, entity_id);
+                assert_eq!(field_type, ft_counter);
+                assert!(matches!(value, Some(Value::Int(3))));
+                assert!(matches!(push_condition, PushCondition::Always));
+                assert!(matches!(adjust_behavior, AdjustBehavior::Subtract));
+                assert!(write_time.is_none());
+                assert!(writer_id.is_none());
+            }
+            _ => panic!("Expected Request::Write"),
+        }
 
-        let ft_email = FieldType::from("Email");
+        // Subtract with write option
+        let request2 = ssub!(
+            entity_id.clone(),
+            ft_counter.clone(),
+            sint!(5),
+            PushCondition::Changes
+        );
+        match request2 {
+            Request::Write {
+                push_condition,
+                adjust_behavior,
+                ..
+            } => {
+                assert!(matches!(push_condition, PushCondition::Changes));
+                assert!(matches!(adjust_behavior, AdjustBehavior::Subtract));
+            }
+            _ => panic!("Expected Request::Write"),
+        }
 
-        // Create entities
-        let root_entities = store.find_entities(&ctx, &et_root, None)?;
-        let root_id = root_entities.items[0].clone();
+        // Subtract with time
+        let now = now();
+        let request3 = ssub!(
+            entity_id.clone(),
+            ft_counter.clone(),
+            sint!(8),
+            PushCondition::Always,
+            Some(now)
+        );
+        match request3 {
+            Request::Write {
+                write_time,
+                adjust_behavior,
+                ..
+            } => {
+                assert_eq!(write_time, Some(now));
+                assert!(matches!(adjust_behavior, AdjustBehavior::Subtract));
+            }
+            _ => panic!("Expected Request::Write"),
+        }
 
-        let security_folder =
-            store.create_entity(&ctx, &et_folder, Some(root_id.clone()), "Security")?;
+        // Subtract with writer
+        let writer_id = EntityId::new("Admin", 1);
+        let request4 = ssub!(
+            entity_id.clone(),
+            ft_counter.clone(),
+            sint!(10),
+            PushCondition::Always,
+            Some(now),
+            Some(writer_id.clone())
+        );
+        match request4 {
+            Request::Write {
+                writer_id: req_writer_id,
+                adjust_behavior,
+                ..
+            } => {
+                assert_eq!(req_writer_id, Some(writer_id));
+                assert!(matches!(adjust_behavior, AdjustBehavior::Subtract));
+            }
+            _ => panic!("Expected Request::Write"),
+        }
 
-        let users_folder = store.create_entity(
-            &ctx,
-            &et_folder,
-            Some(security_folder.entity_id.clone()),
-            "Users",
-        )?;
+        // Subtract with entity list (testing different value types)
+        let ft_tags = FieldType::from("Tags");
+        let tag1 = EntityId::new("Tag", 1);
+        let request5 = ssub!(entity_id.clone(), ft_tags.clone(), sreflist![tag1.clone()]);
+        match request5 {
+            Request::Write {
+                adjust_behavior,
+                value,
+                ..
+            } => {
+                assert!(matches!(adjust_behavior, AdjustBehavior::Subtract));
+                if let Some(Value::EntityList(list)) = value {
+                    assert_eq!(list.len(), 1);
+                    assert_eq!(list[0], tag1);
+                } else {
+                    panic!("Expected Some(Value::EntityList)");
+                }
+            }
+            _ => panic!("Expected Request::Write"),
+        }
+    }
 
-        let admin_user = store.create_entity(
-            &ctx,
-            &et_user,
-            Some(users_folder.entity_id.clone()),
-            "admin",
-        )?;
+    #[cfg(test)]
+    mod mapstore_tests {
+        use super::*;
+        use crate::data::EntityType;
+        use std::sync::Arc;
 
-        // Set email
-        let mut writes = vec![
-            swrite!(
-                admin_user.entity_id.clone(),
+        // Helper to create an entity schema with basic fields
+        fn create_entity_schema(store: &mut MapStore, entity_type: &EntityType) -> Result<()> {
+            let mut schema = EntitySchema::new(entity_type.clone());
+            let ft_name = FieldType::from("Name");
+            let ft_parent = FieldType::from("Parent");
+            let ft_children = FieldType::from("Children");
+
+            // Add default fields common to all entities
+            let name_schema = FieldSchema {
+                entity_type: entity_type.clone(),
+                field_type: ft_name.clone(),
+                default_value: Value::String("".into()),
+                rank: 0,
+                read_permission: None,
+                write_permission: None,
+                choices: None,
+            };
+
+            let parent_schema = FieldSchema {
+                entity_type: entity_type.clone(),
+                field_type: ft_parent.clone(),
+                default_value: Value::EntityReference(None),
+                rank: 1,
+                read_permission: None,
+                write_permission: None,
+                choices: None,
+            };
+
+            let children_schema = FieldSchema {
+                entity_type: entity_type.clone(),
+                field_type: ft_children.clone(),
+                default_value: Value::EntityList(Vec::new()),
+                rank: 2,
+                read_permission: None,
+                write_permission: None,
+                choices: None,
+            };
+
+            schema.fields.insert(ft_name.clone(), name_schema);
+            schema.fields.insert(ft_parent.clone(), parent_schema);
+            schema.fields.insert(ft_children.clone(), children_schema);
+
+            store.set_entity_schema(&Context {}, &schema)?;
+            Ok(())
+        }
+
+        // Helper to set up a basic database structure for testing
+        fn setup_test_database() -> Result<MapStore> {
+            let mut store = MapStore::new(Arc::new(Snowflake::new()));
+            let ctx = Context {};
+
+            let et_root = EntityType::from("Root");
+            let et_folder = EntityType::from("Folder");
+            let et_user = EntityType::from("User");
+            let et_role = EntityType::from("Role");
+
+            let ft_email = FieldType::from("Email");
+
+            // Create schemas for different entity types
+            create_entity_schema(&mut store, &et_root)?;
+            create_entity_schema(&mut store, &et_folder)?;
+            create_entity_schema(&mut store, &et_user)?;
+            create_entity_schema(&mut store, &et_role)?;
+
+            // Add custom fields to User schema
+            let email_schema = FieldSchema {
+                entity_type: et_user.clone(),
+                field_type: ft_email.clone(),
+                default_value: Value::String("".into()),
+                rank: 3,
+                read_permission: None,
+                write_permission: None,
+                choices: None,
+            };
+
+            store.set_field_schema(&ctx, &et_user, &ft_email, email_schema)?;
+
+            // Create root entity
+            store.create_entity(&ctx, &et_root, None, "Root")?;
+
+            Ok(store)
+        }
+
+        #[test]
+        fn test_create_entity_hierarchy() -> Result<()> {
+            let mut store = setup_test_database()?;
+            let ctx = Context {};
+
+            let et_root = EntityType::from("Root");
+            let et_folder = EntityType::from("Folder");
+            let et_user = EntityType::from("User");
+            let et_role = EntityType::from("Role");
+
+            let ft_children = FieldType::from("Children");
+            let ft_parent = FieldType::from("Parent");
+
+            // Get the Root entity
+            let root_entities = store.find_entities(&ctx, &et_root, None)?;
+            assert_eq!(root_entities.items.len(), 1);
+            let root_id = root_entities.items[0].clone();
+
+            // Create a folder under root
+            let security_models =
+                store.create_entity(&ctx, &et_folder, Some(root_id.clone()), "Security Models")?;
+
+            // Create subfolders
+            let users_folder = store.create_entity(
+                &ctx,
+                &et_folder,
+                Some(security_models.entity_id.clone()),
+                "Users",
+            )?;
+
+            let roles_folder = store.create_entity(
+                &ctx,
+                &et_folder,
+                Some(security_models.entity_id.clone()),
+                "Roles",
+            )?;
+
+            // Create a user and role
+            let user =
+                store.create_entity(&ctx, &et_user, Some(users_folder.entity_id.clone()), "qei")?;
+
+            store.create_entity(
+                &ctx,
+                &et_role,
+                Some(roles_folder.entity_id.clone()),
+                "Admin",
+            )?;
+
+            // Read children of security models folder
+            let mut reqs = vec![sread!(security_models.entity_id, ft_children.clone())];
+            store.perform(&ctx, &mut reqs)?;
+
+            if let Request::Read { value, .. } = &reqs[0] {
+                if let Some(Value::EntityList(children)) = value {
+                    assert_eq!(children.len(), 2);
+                } else {
+                    panic!("Expected Children to be an EntityList");
+                }
+            }
+
+            // Verify user's parent is the users folder
+            let mut reqs = vec![sread!(user.entity_id, ft_parent.clone())];
+            store.perform(&ctx, &mut reqs)?;
+
+            if let Request::Read { value, .. } = &reqs[0] {
+                if let Some(Value::EntityReference(parent)) = value {
+                    assert_eq!(*parent, Some(users_folder.entity_id));
+                } else {
+                    panic!("Expected Parent to be an EntityReference");
+                }
+            }
+
+            Ok(())
+        }
+
+        #[test]
+        fn test_field_operations() -> Result<()> {
+            let mut store = setup_test_database()?;
+            let ctx = Context {};
+
+            let et_root = EntityType::from("Root");
+            let et_folder = EntityType::from("Folder");
+            let et_user = EntityType::from("User");
+
+            let ft_email = FieldType::from("Email");
+
+            let root_entities = store.find_entities(&ctx, &et_root, None)?;
+            let root_id = root_entities.items[0].clone();
+
+            let users_folder =
+                store.create_entity(&ctx, &et_folder, Some(root_id.clone()), "Users")?;
+
+            let user =
+                store.create_entity(&ctx, &et_user, Some(users_folder.entity_id), "testuser")?;
+
+            // Test writing to a field
+            let mut writes = vec![swrite!(
+                user.entity_id.clone(),
                 ft_email.clone(),
-                sstr!("admin@example.com")
-            )
-        ];
-        store.perform(&ctx, &mut writes)?;
+                sstr!("test@example.com")
+            )];
+            store.perform(&ctx, &mut writes)?;
 
-        // Test indirection
-        let mut reqs = vec![sread!(
-            security_folder.entity_id.clone(),
-            format!("Children->0->Children->0->Email").into()
-        )];
+            // Test reading the field
+            let mut reads = vec![sread!(user.entity_id.clone(), "Email".into())];
+            store.perform(&ctx, &mut reads)?;
 
-        store.perform(&ctx, &mut reqs)?;
+            if let Request::Read { value, .. } = &reads[0] {
+                assert_eq!(*value, Some(Value::String("test@example.com".to_string())));
+            }
 
-        if let Request::Read { value, .. } = &reqs[0] {
-            assert_eq!(*value, Some(Value::String("admin@example.com".to_string())));
-        }
+            // Test field update with write option
+            let mut updates = vec![swrite!(
+                user.entity_id.clone(),
+                ft_email.clone(),
+                sstr!("updated@example.com"),
+                PushCondition::Changes
+            )];
+            store.perform(&ctx, &mut updates)?;
 
-        Ok(())
-    }
+            // Verify update
+            let mut verify = vec![sread!(user.entity_id.clone(), ft_email.clone())];
+            store.perform(&ctx, &mut verify)?;
 
-    #[test]
-    fn test_entity_deletion() -> Result<()> {
-        let mut store = setup_test_database()?;
-        let ctx = Context {};
-
-        let et_root = EntityType::from("Root");
-        let et_folder = EntityType::from("Folder");
-        let et_user = EntityType::from("User");
-
-        let ft_children = FieldType::from("Children");
-
-        // Create a folder and a user
-        let root_entities = store.find_entities(&ctx, &et_root, None)?;
-        let root_id = root_entities.items[0].clone();
-
-        let users_folder =
-            store.create_entity(&ctx, &et_folder, Some(root_id.clone()), "Users")?;
-
-        let user = store.create_entity(
-            &ctx,
-            &et_user,
-            Some(users_folder.entity_id.clone()),
-            "temp_user",
-        )?;
-
-        // Verify user exists
-        assert!(store.entity_exists(&ctx, &user.entity_id));
-
-        // Delete the user
-        store.delete_entity(&ctx, &user.entity_id)?;
-
-        // Verify user no longer exists
-        assert!(!store.entity_exists(&ctx, &user.entity_id));
-
-        // Check if the user was removed from the parent's children list
-        let mut request = vec![sread!(users_folder.entity_id.clone(), ft_children.clone())];
-        store.perform(&ctx, &mut request)?;
-
-        if let Request::Read { value, .. } = &request[0] {
-            if let Some(Value::EntityList(children)) = value {
-                assert!(
-                    !children.contains(&user.entity_id),
-                    "User should have been removed from parent's children list"
+            if let Request::Read { value, .. } = &verify[0] {
+                assert_eq!(
+                    *value,
+                    Some(Value::String("updated@example.com".to_string()))
                 );
             }
+
+            Ok(())
         }
 
-        Ok(())
-    }
+        #[test]
+        fn test_indirection_resolution() -> Result<()> {
+            let mut store = setup_test_database()?;
+            let ctx = Context {};
 
-    #[test]
-    fn test_entity_listing_with_pagination() -> Result<()> {
-        let mut store = setup_test_database()?;
-        let ctx = Context {};
+            let et_root = EntityType::from("Root");
+            let et_folder = EntityType::from("Folder");
+            let et_user = EntityType::from("User");
 
-        // Create multiple entities of the same type
-        let et_root = EntityType::from("Root");
-        let et_folder = EntityType::from("Folder");
-        let et_user = EntityType::from("User");
+            let ft_email = FieldType::from("Email");
 
-        let root_entities = store.find_entities(&ctx, &et_root, None)?;
-        let root_id = root_entities.items[0].clone();
+            // Create entities
+            let root_entities = store.find_entities(&ctx, &et_root, None)?;
+            let root_id = root_entities.items[0].clone();
 
-        let users_folder =
-            store.create_entity(&ctx, &et_folder, Some(root_id.clone()), "Users")?;
+            let security_folder =
+                store.create_entity(&ctx, &et_folder, Some(root_id.clone()), "Security")?;
 
-        // Create 10 users
-        for i in 1..=10 {
-            store.create_entity(
+            let users_folder = store.create_entity(
+                &ctx,
+                &et_folder,
+                Some(security_folder.entity_id.clone()),
+                "Users",
+            )?;
+
+            let admin_user = store.create_entity(
                 &ctx,
                 &et_user,
                 Some(users_folder.entity_id.clone()),
-                &format!("user{}", i),
+                "admin",
             )?;
+
+            // Set email
+            let mut writes = vec![swrite!(
+                admin_user.entity_id.clone(),
+                ft_email.clone(),
+                sstr!("admin@example.com")
+            )];
+            store.perform(&ctx, &mut writes)?;
+
+            // Test indirection
+            let mut reqs = vec![sread!(
+                security_folder.entity_id.clone(),
+                format!("Children->0->Children->0->Email").into()
+            )];
+
+            store.perform(&ctx, &mut reqs)?;
+
+            if let Request::Read { value, .. } = &reqs[0] {
+                assert_eq!(*value, Some(Value::String("admin@example.com".to_string())));
+            }
+
+            Ok(())
         }
 
-        // Test pagination - first page (5 items)
-        let page_opts = PageOpts::new(5, None);
-        let page1 = store.find_entities(&ctx, &et_user, Some(page_opts))?;
+        #[test]
+        fn test_entity_deletion() -> Result<()> {
+            let mut store = setup_test_database()?;
+            let ctx = Context {};
 
-        assert_eq!(page1.items.len(), 5);
-        assert_eq!(page1.total, 10);
-        assert!(page1.next_cursor.is_some());
+            let et_root = EntityType::from("Root");
+            let et_folder = EntityType::from("Folder");
+            let et_user = EntityType::from("User");
 
-        // Test pagination - second page
-        let page_opts = PageOpts::new(5, page1.next_cursor.clone());
-        let page2 = store.find_entities(&ctx, &et_user, Some(page_opts))?;
+            let ft_children = FieldType::from("Children");
 
-        assert_eq!(page2.items.len(), 5);
-        assert_eq!(page2.total, 10);
-        assert!(page2.next_cursor.is_none());
+            // Create a folder and a user
+            let root_entities = store.find_entities(&ctx, &et_root, None)?;
+            let root_id = root_entities.items[0].clone();
 
-        // Verify we got different sets of users
-        for item in &page1.items {
-            assert!(!page2.items.contains(item));
+            let users_folder =
+                store.create_entity(&ctx, &et_folder, Some(root_id.clone()), "Users")?;
+
+            let user = store.create_entity(
+                &ctx,
+                &et_user,
+                Some(users_folder.entity_id.clone()),
+                "temp_user",
+            )?;
+
+            // Verify user exists
+            assert!(store.entity_exists(&ctx, &user.entity_id));
+
+            // Delete the user
+            store.delete_entity(&ctx, &user.entity_id)?;
+
+            // Verify user no longer exists
+            assert!(!store.entity_exists(&ctx, &user.entity_id));
+
+            // Check if the user was removed from the parent's children list
+            let mut request = vec![sread!(users_folder.entity_id.clone(), ft_children.clone())];
+            store.perform(&ctx, &mut request)?;
+
+            if let Request::Read { value, .. } = &request[0] {
+                if let Some(Value::EntityList(children)) = value {
+                    assert!(
+                        !children.contains(&user.entity_id),
+                        "User should have been removed from parent's children list"
+                    );
+                }
+            }
+
+            Ok(())
         }
 
-        Ok(())
+        #[test]
+        fn test_entity_listing_with_pagination() -> Result<()> {
+            let mut store = setup_test_database()?;
+            let ctx = Context {};
+
+            // Create multiple entities of the same type
+            let et_root = EntityType::from("Root");
+            let et_folder = EntityType::from("Folder");
+            let et_user = EntityType::from("User");
+
+            let root_entities = store.find_entities(&ctx, &et_root, None)?;
+            let root_id = root_entities.items[0].clone();
+
+            let users_folder =
+                store.create_entity(&ctx, &et_folder, Some(root_id.clone()), "Users")?;
+
+            // Create 10 users
+            for i in 1..=10 {
+                store.create_entity(
+                    &ctx,
+                    &et_user,
+                    Some(users_folder.entity_id.clone()),
+                    &format!("user{}", i),
+                )?;
+            }
+
+            // Test pagination - first page (5 items)
+            let page_opts = PageOpts::new(5, None);
+            let page1 = store.find_entities(&ctx, &et_user, Some(page_opts))?;
+
+            assert_eq!(page1.items.len(), 5);
+            assert_eq!(page1.total, 10);
+            assert!(page1.next_cursor.is_some());
+
+            // Test pagination - second page
+            let page_opts = PageOpts::new(5, page1.next_cursor.clone());
+            let page2 = store.find_entities(&ctx, &et_user, Some(page_opts))?;
+
+            assert_eq!(page2.items.len(), 5);
+            assert_eq!(page2.total, 10);
+            assert!(page2.next_cursor.is_none());
+
+            // Verify we got different sets of users
+            for item in &page1.items {
+                assert!(!page2.items.contains(item));
+            }
+
+            Ok(())
+        }
     }
 }
