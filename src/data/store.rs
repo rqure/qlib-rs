@@ -503,7 +503,7 @@ impl Store {
 
     fn write(
         &mut self,
-        _: &Context,
+        ctx: &Context,
         entity_id: &EntityId,
         field_type: &FieldType,
         value: &Option<Value>,
@@ -512,10 +512,8 @@ impl Store {
         write_option: &PushCondition,
         adjust_behavior: &AdjustBehavior,
     ) -> Result<()> {
-        let field_schema = self
-            .schemas
-            .get(entity_id.get_type())
-            .and_then(|schema| schema.fields.get(field_type))
+        let entity_schema = self.get_complete_entity_schema(ctx, entity_id.get_type())?;
+        let field_schema = entity_schema.fields.get(field_type)
             .ok_or_else(|| FieldNotFound(entity_id.clone(), field_type.clone()))?;
 
         let fields = self
