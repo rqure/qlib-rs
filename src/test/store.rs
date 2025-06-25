@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 // Helper to create an entity schema with basic fields
 #[allow(dead_code)]
-fn create_entity_schema(store: &mut MapStore, entity_type: &EntityType) -> Result<()> {
+fn create_entity_schema(store: &mut Store, entity_type: &EntityType) -> Result<()> {
     let mut schema = EntitySchema::new(entity_type.clone());
     let ft_name = FieldType::from("Name");
     let ft_parent = FieldType::from("Parent");
@@ -51,8 +51,8 @@ fn create_entity_schema(store: &mut MapStore, entity_type: &EntityType) -> Resul
 
 // Helper to set up a basic database structure for testing
 #[allow(dead_code)]
-fn setup_test_database() -> Result<MapStore> {
-    let mut store = MapStore::new(Arc::new(Snowflake::new()));
+fn setup_test_database() -> Result<Store> {
+    let mut store = Store::new(Arc::new(Snowflake::new()));
     let ctx = Context {};
 
     let et_root = EntityType::from("Root");

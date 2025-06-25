@@ -19,7 +19,7 @@ pub use request::{AdjustBehavior, PushCondition, Request};
 use serde::{Deserialize, Serialize};
 pub use snowflake::Snowflake;
 pub use store::{
-    resolve_indirection, BadIndirection, BadIndirectionReason, Context, MapStore, PageOpts,
+    resolve_indirection, BadIndirection, BadIndirectionReason, Context, Store, PageOpts,
     PageResult, INDIRECTION_DELIMITER,
 };
 pub use value::Value;

@@ -180,7 +180,7 @@ impl<T> PageResult<T> {
     }
 }
 
-pub struct MapStore {
+pub struct Store {
     schemas: HashMap<EntityType, EntitySchema>,
     entities: HashMap<EntityType, Vec<EntityId>>,
     types: Vec<EntityType>,
@@ -188,9 +188,9 @@ pub struct MapStore {
     snowflake: Arc<Snowflake>,
 }
 
-impl MapStore {
+impl Store {
     pub fn new(snowflake: Arc<Snowflake>) -> Self {
-        MapStore {
+        Store {
             schemas: HashMap::new(),
             entities: HashMap::new(),
             types: Vec::new(),
@@ -740,7 +740,7 @@ impl MapStore {
 
 pub fn resolve_indirection(
     ctx: &Context,
-    store: &mut MapStore,
+    store: &mut Store,
     entity_id: &EntityId,
     field_type: &FieldType,
 ) -> Result<(EntityId, FieldType)> {

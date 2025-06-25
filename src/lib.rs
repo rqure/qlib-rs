@@ -3,7 +3,7 @@ mod test;
 
 pub use data::{
     epoch, now, resolve_indirection, AdjustBehavior, BadIndirection, BadIndirectionReason, Context,
-    Entity, EntityId, EntitySchema, Field, FieldSchema, FieldType, MapStore, PageOpts, PageResult,
+    Entity, EntityId, EntitySchema, Field, FieldSchema, FieldType, Store, PageOpts, PageResult,
     PushCondition, Request, Snowflake, Timestamp, Value, INDIRECTION_DELIMITER,
 };
 
