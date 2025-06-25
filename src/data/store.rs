@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, error, mem::discriminant, sync::Arc};
 
 use crate::{
-    data::{now, request::PushCondition, EntityType, FieldType, Timestamp}, sadd, sread, sref, sreflist, sstr, swrite, AdjustBehavior, Entity, EntityId, EntitySchema, Field, FieldSchema, Request, Result, Snowflake, Value
+    data::{now, request::PushCondition, EntityType, FieldType, Timestamp}, sadd, sread, sref, sreflist, sstr, ssub, swrite, AdjustBehavior, Entity, EntityId, EntitySchema, Field, FieldSchema, Request, Result, Snowflake, Value
 };
 
 pub const INDIRECTION_DELIMITER: &str = "->";
@@ -261,19 +261,13 @@ impl MapStore {
                 })
                 .collect::<Vec<Request>>();
 
+            // If we have a parent, add it to the parent's children list
             if let Some(parent) = &parent_id {
-                let mut reqs = vec![sread!(parent.clone(), "Children".into())];
-                self.perform(ctx, &mut reqs)?;
-
-                if let Request::Read { value, .. } = &reqs[0] {
-                    if let Some(Value::EntityList(entities)) = value {
-                        writes.push(sadd!(
-                            parent.clone(),
-                            "Children".into(),
-                            Some(Value::EntityList(entities.clone()))
-                        ));
-                    }
-                }
+                writes.push(sadd!(
+                    parent.clone(),
+                    "Children".into(),
+                    sreflist![entity_id.clone()]
+                ));
             }
 
             self.perform(ctx, &mut writes)?;
@@ -593,18 +587,53 @@ impl MapStore {
 
     /// Deletes an entity and all its fields
     /// Returns an error if the entity doesn't exist
-    pub fn delete_entity(&mut self, _: &Context, entity_id: &EntityId) -> Result<()> {
+    pub fn delete_entity(&mut self, ctx: &Context, entity_id: &EntityId) -> Result<()> {
+        // Remove all childrens
+        {
+            let mut reqs = vec![
+                sread!(entity_id.clone(), "Children".into()),
+            ];
+            self.perform(ctx, &mut reqs)?;
+            if let Request::Read { value, .. } = &reqs[0] {
+                if let Some(Value::EntityList(children)) = value {
+                    for child in children {
+                        self.delete_entity(ctx, child)?;
+                    }
+                } else {
+                    return Err(BadIndirection::new(
+                        entity_id.clone(),
+                        "Children".into(),
+                        BadIndirectionReason::UnexpectedValueType("Children".into(), format!("{:?}", value)),
+                    )
+                    .into());
+                }
+            }
+        }
+
         // Check if the entity exists
-        if !self.field.contains_key(entity_id) {
-            return Err(EntityNotFound(entity_id.clone()).into());
+        {
+            if !self.field.contains_key(entity_id) {
+                return Err(EntityNotFound(entity_id.clone()).into());
+            }
         }
 
         // Remove fields
-        self.field.remove(entity_id);
+        {
+            self.field.remove(entity_id);
+        }
 
         // Remove from entity type list
-        if let Some(entities) = self.entity.get_mut(entity_id.get_type()) {
-            entities.retain(|id| id != entity_id);
+        {
+            if let Some(entities) = self.entity.get_mut(entity_id.get_type()) {
+                entities.retain(|id| id != entity_id);
+            }
+        }
+
+        // Remove from parent's children list
+        {
+            self.perform(ctx,  &mut vec![
+                ssub!(entity_id.clone(), "Parent->Children".into(), sreflist![entity_id.clone()]),
+            ])?;
         }
 
         Ok(())
