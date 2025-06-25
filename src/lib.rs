@@ -13,12 +13,6 @@ pub use data::{
 ///
 /// * `entity_id` - The entity ID to read from
 /// * `field_type` - The field type to read
-///
-/// # Example
-///
-/// ```
-/// let request = sread!(entity_id, "Name");
-/// ```
 #[macro_export]
 macro_rules! sread {
     ($entity_id:expr, $field_type:expr) => {
@@ -42,29 +36,6 @@ macro_rules! sread {
 /// * `push_condition` - (optional) The write option, defaults to Normal
 /// * `write_time` - (optional) The write time
 /// * `writer_id` - (optional) The writer ID
-///
-/// # Examples
-///
-/// ```
-/// // Use with sb* macros that automatically wrap values in Some()
-/// let request = swrite!(entity_id, "Name", sstr!("Test"));
-/// let request = swrite!(entity_id, "Age", sint!(42));
-/// let request = swrite!(entity_id, "Active", sbool!(true));
-///
-/// // With None for deletion
-/// let request = swrite!(entity_id, "Name", None);
-///
-/// // With write option
-/// let request = swrite!(entity_id, "Name", sstr!("Test"), WriteOption::Changes);
-///
-/// // With write time
-/// let request = swrite!(entity_id, "Name", sstr!("Test"),
-///                      WriteOption::Normal, Some(now()));
-///
-/// // With all options
-/// let request = swrite!(entity_id, "Name", sstr!("Test"),
-///                      WriteOption::Normal, Some(now()), Some(writer_id));
-/// ```
 #[macro_export]
 macro_rules! swrite {
     // Basic version with no value: handle Some/None
@@ -146,23 +117,6 @@ macro_rules! swrite {
 /// * `push_condition` - (optional) The write option, defaults to Always
 /// * `write_time` - (optional) The write time
 /// * `writer_id` - (optional) The writer ID
-///
-/// # Examples
-///
-/// ```
-/// // Increment a counter
-/// let request = sadd!(entity_id, "Counter", sint!(1));
-///
-/// // Append to a list
-/// let request = sadd!(entity_id, "Tags", sreflist!["tag1", "tag2"]);
-///
-/// // With write option
-/// let request = sadd!(entity_id, "Counter", sint!(1), PushCondition::Changes);
-///
-/// // With all options
-/// let request = sadd!(entity_id, "Counter", sint!(1),
-///                    PushCondition::Always, Some(now()), Some(writer_id));
-/// ```
 #[macro_export]
 macro_rules! sadd {
     // Basic version with just value
@@ -231,23 +185,6 @@ macro_rules! sadd {
 /// * `push_condition` - (optional) The write option, defaults to Always
 /// * `write_time` - (optional) The write time
 /// * `writer_id` - (optional) The writer ID
-///
-/// # Examples
-///
-/// ```
-/// // Decrement a counter
-/// let request = ssub!(entity_id, "Counter", sint!(1));
-///
-/// // Remove from a list
-/// let request = ssub!(entity_id, "Tags", sreflist!["tag1"]);
-///
-/// // With write option
-/// let request = ssub!(entity_id, "Counter", sint!(1), PushCondition::Changes);
-///
-/// // With all options
-/// let request = ssub!(entity_id, "Counter", sint!(1),
-///                    PushCondition::Always, Some(now()), Some(writer_id));
-/// ```
 #[macro_export]
 macro_rules! ssub {
     // Basic version with just value
@@ -317,16 +254,6 @@ pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 /// # Returns
 ///
 /// * `Some(Value::Bool)` - The wrapped boolean value
-///
-/// # Examples
-///
-/// ```
-/// let bool_value = sbool!(true);
-/// assert_eq!(bool_value, Some(Value::Bool(true)));
-///
-/// // Use in a write request
-/// swrite!(entity_id, "IsActive", sbool!(true));
-/// ```
 #[macro_export]
 macro_rules! sbool {
     ($value:expr) => {
@@ -346,16 +273,6 @@ macro_rules! sbool {
 /// # Returns
 ///
 /// * `Some(Value::Int)` - The wrapped integer value
-///
-/// # Examples
-///
-/// ```
-/// let int_value = sint!(42);
-/// assert_eq!(int_value, Some(Value::Int(42)));
-///
-/// // Use in a write request
-/// swrite!(entity_id, "Count", sint!(100));
-/// ```
 #[macro_export]
 macro_rules! sint {
     ($value:expr) => {
@@ -375,16 +292,6 @@ macro_rules! sint {
 /// # Returns
 ///
 /// * `Some(Value::Float)` - The wrapped floating-point value
-///
-/// # Examples
-///
-/// ```
-/// let float_value = sfloat!(3.14);
-/// assert_eq!(float_value, Some(Value::Float(3.14)));
-///
-/// // Use in a write request
-/// swrite!(entity_id, "Price", sfloat!(29.99));
-/// ```
 #[macro_export]
 macro_rules! sfloat {
     ($value:expr) => {
@@ -405,20 +312,6 @@ macro_rules! sfloat {
 /// # Returns
 ///
 /// * `Some(Value::String)` - The wrapped string value
-///
-/// # Examples
-///
-/// ```
-/// let string_value = sstr!("Hello");
-/// assert_eq!(string_value, Some(Value::String("Hello".to_string())));
-///
-/// // Works with different string types
-/// let static_str = sstr!("Static");
-/// let string_type = sstr!(String::from("Dynamic"));
-///
-/// // Use in a write request
-/// swrite!(entity_id, "Name", sstr!("Alice"));
-/// ```
 #[macro_export]
 macro_rules! sstr {
     ($value:expr) => {
@@ -439,16 +332,6 @@ macro_rules! sstr {
 /// # Returns
 ///
 /// * `Some(Value::EntityReference)` - The wrapped entity reference
-///
-/// # Examples
-///
-/// ```
-/// let ref_value = sref!("User$123");
-/// assert_eq!(ref_value, Some(Value::EntityReference("User$123".to_string())));
-///
-/// // Use in a write request
-/// swrite!(entity_id, "Owner", sref!("User$456"));
-/// ```
 #[macro_export]
 macro_rules! sref {
     ($value:expr) => {
@@ -474,25 +357,6 @@ macro_rules! sref {
 /// # Returns
 ///
 /// * `Some(Value::EntityList)` - The wrapped entity list
-///
-/// # Examples
-///
-/// ```
-/// // Empty list
-/// let empty_list = sreflist![];
-/// assert_eq!(empty_list, Some(Value::EntityList(Vec::new())));
-///
-/// // List from multiple arguments
-/// let multi_list = sreflist!["User$1", "User$2", "User$3"];
-/// assert_eq!(multi_list, Some(Value::EntityList(vec![
-///     "User$1".to_string(),
-///     "User$2".to_string(),
-///     "User$3".to_string()
-/// ])));
-///
-/// // Use in a write request
-/// swrite!(entity_id, "Members", sreflist!["User$1", "User$2"]);
-/// ```
 #[macro_export]
 macro_rules! sreflist {
     [] => {
@@ -525,16 +389,6 @@ macro_rules! sreflist {
 /// # Returns
 ///
 /// * `Some(Value::Choice)` - The wrapped choice value
-///
-/// # Examples
-///
-/// ```
-/// let choice_value = schoice!(2);
-/// assert_eq!(choice_value, Some(Value::Choice(2)));
-///
-/// // Use in a write request
-/// swrite!(entity_id, "Status", schoice!(1)); // 1 might represent "Active" in the application
-/// ```
 #[macro_export]
 macro_rules! schoice {
     ($value:expr) => {
@@ -554,19 +408,6 @@ macro_rules! schoice {
 /// # Returns
 ///
 /// * `Some(Value::Timestamp)` - The wrapped timestamp value
-///
-/// # Examples
-///
-/// ```
-/// use std::time::SystemTime;
-///
-/// let now = SystemTime::now();
-/// let timestamp_value = stimestamp!(now);
-///
-/// // Use in a write request
-/// let created_at = SystemTime::now();
-/// swrite!(entity_id, "CreatedAt", stimestamp!(created_at));
-/// ```
 #[macro_export]
 macro_rules! stimestamp {
     ($value:expr) => {
@@ -586,17 +427,6 @@ macro_rules! stimestamp {
 /// # Returns
 ///
 /// * `Some(Value::BinaryFile)` - The wrapped binary data
-///
-/// # Examples
-///
-/// ```
-/// let data = vec![0x48, 0x65, 0x6C, 0x6C, 0x6F]; // "Hello" in bytes
-/// let binary_value = sbinfile!(data);
-///
-/// // Use in a write request
-/// let file_contents = std::fs::read("example.dat").unwrap();
-/// swrite!(entity_id, "FileData", sbinfile!(file_contents));
-/// ```
 #[macro_export]
 macro_rules! sbinfile {
     ($value:expr) => {

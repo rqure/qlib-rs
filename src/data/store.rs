@@ -819,13 +819,28 @@ pub fn resolve_indirection(
 
         if let Request::Read { value, .. } = &reqs[0] {
             if let Some(Value::EntityReference(reference)) = value {
-                if reference.is_none() {
-                    return Err(BadIndirection::new(
-                        current_entity_id.clone(),
-                        field_type.clone(),
-                        BadIndirectionReason::EmptyEntityReference,
-                    )
-                    .into());
+                match reference {
+                    Some(ref_id) => {
+                        // Check if the reference is valid
+                        if !store.entity_exists(ctx, ref_id) {
+                            return Err(BadIndirection::new(
+                                current_entity_id.clone(),
+                                field_type.clone(),
+                                BadIndirectionReason::InvalidEntityId(ref_id.clone()),
+                            )
+                            .into());
+                        }
+                        current_entity_id = ref_id.clone();
+                    }
+                    None => {
+                        // If the reference is None, this is an error
+                        return Err(BadIndirection::new(
+                            current_entity_id.clone(),
+                            field_type.clone(),
+                            BadIndirectionReason::EmptyEntityReference,
+                        )
+                        .into());
+                    }
                 }
 
                 continue;
