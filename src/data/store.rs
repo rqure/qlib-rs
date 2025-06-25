@@ -181,20 +181,20 @@ impl<T> PageResult<T> {
 }
 
 pub struct MapStore {
-    schema: HashMap<EntityType, EntitySchema>,
-    entity: HashMap<EntityType, Vec<EntityId>>,
+    schemas: HashMap<EntityType, EntitySchema>,
+    entities: HashMap<EntityType, Vec<EntityId>>,
     types: Vec<EntityType>,
-    field: HashMap<EntityId, HashMap<FieldType, Field>>,
+    fields: HashMap<EntityId, HashMap<FieldType, Field>>,
     snowflake: Arc<Snowflake>,
 }
 
 impl MapStore {
     pub fn new(snowflake: Arc<Snowflake>) -> Self {
         MapStore {
-            schema: HashMap::new(),
-            entity: HashMap::new(),
+            schemas: HashMap::new(),
+            entities: HashMap::new(),
             types: Vec::new(),
-            field: HashMap::new(),
+            fields: HashMap::new(),
             snowflake,
         }
     }
@@ -206,7 +206,7 @@ impl MapStore {
         parent_id: Option<EntityId>,
         name: &str,
     ) -> Result<Entity> {
-        if !self.schema.contains_key(&entity_type) {
+        if !self.schemas.contains_key(&entity_type) {
             return Err(EntityTypeNotFound(entity_type.clone()).into());
         }
 
@@ -217,27 +217,27 @@ impl MapStore {
         }
 
         let entity_id = EntityId::new(entity_type.clone(), self.snowflake.generate());
-        if self.field.contains_key(&entity_id) {
+        if self.fields.contains_key(&entity_id) {
             return Err(EntityExists(entity_id).into());
         }
 
         {
             let entities = self
-                .entity
+                .entities
                 .entry(entity_type.clone())
                 .or_insert_with(Vec::new);
             entities.push(entity_id.clone());
         }
 
         {
-            self.field
+            self.fields
                 .entry(entity_id.clone())
                 .or_insert_with(HashMap::new);
         }
 
         {
             let mut writes = self
-                .schema
+                .schemas
                 .get(entity_type)
                 .map(|s| &s.fields)
                 .into_iter()
@@ -281,7 +281,7 @@ impl MapStore {
         _: &Context,
         entity_type: &EntityType,
     ) -> Result<&EntitySchema> {
-        self.schema
+        self.schemas
             .get(entity_type)
             .ok_or_else(|| EntityTypeNotFound(entity_type.clone()).into())
     }
@@ -289,12 +289,12 @@ impl MapStore {
     /// Set or update the schema for an entity type
     pub fn set_entity_schema(&mut self, _: &Context, entity_schema: &EntitySchema) -> Result<()> {
         let entity_type = entity_schema.entity_type.clone();
-        self.schema
+        self.schemas
             .insert(entity_type.clone(), entity_schema.clone());
 
         // Make sure the entity type is tracked in our types list
-        if !self.entity.contains_key(&entity_type) {
-            self.entity.insert(entity_type.clone(), Vec::new());
+        if !self.entities.contains_key(&entity_type) {
+            self.entities.insert(entity_type.clone(), Vec::new());
         }
 
         // Update the types list if needed
@@ -330,14 +330,14 @@ impl MapStore {
         field_schema: FieldSchema,
     ) -> Result<()> {
         // Make sure the entity type exists
-        if !self.schema.contains_key(entity_type) {
+        if !self.schemas.contains_key(entity_type) {
             // Create a new entity schema
             let entity_schema = EntitySchema::new(entity_type.clone());
-            self.schema.insert(entity_type.clone(), entity_schema);
+            self.schemas.insert(entity_type.clone(), entity_schema);
 
             // Make sure the entity type is tracked
-            if !self.entity.contains_key(entity_type) {
-                self.entity.insert(entity_type.clone(), Vec::new());
+            if !self.entities.contains_key(entity_type) {
+                self.entities.insert(entity_type.clone(), Vec::new());
             }
 
             // Update types list if needed
@@ -347,7 +347,7 @@ impl MapStore {
         }
 
         // Get the entity schema and update it
-        let entity_schema = self.schema.get_mut(entity_type).unwrap();
+        let entity_schema = self.schemas.get_mut(entity_type).unwrap();
         entity_schema
             .fields
             .insert(field_type.clone(), field_schema.into());
@@ -356,7 +356,7 @@ impl MapStore {
     }
 
     pub fn entity_exists(&self, _: &Context, entity_id: &EntityId) -> bool {
-        self.field.contains_key(entity_id)
+        self.fields.contains_key(entity_id)
     }
 
     pub fn field_exists(
@@ -365,7 +365,7 @@ impl MapStore {
         entity_type: &EntityType,
         field_type: &FieldType,
     ) -> bool {
-        self.schema
+        self.schemas
             .get(entity_type)
             .map(|schema| schema.fields.contains_key(field_type))
             .unwrap_or(false)
@@ -421,7 +421,7 @@ impl MapStore {
         writer_id: &mut Option<EntityId>,
     ) -> Result<()> {
         let field = self
-            .field
+            .fields
             .get(&entity_id)
             .and_then(|fields| fields.get(field_type));
 
@@ -448,13 +448,13 @@ impl MapStore {
         adjust_behavior: &AdjustBehavior,
     ) -> Result<()> {
         let field_schema = self
-            .schema
+            .schemas
             .get(entity_id.get_type())
             .and_then(|schema| schema.fields.get(field_type))
             .ok_or_else(|| FieldNotFound(entity_id.clone(), field_type.clone()))?;
 
         let fields = self
-            .field
+            .fields
             .entry(entity_id.clone())
             .or_insert_with(HashMap::new);
 
@@ -588,6 +588,13 @@ impl MapStore {
     /// Deletes an entity and all its fields
     /// Returns an error if the entity doesn't exist
     pub fn delete_entity(&mut self, ctx: &Context, entity_id: &EntityId) -> Result<()> {
+        // Check if the entity exists
+        {
+            if !self.fields.contains_key(entity_id) {
+                return Err(EntityNotFound(entity_id.clone()).into());
+            }
+        }
+
         // Remove all childrens
         {
             let mut reqs = vec![
@@ -610,30 +617,24 @@ impl MapStore {
             }
         }
 
-        // Check if the entity exists
-        {
-            if !self.field.contains_key(entity_id) {
-                return Err(EntityNotFound(entity_id.clone()).into());
-            }
-        }
-
-        // Remove fields
-        {
-            self.field.remove(entity_id);
-        }
-
-        // Remove from entity type list
-        {
-            if let Some(entities) = self.entity.get_mut(entity_id.get_type()) {
-                entities.retain(|id| id != entity_id);
-            }
-        }
-
         // Remove from parent's children list
         {
             self.perform(ctx,  &mut vec![
                 ssub!(entity_id.clone(), "Parent->Children".into(), sreflist![entity_id.clone()]),
             ])?;
+        }
+
+
+        // Remove fields
+        {
+            self.fields.remove(entity_id);
+        }
+
+        // Remove from entity type list
+        {
+            if let Some(entities) = self.entities.get_mut(entity_id.get_type()) {
+                entities.retain(|id| id != entity_id);
+            }
         }
 
         Ok(())
@@ -649,7 +650,7 @@ impl MapStore {
         let opts = page_opts.unwrap_or_default();
 
         // Check if entity type exists
-        if !self.entity.contains_key(entity_type) {
+        if !self.entities.contains_key(entity_type) {
             return Ok(PageResult {
                 items: Vec::new(),
                 total: 0,
@@ -657,7 +658,7 @@ impl MapStore {
             });
         }
 
-        let all_entities = self.entity.get(entity_type).unwrap();
+        let all_entities = self.entities.get(entity_type).unwrap();
         let total = all_entities.len();
 
         // Find the starting index based on cursor
@@ -701,7 +702,7 @@ impl MapStore {
         let opts = page_opts.unwrap_or_default();
 
         // Collect all types from schema
-        let all_types: Vec<EntityType> = self.schema.keys().cloned().collect();
+        let all_types: Vec<EntityType> = self.schemas.keys().cloned().collect();
         let total = all_types.len();
 
         // Find the starting index based on cursor
