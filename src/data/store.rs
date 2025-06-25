@@ -372,7 +372,6 @@ impl Store {
                 fields.insert(
                     added_field.field_type.clone(),
                     Field {
-                        entity_id: entity_id.clone(),
                         field_type: added_field.field_type.clone(),
                         value: added_field.default_value.clone(),
                         write_time: now(),
@@ -520,7 +519,6 @@ impl Store {
             .or_insert_with(HashMap::new);
 
         let field = fields.entry(field_type.clone()).or_insert_with(|| Field {
-            entity_id: entity_id.clone(),
             field_type: field_type.clone(),
             value: field_schema.default_value.clone(),
             write_time: now(),

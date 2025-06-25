@@ -83,3 +83,111 @@ Let's break down an example path: `Parent->Children->0->Name`
 This allows for complex data retrieval in a concise and efficient manner. If any
 part of the path fails to resolve (e.g., an empty reference, an index out of
 bounds), the operation will fail with a `BadIndirection` error.
+
+# Entity Inheritance in qlib-rs
+
+The `qlib-rs` library supports an entity inheritance model similar to object-oriented programming. This allows you to define entity types that inherit fields and behavior from parent entity types.
+
+## How Inheritance Works
+
+1. **Entity Schema Definition**:
+   When defining an entity schema, you can specify a parent entity type using the `inherit` field:
+
+   ```rust
+   let mut schema = EntitySchema::<Single>::new("User".into(), Some("Object".into()));
+   ```
+
+2. **Field Inheritance**:
+   Child entity types automatically inherit all fields from their parent entity types. For example, if the "Object" type has "Name", "Parent", and "Children" fields, any entity type inheriting from "Object" will also have these fields.
+
+3. **Field Override**:
+   Child entity types can override fields defined by their parent types by defining fields with the same field type:
+
+   ```rust
+   // Parent "Object" has a default Name field, but User can override it with different properties
+   let name_schema = FieldSchema {
+       field_type: "Name".into(),
+       default_value: Value::String("New User".into()),  // Override default value
+       rank: 0,
+       read_permission: None,
+       write_permission: None,
+       choices: None,
+   };
+   ```
+
+4. **Multi-level Inheritance**:
+   The system supports multiple levels of inheritance. For example, "Employee" could inherit from "User", which inherits from "Object".
+
+5. **Complete Schema Resolution**:
+   When working with entities, the library automatically resolves the complete schema by combining all inherited fields:
+
+   ```rust
+   // This returns a schema with all inherited fields
+   let complete_schema = store.get_complete_entity_schema(&ctx, &entity_type)?;
+   ```
+
+## Base Type
+
+By convention, all entity types should inherit from the "Object" base type, which provides common fields:
+
+- `Name`: String type for naming the entity
+- `Parent`: EntityReference type to establish hierarchy
+- `Children`: EntityList type to track child entities
+
+## Benefits of Inheritance
+
+- **Code Reuse**: Define common fields once and reuse them across multiple entity types
+- **Consistency**: Ensure consistent field structure across related entity types
+- **Schema Evolution**: Easily evolve your data model by adding fields to parent types
+
+## Example Usage
+
+```rust
+// Define a base Person type inheriting from Object
+let mut person_schema = EntitySchema::<Single>::new("Person".into(), Some("Object".into()));
+
+// Add Person-specific fields
+person_schema.fields.insert("Age".into(), FieldSchema {
+    entity_type: "Person".into(),
+    field_type: "Age".into(),
+    default_value: Value::Int(0),
+    rank: 3,
+    read_permission: None,
+    write_permission: None,
+    choices: None,
+});
+
+// Register the schema
+store.set_entity_schema(&ctx, &person_schema)?;
+
+// Define an Employee type inheriting from Person
+let mut employee_schema = EntitySchema::<Single>::new("Employee".into(), Some("Person".into()));
+
+// Add Employee-specific fields
+employee_schema.fields.insert("Department".into(), FieldSchema {
+    entity_type: "Employee".into(),
+    field_type: "Department".into(),
+    default_value: Value::String("".into()),
+    rank: 4,
+    read_permission: None,
+    write_permission: None,
+    choices: None,
+});
+
+// Register the schema
+store.set_entity_schema(&ctx, &employee_schema)?;
+
+// Now Employee entities will have:
+// - Name, Parent, Children (from Object)
+// - Age (from Person)
+// - Department (from Employee)
+```
+
+## Implementation Details
+
+The library manages two versions of entity schemas:
+
+1. `EntitySchema<Single>`: Represents the schema as defined, without resolving inheritance
+2. `EntitySchema<Complete>`: Represents the fully resolved schema with all inherited fields
+
+When querying or manipulating entities, the library uses the complete schema to ensure all inherited fields are available.

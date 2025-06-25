@@ -12,7 +12,6 @@ fn create_entity_schema(store: &mut Store, entity_type: &EntityType) -> Result<(
 
     // Add default fields common to all entities
     let name_schema = FieldSchema {
-        entity_type: entity_type.clone(),
         field_type: ft_name.clone(),
         default_value: Value::String("".into()),
         rank: 0,
@@ -22,7 +21,6 @@ fn create_entity_schema(store: &mut Store, entity_type: &EntityType) -> Result<(
     };
 
     let parent_schema = FieldSchema {
-        entity_type: entity_type.clone(),
         field_type: ft_parent.clone(),
         default_value: Value::EntityReference(None),
         rank: 1,
@@ -32,7 +30,6 @@ fn create_entity_schema(store: &mut Store, entity_type: &EntityType) -> Result<(
     };
 
     let children_schema = FieldSchema {
-        entity_type: entity_type.clone(),
         field_type: ft_children.clone(),
         default_value: Value::EntityList(Vec::new()),
         rank: 2,
@@ -70,7 +67,6 @@ fn setup_test_database() -> Result<Store> {
 
     // Add custom fields to User schema
     let email_schema = FieldSchema {
-        entity_type: et_user.clone(),
         field_type: ft_email.clone(),
         default_value: Value::String("".into()),
         rank: 3,
