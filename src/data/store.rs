@@ -329,10 +329,8 @@ impl Store {
             .get_complete_entity_schema(ctx, &entity_schema.entity_type)
             .unwrap_or_else(|_| EntitySchema::<Complete>::new(entity_schema.entity_type.clone()));
 
-        if !self.schemas.contains_key(&entity_schema.entity_type) {
-            self.schemas
-                .insert(entity_schema.entity_type.clone(), entity_schema.clone());
-        }
+        self.schemas
+            .insert(entity_schema.entity_type.clone(), entity_schema.clone());
 
         if !self.entities.contains_key(&entity_schema.entity_type) {
             self.entities
