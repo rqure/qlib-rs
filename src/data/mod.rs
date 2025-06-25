@@ -7,12 +7,13 @@ mod request;
 mod snowflake;
 mod store;
 mod value;
+mod constants;
 
 use std::fmt;
 
 pub use entity::Entity;
 pub use entity_id::EntityId;
-pub use entity_schema::EntitySchema;
+pub use entity_schema::{EntitySchema, Single, Complete};
 pub use field::Field;
 pub use field_schema::FieldSchema;
 pub use request::{AdjustBehavior, PushCondition, Request};
@@ -20,9 +21,10 @@ use serde::{Deserialize, Serialize};
 pub use snowflake::Snowflake;
 pub use store::{
     resolve_indirection, BadIndirection, BadIndirectionReason, Context, Store, PageOpts,
-    PageResult, INDIRECTION_DELIMITER,
+    PageResult,
 };
 pub use value::Value;
+pub use constants::{INDIRECTION_DELIMITER};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash)]
 pub struct EntityType(pub String);

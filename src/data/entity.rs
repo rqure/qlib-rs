@@ -10,7 +10,7 @@ pub struct Entity {
 
 impl Entity {
     pub fn new(entity_id: impl Into<EntityId>) -> Self {
-        Entity {
+        Self {
             entity_id: entity_id.into(),
             fields: HashMap::new(),
         }

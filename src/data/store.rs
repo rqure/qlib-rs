@@ -2,10 +2,12 @@ use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, error, mem::discriminant, sync::Arc};
 
 use crate::{
-    data::{now, request::PushCondition, EntityType, FieldType, Timestamp}, sadd, sread, sref, sreflist, sstr, ssub, swrite, AdjustBehavior, Entity, EntityId, EntitySchema, Field, FieldSchema, Request, Result, Snowflake, Value
+    data::{
+        entity_schema::Complete, now, request::PushCondition, EntityType, FieldType, Timestamp
+    },
+    sadd, sread, sref, sreflist, sstr, ssub, swrite, AdjustBehavior, Entity, EntityId,
+    EntitySchema, Field, FieldSchema, Request, Result, Single, Snowflake, Value,
 };
-
-pub const INDIRECTION_DELIMITER: &str = "->";
 
 #[derive(Debug, Clone)]
 pub struct EntityExists(EntityId);
@@ -181,7 +183,7 @@ impl<T> PageResult<T> {
 }
 
 pub struct Store {
-    schemas: HashMap<EntityType, EntitySchema>,
+    schemas: HashMap<EntityType, EntitySchema<Single>>,
     entities: HashMap<EntityType, Vec<EntityId>>,
     types: Vec<EntityType>,
     fields: HashMap<EntityId, HashMap<FieldType, Field>>,
@@ -280,26 +282,106 @@ impl Store {
         &self,
         _: &Context,
         entity_type: &EntityType,
-    ) -> Result<&EntitySchema> {
+    ) -> Result<EntitySchema<Single>> {
         self.schemas
             .get(entity_type)
+            .cloned()
             .ok_or_else(|| EntityTypeNotFound(entity_type.clone()).into())
     }
 
-    /// Set or update the schema for an entity type
-    pub fn set_entity_schema(&mut self, _: &Context, entity_schema: &EntitySchema) -> Result<()> {
-        let entity_type = entity_schema.entity_type.clone();
-        self.schemas
-            .insert(entity_type.clone(), entity_schema.clone());
+    pub fn get_complete_entity_schema(
+        &self,
+        ctx: &Context,
+        entity_type: &EntityType,
+    ) -> Result<EntitySchema<Complete>> {
+        let mut schema = EntitySchema::<Complete>::from(self.get_entity_schema(ctx, entity_type)?);
 
-        // Make sure the entity type is tracked in our types list
-        if !self.entities.contains_key(&entity_type) {
-            self.entities.insert(entity_type.clone(), Vec::new());
+        loop {
+            if let Some(inherit_type) = &schema.inherit {
+                if let Some(inherit_schema) = self.schemas.get(inherit_type) {
+                    // Merge inherited fields into the current schema
+                    for (field_type, field_schema) in &inherit_schema.fields {
+                        schema
+                            .fields
+                            .entry(field_type.clone())
+                            .or_insert_with(|| field_schema.clone());
+                    }
+                } else {
+                    return Err(EntityTypeNotFound(inherit_type.clone()).into());
+                }
+            } else {
+                break;
+            }
         }
 
-        // Update the types list if needed
-        if !self.types.contains(&entity_type) {
-            self.types.push(entity_type);
+        Ok(schema)
+    }
+
+    /// Set or update the schema for an entity type
+    pub fn set_entity_schema(
+        &mut self,
+        ctx: &Context,
+        entity_schema: &EntitySchema<Single>,
+    ) -> Result<()> {
+        // Get a copy of the existing schema if it exists
+        // We'll use this to see if any fields have been added or removed
+        let complete_old_schema = self
+            .get_complete_entity_schema(ctx, &entity_schema.entity_type)
+            .unwrap_or_else(|_| EntitySchema::<Complete>::new(entity_schema.entity_type.clone()));
+
+        if !self.schemas.contains_key(&entity_schema.entity_type) {
+            self.schemas
+                .insert(entity_schema.entity_type.clone(), entity_schema.clone());
+        }
+
+        if !self.entities.contains_key(&entity_schema.entity_type) {
+            self.entities
+                .insert(entity_schema.entity_type.clone(), Vec::new());
+        }
+
+        if !self.types.contains(&entity_schema.entity_type) {
+            self.types.push(entity_schema.entity_type.clone());
+        }
+
+        // Get the complete schema for the entity type
+        let complete_new_schema =
+            self.get_complete_entity_schema(ctx, &entity_schema.entity_type)?;
+
+        for removed_field in complete_old_schema.diff(&complete_new_schema) {
+            // If the field was removed, we need to remove it from all entities
+            for entity_id in self
+                .entities
+                .get(&entity_schema.entity_type)
+                .unwrap_or(&Vec::new())
+            {
+                if let Some(fields) = self.fields.get_mut(entity_id) {
+                    fields.remove(&removed_field.field_type);
+                }
+            }
+        }
+
+        for added_field in complete_new_schema.diff(&complete_old_schema) {
+            // If the field was added, we need to add it to all entities
+            for entity_id in self
+                .entities
+                .get(&entity_schema.entity_type)
+                .unwrap_or(&Vec::new())
+            {
+                let fields = self
+                    .fields
+                    .entry(entity_id.clone())
+                    .or_insert_with(HashMap::new);
+                fields.insert(
+                    added_field.field_type.clone(),
+                    Field {
+                        entity_id: entity_id.clone(),
+                        field_type: added_field.field_type.clone(),
+                        value: added_field.default_value.clone(),
+                        write_time: now(),
+                        writer_id: None,
+                    },
+                );
+            }
         }
 
         Ok(())
@@ -308,51 +390,34 @@ impl Store {
     /// Get the schema for a specific field
     pub fn get_field_schema(
         &self,
-        _: &Context,
+        ctx: &Context,
         entity_type: &EntityType,
         field_type: &FieldType,
-    ) -> Result<&FieldSchema> {
-        // First get the entity schema
-        let entity_schema = self.get_entity_schema(&Context {}, entity_type)?;
-
-        // Then get the field schema
-        entity_schema.fields.get(field_type).ok_or_else(|| {
-            FieldNotFound(EntityId::new(entity_type.clone(), 0), field_type.clone()).into()
-        })
+    ) -> Result<FieldSchema> {
+        self
+            .get_entity_schema(ctx, entity_type)?
+            .fields
+            .get(field_type)
+            .cloned()
+            .ok_or_else(|| {
+                FieldNotFound(EntityId::new(entity_type.clone(), 0), field_type.clone()).into()
+            })
     }
 
     /// Set or update the schema for a specific field
     pub fn set_field_schema(
         &mut self,
-        _: &Context,
+        ctx: &Context,
         entity_type: &EntityType,
         field_type: &FieldType,
         field_schema: FieldSchema,
     ) -> Result<()> {
-        // Make sure the entity type exists
-        if !self.schemas.contains_key(entity_type) {
-            // Create a new entity schema
-            let entity_schema = EntitySchema::new(entity_type.clone());
-            self.schemas.insert(entity_type.clone(), entity_schema);
+        let mut entity_schema = self
+            .get_entity_schema(ctx, entity_type)?;
 
-            // Make sure the entity type is tracked
-            if !self.entities.contains_key(entity_type) {
-                self.entities.insert(entity_type.clone(), Vec::new());
-            }
+        entity_schema.fields.insert(field_type.clone(), field_schema);
 
-            // Update types list if needed
-            if !self.types.contains(entity_type) {
-                self.types.push(entity_type.clone());
-            }
-        }
-
-        // Get the entity schema and update it
-        let entity_schema = self.schemas.get_mut(entity_type).unwrap();
-        entity_schema
-            .fields
-            .insert(field_type.clone(), field_schema.into());
-
-        Ok(())
+        self.set_entity_schema(ctx, &entity_schema)
     }
 
     pub fn entity_exists(&self, _: &Context, entity_id: &EntityId) -> bool {
@@ -502,13 +567,22 @@ impl Store {
                     );
                 }
                 Value::String(old_string) => {
-                    new_value = Value::String(format!("{}{}", old_string, new_value.as_string().cloned().unwrap_or_default()));
+                    new_value = Value::String(format!(
+                        "{}{}",
+                        old_string,
+                        new_value.as_string().cloned().unwrap_or_default()
+                    ));
                 }
                 Value::BinaryFile(old_file) => {
                     new_value = Value::BinaryFile(
                         old_file
                             .iter()
-                            .chain(new_value.as_binary_file().map_or(&Vec::new(), |f| &f).iter())
+                            .chain(
+                                new_value
+                                    .as_binary_file()
+                                    .map_or(&Vec::new(), |f| &f)
+                                    .iter(),
+                            )
                             .cloned()
                             .collect(),
                     );
@@ -522,28 +596,32 @@ impl Store {
                     .into());
                 }
             },
-            AdjustBehavior::Subtract => {
-                match old_value {
-                    Value::Int(old_int) => {
-                        new_value = Value::Int(old_int - new_value.as_int().unwrap_or(0));
-                    }
-                    Value::Float(old_float) => {
-                        new_value = Value::Float(old_float - new_value.as_float().unwrap_or(0.0));
-                    }
-                    Value::EntityList(old_list) => {
-                        let new_list = new_value.as_entity_list().cloned().unwrap_or_default();
-                        new_value = Value::EntityList(old_list.into_iter().filter(|item| !new_list.contains(item)).cloned().collect());
-                    }
-                    _ => {
-                        return Err(UnsupportAdjustBehavior(
-                            entity_id.clone(),
-                            field_type.clone(),
-                            adjust_behavior.clone(),
-                        )
-                        .into());
-                    }
+            AdjustBehavior::Subtract => match old_value {
+                Value::Int(old_int) => {
+                    new_value = Value::Int(old_int - new_value.as_int().unwrap_or(0));
                 }
-            }
+                Value::Float(old_float) => {
+                    new_value = Value::Float(old_float - new_value.as_float().unwrap_or(0.0));
+                }
+                Value::EntityList(old_list) => {
+                    let new_list = new_value.as_entity_list().cloned().unwrap_or_default();
+                    new_value = Value::EntityList(
+                        old_list
+                            .into_iter()
+                            .filter(|item| !new_list.contains(item))
+                            .cloned()
+                            .collect(),
+                    );
+                }
+                _ => {
+                    return Err(UnsupportAdjustBehavior(
+                        entity_id.clone(),
+                        field_type.clone(),
+                        adjust_behavior.clone(),
+                    )
+                    .into());
+                }
+            },
             _ => {
                 // No adjustment needed
             }
@@ -597,9 +675,7 @@ impl Store {
 
         // Remove all childrens
         {
-            let mut reqs = vec![
-                sread!(entity_id.clone(), "Children".into()),
-            ];
+            let mut reqs = vec![sread!(entity_id.clone(), "Children".into())];
             self.perform(ctx, &mut reqs)?;
             if let Request::Read { value, .. } = &reqs[0] {
                 if let Some(Value::EntityList(children)) = value {
@@ -610,7 +686,10 @@ impl Store {
                     return Err(BadIndirection::new(
                         entity_id.clone(),
                         "Children".into(),
-                        BadIndirectionReason::UnexpectedValueType("Children".into(), format!("{:?}", value)),
+                        BadIndirectionReason::UnexpectedValueType(
+                            "Children".into(),
+                            format!("{:?}", value),
+                        ),
                     )
                     .into());
                 }
@@ -619,11 +698,15 @@ impl Store {
 
         // Remove from parent's children list
         {
-            self.perform(ctx,  &mut vec![
-                ssub!(entity_id.clone(), "Parent->Children".into(), sreflist![entity_id.clone()]),
-            ])?;
+            self.perform(
+                ctx,
+                &mut vec![ssub!(
+                    entity_id.clone(),
+                    "Parent->Children".into(),
+                    sreflist![entity_id.clone()]
+                )],
+            )?;
         }
-
 
         // Remove fields
         {

@@ -12,7 +12,7 @@ impl EntityId {
     const SEPARATOR: &str = "$";
 
     pub fn new(typ: impl Into<EntityType>, id: u64) -> Self {
-        EntityId {
+        Self {
             typ: typ.into(),
             id,
         }
