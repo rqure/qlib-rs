@@ -3,7 +3,6 @@ pub const INDIRECTION_DELIMITER: &str = "->";
 
 pub mod et {
     pub const OBJECT: &str = "Object"; // All entity types inherit from this
-
     pub const ROOT : &str = "Root";
 }
 

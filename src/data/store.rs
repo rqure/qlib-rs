@@ -137,6 +137,15 @@ impl std::fmt::Display for BadIndirection {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Context {}
 
+/// Represents a complete snapshot of the store at a point in time
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Snapshot {
+    schemas: HashMap<EntityType, EntitySchema<Single>>,
+    entities: HashMap<EntityType, Vec<EntityId>>,
+    types: Vec<EntityType>,
+    fields: HashMap<EntityId, HashMap<FieldType, Field>>,
+}
+
 /// Pagination options for retrieving lists of items
 #[derive(Debug, Clone)]
 pub struct PageOpts {
@@ -812,6 +821,24 @@ impl Store {
             total,
             next_cursor,
         })
+    }
+
+    /// Take a snapshot of the current store state
+    pub fn take_snapshot(&self, _: &Context) -> Snapshot {
+        Snapshot {
+            schemas: self.schemas.clone(),
+            entities: self.entities.clone(),
+            types: self.types.clone(),
+            fields: self.fields.clone(),
+        }
+    }
+
+    /// Restore the store state from a snapshot
+    pub fn restore_snapshot(&mut self, _: &Context, snapshot: Snapshot) {
+        self.schemas = snapshot.schemas;
+        self.entities = snapshot.entities;
+        self.types = snapshot.types;
+        self.fields = snapshot.fields;
     }
 }
 
