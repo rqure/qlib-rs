@@ -14,7 +14,7 @@ pub enum AdjustBehavior {
     Subtract,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Request {
     Read {
         entity_id: EntityId,

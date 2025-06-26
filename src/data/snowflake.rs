@@ -11,7 +11,7 @@ const MAX_SEQUENCE: u64 = (1 << SEQUENCE_BITS) - 1;
 const NODE_ID_SHIFT: u64 = SEQUENCE_BITS;
 const TIMESTAMP_SHIFT: u64 = SEQUENCE_BITS + NODE_ID_BITS;
 
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct Snowflake {
     node_id: u64,
     state: AtomicU64, // Packed state: (timestamp << 12) | sequence

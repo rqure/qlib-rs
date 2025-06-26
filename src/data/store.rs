@@ -191,11 +191,14 @@ impl<T> PageResult<T> {
     }
 }
 
+#[derive(Serialize, Deserialize, Debug, Default, Clone)]
 pub struct Store {
     schemas: HashMap<EntityType, EntitySchema<Single>>,
     entities: HashMap<EntityType, Vec<EntityId>>,
     types: Vec<EntityType>,
     fields: HashMap<EntityId, HashMap<FieldType, Field>>,
+
+    #[serde(skip)]
     snowflake: Arc<Snowflake>,
 }
 
