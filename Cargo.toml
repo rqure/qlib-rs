@@ -2,6 +2,8 @@
 name = "qlib-rs"
 version = "0.1.0"
 edition = "2021"
+description = "A flexible in-memory database library"
+license-file = "LICENSE"
 
 [dependencies]
 tokio = { version = "1.28", features = ["full"] }
