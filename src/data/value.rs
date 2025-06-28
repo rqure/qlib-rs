@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Value {
-    BinaryFile(Vec<u8>),
+    Blob(Vec<u8>),
     Bool(bool),
     Choice(i64),
     EntityList(Vec<EntityId>),
@@ -32,8 +32,8 @@ impl Value {
         matches!(self, Value::String(_))
     }
 
-    pub fn is_binary_file(&self) -> bool {
-        matches!(self, Value::BinaryFile(_))
+    pub fn is_blob(&self) -> bool {
+        matches!(self, Value::Blob(_))
     }
 
     pub fn is_entity_reference(&self) -> bool {
@@ -80,8 +80,8 @@ impl Value {
         }
     }
 
-    pub fn as_binary_file(&self) -> Option<&Vec<u8>> {
-        if let Value::BinaryFile(b) = self {
+    pub fn as_blob(&self) -> Option<&Vec<u8>> {
+        if let Value::Blob(b) = self {
             Some(b)
         } else {
             None
@@ -136,8 +136,8 @@ impl Value {
         Value::String(s)
     }
 
-    pub fn from_binary_file(b: Vec<u8>) -> Self {
-        Value::BinaryFile(b)
+    pub fn from_blob(b: Vec<u8>) -> Self {
+        Value::Blob(b)
     }
 
     pub fn from_entity_reference(e: Option<EntityId>) -> Self {

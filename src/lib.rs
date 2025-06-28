@@ -416,9 +416,9 @@ macro_rules! stimestamp {
     };
 }
 
-/// Creates a `Some(Value::BinaryFile)` for use in write requests.
+/// Creates a `Some(Value::Blob)` for use in write requests.
 ///
-/// This macro wraps binary data in `Some(Value::BinaryFile)`, making it ready
+/// This macro wraps binary data in `Some(Value::Blob)`, making it ready
 /// for use with `swrite!` macro or any function expecting an `Option<Value>`.
 ///
 /// # Arguments
@@ -427,10 +427,10 @@ macro_rules! stimestamp {
 ///
 /// # Returns
 ///
-/// * `Some(Value::BinaryFile)` - The wrapped binary data
+/// * `Some(Value::Blob)` - The wrapped binary data
 #[macro_export]
-macro_rules! sbinfile {
+macro_rules! sblob {
     ($value:expr) => {
-        Some($crate::Value::BinaryFile($value))
+        Some($crate::Value::Blob($value))
     };
 }

@@ -579,13 +579,13 @@ impl Store {
                         new_value.as_string().cloned().unwrap_or_default()
                     ));
                 }
-                Value::BinaryFile(old_file) => {
-                    new_value = Value::BinaryFile(
+                Value::Blob(old_file) => {
+                    new_value = Value::Blob(
                         old_file
                             .iter()
                             .chain(
                                 new_value
-                                    .as_binary_file()
+                                    .as_blob()
                                     .map_or(&Vec::new(), |f| &f)
                                     .iter(),
                             )

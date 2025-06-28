@@ -146,32 +146,32 @@ fn test_timestamp_macro() {
 }
 
 #[test]
-fn test_binary_file_macro() {
+fn test_blob_macro() {
     // Test with empty vector
-    let empty = sbinfile!(Vec::<u8>::new());
-    if let Some(Value::BinaryFile(data)) = empty {
+    let empty = sblob!(Vec::<u8>::new());
+    if let Some(Value::Blob(data)) = empty {
         assert!(data.is_empty());
     } else {
-        panic!("Expected Some(Value::BinaryFile)");
+        panic!("Expected Some(Value::Blob)");
     }
 
     // Test with some data
     let hello = vec![0x48, 0x65, 0x6C, 0x6C, 0x6F]; // "Hello" in ASCII
-    let bin_hello = sbinfile!(hello.clone());
-    if let Some(Value::BinaryFile(data)) = bin_hello {
+    let bin_hello = sblob!(hello.clone());
+    if let Some(Value::Blob(data)) = bin_hello {
         assert_eq!(data, hello);
     } else {
-        panic!("Expected Some(Value::BinaryFile)");
+        panic!("Expected Some(Value::Blob)");
     }
 
     // Test with larger binary data
     let large_data = vec![0u8; 1024]; // 1KB of zeros
-    let bin_large = sbinfile!(large_data.clone());
-    if let Some(Value::BinaryFile(data)) = bin_large {
+    let bin_large = sblob!(large_data.clone());
+    if let Some(Value::Blob(data)) = bin_large {
         assert_eq!(data.len(), 1024);
         assert_eq!(data, large_data);
     } else {
-        panic!("Expected Some(Value::BinaryFile)");
+        panic!("Expected Some(Value::Blob)");
     }
 }
 
