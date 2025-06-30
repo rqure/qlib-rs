@@ -22,9 +22,9 @@ pub enum NotifyConfig {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Notification {
-    entity_id: EntityId,
-    field_type: FieldType,
-    current_value: Value,
-    previous_value: Value,
-    context: BTreeMap<FieldType, Option<Value>>, // Option because the indirection may fail
+    pub entity_id: EntityId,
+    pub field_type: FieldType,
+    pub current_value: Value,
+    pub previous_value: Value,
+    pub context: BTreeMap<FieldType, Option<Value>>, // Option because the indirection may fail
 }

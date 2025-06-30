@@ -22,7 +22,7 @@ use serde::{Deserialize, Serialize};
 pub use snowflake::Snowflake;
 pub use store::{
     resolve_indirection, BadIndirection, BadIndirectionReason, Context, Store, PageOpts,
-    PageResult,
+    PageResult, NotificationCallback,
 };
 pub use value::Value;
 pub use constants::{INDIRECTION_DELIMITER};

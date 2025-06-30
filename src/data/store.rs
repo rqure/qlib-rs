@@ -3,11 +3,23 @@ use std::{collections::HashMap, error, mem::discriminant, sync::Arc};
 
 use crate::{
     data::{
-        entity_schema::Complete, now, request::PushCondition, EntityType, FieldType, Timestamp
+        entity_schema::Complete, now, request::PushCondition, EntityType, FieldType, Timestamp, NotifyConfig, Notification, INDIRECTION_DELIMITER
     },
     sadd, sread, sref, sreflist, sstr, ssub, swrite, AdjustBehavior, Entity, EntityId,
     EntitySchema, Field, FieldSchema, Request, Result, Single, Snowflake, Value,
 };
+
+/// Callback function type for notifications
+pub type NotificationCallback = Box<dyn Fn(&Notification) + Send + Sync>;
+
+#[derive(Debug, Clone)]
+pub struct InvalidNotifyConfig(String);
+impl error::Error for InvalidNotifyConfig {}
+impl std::fmt::Display for InvalidNotifyConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Invalid NotifyConfig: {}", self.0)
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct EntityExists(EntityId);
@@ -191,7 +203,7 @@ impl<T> PageResult<T> {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Default, Clone)]
+#[derive(Serialize, Deserialize, Default)]
 pub struct Store {
     schemas: HashMap<EntityType, EntitySchema<Single>>,
     entities: HashMap<EntityType, Vec<EntityId>>,
@@ -205,6 +217,23 @@ pub struct Store {
 
     #[serde(skip)]
     snowflake: Arc<Snowflake>,
+
+    /// Notification configuration with their associated callbacks
+    #[serde(skip)]
+    notify_configs: HashMap<EntityId, (NotifyConfig, NotificationCallback)>,
+}
+
+impl std::fmt::Debug for Store {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Store")
+            .field("schemas", &self.schemas)
+            .field("entities", &self.entities)
+            .field("types", &self.types)
+            .field("fields", &self.fields)
+            .field("inheritance_map", &self.inheritance_map)
+            .field("notify_configs", &format_args!("{} notification configs", self.notify_configs.len()))
+            .finish()
+    }
 }
 
 impl Store {
@@ -216,6 +245,7 @@ impl Store {
             fields: HashMap::new(),
             inheritance_map: HashMap::new(),
             snowflake,
+            notify_configs: HashMap::new(),
         }
     }
 
@@ -559,6 +589,7 @@ impl Store {
             writer_id: None,
         });
 
+        let old_value = field.value.clone();
         let mut new_value = field_schema.default_value();
         // Check that the value being written is the same type as the field schema
         // If the value is None, use the default value from the schema
@@ -576,9 +607,8 @@ impl Store {
             new_value = value.clone();
         }
 
-        let old_value = &field.value;
         match adjust_behavior {
-            AdjustBehavior::Add => match old_value {
+            AdjustBehavior::Add => match &old_value {
                 Value::Int(old_int) => {
                     new_value = Value::Int(old_int + new_value.as_int().unwrap_or(0));
                 }
@@ -624,7 +654,7 @@ impl Store {
                     .into());
                 }
             },
-            AdjustBehavior::Subtract => match old_value {
+            AdjustBehavior::Subtract => match &old_value {
                 Value::Int(old_int) => {
                     new_value = Value::Int(old_int - new_value.as_int().unwrap_or(0));
                 }
@@ -635,7 +665,7 @@ impl Store {
                     let new_list = new_value.as_entity_list().cloned().unwrap_or_default();
                     new_value = Value::EntityList(
                         old_list
-                            .into_iter()
+                            .iter()
                             .filter(|item| !new_list.contains(item))
                             .cloned()
                             .collect(),
@@ -654,6 +684,10 @@ impl Store {
                 // No adjustment needed
             }
         }
+
+        // Store values for notification before updating the field
+        let notification_new_value = new_value.clone();
+        let notification_old_value = old_value.clone();
 
         match write_option {
             PushCondition::Always => {
@@ -687,6 +721,9 @@ impl Store {
                 }
             }
         }
+
+        // Trigger notifications after a write operation
+        self.trigger_notifications(ctx, entity_id, field_type, &notification_new_value, &notification_old_value);
 
         Ok(())
     }
@@ -1018,6 +1055,113 @@ impl Store {
         }
         
         false
+    }
+
+    /// Register a notification configuration with its callback
+    /// Returns an error if the field_type contains indirection (context fields can be indirect)
+    pub fn register_notification(&mut self, _ctx: &Context, config: NotifyConfig, callback: NotificationCallback) -> Result<EntityId> {
+        // Validate that the main field_type is not indirect
+        let field_type = match &config {
+            NotifyConfig::EntityId { field_type, .. } => field_type,
+            NotifyConfig::EntityType { field_type, .. } => field_type,
+        };
+
+        if field_type.as_ref().contains(INDIRECTION_DELIMITER) {
+            return Err(InvalidNotifyConfig(
+                "Cannot register notifications on indirect fields".to_string()
+            ).into());
+        }
+
+        // Generate a unique ID for this notification config
+        let config_id = EntityId::new("NotifyConfig", self.snowflake.generate());
+        self.notify_configs.insert(config_id.clone(), (config, callback));
+        
+        Ok(config_id)
+    }
+
+    /// Unregister a notification configuration
+    pub fn unregister_notification(&mut self, config_id: &EntityId) -> bool {
+        self.notify_configs.remove(config_id).is_some()
+    }
+
+    /// Get all registered notification configurations (without callbacks)
+    pub fn get_notification_configs(&self) -> HashMap<EntityId, &NotifyConfig> {
+        self.notify_configs.iter().map(|(id, (config, _))| (id.clone(), config)).collect()
+    }
+
+    /// Trigger notifications for a write operation
+    fn trigger_notifications(&self, _ctx: &Context, entity_id: &EntityId, field_type: &FieldType, current_value: &Value, previous_value: &Value) {
+        for (_, (config, callback)) in &self.notify_configs {
+            let should_notify = match config {
+                NotifyConfig::EntityId { 
+                    entity_id: config_entity_id, 
+                    field_type: config_field_type, 
+                    trigger_on_change, 
+                    context: _context 
+                } => {
+                    // Check if this notification applies to this specific entity and field
+                    if config_entity_id == entity_id && config_field_type == field_type {
+                        if *trigger_on_change {
+                            current_value != previous_value
+                        } else {
+                            true // Always trigger on write
+                        }
+                    } else {
+                        false
+                    }
+                },
+                NotifyConfig::EntityType { 
+                    entity_type: config_entity_type, 
+                    field_type: config_field_type, 
+                    trigger_on_change, 
+                    context: _context 
+                } => {
+                    // Check if this notification applies to this entity type and field
+                    if entity_id.get_type().to_string() == *config_entity_type && config_field_type == field_type {
+                        if *trigger_on_change {
+                            current_value != previous_value
+                        } else {
+                            true // Always trigger on write
+                        }
+                    } else {
+                        false
+                    }
+                }
+            };
+
+            if should_notify {
+                // Build the context fields (these can be indirect)
+                let context_fields = match config {
+                    NotifyConfig::EntityId { context, .. } | NotifyConfig::EntityType { context, .. } => {
+                        let mut context_map = std::collections::BTreeMap::new();
+                        for context_field in context {
+                            // Try to read the context field value directly (we can't use resolve_indirection easily here)
+                            // For now, let's implement a simpler version that only supports direct fields
+                            if let Some(entity_fields) = self.fields.get(entity_id) {
+                                if let Some(field) = entity_fields.get(context_field) {
+                                    context_map.insert(context_field.clone(), Some(field.value.clone()));
+                                } else {
+                                    context_map.insert(context_field.clone(), None);
+                                }
+                            } else {
+                                context_map.insert(context_field.clone(), None);
+                            }
+                        }
+                        context_map
+                    }
+                };
+
+                let notification = Notification {
+                    entity_id: entity_id.clone(),
+                    field_type: field_type.clone(),
+                    current_value: current_value.clone(),
+                    previous_value: previous_value.clone(),
+                    context: context_fields,
+                };
+
+                callback(&notification);
+            }
+        }
     }
 }
 
