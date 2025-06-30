@@ -9,12 +9,12 @@ pub enum NotifyConfig {
     EntityId {
         entity_id: EntityId,
         field_type: FieldType,
-        on_change: bool,
+        on_change: bool, // Notification will always trigger on write, but can be configured to trigger on change instead
     },
     EntityType {
         entity_type: String,
         field_type: FieldType,
-        on_change: bool,
+        on_change: bool, // Notification will always trigger on write, but can be configured to trigger on change instead
     }
 }
 
