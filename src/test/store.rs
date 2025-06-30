@@ -11,31 +11,28 @@ fn create_entity_schema(store: &mut Store, entity_type: &EntityType) -> Result<(
     let ft_children = FieldType::from("Children");
 
     // Add default fields common to all entities
-    let name_schema = FieldSchema {
+    let name_schema = FieldSchema::String {
         field_type: ft_name.clone(),
         default_value: Value::String("".into()),
         rank: 0,
         read_permission: None,
         write_permission: None,
-        choices: None,
     };
 
-    let parent_schema = FieldSchema {
+    let parent_schema = FieldSchema::EntityReference {
         field_type: ft_parent.clone(),
         default_value: Value::EntityReference(None),
         rank: 1,
         read_permission: None,
         write_permission: None,
-        choices: None,
     };
 
-    let children_schema = FieldSchema {
+    let children_schema = FieldSchema::EntityList {
         field_type: ft_children.clone(),
         default_value: Value::EntityList(Vec::new()),
         rank: 2,
         read_permission: None,
         write_permission: None,
-        choices: None,
     };
 
     schema.fields.insert(ft_name.clone(), name_schema);
@@ -66,13 +63,12 @@ fn setup_test_database() -> Result<Store> {
     create_entity_schema(&mut store, &et_role)?;
 
     // Add custom fields to User schema
-    let email_schema = FieldSchema {
+    let email_schema = FieldSchema::String {
         field_type: ft_email.clone(),
         default_value: Value::String("".into()),
         rank: 3,
         read_permission: None,
         write_permission: None,
-        choices: None,
     };
 
     store.set_field_schema(&ctx, &et_user, &ft_email, email_schema)?;
