@@ -44,7 +44,7 @@ impl<T> EntitySchema<T> {
     pub fn diff(&self, other: &EntitySchema<T>) -> Vec<FieldSchema> {
         self.fields
             .values()
-            .filter(|v| !other.fields.contains_key(&v.field_type))
+            .filter(|v| other.fields.contains_key(&v.field_type()))
             .cloned()
             .collect()
     }
