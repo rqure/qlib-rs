@@ -26,7 +26,7 @@ pub use store::{
 };
 pub use value::Value;
 pub use constants::{INDIRECTION_DELIMITER};
-pub use notifications::{NotifyConfig, NotifyData, Notification};
+pub use notifications::{NotifyConfig, Notification};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash)]
 pub struct EntityType(pub String);
