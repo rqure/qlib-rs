@@ -978,5 +978,14 @@ pub fn resolve_indirection(
         }
     }
 
-    Ok((current_entity_id, fields.last().unwrap().clone()))
+    Ok((current_entity_id, fields.last().cloned().ok_or_else(|| {
+        BadIndirection::new(
+            entity_id.clone(),
+            field_type.clone(),
+            BadIndirectionReason::UnexpectedValueType(
+                "".into(),
+                "Empty field path".to_string(),
+            ),
+        )
+    })?))
 }
