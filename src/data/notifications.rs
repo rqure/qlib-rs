@@ -9,13 +9,13 @@ pub enum NotifyConfig {
     EntityId {
         entity_id: EntityId,
         field_type: FieldType,
-        on_change: bool, // Notification will always trigger on write, but can be configured to trigger on change instead
+        trigger_on_change: bool, // Notification will always trigger on write, but can be configured to trigger on change instead
         context: Vec<FieldType>, // Context fields to include in the notification (these fields are relative to the entity with indirection support)
     },
     EntityType {
         entity_type: String,
         field_type: FieldType,
-        on_change: bool, // Notification will always trigger on write, but can be configured to trigger on change instead
+        trigger_on_change: bool, // Notification will always trigger on write, but can be configured to trigger on change instead
         context: Vec<FieldType>, // Context fields to include in the notification (these fields are relative to the entity with indirection support)
     }
 }
