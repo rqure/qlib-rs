@@ -197,6 +197,11 @@ pub struct Store {
     entities: HashMap<EntityType, Vec<EntityId>>,
     types: Vec<EntityType>,
     fields: HashMap<EntityId, HashMap<FieldType, Field>>,
+    
+    /// Maps parent types to all their derived types (including direct and indirect children)
+    /// This allows fast lookup of all entity types that inherit from a given parent type
+    #[serde(skip)]
+    inheritance_map: HashMap<EntityType, Vec<EntityType>>,
 
     #[serde(skip)]
     snowflake: Arc<Snowflake>,
@@ -209,6 +214,7 @@ impl Store {
             entities: HashMap::new(),
             types: Vec::new(),
             fields: HashMap::new(),
+            inheritance_map: HashMap::new(),
             snowflake,
         }
     }
@@ -307,10 +313,21 @@ impl Store {
         entity_type: &EntityType,
     ) -> Result<EntitySchema<Complete>> {
         let mut schema = EntitySchema::<Complete>::from(self.get_entity_schema(ctx, entity_type)?);
+        let mut visited_types = std::collections::HashSet::new();
+        visited_types.insert(entity_type.clone());
 
         loop {
             if let Some(inherit_type) = &schema.inherit.clone() {
+                // Check for circular inheritance
+                if visited_types.contains(inherit_type) {
+                    // Circular inheritance detected, break the loop
+                    schema.inherit = None;
+                    break;
+                }
+                
                 if let Some(inherit_schema) = self.schemas.get(inherit_type) {
+                    visited_types.insert(inherit_type.clone());
+                    
                     // Merge inherited fields into the current schema
                     for (field_type, field_schema) in &inherit_schema.fields {
                         schema
@@ -394,6 +411,9 @@ impl Store {
                 );
             }
         }
+
+        // Rebuild inheritance map after schema changes
+        self.rebuild_inheritance_map();
 
         Ok(())
     }
@@ -732,7 +752,108 @@ impl Store {
     }
 
     /// Find entities of a specific type with pagination
+    /// 
+    /// This method supports inheritance - when searching for a parent type,
+    /// it will include entities of all derived types as well.
+    /// 
+    /// For example, if you have the hierarchy:
+    /// - Animal (base type)
+    ///   - Mammal (inherits from Animal)
+    ///     - Dog (inherits from Mammal)
+    ///     - Cat (inherits from Mammal)
+    /// 
+    /// Then calling `find_entities` with `EntityType::from("Animal")` will return
+    /// all Dog, Cat, Mammal, and Animal entities.
+    /// 
+    /// Calling `find_entities` with `EntityType::from("Mammal")` will return
+    /// all Dog, Cat, and Mammal entities (but not Animal entities).
+    /// 
+    /// If you need to find entities of an exact type without inheritance,
+    /// use `find_entities_exact` instead.
     pub fn find_entities(
+        &self,
+        _: &Context,
+        entity_type: &EntityType,
+        page_opts: Option<PageOpts>,
+    ) -> Result<PageResult<EntityId>> {
+        let opts = page_opts.unwrap_or_default();
+
+        // Get all entity types that match the requested type (including derived types)
+        let types_to_search = self.inheritance_map
+            .get(entity_type)
+            .cloned()
+            .unwrap_or_else(|| {
+                // If not in inheritance map, just check the exact type
+                if self.entities.contains_key(entity_type) {
+                    vec![entity_type.clone()]
+                } else {
+                    Vec::new()
+                }
+            });
+
+        // Collect all entities from all matching types
+        let mut all_entities = Vec::new();
+        for et in &types_to_search {
+            if let Some(entities) = self.entities.get(et) {
+                all_entities.extend(entities.iter().cloned());
+            }
+        }
+
+        let total = all_entities.len();
+
+        if total == 0 {
+            return Ok(PageResult {
+                items: Vec::new(),
+                total: 0,
+                next_cursor: None,
+            });
+        }
+
+        // Find the starting index based on cursor
+        let start_idx = if let Some(cursor) = &opts.cursor {
+            match cursor.parse::<usize>() {
+                Ok(idx) => idx,
+                Err(_) => 0,
+            }
+        } else {
+            0
+        };
+
+        // Get the slice of entities for this page
+        let end_idx = std::cmp::min(start_idx + opts.limit, total);
+        let items: Vec<EntityId> = if start_idx < total {
+            all_entities[start_idx..end_idx].to_vec()
+        } else {
+            Vec::new()
+        };
+
+        // Calculate the next cursor
+        let next_cursor = if end_idx < total {
+            Some(end_idx.to_string())
+        } else {
+            None
+        };
+
+        Ok(PageResult {
+            items,
+            total,
+            next_cursor,
+        })
+    }
+
+    /// Find entities of exactly the specified type (no inheritance)
+    /// 
+    /// This method only returns entities of the exact type, not derived types.
+    /// This is useful when you need to distinguish between parent and child
+    /// types in an inheritance hierarchy.
+    /// 
+    /// For example, if you have the hierarchy:
+    /// - Animal (base type)
+    ///   - Dog (inherits from Animal)
+    /// 
+    /// Then calling `find_entities_exact` with `EntityType::from("Animal")` will
+    /// only return entities that were created with the "Animal" type, not Dog entities.
+    pub fn find_entities_exact(
         &self,
         _: &Context,
         entity_type: &EntityType,
@@ -844,6 +965,59 @@ impl Store {
         self.entities = snapshot.entities;
         self.types = snapshot.types;
         self.fields = snapshot.fields;
+    }
+
+    /// Rebuild the inheritance map for fast lookup of derived types
+    /// This should be called whenever schemas are added or updated
+    fn rebuild_inheritance_map(&mut self) {
+        self.inheritance_map.clear();
+        
+        // For each entity type, find all types that inherit from it
+        for entity_type in &self.types {
+            let mut derived_types = Vec::new();
+            
+            // Check all other types to see if they inherit from this type
+            for other_type in &self.types {
+                if self.inherits_from(other_type, entity_type) {
+                    derived_types.push(other_type.clone());
+                }
+            }
+            
+            // Include the type itself in the list
+            derived_types.push(entity_type.clone());
+            
+            self.inheritance_map.insert(entity_type.clone(), derived_types);
+        }
+    }
+    
+    /// Check if derived_type inherits from base_type (directly or indirectly)
+    /// This method guards against circular inheritance by limiting the depth of inheritance traversal
+    fn inherits_from(&self, derived_type: &EntityType, base_type: &EntityType) -> bool {
+        if derived_type == base_type {
+            return false; // A type doesn't inherit from itself
+        }
+        
+        let mut current_type = derived_type;
+        let mut depth = 0;
+        const MAX_INHERITANCE_DEPTH: usize = 100; // Prevent infinite loops
+        
+        while depth < MAX_INHERITANCE_DEPTH {
+            if let Some(schema) = self.schemas.get(current_type) {
+                if let Some(inherit_type) = &schema.inherit {
+                    if inherit_type == base_type {
+                        return true;
+                    }
+                    current_type = inherit_type;
+                    depth += 1;
+                } else {
+                    break;
+                }
+            } else {
+                break;
+            }
+        }
+        
+        false
     }
 }
 
