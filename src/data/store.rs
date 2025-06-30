@@ -309,7 +309,7 @@ impl Store {
         let mut schema = EntitySchema::<Complete>::from(self.get_entity_schema(ctx, entity_type)?);
 
         loop {
-            if let Some(inherit_type) = &schema.inherit {
+            if let Some(inherit_type) = &schema.inherit.clone() {
                 if let Some(inherit_schema) = self.schemas.get(inherit_type) {
                     // Merge inherited fields into the current schema
                     for (field_type, field_schema) in &inherit_schema.fields {
@@ -318,6 +318,8 @@ impl Store {
                             .entry(field_type.clone())
                             .or_insert_with(|| field_schema.clone());
                     }
+                    // Move up the inheritance chain
+                    schema.inherit = inherit_schema.inherit.clone();
                 } else {
                     return Err(EntityTypeNotFound(inherit_type.clone()).into());
                 }
