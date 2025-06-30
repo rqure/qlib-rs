@@ -387,7 +387,7 @@ impl Store {
                     added_field.field_type().clone(),
                     Field {
                         field_type: added_field.field_type().clone(),
-                        value: added_field.default_value().clone(),
+                        value: added_field.default_value(),
                         write_time: now(),
                         writer_id: None,
                     },
@@ -534,12 +534,12 @@ impl Store {
 
         let field = fields.entry(field_type.clone()).or_insert_with(|| Field {
             field_type: field_type.clone(),
-            value: field_schema.default_value().clone(),
+            value: field_schema.default_value(),
             write_time: now(),
             writer_id: None,
         });
 
-        let mut new_value = field_schema.default_value().clone();
+        let mut new_value = field_schema.default_value();
         // Check that the value being written is the same type as the field schema
         // If the value is None, use the default value from the schema
         if let Some(value) = value {
@@ -547,7 +547,7 @@ impl Store {
                 return Err(ValueTypeMismatch(
                     entity_id.clone(),
                     field_type.clone(),
-                    field_schema.default_value().clone(),
+                    field_schema.default_value(),
                     value.clone(),
                 )
                 .into());

@@ -13,7 +13,7 @@ fn create_entity_schema(store: &mut Store, entity_type: &EntityType) -> Result<(
     // Add default fields common to all entities
     let name_schema = FieldSchema::String {
         field_type: ft_name.clone(),
-        default_value: Value::String("".into()),
+        default_value: "".to_string(),
         rank: 0,
         read_permission: None,
         write_permission: None,
@@ -21,7 +21,7 @@ fn create_entity_schema(store: &mut Store, entity_type: &EntityType) -> Result<(
 
     let parent_schema = FieldSchema::EntityReference {
         field_type: ft_parent.clone(),
-        default_value: Value::EntityReference(None),
+        default_value: None,
         rank: 1,
         read_permission: None,
         write_permission: None,
@@ -29,7 +29,7 @@ fn create_entity_schema(store: &mut Store, entity_type: &EntityType) -> Result<(
 
     let children_schema = FieldSchema::EntityList {
         field_type: ft_children.clone(),
-        default_value: Value::EntityList(Vec::new()),
+        default_value: Vec::new(),
         rank: 2,
         read_permission: None,
         write_permission: None,
@@ -65,7 +65,7 @@ fn setup_test_database() -> Result<Store> {
     // Add custom fields to User schema
     let email_schema = FieldSchema::String {
         field_type: ft_email.clone(),
-        default_value: Value::String("".into()),
+        default_value: "".to_string(),
         rank: 3,
         read_permission: None,
         write_permission: None,

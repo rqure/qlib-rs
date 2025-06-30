@@ -1,4 +1,4 @@
-use crate::{data::{FieldType}, EntityId, Value};
+use crate::{data::{FieldType, Timestamp}, EntityId, Value};
 use serde::{Deserialize, Serialize};
 
 
@@ -6,21 +6,21 @@ use serde::{Deserialize, Serialize};
 pub enum FieldSchema {
     Blob {
         field_type: FieldType,
-        default_value: Value,
+        default_value: Vec<u8>,
         rank: i64,
         read_permission: Option<EntityId>,
         write_permission: Option<EntityId>,
     },
     Bool {
         field_type: FieldType,
-        default_value: Value,
+        default_value: bool,
         rank: i64,
         read_permission: Option<EntityId>,
         write_permission: Option<EntityId>,
     },
     Choice {
         field_type: FieldType,
-        default_value: Value,
+        default_value: i64,
         rank: i64,
         read_permission: Option<EntityId>,
         write_permission: Option<EntityId>,
@@ -28,42 +28,42 @@ pub enum FieldSchema {
     },
     EntityList {
         field_type: FieldType,
-        default_value: Value,
+        default_value: Vec<EntityId>,
         rank: i64,
         read_permission: Option<EntityId>,
         write_permission: Option<EntityId>,
     },
     EntityReference {
         field_type: FieldType,
-        default_value: Value,
+        default_value: Option<EntityId>,
         rank: i64,
         read_permission: Option<EntityId>,
         write_permission: Option<EntityId>,
     },
     Float {
         field_type: FieldType,
-        default_value: Value,
+        default_value: f64,
         rank: i64,
         read_permission: Option<EntityId>,
         write_permission: Option<EntityId>,
     },
     Int {
         field_type: FieldType,
-        default_value: Value,
+        default_value: i64,
         rank: i64,
         read_permission: Option<EntityId>,
         write_permission: Option<EntityId>,
     },
     String {
         field_type: FieldType,
-        default_value: Value,
+        default_value: String,
         rank: i64,
         read_permission: Option<EntityId>,
         write_permission: Option<EntityId>,
     },
     Timestamp {
         field_type: FieldType,
-        default_value: Value,
+        default_value: Timestamp,
         rank: i64,
         read_permission: Option<EntityId>,
         write_permission: Option<EntityId>,
@@ -85,17 +85,17 @@ impl FieldSchema {
         }
     }
 
-    pub fn default_value(&self) -> &Value {
+    pub fn default_value(&self) -> Value {
         match self {
-            FieldSchema::Blob { default_value, .. } => default_value,
-            FieldSchema::Bool { default_value, .. } => default_value,
-            FieldSchema::Choice { default_value, .. } => default_value,
-            FieldSchema::EntityList { default_value, .. } => default_value,
-            FieldSchema::EntityReference { default_value, .. } => default_value,
-            FieldSchema::Float { default_value, .. } => default_value,
-            FieldSchema::Int { default_value, .. } => default_value,
-            FieldSchema::String { default_value, .. } => default_value,
-            FieldSchema::Timestamp { default_value, .. } => default_value,
+            FieldSchema::Blob { default_value, .. } => Value::Blob(default_value.clone()),
+            FieldSchema::Bool { default_value, .. } => Value::Bool(*default_value),
+            FieldSchema::Choice { default_value, .. } => Value::Choice(*default_value),
+            FieldSchema::EntityList { default_value, .. } => Value::EntityList(default_value.clone()),
+            FieldSchema::EntityReference { default_value, .. } => Value::EntityReference(default_value.clone()),
+            FieldSchema::Float { default_value, .. } => Value::Float(*default_value),
+            FieldSchema::Int { default_value, .. } => Value::Int(*default_value),
+            FieldSchema::String { default_value, .. } => Value::String(default_value.clone()),
+            FieldSchema::Timestamp { default_value, .. } => Value::Timestamp(*default_value),
         }
     }
 
