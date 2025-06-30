@@ -8,6 +8,7 @@ mod snowflake;
 mod store;
 mod value;
 mod constants;
+mod notifications;
 
 use std::fmt;
 
@@ -25,6 +26,7 @@ pub use store::{
 };
 pub use value::Value;
 pub use constants::{INDIRECTION_DELIMITER};
+pub use notifications::{NotifyConfig, NotifyData, Notification};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash)]
 pub struct EntityType(pub String);
@@ -46,7 +48,7 @@ impl fmt::Display for EntityType {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash, Ord, PartialOrd)]
 pub struct FieldType(pub String);
 
 impl From<String> for FieldType {
