@@ -315,12 +315,10 @@ impl Store {
         }
 
         {
-            let mut writes = self
-                .schemas
-                .get(entity_type)
-                .map(|s| &s.fields)
-                .into_iter()
-                .flat_map(|fields| fields.iter())
+            let complete_schema = self.get_complete_entity_schema(ctx, entity_type)?;
+            let mut writes = complete_schema
+                .fields
+                .iter()
                 .map(|(field_type, _)| match field_type.as_ref() {
                     "Name" => {
                         swrite!(entity_id.clone(), field_type.clone(), sstr!(name))
@@ -1091,6 +1089,32 @@ impl Store {
         false
     }
 
+    /// Get all parent types in the inheritance chain for a given entity type
+    /// Returns a vector of parent types from most specific to most general
+    /// For example, if Sedan -> Car -> Vehicle -> Object, returns [Car, Vehicle, Object]
+    fn get_parent_types(&self, entity_type: &EntityType) -> Vec<EntityType> {
+        let mut parent_types = Vec::new();
+        let mut current_type = entity_type;
+        let mut depth = 0;
+        const MAX_INHERITANCE_DEPTH: usize = 100; // Prevent infinite loops
+
+        while depth < MAX_INHERITANCE_DEPTH {
+            if let Some(schema) = self.schemas.get(current_type) {
+                if let Some(inherit_type) = &schema.inherit {
+                    parent_types.push(inherit_type.clone());
+                    current_type = inherit_type;
+                    depth += 1;
+                } else {
+                    break;
+                }
+            } else {
+                break;
+            }
+        }
+
+        parent_types
+    }
+
     /// Register a notification configuration with its callback
     /// Returns a NotifyToken that can be used to unregister the notification
     /// Returns an error if the field_type contains indirection (context fields can be indirect)
@@ -1357,23 +1381,30 @@ impl Store {
         }
 
         // Check entity type notifications with O(1) lookup by entity_type and field_type
-        if let Some(field_map) = self.type_notifications.get(entity_id.get_type()) {
-            if let Some(token_map) = field_map.get(field_type) {
-                for (token, (config, _)) in token_map {
-                    if let NotifyConfig::EntityType {
-                        trigger_on_change,
-                        context,
-                        ..
-                    } = config
-                    {
-                        let should_notify = if *trigger_on_change {
-                            current_value != previous_value
-                        } else {
-                            true // Always trigger on write
-                        };
+        // Also check parent entity types for inheritance support
+        let entity_type = entity_id.get_type();
+        let mut types_to_check = vec![entity_type.clone()];
+        types_to_check.extend(self.get_parent_types(entity_type));
 
-                        if should_notify {
-                            notifications_to_trigger.push((token.clone(), config.clone(), context.clone()));
+        for entity_type_to_check in types_to_check {
+            if let Some(field_map) = self.type_notifications.get(&entity_type_to_check) {
+                if let Some(token_map) = field_map.get(field_type) {
+                    for (token, (config, _)) in token_map {
+                        if let NotifyConfig::EntityType {
+                            trigger_on_change,
+                            context,
+                            ..
+                        } = config
+                        {
+                            let should_notify = if *trigger_on_change {
+                                current_value != previous_value
+                            } else {
+                                true // Always trigger on write
+                            };
+
+                            if should_notify {
+                                notifications_to_trigger.push((token.clone(), config.clone(), context.clone()));
+                            }
                         }
                     }
                 }
@@ -1407,10 +1438,11 @@ impl Store {
                     }
                 }
                 NotifyConfig::EntityType {
+                    entity_type: config_entity_type,
                     field_type: config_field_type,
                     ..
                 } => {
-                    if let Some(field_map) = self.type_notifications.get(entity_id.get_type()) {
+                    if let Some(field_map) = self.type_notifications.get(config_entity_type) {
                         if let Some(token_map) = field_map.get(config_field_type) {
                             if let Some((_, callback)) = token_map.get(&token) {
                                 callback(&notification);

@@ -99,7 +99,7 @@ mod tests {
 
         // Register notification for entity type
         let config = NotifyConfig::EntityType {
-            entity_type: "User".to_string(),
+            entity_type: EntityType::from("User"),
             field_type: FieldType::from("email"),
             trigger_on_change: true, // Only trigger on actual changes
             context: vec![],
@@ -248,7 +248,7 @@ mod tests {
         };
 
         let config2 = NotifyConfig::EntityType {
-            entity_type: "User".to_string(),
+            entity_type: EntityType::from("User"),
             field_type: FieldType::from("email"),
             trigger_on_change: true,
             context: vec![],
@@ -303,7 +303,7 @@ mod tests {
 
         // Register notification
         let config = NotifyConfig::EntityType {
-            entity_type: "User".to_string(),
+            entity_type: EntityType::from("User"),
             field_type: FieldType::from("email"),
             trigger_on_change: false,
             context: vec![],
@@ -338,6 +338,523 @@ mod tests {
 
         // Check that no notification was triggered
         assert_eq!(triggered_notifications.lock().unwrap().len(), 0);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_notification_inheritance_parent_type() -> Result<()> {
+        let mut store = Store::new(Arc::new(Snowflake::new()));
+        let ctx = Context {};
+
+        // Create inheritance hierarchy: Animal -> Mammal -> Dog
+        let et_animal = EntityType::from("Animal");
+        let et_mammal = EntityType::from("Mammal");
+        let et_dog = EntityType::from("Dog");
+
+        // Animal schema (base type)
+        let mut animal_schema = EntitySchema::<Single>::new(et_animal.clone(), None);
+        animal_schema.fields.insert(
+            FieldType::from("Name"),
+            FieldSchema::String {
+                field_type: FieldType::from("Name"),
+                default_value: "".to_string(),
+                rank: 0,
+                read_permission: None,
+                write_permission: None,
+            }
+        );
+        store.set_entity_schema(&ctx, &animal_schema)?;
+
+        // Mammal schema (inherits from Animal)
+        let mammal_schema = EntitySchema::<Single>::new(et_mammal.clone(), Some(et_animal.clone()));
+        store.set_entity_schema(&ctx, &mammal_schema)?;
+
+        // Dog schema (inherits from Mammal)
+        let dog_schema = EntitySchema::<Single>::new(et_dog.clone(), Some(et_mammal.clone()));
+        store.set_entity_schema(&ctx, &dog_schema)?;
+
+        // Create a dog entity
+        let dog = store.create_entity(&ctx, &et_dog, None, "Buddy")?;
+
+        // Track notifications
+        let notifications = Arc::new(Mutex::new(Vec::new()));
+        let notifications_clone = notifications.clone();
+
+        // Register notification on Animal type (parent type) for Name field
+        let animal_config = NotifyConfig::EntityType {
+            entity_type: et_animal.clone(),
+            field_type: FieldType::from("Name"),
+            trigger_on_change: true,
+            context: vec![],
+        };
+
+        let callback = Box::new(move |notification: &Notification| {
+            notifications_clone.lock().unwrap().push(notification.clone());
+        });
+
+        let token = store.register_notification(&ctx, animal_config, callback)?;
+
+        // Write to dog's Name field - should trigger notification on Animal type
+        let mut requests = vec![swrite!(
+            dog.entity_id.clone(),
+            FieldType::from("Name"),
+            sstr!("Rex")
+        )];
+        store.perform(&ctx, &mut requests)?;
+
+        // Verify notification was triggered
+        let captured_notifications = notifications.lock().unwrap();
+        assert_eq!(captured_notifications.len(), 1);
+        
+        let notification = &captured_notifications[0];
+        assert_eq!(notification.entity_id, dog.entity_id);
+        assert_eq!(notification.field_type, FieldType::from("Name"));
+        assert_eq!(notification.current_value, Value::String("Rex".to_string()));
+        assert_eq!(notification.previous_value, Value::String("Buddy".to_string()));
+
+        // Clean up
+        let success = store.unregister_notification_by_token(&token);
+        assert!(success);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_notification_inheritance_multiple_levels() -> Result<()> {
+        let mut store = Store::new(Arc::new(Snowflake::new()));
+        let ctx = Context {};
+
+        // Create inheritance hierarchy: Object -> Vehicle -> Car -> Sedan
+        let et_object = EntityType::from("Object");
+        let et_vehicle = EntityType::from("Vehicle");
+        let et_car = EntityType::from("Car");
+        let et_sedan = EntityType::from("Sedan");
+
+        // Object schema (base type)
+        let mut object_schema = EntitySchema::<Single>::new(et_object.clone(), None);
+        object_schema.fields.insert(
+            FieldType::from("Name"),
+            FieldSchema::String {
+                field_type: FieldType::from("Name"),
+                default_value: "".to_string(),
+                rank: 0,
+                read_permission: None,
+                write_permission: None,
+            }
+        );
+        store.set_entity_schema(&ctx, &object_schema)?;
+
+        // Vehicle schema (inherits from Object)
+        let vehicle_schema = EntitySchema::<Single>::new(et_vehicle.clone(), Some(et_object.clone()));
+        store.set_entity_schema(&ctx, &vehicle_schema)?;
+
+        // Car schema (inherits from Vehicle)
+        let car_schema = EntitySchema::<Single>::new(et_car.clone(), Some(et_vehicle.clone()));
+        store.set_entity_schema(&ctx, &car_schema)?;
+
+        // Sedan schema (inherits from Car)
+        let sedan_schema = EntitySchema::<Single>::new(et_sedan.clone(), Some(et_car.clone()));
+        store.set_entity_schema(&ctx, &sedan_schema)?;
+
+        // Create a sedan entity
+        let sedan = store.create_entity(&ctx, &et_sedan, None, "Toyota Camry")?;
+
+        // Track notifications for each level
+        let object_notifications = Arc::new(Mutex::new(Vec::new()));
+        let vehicle_notifications = Arc::new(Mutex::new(Vec::new()));
+        let car_notifications = Arc::new(Mutex::new(Vec::new()));
+
+        // Register notifications at different inheritance levels
+        let object_config = NotifyConfig::EntityType {
+            entity_type: et_object.clone(),
+            field_type: FieldType::from("Name"),
+            trigger_on_change: true,
+            context: vec![],
+        };
+        
+        let vehicle_config = NotifyConfig::EntityType {
+            entity_type: et_vehicle.clone(),
+            field_type: FieldType::from("Name"),
+            trigger_on_change: true,
+            context: vec![],
+        };
+        
+        let car_config = NotifyConfig::EntityType {
+            entity_type: et_car.clone(),
+            field_type: FieldType::from("Name"),
+            trigger_on_change: true,
+            context: vec![],
+        };
+
+        let object_notifications_clone = object_notifications.clone();
+        let vehicle_notifications_clone = vehicle_notifications.clone();
+        let car_notifications_clone = car_notifications.clone();
+
+        let object_token = store.register_notification(
+            &ctx,
+            object_config,
+            Box::new(move |notification: &Notification| {
+                object_notifications_clone.lock().unwrap().push(notification.clone());
+            })
+        )?;
+        
+        let vehicle_token = store.register_notification(
+            &ctx,
+            vehicle_config,
+            Box::new(move |notification: &Notification| {
+                vehicle_notifications_clone.lock().unwrap().push(notification.clone());
+            })
+        )?;
+        
+        let car_token = store.register_notification(
+            &ctx,
+            car_config,
+            Box::new(move |notification: &Notification| {
+                car_notifications_clone.lock().unwrap().push(notification.clone());
+            })
+        )?;
+
+        // Write to sedan's Name field - should trigger all parent notifications
+        let mut requests = vec![swrite!(
+            sedan.entity_id.clone(),
+            FieldType::from("Name"),
+            sstr!("Honda Accord")
+        )];
+        store.perform(&ctx, &mut requests)?;
+
+        // Verify all parent type notifications were triggered
+        let object_captured = object_notifications.lock().unwrap();
+        let vehicle_captured = vehicle_notifications.lock().unwrap();
+        let car_captured = car_notifications.lock().unwrap();
+
+        assert_eq!(object_captured.len(), 1);
+        assert_eq!(vehicle_captured.len(), 1);
+        assert_eq!(car_captured.len(), 1);
+
+        // All notifications should have the same entity and field info
+        for notifications in [&*object_captured, &*vehicle_captured, &*car_captured] {
+            let notification = &notifications[0];
+            assert_eq!(notification.entity_id, sedan.entity_id);
+            assert_eq!(notification.field_type, FieldType::from("Name"));
+            assert_eq!(notification.current_value, Value::String("Honda Accord".to_string()));
+            assert_eq!(notification.previous_value, Value::String("Toyota Camry".to_string()));
+        }
+
+        // Clean up
+        assert!(store.unregister_notification_by_token(&object_token));
+        assert!(store.unregister_notification_by_token(&vehicle_token));
+        assert!(store.unregister_notification_by_token(&car_token));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_notification_inheritance_no_duplicate_triggers() -> Result<()> {
+        let mut store = Store::new(Arc::new(Snowflake::new()));
+        let ctx = Context {};
+
+        // Create inheritance hierarchy: Animal -> Dog
+        let et_animal = EntityType::from("Animal");
+        let et_dog = EntityType::from("Dog");
+
+        // Animal schema (base type)
+        let mut animal_schema = EntitySchema::<Single>::new(et_animal.clone(), None);
+        animal_schema.fields.insert(
+            FieldType::from("Name"),
+            FieldSchema::String {
+                field_type: FieldType::from("Name"),
+                default_value: "".to_string(),
+                rank: 0,
+                read_permission: None,
+                write_permission: None,
+            }
+        );
+        store.set_entity_schema(&ctx, &animal_schema)?;
+
+        // Dog schema (inherits from Animal)
+        let dog_schema = EntitySchema::<Single>::new(et_dog.clone(), Some(et_animal.clone()));
+        store.set_entity_schema(&ctx, &dog_schema)?;
+
+        // Create a dog entity
+        let dog = store.create_entity(&ctx, &et_dog, None, "Buddy")?;
+
+        // Track notifications
+        let notifications = Arc::new(Mutex::new(Vec::new()));
+        let notifications_clone = notifications.clone();
+
+        // Register notification on both Animal (parent) and Dog (exact) types
+        let animal_config = NotifyConfig::EntityType {
+            entity_type: et_animal.clone(),
+            field_type: FieldType::from("Name"),
+            trigger_on_change: true,
+            context: vec![],
+        };
+        
+        let dog_config = NotifyConfig::EntityType {
+            entity_type: et_dog.clone(),
+            field_type: FieldType::from("Name"),
+            trigger_on_change: true,
+            context: vec![],
+        };
+
+        let callback = Box::new(move |notification: &Notification| {
+            notifications_clone.lock().unwrap().push(notification.clone());
+        });
+
+        let animal_token = store.register_notification(&ctx, animal_config, callback)?;
+        
+        let notifications_clone2 = notifications.clone();
+        let callback2 = Box::new(move |notification: &Notification| {
+            notifications_clone2.lock().unwrap().push(notification.clone());
+        });
+        let dog_token = store.register_notification(&ctx, dog_config, callback2)?;
+
+        // Write to dog's Name field - should trigger both notifications
+        let mut requests = vec![swrite!(
+            dog.entity_id.clone(),
+            FieldType::from("Name"),
+            sstr!("Rex")
+        )];
+        store.perform(&ctx, &mut requests)?;
+
+        // Verify both notifications were triggered (one for exact type, one for parent type)
+        let captured_notifications = notifications.lock().unwrap();
+        assert_eq!(captured_notifications.len(), 2);
+
+        // Both notifications should have the same entity and field info
+        for notification in captured_notifications.iter() {
+            assert_eq!(notification.entity_id, dog.entity_id);
+            assert_eq!(notification.field_type, FieldType::from("Name"));
+            assert_eq!(notification.current_value, Value::String("Rex".to_string()));
+            assert_eq!(notification.previous_value, Value::String("Buddy".to_string()));
+        }
+
+        // Clean up
+        assert!(store.unregister_notification_by_token(&animal_token));
+        assert!(store.unregister_notification_by_token(&dog_token));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_notification_inheritance_context_fields() -> Result<()> {
+        let mut store = Store::new(Arc::new(Snowflake::new()));
+        let ctx = Context {};
+
+        // Create inheritance hierarchy with parent-child relationships
+        let et_object = EntityType::from("Object");
+        let et_folder = EntityType::from("Folder");
+
+        // Object schema (base type)
+        let mut object_schema = EntitySchema::<Single>::new(et_object.clone(), None);
+        object_schema.fields.insert(
+            FieldType::from("Name"),
+            FieldSchema::String {
+                field_type: FieldType::from("Name"),
+                default_value: "".to_string(),
+                rank: 0,
+                read_permission: None,
+                write_permission: None,
+            }
+        );
+        object_schema.fields.insert(
+            FieldType::from("Parent"),
+            FieldSchema::EntityReference {
+                field_type: FieldType::from("Parent"),
+                default_value: None,
+                rank: 1,
+                read_permission: None,
+                write_permission: None,
+            }
+        );
+        object_schema.fields.insert(
+            FieldType::from("Children"),
+            FieldSchema::EntityList {
+                field_type: FieldType::from("Children"),
+                default_value: Vec::new(),
+                rank: 2,
+                read_permission: None,
+                write_permission: None,
+            }
+        );
+        store.set_entity_schema(&ctx, &object_schema)?;
+
+        // Folder schema (inherits from Object)
+        let folder_schema = EntitySchema::<Single>::new(et_folder.clone(), Some(et_object.clone()));
+        store.set_entity_schema(&ctx, &folder_schema)?;
+
+        // Create parent and child folders
+        let parent_folder = store.create_entity(&ctx, &et_folder, None, "Parent Folder")?;
+        let child_folder = store.create_entity(&ctx, &et_folder, Some(parent_folder.entity_id.clone()), "Child Folder")?;
+
+        // Track notifications
+        let notifications = Arc::new(Mutex::new(Vec::new()));
+        let notifications_clone = notifications.clone();
+
+        // Register notification on Object type (parent) with context including parent name
+        let config = NotifyConfig::EntityType {
+            entity_type: et_object.clone(),
+            field_type: FieldType::from("Name"),
+            trigger_on_change: true,
+            context: vec![
+                FieldType::from("Parent"),
+                FieldType::from("Parent->Name"),  // Indirect field for parent's name
+            ],
+        };
+
+        let callback = Box::new(move |notification: &Notification| {
+            notifications_clone.lock().unwrap().push(notification.clone());
+        });
+
+        let token = store.register_notification(&ctx, config, callback)?;
+
+        // Write to child folder's Name field - should trigger notification with context
+        let mut requests = vec![swrite!(
+            child_folder.entity_id.clone(),
+            FieldType::from("Name"),
+            sstr!("Updated Child Folder")
+        )];
+        store.perform(&ctx, &mut requests)?;
+
+        // Verify notification was triggered with proper context
+        let captured_notifications = notifications.lock().unwrap();
+        assert_eq!(captured_notifications.len(), 1);
+        
+        let notification = &captured_notifications[0];
+        assert_eq!(notification.entity_id, child_folder.entity_id);
+        assert_eq!(notification.field_type, FieldType::from("Name"));
+        assert_eq!(notification.current_value, Value::String("Updated Child Folder".to_string()));
+        
+        // Check context fields
+        assert_eq!(notification.context.len(), 2);
+        
+        // Parent field should contain the parent entity reference
+        let parent_context = notification.context.get(&FieldType::from("Parent")).unwrap();
+        assert_eq!(*parent_context, Some(Value::EntityReference(Some(parent_folder.entity_id.clone()))));
+        
+        // Parent->Name should contain the parent's name
+        let parent_name_context = notification.context.get(&FieldType::from("Parent->Name")).unwrap();
+        assert_eq!(*parent_name_context, Some(Value::String("Parent Folder".to_string())));
+
+        // Clean up
+        assert!(store.unregister_notification_by_token(&token));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_notification_inheritance_mixed_entity_and_type() -> Result<()> {
+        let mut store = Store::new(Arc::new(Snowflake::new()));
+        let ctx = Context {};
+
+        // Create inheritance hierarchy: Animal -> Dog
+        let et_animal = EntityType::from("Animal");
+        let et_dog = EntityType::from("Dog");
+
+        // Animal schema (base type)
+        let mut animal_schema = EntitySchema::<Single>::new(et_animal.clone(), None);
+        animal_schema.fields.insert(
+            FieldType::from("Name"),
+            FieldSchema::String {
+                field_type: FieldType::from("Name"),
+                default_value: "".to_string(),
+                rank: 0,
+                read_permission: None,
+                write_permission: None,
+            }
+        );
+        store.set_entity_schema(&ctx, &animal_schema)?;
+
+        // Dog schema (inherits from Animal)
+        let dog_schema = EntitySchema::<Single>::new(et_dog.clone(), Some(et_animal.clone()));
+        store.set_entity_schema(&ctx, &dog_schema)?;
+
+        // Create specific dog entities
+        let dog1 = store.create_entity(&ctx, &et_dog, None, "Buddy")?;
+        let dog2 = store.create_entity(&ctx, &et_dog, None, "Rex")?;
+
+        // Track notifications
+        let entity_notifications = Arc::new(Mutex::new(Vec::new()));
+        let type_notifications = Arc::new(Mutex::new(Vec::new()));
+
+        // Register entity-specific notification for dog1
+        let entity_config = NotifyConfig::EntityId {
+            entity_id: dog1.entity_id.clone(),
+            field_type: FieldType::from("Name"),
+            trigger_on_change: true,
+            context: vec![],
+        };
+
+        // Register type notification for Animal type (should catch both dogs due to inheritance)
+        let type_config = NotifyConfig::EntityType {
+            entity_type: et_animal.clone(),
+            field_type: FieldType::from("Name"),
+            trigger_on_change: true,
+            context: vec![],
+        };
+
+        let entity_notifications_clone = entity_notifications.clone();
+        let type_notifications_clone = type_notifications.clone();
+
+        let entity_token = store.register_notification(
+            &ctx,
+            entity_config,
+            Box::new(move |notification: &Notification| {
+                entity_notifications_clone.lock().unwrap().push(notification.clone());
+            })
+        )?;
+
+        let type_token = store.register_notification(
+            &ctx,
+            type_config,
+            Box::new(move |notification: &Notification| {
+                type_notifications_clone.lock().unwrap().push(notification.clone());
+            })
+        )?;
+
+        // Write to dog1's Name field - should trigger both entity and type notifications
+        let mut requests = vec![swrite!(
+            dog1.entity_id.clone(),
+            FieldType::from("Name"),
+            sstr!("Buddy Updated")
+        )];
+        store.perform(&ctx, &mut requests)?;
+
+        // Write to dog2's Name field - should trigger only type notification
+        let mut requests = vec![swrite!(
+            dog2.entity_id.clone(),
+            FieldType::from("Name"),
+            sstr!("Rex Updated")
+        )];
+        store.perform(&ctx, &mut requests)?;
+
+        // Verify notifications
+        let entity_captured = entity_notifications.lock().unwrap();
+        let type_captured = type_notifications.lock().unwrap();
+
+        // Entity notification should only trigger for dog1
+        assert_eq!(entity_captured.len(), 1);
+        assert_eq!(entity_captured[0].entity_id, dog1.entity_id);
+        assert_eq!(entity_captured[0].current_value, Value::String("Buddy Updated".to_string()));
+
+        // Type notification should trigger for both dogs (due to inheritance)
+        assert_eq!(type_captured.len(), 2);
+        
+        // Find notifications for each dog
+        let dog1_type_notification = type_captured.iter()
+            .find(|n| n.entity_id == dog1.entity_id)
+            .expect("Should have type notification for dog1");
+        let dog2_type_notification = type_captured.iter()
+            .find(|n| n.entity_id == dog2.entity_id)
+            .expect("Should have type notification for dog2");
+
+        assert_eq!(dog1_type_notification.current_value, Value::String("Buddy Updated".to_string()));
+        assert_eq!(dog2_type_notification.current_value, Value::String("Rex Updated".to_string()));
+
+        // Clean up
+        assert!(store.unregister_notification_by_token(&entity_token));
+        assert!(store.unregister_notification_by_token(&type_token));
 
         Ok(())
     }
