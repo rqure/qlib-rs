@@ -2,10 +2,11 @@ mod data;
 mod test;
 
 pub use data::{
-    epoch, now, resolve_indirection, AdjustBehavior, BadIndirection, BadIndirectionReason, Context,
-    Entity, EntityId, EntityType, EntitySchema, Field, FieldSchema, FieldType, Store, PageOpts, PageResult,
-    PushCondition, Request, Snowflake, Timestamp, Value, INDIRECTION_DELIMITER,
-    Single, Complete, NotifyConfig, Notification, NotificationCallback, NotifyToken,
+    AdjustBehavior, BadIndirection, BadIndirectionReason, Complete, Context, Entity, EntityId,
+    EntitySchema, EntityType, Field, FieldSchema, FieldType, NotificationCallback, NotifyConfig,
+    NotifyToken, PageOpts, PageResult, PushCondition, Request, Single, Snapshot, Snowflake,
+    Store, StoreProxy, StoreMessage, Timestamp, Value, WebSocketStoreProxy, INDIRECTION_DELIMITER, epoch, now,
+    resolve_indirection, Notification,
 };
 
 /// Create a Read request with minimal syntax

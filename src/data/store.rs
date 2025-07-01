@@ -160,7 +160,7 @@ pub struct Snapshot {
 }
 
 /// Pagination options for retrieving lists of items
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PageOpts {
     /// The maximum number of items to return
     pub limit: usize,
@@ -184,7 +184,7 @@ impl PageOpts {
 }
 
 /// Result of a paginated query
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PageResult<T> {
     /// The items returned in this page
     pub items: Vec<T>,
@@ -1304,6 +1304,31 @@ impl Store {
                     .collect()
             })
             .unwrap_or_default()
+    }
+
+    /// Get all registered notification configurations with their tokens
+    pub fn get_notification_configs(&self, _ctx: &Context) -> Vec<(NotifyToken, NotifyConfig)> {
+        let mut configs = Vec::new();
+
+        // Add entity-specific notifications
+        for field_map in self.entity_notifications.values() {
+            for token_map in field_map.values() {
+                for (token, (config, _)) in token_map {
+                    configs.push((token.clone(), config.clone()));
+                }
+            }
+        }
+
+        // Add type-specific notifications
+        for field_map in self.type_notifications.values() {
+            for token_map in field_map.values() {
+                for (token, (config, _)) in token_map {
+                    configs.push((token.clone(), config.clone()));
+                }
+            }
+        }
+
+        configs
     }
 
     /// Build context fields using the perform method to handle indirection

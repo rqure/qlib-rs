@@ -7,9 +7,11 @@ mod notify_token;
 mod request;
 mod snowflake;
 mod store;
+mod store_proxy;
 mod value;
 mod constants;
 mod notifications;
+mod websocket_store_proxy;
 
 use std::fmt;
 
@@ -24,8 +26,10 @@ use serde::{Deserialize, Serialize};
 pub use snowflake::Snowflake;
 pub use store::{
     resolve_indirection, BadIndirection, BadIndirectionReason, Context, Store, PageOpts,
-    PageResult, NotificationCallback,
+    PageResult, NotificationCallback, Snapshot,
 };
+pub use store_proxy::{StoreProxy, StoreMessage};
+pub use websocket_store_proxy::WebSocketStoreProxy;
 pub use value::Value;
 pub use constants::{INDIRECTION_DELIMITER};
 pub use notifications::{NotifyConfig, Notification};
