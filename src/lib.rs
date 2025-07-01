@@ -5,7 +5,7 @@ pub use data::{
     epoch, now, resolve_indirection, AdjustBehavior, BadIndirection, BadIndirectionReason, Context,
     Entity, EntityId, EntityType, EntitySchema, Field, FieldSchema, FieldType, Store, PageOpts, PageResult,
     PushCondition, Request, Snowflake, Timestamp, Value, INDIRECTION_DELIMITER,
-    Single, Complete, NotifyConfig, Notification, NotificationCallback,
+    Single, Complete, NotifyConfig, Notification, NotificationCallback, NotifyToken,
 };
 
 /// Create a Read request with minimal syntax

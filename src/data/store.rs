@@ -4,7 +4,7 @@ use std::{collections::HashMap, error, mem::discriminant, sync::Arc};
 use crate::{
     data::{
         entity_schema::Complete, now, request::PushCondition, EntityType, FieldType, Notification,
-        NotifyConfig, Timestamp, INDIRECTION_DELIMITER,
+        NotifyConfig, NotifyToken, Timestamp, INDIRECTION_DELIMITER,
     },
     sadd, sread, sref, sreflist, sstr, ssub, swrite, AdjustBehavior, Entity, EntityId,
     EntitySchema, Field, FieldSchema, Request, Result, Single, Snowflake, Value,
@@ -222,12 +222,12 @@ pub struct Store {
     /// Notification configurations indexed by entity ID and field type
     #[serde(skip)]
     entity_notifications:
-        HashMap<EntityId, HashMap<FieldType, Vec<(NotifyConfig, NotificationCallback)>>>,
+        HashMap<EntityId, HashMap<FieldType, HashMap<NotifyToken, (NotifyConfig, NotificationCallback)>>>,
 
     /// Notification configurations indexed by entity type and field type
     #[serde(skip)]
     type_notifications:
-        HashMap<EntityType, HashMap<FieldType, Vec<(NotifyConfig, NotificationCallback)>>>,
+        HashMap<EntityType, HashMap<FieldType, HashMap<NotifyToken, (NotifyConfig, NotificationCallback)>>>,
 }
 
 impl std::fmt::Debug for Store {
@@ -1092,13 +1092,14 @@ impl Store {
     }
 
     /// Register a notification configuration with its callback
+    /// Returns a NotifyToken that can be used to unregister the notification
     /// Returns an error if the field_type contains indirection (context fields can be indirect)
     pub fn register_notification(
         &mut self,
         _ctx: &Context,
         config: NotifyConfig,
         callback: NotificationCallback,
-    ) -> Result<()> {
+    ) -> Result<NotifyToken> {
         // Validate that the main field_type is not indirect
         let field_type = match &config {
             NotifyConfig::EntityId { field_type, .. } => field_type,
@@ -1112,6 +1113,9 @@ impl Store {
             .into());
         }
 
+        // Generate a unique token for this notification
+        let token = NotifyToken::new();
+
         // Add to appropriate index based on config type
         match &config {
             NotifyConfig::EntityId {
@@ -1123,8 +1127,8 @@ impl Store {
                     .entry(entity_id.clone())
                     .or_insert_with(HashMap::new)
                     .entry(field_type.clone())
-                    .or_insert_with(Vec::new)
-                    .push((config.clone(), callback));
+                    .or_insert_with(HashMap::new)
+                    .insert(token.clone(), (config.clone(), callback));
             }
             NotifyConfig::EntityType {
                 entity_type,
@@ -1135,17 +1139,64 @@ impl Store {
                     .entry(EntityType::from(entity_type.clone()))
                     .or_insert_with(HashMap::new)
                     .entry(field_type.clone())
-                    .or_insert_with(Vec::new)
-                    .push((config.clone(), callback));
+                    .or_insert_with(HashMap::new)
+                    .insert(token.clone(), (config.clone(), callback));
             }
         }
 
-        Ok(())
+        Ok(token)
     }
 
-    /// Unregister a notification configuration
-    /// Since configs are stored by entity/type, we need to specify what to remove
+    /// Unregister a notification by token
+    /// This is the preferred method for unregistering notifications
+    pub fn unregister_notification_by_token(&mut self, token: &NotifyToken) -> bool {
+        // Search in entity notifications
+        for (entity_id, field_map) in self.entity_notifications.iter_mut() {
+            for (field_type, token_map) in field_map.iter_mut() {
+                if token_map.remove(token).is_some() {
+                    // Clean up empty maps after finding and removing the token
+                    if token_map.is_empty() {
+                        let field_type_to_remove = field_type.clone();
+                        field_map.remove(&field_type_to_remove);
+                        
+                        if field_map.is_empty() {
+                            let entity_id_to_remove = entity_id.clone();
+                            self.entity_notifications.remove(&entity_id_to_remove);
+                        }
+                    }
+                    return true;
+                }
+            }
+        }
+
+        // Search in type notifications
+        for (entity_type, field_map) in self.type_notifications.iter_mut() {
+            for (field_type, token_map) in field_map.iter_mut() {
+                if token_map.remove(token).is_some() {
+                    // Clean up empty maps after finding and removing the token
+                    if token_map.is_empty() {
+                        let field_type_to_remove = field_type.clone();
+                        field_map.remove(&field_type_to_remove);
+                        
+                        if field_map.is_empty() {
+                            let entity_type_to_remove = entity_type.clone();
+                            self.type_notifications.remove(&entity_type_to_remove);
+                        }
+                    }
+                    return true;
+                }
+            }
+        }
+
+        false
+    }
+
+    /// Unregister a notification configuration by config (legacy method)
+    /// Note: This will remove ALL notifications matching the config
+    /// Prefer using unregister_notification_by_token for precise removal
     pub fn unregister_notification(&mut self, target_config: &NotifyConfig) -> bool {
+        let mut removed_any = false;
+        
         match target_config {
             NotifyConfig::EntityId {
                 entity_id,
@@ -1153,25 +1204,31 @@ impl Store {
                 ..
             } => {
                 if let Some(field_map) = self.entity_notifications.get_mut(entity_id) {
-                    if let Some(configs) = field_map.get_mut(field_type) {
-                        let initial_len = configs.len();
-                        configs.retain(|(config, _)| config != target_config);
-                        let removed_some = configs.len() != initial_len;
+                    if let Some(token_map) = field_map.get_mut(field_type) {
+                        let tokens_to_remove: Vec<_> = token_map
+                            .iter()
+                            .filter_map(|(token, (config, _))| {
+                                if config == target_config {
+                                    Some(token.clone())
+                                } else {
+                                    None
+                                }
+                            })
+                            .collect();
 
-                        // Clean up empty vectors and maps
-                        if configs.is_empty() {
+                        for token in tokens_to_remove {
+                            token_map.remove(&token);
+                            removed_any = true;
+                        }
+
+                        // Clean up empty maps
+                        if token_map.is_empty() {
                             field_map.remove(field_type);
                         }
                         if field_map.is_empty() {
                             self.entity_notifications.remove(entity_id);
                         }
-
-                        removed_some
-                    } else {
-                        false
                     }
-                } else {
-                    false
                 }
             }
             NotifyConfig::EntityType {
@@ -1181,28 +1238,36 @@ impl Store {
             } => {
                 let entity_type_key = EntityType::from(entity_type.clone());
                 if let Some(field_map) = self.type_notifications.get_mut(&entity_type_key) {
-                    if let Some(configs) = field_map.get_mut(field_type) {
-                        let initial_len = configs.len();
-                        configs.retain(|(config, _)| config != target_config);
-                        let removed_some = configs.len() != initial_len;
+                    if let Some(token_map) = field_map.get_mut(field_type) {
+                        let tokens_to_remove: Vec<_> = token_map
+                            .iter()
+                            .filter_map(|(token, (config, _))| {
+                                if config == target_config {
+                                    Some(token.clone())
+                                } else {
+                                    None
+                                }
+                            })
+                            .collect();
 
-                        // Clean up empty vectors and maps
-                        if configs.is_empty() {
+                        for token in tokens_to_remove {
+                            token_map.remove(&token);
+                            removed_any = true;
+                        }
+
+                        // Clean up empty maps
+                        if token_map.is_empty() {
                             field_map.remove(field_type);
                         }
                         if field_map.is_empty() {
                             self.type_notifications.remove(&entity_type_key);
                         }
-
-                        removed_some
-                    } else {
-                        false
                     }
-                } else {
-                    false
                 }
             }
         }
+
+        removed_any
     }
 
     /// Get all registered notification configurations for a specific entity
@@ -1212,7 +1277,7 @@ impl Store {
             .map(|field_map| {
                 field_map
                     .values()
-                    .flat_map(|configs| configs.iter().map(|(config, _)| config))
+                    .flat_map(|token_map| token_map.values().map(|(config, _)| config))
                     .collect()
             })
             .unwrap_or_default()
@@ -1225,7 +1290,7 @@ impl Store {
             .map(|field_map| {
                 field_map
                     .values()
-                    .flat_map(|configs| configs.iter().map(|(config, _)| config))
+                    .flat_map(|token_map| token_map.values().map(|(config, _)| config))
                     .collect()
             })
             .unwrap_or_default()
@@ -1269,8 +1334,8 @@ impl Store {
 
         // Check entity-specific notifications with O(1) lookup by entity_id and field_type
         if let Some(field_map) = self.entity_notifications.get(entity_id) {
-            if let Some(configs) = field_map.get(field_type) {
-                for (config, _) in configs {
+            if let Some(token_map) = field_map.get(field_type) {
+                for (token, (config, _)) in token_map {
                     if let NotifyConfig::EntityId {
                         trigger_on_change,
                         context,
@@ -1284,7 +1349,7 @@ impl Store {
                         };
 
                         if should_notify {
-                            notifications_to_trigger.push((config.clone(), context.clone()));
+                            notifications_to_trigger.push((token.clone(), config.clone(), context.clone()));
                         }
                     }
                 }
@@ -1293,8 +1358,8 @@ impl Store {
 
         // Check entity type notifications with O(1) lookup by entity_type and field_type
         if let Some(field_map) = self.type_notifications.get(entity_id.get_type()) {
-            if let Some(configs) = field_map.get(field_type) {
-                for (config, _) in configs {
+            if let Some(token_map) = field_map.get(field_type) {
+                for (token, (config, _)) in token_map {
                     if let NotifyConfig::EntityType {
                         trigger_on_change,
                         context,
@@ -1308,7 +1373,7 @@ impl Store {
                         };
 
                         if should_notify {
-                            notifications_to_trigger.push((config.clone(), context.clone()));
+                            notifications_to_trigger.push((token.clone(), config.clone(), context.clone()));
                         }
                     }
                 }
@@ -1316,7 +1381,7 @@ impl Store {
         }
 
         // Now trigger the collected notifications
-        for (config, context) in notifications_to_trigger {
+        for (token, config, context) in notifications_to_trigger {
             let context_fields = self.build_context_fields(ctx, entity_id, &context);
 
             let notification = Notification {
@@ -1327,19 +1392,16 @@ impl Store {
                 context: context_fields,
             };
 
-            // Find and call the callback with O(1) lookup
+            // Find and call the callback with O(1) lookup using the token
             match &config {
                 NotifyConfig::EntityId {
                     field_type: config_field_type,
                     ..
                 } => {
                     if let Some(field_map) = self.entity_notifications.get(entity_id) {
-                        if let Some(configs) = field_map.get(config_field_type) {
-                            for (stored_config, callback) in configs {
-                                if stored_config == &config {
-                                    callback(&notification);
-                                    break;
-                                }
+                        if let Some(token_map) = field_map.get(config_field_type) {
+                            if let Some((_, callback)) = token_map.get(&token) {
+                                callback(&notification);
                             }
                         }
                     }
@@ -1349,12 +1411,9 @@ impl Store {
                     ..
                 } => {
                     if let Some(field_map) = self.type_notifications.get(entity_id.get_type()) {
-                        if let Some(configs) = field_map.get(config_field_type) {
-                            for (stored_config, callback) in configs {
-                                if stored_config == &config {
-                                    callback(&notification);
-                                    break;
-                                }
+                        if let Some(token_map) = field_map.get(config_field_type) {
+                            if let Some((_, callback)) = token_map.get(&token) {
+                                callback(&notification);
                             }
                         }
                     }

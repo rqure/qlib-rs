@@ -42,7 +42,7 @@ mod tests {
             context: vec![],
         };
 
-        let _notification_id = store.register_notification(&ctx, config.clone(), callback)?;
+        let notification_token = store.register_notification(&ctx, config.clone(), callback)?;
 
         // Perform a write operation
         let mut requests = vec![swrite!(
@@ -62,9 +62,9 @@ mod tests {
         assert_eq!(notification.current_value, Value::String("John Doe".to_string()));
         assert_eq!(notification.previous_value, Value::String("TestUser".to_string()));
 
-        // Unregister the notification
-        assert!(store.unregister_notification(&config));
-        assert!(!store.unregister_notification(&config)); // Should return false for second attempt
+        // Unregister the notification by token
+        assert!(store.unregister_notification_by_token(&notification_token));
+        assert!(!store.unregister_notification_by_token(&notification_token)); // Should return false for second attempt
 
         Ok(())
     }
