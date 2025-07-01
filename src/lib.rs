@@ -5,7 +5,7 @@ pub use data::{
     AdjustBehavior, BadIndirection, BadIndirectionReason, Complete, Context, Entity, EntityId,
     EntitySchema, EntityType, Field, FieldSchema, FieldType, NotificationCallback, NotifyConfig,
     NotifyToken, PageOpts, PageResult, PushCondition, Request, Single, Snapshot, Snowflake,
-    Store, StoreProxy, StoreMessage, Timestamp, Value, WebSocketStoreProxy, INDIRECTION_DELIMITER, epoch, now,
+    Store, StoreProxy, StoreMessage, Timestamp, Value, INDIRECTION_DELIMITER, epoch, now,
     resolve_indirection, Notification,
 };
 

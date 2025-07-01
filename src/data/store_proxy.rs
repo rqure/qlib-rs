@@ -1,10 +1,18 @@
 use serde::{Deserialize, Serialize};
+use futures_util::{SinkExt, StreamExt};
+use std::collections::HashMap;
+use std::sync::Arc;
+use tokio::sync::{Mutex, RwLock, oneshot, mpsc};
+use tokio_tungstenite::{connect_async, tungstenite::Message};
+use uuid::Uuid;
 
 use crate::{
     Context, Entity, EntityId, EntitySchema, EntityType, FieldSchema, FieldType, 
-    NotificationCallback, NotifyConfig, NotifyToken, PageOpts, PageResult, Request, 
-    Single, Complete, Notification,
+    NotifyConfig, NotifyToken, PageOpts, PageResult, Request, 
+    Single, Complete, Notification, Snapshot,
 };
+
+pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
 /// WebSocket message types for Store proxy communication
 /// These messages are compatible with the qcore-rs WebSocketMessage format
@@ -239,145 +247,467 @@ pub fn extract_message_id(message: &StoreMessage) -> Option<String> {
     }
 }
 
-/// A trait that defines the interface for a Store proxy
-/// This allows different implementations (WebSocket, HTTP, etc.) while keeping the same interface
-pub trait StoreProxy {
-    type Error;
-    
+type WsStream = tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
+
+#[derive(Debug, Clone)]
+pub struct StoreProxyError(String);
+
+impl std::fmt::Display for StoreProxyError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "StoreProxy error: {}", self.0)
+    }
+}
+
+impl std::error::Error for StoreProxyError {}
+
+pub struct StoreProxy {
+    sender: Arc<Mutex<futures_util::stream::SplitSink<WsStream, Message>>>,
+    pending_requests: Arc<Mutex<HashMap<String, oneshot::Sender<serde_json::Value>>>>,
+    notification_sender: Arc<RwLock<Option<mpsc::UnboundedSender<Notification>>>>,
+}
+
+impl StoreProxy {
+    /// Connect to a qcore-rs WebSocket server
+    pub async fn connect(url: &str) -> Result<Self> {
+        let (ws_stream, _) = connect_async(url).await
+            .map_err(|e| StoreProxyError(format!("Failed to connect to WebSocket: {}", e)))?;
+
+        let (sink, mut stream) = ws_stream.split();
+        let sender = Arc::new(Mutex::new(sink));
+        let pending_requests: Arc<Mutex<HashMap<String, oneshot::Sender<serde_json::Value>>>> = Arc::new(Mutex::new(HashMap::new()));
+        let notification_sender: Arc<RwLock<Option<mpsc::UnboundedSender<Notification>>>> = Arc::new(RwLock::new(None));
+
+        // Spawn task to handle incoming messages
+        let pending_requests_clone = pending_requests.clone();
+        let notification_sender_clone = notification_sender.clone();
+        
+        tokio::spawn(async move {
+            while let Some(msg) = stream.next().await {
+                match msg {
+                    Ok(Message::Text(text)) => {
+                        if let Ok(store_msg) = serde_json::from_str::<StoreMessage>(&text) {
+                            match store_msg {
+                                StoreMessage::Notification { notification } => {
+                                    // Handle notification
+                                    if let Some(sender) = notification_sender_clone.read().await.as_ref() {
+                                        let _ = sender.send(notification);
+                                    }
+                                }
+                                _ => {
+                                    // Handle response messages
+                                    if let Some(id) = extract_message_id(&store_msg) {
+                                        if let Some(sender) = pending_requests_clone.lock().await.remove(&id) {
+                                            let response_json = serde_json::to_value(&store_msg)
+                                                .unwrap_or_else(|_| serde_json::Value::Null);
+                                            let _ = sender.send(response_json);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    Ok(Message::Close(_)) => break,
+                    Err(e) => {
+                        log::error!("WebSocket error: {}", e);
+                        break;
+                    }
+                    _ => {} // Ignore other message types
+                }
+            }
+        });
+
+        Ok(StoreProxy {
+            sender,
+            pending_requests,
+            notification_sender,
+        })
+    }
+
+    /// Send a request and wait for response
+    async fn send_request<T>(&self, request: StoreMessage) -> Result<T>
+    where
+        T: serde::de::DeserializeOwned,
+    {
+        let id = extract_message_id(&request)
+            .ok_or_else(|| StoreProxyError("Request missing ID".to_string()))?;
+
+        let (tx, rx) = oneshot::channel();
+        self.pending_requests.lock().await.insert(id.clone(), tx);
+
+        let message_text = serde_json::to_string(&request)
+            .map_err(|e| StoreProxyError(format!("Failed to serialize request: {}", e)))?;
+
+        self.sender.lock().await.send(Message::Text(message_text)).await
+            .map_err(|e| StoreProxyError(format!("Failed to send message: {}", e)))?;
+
+        let response = rx.await
+            .map_err(|_| StoreProxyError("Request cancelled".to_string()))?;
+
+        serde_json::from_value(response)
+            .map_err(|e| StoreProxyError(format!("Failed to deserialize response: {}", e)).into())
+    }
+
     /// Create a new entity
-    fn create_entity(
+    pub async fn create_entity(
         &self,
-        ctx: &Context,
+        _ctx: &Context,
         entity_type: &EntityType,
         parent_id: Option<EntityId>,
         name: &str,
-    ) -> impl std::future::Future<Output = std::result::Result<Entity, Self::Error>> + Send;
+    ) -> Result<Entity> {
+        let request = StoreMessage::CreateEntity {
+            id: Uuid::new_v4().to_string(),
+            entity_type: entity_type.clone(),
+            parent_id,
+            name: name.to_string(),
+        };
+
+        let response: StoreMessage = self.send_request(request).await?;
+        match response {
+            StoreMessage::CreateEntityResponse { response, .. } => {
+                response.map_err(|e| StoreProxyError(e).into())
+            }
+            _ => Err(StoreProxyError("Unexpected response type".to_string()).into()),
+        }
+    }
 
     /// Delete an entity
-    fn delete_entity(
-        &self, 
-        ctx: &Context, 
-        entity_id: &EntityId
-    ) -> impl std::future::Future<Output = std::result::Result<(), Self::Error>> + Send;
+    pub async fn delete_entity(&self, _ctx: &Context, entity_id: &EntityId) -> Result<()> {
+        let request = StoreMessage::DeleteEntity {
+            id: Uuid::new_v4().to_string(),
+            entity_id: entity_id.clone(),
+        };
+
+        let response: StoreMessage = self.send_request(request).await?;
+        match response {
+            StoreMessage::DeleteEntityResponse { response, .. } => {
+                response.map_err(|e| StoreProxyError(e).into())
+            }
+            _ => Err(StoreProxyError("Unexpected response type".to_string()).into()),
+        }
+    }
 
     /// Set entity schema
-    fn set_entity_schema(
+    pub async fn set_entity_schema(
         &self,
-        ctx: &Context,
+        _ctx: &Context,
         schema: &EntitySchema<Single>,
-    ) -> impl std::future::Future<Output = std::result::Result<(), Self::Error>> + Send;
+    ) -> Result<()> {
+        let request = StoreMessage::SetEntitySchema {
+            id: Uuid::new_v4().to_string(),
+            schema: schema.clone(),
+        };
+
+        let response: StoreMessage = self.send_request(request).await?;
+        match response {
+            StoreMessage::SetEntitySchemaResponse { response, .. } => {
+                response.map_err(|e| StoreProxyError(e).into())
+            }
+            _ => Err(StoreProxyError("Unexpected response type".to_string()).into()),
+        }
+    }
 
     /// Get entity schema
-    fn get_entity_schema(
+    pub async fn get_entity_schema(
         &self,
-        ctx: &Context,
+        _ctx: &Context,
         entity_type: &EntityType,
-    ) -> impl std::future::Future<Output = std::result::Result<Option<EntitySchema<Single>>, Self::Error>> + Send;
+    ) -> Result<Option<EntitySchema<Single>>> {
+        let request = StoreMessage::GetEntitySchema {
+            id: Uuid::new_v4().to_string(),
+            entity_type: entity_type.clone(),
+        };
+
+        let response: StoreMessage = self.send_request(request).await?;
+        match response {
+            StoreMessage::GetEntitySchemaResponse { response, .. } => {
+                response.map_err(|e| StoreProxyError(e).into())
+            }
+            _ => Err(StoreProxyError("Unexpected response type".to_string()).into()),
+        }
+    }
 
     /// Get complete entity schema
-    fn get_complete_entity_schema(
+    pub async fn get_complete_entity_schema(
         &self,
-        ctx: &Context,
+        _ctx: &Context,
         entity_type: &EntityType,
-    ) -> impl std::future::Future<Output = std::result::Result<EntitySchema<Complete>, Self::Error>> + Send;
+    ) -> Result<EntitySchema<Complete>> {
+        let request = StoreMessage::GetCompleteEntitySchema {
+            id: Uuid::new_v4().to_string(),
+            entity_type: entity_type.clone(),
+        };
+
+        let response: StoreMessage = self.send_request(request).await?;
+        match response {
+            StoreMessage::GetCompleteEntitySchemaResponse { response, .. } => {
+                response.map_err(|e| StoreProxyError(e).into())
+            }
+            _ => Err(StoreProxyError("Unexpected response type".to_string()).into()),
+        }
+    }
 
     /// Set field schema
-    fn set_field_schema(
+    pub async fn set_field_schema(
         &self,
-        ctx: &Context,
+        _ctx: &Context,
         entity_type: &EntityType,
         field_type: &FieldType,
-        schema: FieldSchema,
-    ) -> impl std::future::Future<Output = std::result::Result<(), Self::Error>> + Send;
+        schema: &FieldSchema,
+    ) -> Result<()> {
+        let request = StoreMessage::SetFieldSchema {
+            id: Uuid::new_v4().to_string(),
+            entity_type: entity_type.clone(),
+            field_type: field_type.clone(),
+            schema: schema.clone(),
+        };
+
+        let response: StoreMessage = self.send_request(request).await?;
+        match response {
+            StoreMessage::SetFieldSchemaResponse { response, .. } => {
+                response.map_err(|e| StoreProxyError(e).into())
+            }
+            _ => Err(StoreProxyError("Unexpected response type".to_string()).into()),
+        }
+    }
 
     /// Get field schema
-    fn get_field_schema(
+    pub async fn get_field_schema(
         &self,
-        ctx: &Context,
+        _ctx: &Context,
         entity_type: &EntityType,
         field_type: &FieldType,
-    ) -> impl std::future::Future<Output = std::result::Result<Option<FieldSchema>, Self::Error>> + Send;
+    ) -> Result<Option<FieldSchema>> {
+        let request = StoreMessage::GetFieldSchema {
+            id: Uuid::new_v4().to_string(),
+            entity_type: entity_type.clone(),
+            field_type: field_type.clone(),
+        };
+
+        let response: StoreMessage = self.send_request(request).await?;
+        match response {
+            StoreMessage::GetFieldSchemaResponse { response, .. } => {
+                response.map_err(|e| StoreProxyError(e).into())
+            }
+            _ => Err(StoreProxyError("Unexpected response type".to_string()).into()),
+        }
+    }
 
     /// Check if entity exists
-    fn entity_exists(
-        &self, 
-        ctx: &Context, 
-        entity_id: &EntityId
-    ) -> impl std::future::Future<Output = bool> + Send;
+    pub async fn entity_exists(&self, _ctx: &Context, entity_id: &EntityId) -> Result<bool> {
+        let request = StoreMessage::EntityExists {
+            id: Uuid::new_v4().to_string(),
+            entity_id: entity_id.clone(),
+        };
+
+        let response: StoreMessage = self.send_request(request).await?;
+        match response {
+            StoreMessage::EntityExistsResponse { response, .. } => Ok(response),
+            _ => Err(StoreProxyError("Unexpected response type".to_string()).into()),
+        }
+    }
 
     /// Check if field exists
-    fn field_exists(
+    pub async fn field_exists(
         &self,
-        ctx: &Context,
+        _ctx: &Context,
         entity_id: &EntityId,
         field_type: &FieldType,
-    ) -> impl std::future::Future<Output = bool> + Send;
+    ) -> Result<bool> {
+        let request = StoreMessage::FieldExists {
+            id: Uuid::new_v4().to_string(),
+            entity_id: entity_id.clone(),
+            field_type: field_type.clone(),
+        };
+
+        let response: StoreMessage = self.send_request(request).await?;
+        match response {
+            StoreMessage::FieldExistsResponse { response, .. } => Ok(response),
+            _ => Err(StoreProxyError("Unexpected response type".to_string()).into()),
+        }
+    }
 
     /// Perform requests
-    fn perform(
-        &self, 
-        ctx: &Context, 
-        requests: &mut Vec<Request>
-    ) -> impl std::future::Future<Output = std::result::Result<(), Self::Error>> + Send;
+    pub async fn perform(&self, _ctx: &Context, requests: &mut Vec<Request>) -> Result<()> {
+        let request = StoreMessage::Perform {
+            id: Uuid::new_v4().to_string(),
+            requests: requests.clone(),
+        };
+
+        let response: StoreMessage = self.send_request(request).await?;
+        match response {
+            StoreMessage::PerformResponse { response, .. } => {
+                match response {
+                    Ok(updated_requests) => {
+                        *requests = updated_requests;
+                        Ok(())
+                    }
+                    Err(e) => Err(StoreProxyError(e).into()),
+                }
+            }
+            _ => Err(StoreProxyError("Unexpected response type".to_string()).into()),
+        }
+    }
 
     /// Find entities
-    fn find_entities(
+    pub async fn find_entities(
         &self,
-        ctx: &Context,
+        _ctx: &Context,
         entity_type: &EntityType,
         parent_id: Option<EntityId>,
         page_opts: Option<PageOpts>,
-    ) -> impl std::future::Future<Output = std::result::Result<PageResult<EntityId>, Self::Error>> + Send;
+    ) -> Result<PageResult<EntityId>> {
+        let request = StoreMessage::FindEntities {
+            id: Uuid::new_v4().to_string(),
+            entity_type: entity_type.clone(),
+            parent_id,
+            page_opts,
+        };
+
+        let response: StoreMessage = self.send_request(request).await?;
+        match response {
+            StoreMessage::FindEntitiesResponse { response, .. } => {
+                response.map_err(|e| StoreProxyError(e).into())
+            }
+            _ => Err(StoreProxyError("Unexpected response type".to_string()).into()),
+        }
+    }
 
     /// Find entities exact
-    fn find_entities_exact(
+    pub async fn find_entities_exact(
         &self,
-        ctx: &Context,
+        _ctx: &Context,
         entity_type: &EntityType,
         parent_id: Option<EntityId>,
         page_opts: Option<PageOpts>,
-    ) -> impl std::future::Future<Output = std::result::Result<PageResult<EntityId>, Self::Error>> + Send;
+    ) -> Result<PageResult<EntityId>> {
+        let request = StoreMessage::FindEntitiesExact {
+            id: Uuid::new_v4().to_string(),
+            entity_type: entity_type.clone(),
+            parent_id,
+            page_opts,
+        };
+
+        let response: StoreMessage = self.send_request(request).await?;
+        match response {
+            StoreMessage::FindEntitiesExactResponse { response, .. } => {
+                response.map_err(|e| StoreProxyError(e).into())
+            }
+            _ => Err(StoreProxyError("Unexpected response type".to_string()).into()),
+        }
+    }
 
     /// Get entity types
-    fn get_entity_types(
+    pub async fn get_entity_types(
         &self,
-        ctx: &Context,
+        _ctx: &Context,
         parent_type: Option<EntityType>,
         page_opts: Option<PageOpts>,
-    ) -> impl std::future::Future<Output = std::result::Result<PageResult<EntityType>, Self::Error>> + Send;
+    ) -> Result<PageResult<EntityType>> {
+        let request = StoreMessage::GetEntityTypes {
+            id: Uuid::new_v4().to_string(),
+            parent_type,
+            page_opts,
+        };
+
+        let response: StoreMessage = self.send_request(request).await?;
+        match response {
+            StoreMessage::GetEntityTypesResponse { response, .. } => {
+                response.map_err(|e| StoreProxyError(e).into())
+            }
+            _ => Err(StoreProxyError("Unexpected response type".to_string()).into()),
+        }
+    }
 
     /// Take snapshot
-    fn take_snapshot(
-        &self, 
-        ctx: &Context
-    ) -> impl std::future::Future<Output = crate::data::store::Snapshot> + Send;
+    pub async fn take_snapshot(&self, _ctx: &Context) -> Result<Snapshot> {
+        let request = StoreMessage::TakeSnapshot {
+            id: Uuid::new_v4().to_string(),
+        };
+
+        let response: StoreMessage = self.send_request(request).await?;
+        match response {
+            StoreMessage::TakeSnapshotResponse { response, .. } => Ok(response),
+            _ => Err(StoreProxyError("Unexpected response type".to_string()).into()),
+        }
+    }
 
     /// Restore snapshot
-    fn restore_snapshot(
-        &self, 
-        ctx: &Context, 
-        snapshot: crate::data::store::Snapshot
-    ) -> impl std::future::Future<Output = std::result::Result<(), Self::Error>> + Send;
+    pub async fn restore_snapshot(&self, _ctx: &Context, snapshot: Snapshot) -> Result<()> {
+        let request = StoreMessage::RestoreSnapshot {
+            id: Uuid::new_v4().to_string(),
+            snapshot,
+        };
+
+        let response: StoreMessage = self.send_request(request).await?;
+        match response {
+            StoreMessage::RestoreSnapshotResponse { response, .. } => {
+                response.map_err(|e| StoreProxyError(e).into())
+            }
+            _ => Err(StoreProxyError("Unexpected response type".to_string()).into()),
+        }
+    }
 
     /// Register notification
-    fn register_notification(
+    pub async fn register_notification(
         &self,
-        ctx: &Context,
+        _ctx: &Context,
         config: NotifyConfig,
-        callback: NotificationCallback,
-    ) -> impl std::future::Future<Output = std::result::Result<NotifyToken, Self::Error>> + Send;
+    ) -> Result<NotifyToken> {
+        let request = StoreMessage::RegisterNotification {
+            id: Uuid::new_v4().to_string(),
+            config,
+        };
 
-    /// Unregister notification by token
-    fn unregister_notification_by_token(
-        &self, 
-        token: &NotifyToken
-    ) -> impl std::future::Future<Output = bool> + Send;
+        let response: StoreMessage = self.send_request(request).await?;
+        match response {
+            StoreMessage::RegisterNotificationResponse { response, .. } => {
+                response.map_err(|e| StoreProxyError(e).into())
+            }
+            _ => Err(StoreProxyError("Unexpected response type".to_string()).into()),
+        }
+    }
+
+    /// Unregister notification
+    pub async fn unregister_notification(&self, _ctx: &Context, token: NotifyToken) -> Result<bool> {
+        let request = StoreMessage::UnregisterNotification {
+            id: Uuid::new_v4().to_string(),
+            token,
+        };
+
+        let response: StoreMessage = self.send_request(request).await?;
+        match response {
+            StoreMessage::UnregisterNotificationResponse { response, .. } => Ok(response),
+            _ => Err(StoreProxyError("Unexpected response type".to_string()).into()),
+        }
+    }
 
     /// Get notification configs
-    fn get_notification_configs(
-        &self, 
-        ctx: &Context
-    ) -> impl std::future::Future<Output = Vec<(NotifyToken, NotifyConfig)>> + Send;
+    pub async fn get_notification_configs(
+        &self,
+        _ctx: &Context,
+    ) -> Result<Vec<(NotifyToken, NotifyConfig)>> {
+        let request = StoreMessage::GetNotificationConfigs {
+            id: Uuid::new_v4().to_string(),
+        };
+
+        let response: StoreMessage = self.send_request(request).await?;
+        match response {
+            StoreMessage::GetNotificationConfigsResponse { response, .. } => Ok(response),
+            _ => Err(StoreProxyError("Unexpected response type".to_string()).into()),
+        }
+    }
+
+    /// Subscribe to notifications
+    /// Returns a receiver that will get notification events
+    pub async fn subscribe_notifications(&self) -> mpsc::UnboundedReceiver<Notification> {
+        let (tx, rx) = mpsc::unbounded_channel();
+        *self.notification_sender.write().await = Some(tx);
+        rx
+    }
+
+    /// Stop notification subscription
+    pub async fn unsubscribe_notifications(&self) {
+        *self.notification_sender.write().await = None;
+    }
 }
-
-

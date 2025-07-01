@@ -11,7 +11,6 @@ mod store_proxy;
 mod value;
 mod constants;
 mod notifications;
-mod websocket_store_proxy;
 
 use std::fmt;
 
@@ -29,7 +28,6 @@ pub use store::{
     PageResult, NotificationCallback, Snapshot,
 };
 pub use store_proxy::{StoreProxy, StoreMessage};
-pub use websocket_store_proxy::WebSocketStoreProxy;
 pub use value::Value;
 pub use constants::{INDIRECTION_DELIMITER};
 pub use notifications::{NotifyConfig, Notification};
