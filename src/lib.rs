@@ -1,5 +1,6 @@
 mod data;
 mod test;
+pub mod scripting;
 
 pub use data::{
     AdjustBehavior, BadIndirection, BadIndirectionReason, Complete, Context, Entity, EntityId,
@@ -8,6 +9,8 @@ pub use data::{
     Store, StoreProxy, StoreMessage, Timestamp, Value, INDIRECTION_DELIMITER, epoch, now,
     resolve_indirection, Notification,
 };
+
+pub use scripting::{QScriptEngine, RhaiStoreWrapper, RhaiStoreProxyWrapper};
 
 /// Create a Read request with minimal syntax
 ///
