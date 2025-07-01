@@ -159,6 +159,17 @@ pub struct Snapshot {
     fields: HashMap<EntityId, HashMap<FieldType, Field>>,
 }
 
+impl Default for Snapshot {
+    fn default() -> Self {
+        Self {
+            schemas: HashMap::new(),
+            entities: HashMap::new(),
+            types: Vec::new(),
+            fields: HashMap::new(),
+        }
+    }
+}
+
 /// Pagination options for retrieving lists of items
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PageOpts {
@@ -507,6 +518,18 @@ impl Store {
         self.schemas
             .get(entity_type)
             .map(|schema| schema.fields.contains_key(field_type))
+            .unwrap_or(false)
+    }
+
+    pub fn entity_field_exists(
+        &self,
+        _: &Context,
+        entity_id: &EntityId,
+        field_type: &FieldType,
+    ) -> bool {
+        self.fields
+            .get(entity_id)
+            .map(|fields| fields.contains_key(field_type))
             .unwrap_or(false)
     }
 
