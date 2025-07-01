@@ -42,7 +42,7 @@ mod tests {
             context: vec![],
         };
 
-        let notification_id = store.register_notification(&ctx, config, callback)?;
+        let _notification_id = store.register_notification(&ctx, config.clone(), callback)?;
 
         // Perform a write operation
         let mut requests = vec![swrite!(
@@ -63,8 +63,8 @@ mod tests {
         assert_eq!(notification.previous_value, Value::String("TestUser".to_string()));
 
         // Unregister the notification
-        assert!(store.unregister_notification(&notification_id));
-        assert!(!store.unregister_notification(&notification_id)); // Should return false for second attempt
+        assert!(store.unregister_notification(&config));
+        assert!(!store.unregister_notification(&config)); // Should return false for second attempt
 
         Ok(())
     }
@@ -254,16 +254,90 @@ mod tests {
             context: vec![],
         };
 
-        let id1 = store.register_notification(&ctx, config1.clone(), callback1)?;
-        let id2 = store.register_notification(&ctx, config2.clone(), callback2)?;
+        let _id1 = store.register_notification(&ctx, config1.clone(), callback1)?;
+        let _id2 = store.register_notification(&ctx, config2.clone(), callback2)?;
 
-        // Get all notification configs
-        let configs = store.get_notification_configs();
-        assert_eq!(configs.len(), 2);
-        assert!(configs.contains_key(&id1));
-        assert!(configs.contains_key(&id2));
-        assert_eq!(**configs.get(&id1).unwrap(), config1);
-        assert_eq!(**configs.get(&id2).unwrap(), config2);
+        // Test entity-specific configs
+        let entity_configs = store.get_entity_notification_configs(&EntityId::new("User", 1));
+        assert_eq!(entity_configs.len(), 1);
+        assert_eq!(*entity_configs[0], config1);
+
+        // Test type-specific configs
+        let type_configs = store.get_type_notification_configs(&EntityType::from("User"));
+        assert_eq!(type_configs.len(), 1);
+        assert_eq!(*type_configs[0], config2);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_unregister_notification() -> Result<()> {
+        let mut store = Store::new(Arc::new(Snowflake::new()));
+        let ctx = Context {};
+
+        // Create entity schema
+        let et_user = EntityType::from("User");
+        let mut user_schema = EntitySchema::<Single>::new(et_user.clone(), None);
+        user_schema.fields.insert(
+            FieldType::from("email"),
+            FieldSchema::String {
+                field_type: FieldType::from("email"),
+                default_value: "".to_string(),
+                rank: 0,
+                read_permission: None,
+                write_permission: None,
+            },
+        );
+        store.set_entity_schema(&ctx, &user_schema)?;
+
+        // Create test entity
+        let user = store.create_entity(&ctx, &et_user, None, "TestUser")?;
+
+        // Track notifications
+        let triggered_notifications = Arc::new(Mutex::new(Vec::<Notification>::new()));
+        let notifications_clone = triggered_notifications.clone();
+        
+        let callback = Box::new(move |notification: &Notification| {
+            notifications_clone.lock().unwrap().push(notification.clone());
+        });
+
+        // Register notification
+        let config = NotifyConfig::EntityType {
+            entity_type: "User".to_string(),
+            field_type: FieldType::from("email"),
+            trigger_on_change: false,
+            context: vec![],
+        };
+
+        let _notification_id = store.register_notification(&ctx, config.clone(), callback)?;
+
+        // Perform a write operation - should trigger notification
+        let mut requests = vec![swrite!(
+            user.entity_id.clone(),
+            FieldType::from("email"),
+            sstr!("john@example.com")
+        )];
+        store.perform(&ctx, &mut requests)?;
+
+        // Check that notification was triggered
+        assert_eq!(triggered_notifications.lock().unwrap().len(), 1);
+
+        // Unregister the notification
+        assert!(store.unregister_notification(&config));
+        
+        // Clear previous notifications
+        triggered_notifications.lock().unwrap().clear();
+
+        // Perform another write operation - should NOT trigger notification
+        let mut requests = vec![swrite!(
+            user.entity_id.clone(),
+            FieldType::from("email"),
+            sstr!("jane@example.com")
+        )];
+        store.perform(&ctx, &mut requests)?;
+
+        // Check that no notification was triggered
+        assert_eq!(triggered_notifications.lock().unwrap().len(), 0);
 
         Ok(())
     }

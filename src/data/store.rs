@@ -218,9 +218,13 @@ pub struct Store {
     #[serde(skip)]
     snowflake: Arc<Snowflake>,
 
-    /// Notification configuration with their associated callbacks
+    /// Notification configurations indexed by entity ID and field type
     #[serde(skip)]
-    notify_configs: HashMap<EntityId, (NotifyConfig, NotificationCallback)>,
+    entity_notifications: HashMap<EntityId, HashMap<FieldType, Vec<(NotifyConfig, NotificationCallback)>>>,
+
+    /// Notification configurations indexed by entity type and field type
+    #[serde(skip)]
+    type_notifications: HashMap<EntityType, HashMap<FieldType, Vec<(NotifyConfig, NotificationCallback)>>>,
 }
 
 impl std::fmt::Debug for Store {
@@ -231,7 +235,10 @@ impl std::fmt::Debug for Store {
             .field("types", &self.types)
             .field("fields", &self.fields)
             .field("inheritance_map", &self.inheritance_map)
-            .field("notify_configs", &format_args!("{} notification configs", self.notify_configs.len()))
+            .field("entity_notifications", &format_args!("{} entity notifications", self.entity_notifications.len()))
+            .field("type_notifications", &format_args!("{} type notifications", self.type_notifications.len()))
+            .field("entity_notifications", &format_args!("{} entity notification indices", self.entity_notifications.len()))
+            .field("type_notifications", &format_args!("{} type notification indices", self.type_notifications.len()))
             .finish()
     }
 }
@@ -245,7 +252,8 @@ impl Store {
             fields: HashMap::new(),
             inheritance_map: HashMap::new(),
             snowflake,
-            notify_configs: HashMap::new(),
+            entity_notifications: HashMap::new(),
+            type_notifications: HashMap::new(),
         }
     }
 
@@ -1074,92 +1082,217 @@ impl Store {
 
         // Generate a unique ID for this notification config
         let config_id = EntityId::new("NotifyConfig", self.snowflake.generate());
-        self.notify_configs.insert(config_id.clone(), (config, callback));
+        
+        // Add to appropriate index based on config type
+        match &config {
+            NotifyConfig::EntityId { entity_id, field_type, .. } => {
+                self.entity_notifications
+                    .entry(entity_id.clone())
+                    .or_insert_with(HashMap::new)
+                    .entry(field_type.clone())
+                    .or_insert_with(Vec::new)
+                    .push((config.clone(), callback));
+            }
+            NotifyConfig::EntityType { entity_type, field_type, .. } => {
+                self.type_notifications
+                    .entry(EntityType::from(entity_type.clone()))
+                    .or_insert_with(HashMap::new)
+                    .entry(field_type.clone())
+                    .or_insert_with(Vec::new)
+                    .push((config.clone(), callback));
+            }
+        }
         
         Ok(config_id)
     }
 
     /// Unregister a notification configuration
-    pub fn unregister_notification(&mut self, config_id: &EntityId) -> bool {
-        self.notify_configs.remove(config_id).is_some()
-    }
-
-    /// Get all registered notification configurations (without callbacks)
-    pub fn get_notification_configs(&self) -> HashMap<EntityId, &NotifyConfig> {
-        self.notify_configs.iter().map(|(id, (config, _))| (id.clone(), config)).collect()
-    }
-
-    /// Trigger notifications for a write operation
-    fn trigger_notifications(&self, _ctx: &Context, entity_id: &EntityId, field_type: &FieldType, current_value: &Value, previous_value: &Value) {
-        for (_, (config, callback)) in &self.notify_configs {
-            let should_notify = match config {
-                NotifyConfig::EntityId { 
-                    entity_id: config_entity_id, 
-                    field_type: config_field_type, 
-                    trigger_on_change, 
-                    context: _context 
-                } => {
-                    // Check if this notification applies to this specific entity and field
-                    if config_entity_id == entity_id && config_field_type == field_type {
-                        if *trigger_on_change {
-                            current_value != previous_value
-                        } else {
-                            true // Always trigger on write
+    /// Since configs are stored by entity/type, we need to specify what to remove
+    pub fn unregister_notification(&mut self, target_config: &NotifyConfig) -> bool {
+        match target_config {
+            NotifyConfig::EntityId { entity_id, field_type, .. } => {
+                if let Some(field_map) = self.entity_notifications.get_mut(entity_id) {
+                    if let Some(configs) = field_map.get_mut(field_type) {
+                        let initial_len = configs.len();
+                        configs.retain(|(config, _)| config != target_config);
+                        let removed_some = configs.len() != initial_len;
+                        
+                        // Clean up empty vectors and maps
+                        if configs.is_empty() {
+                            field_map.remove(field_type);
                         }
+                        if field_map.is_empty() {
+                            self.entity_notifications.remove(entity_id);
+                        }
+                        
+                        removed_some
                     } else {
                         false
                     }
-                },
-                NotifyConfig::EntityType { 
-                    entity_type: config_entity_type, 
-                    field_type: config_field_type, 
-                    trigger_on_change, 
-                    context: _context 
-                } => {
-                    // Check if this notification applies to this entity type and field
-                    if entity_id.get_type().to_string() == *config_entity_type && config_field_type == field_type {
-                        if *trigger_on_change {
+                } else {
+                    false
+                }
+            }
+            NotifyConfig::EntityType { entity_type, field_type, .. } => {
+                let entity_type_key = EntityType::from(entity_type.clone());
+                if let Some(field_map) = self.type_notifications.get_mut(&entity_type_key) {
+                    if let Some(configs) = field_map.get_mut(field_type) {
+                        let initial_len = configs.len();
+                        configs.retain(|(config, _)| config != target_config);
+                        let removed_some = configs.len() != initial_len;
+                        
+                        // Clean up empty vectors and maps
+                        if configs.is_empty() {
+                            field_map.remove(field_type);
+                        }
+                        if field_map.is_empty() {
+                            self.type_notifications.remove(&entity_type_key);
+                        }
+                        
+                        removed_some
+                    } else {
+                        false
+                    }
+                } else {
+                    false
+                }
+            }
+        }
+    }
+
+    /// Get all registered notification configurations for a specific entity
+    pub fn get_entity_notification_configs(&self, entity_id: &EntityId) -> Vec<&NotifyConfig> {
+        self.entity_notifications
+            .get(entity_id)
+            .map(|field_map| {
+                field_map
+                    .values()
+                    .flat_map(|configs| configs.iter().map(|(config, _)| config))
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    /// Get all registered notification configurations for a specific entity type
+    pub fn get_type_notification_configs(&self, entity_type: &EntityType) -> Vec<&NotifyConfig> {
+        self.type_notifications
+            .get(entity_type)
+            .map(|field_map| {
+                field_map
+                    .values()
+                    .flat_map(|configs| configs.iter().map(|(config, _)| config))
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    /// Build context fields using the perform method to handle indirection
+    fn build_context_fields(&mut self, ctx: &Context, entity_id: &EntityId, context_fields: &[FieldType]) -> std::collections::BTreeMap<FieldType, Option<Value>> {
+        let mut context_map = std::collections::BTreeMap::new();
+        
+        for context_field in context_fields {
+            // Use perform to handle indirection properly
+            let mut requests = vec![sread!(entity_id.clone(), context_field.clone())];
+            
+            if let Ok(()) = self.perform(ctx, &mut requests) {
+                if let Request::Read { value, .. } = &requests[0] {
+                    context_map.insert(context_field.clone(), value.clone());
+                }
+            } else {
+                context_map.insert(context_field.clone(), None);
+            }
+        }
+        
+        context_map
+    }    /// Trigger notifications for a write operation
+    fn trigger_notifications(&mut self, ctx: &Context, entity_id: &EntityId, field_type: &FieldType, current_value: &Value, previous_value: &Value) {
+        // Collect notifications that need to be triggered to avoid borrowing conflicts
+        let mut notifications_to_trigger = Vec::new();
+
+        // Check entity-specific notifications with O(1) lookup by entity_id and field_type
+        if let Some(field_map) = self.entity_notifications.get(entity_id) {
+            if let Some(configs) = field_map.get(field_type) {
+                for (config, _) in configs {
+                    if let NotifyConfig::EntityId { 
+                        trigger_on_change, 
+                        context, 
+                        .. 
+                    } = config {
+                        let should_notify = if *trigger_on_change {
                             current_value != previous_value
                         } else {
                             true // Always trigger on write
+                        };
+
+                        if should_notify {
+                            notifications_to_trigger.push((config.clone(), context.clone()));
                         }
-                    } else {
-                        false
                     }
                 }
-            };
+            }
+        }
 
-            if should_notify {
-                // Build the context fields (these can be indirect)
-                let context_fields = match config {
-                    NotifyConfig::EntityId { context, .. } | NotifyConfig::EntityType { context, .. } => {
-                        let mut context_map = std::collections::BTreeMap::new();
-                        for context_field in context {
-                            // Try to read the context field value directly (we can't use resolve_indirection easily here)
-                            // For now, let's implement a simpler version that only supports direct fields
-                            if let Some(entity_fields) = self.fields.get(entity_id) {
-                                if let Some(field) = entity_fields.get(context_field) {
-                                    context_map.insert(context_field.clone(), Some(field.value.clone()));
-                                } else {
-                                    context_map.insert(context_field.clone(), None);
+        // Check entity type notifications with O(1) lookup by entity_type and field_type
+        if let Some(field_map) = self.type_notifications.get(entity_id.get_type()) {
+            if let Some(configs) = field_map.get(field_type) {
+                for (config, _) in configs {
+                    if let NotifyConfig::EntityType { 
+                        trigger_on_change, 
+                        context, 
+                        .. 
+                    } = config {
+                        let should_notify = if *trigger_on_change {
+                            current_value != previous_value
+                        } else {
+                            true // Always trigger on write
+                        };
+
+                        if should_notify {
+                            notifications_to_trigger.push((config.clone(), context.clone()));
+                        }
+                    }
+                }
+            }
+        }
+
+        // Now trigger the collected notifications
+        for (config, context) in notifications_to_trigger {
+            let context_fields = self.build_context_fields(ctx, entity_id, &context);
+            
+            let notification = Notification {
+                entity_id: entity_id.clone(),
+                field_type: field_type.clone(),
+                current_value: current_value.clone(),
+                previous_value: previous_value.clone(),
+                context: context_fields,
+            };
+            
+            // Find and call the callback with O(1) lookup
+            match &config {
+                NotifyConfig::EntityId { field_type: config_field_type, .. } => {
+                    if let Some(field_map) = self.entity_notifications.get(entity_id) {
+                        if let Some(configs) = field_map.get(config_field_type) {
+                            for (stored_config, callback) in configs {
+                                if stored_config == &config {
+                                    callback(&notification);
+                                    break;
                                 }
-                            } else {
-                                context_map.insert(context_field.clone(), None);
                             }
                         }
-                        context_map
                     }
-                };
-
-                let notification = Notification {
-                    entity_id: entity_id.clone(),
-                    field_type: field_type.clone(),
-                    current_value: current_value.clone(),
-                    previous_value: previous_value.clone(),
-                    context: context_fields,
-                };
-
-                callback(&notification);
+                }
+                NotifyConfig::EntityType { field_type: config_field_type, .. } => {
+                    if let Some(field_map) = self.type_notifications.get(entity_id.get_type()) {
+                        if let Some(configs) = field_map.get(config_field_type) {
+                            for (stored_config, callback) in configs {
+                                if stored_config == &config {
+                                    callback(&notification);
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
     }
