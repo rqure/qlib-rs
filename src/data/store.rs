@@ -246,20 +246,6 @@ impl std::fmt::Debug for Store {
                 "type_notifications",
                 &format_args!("{} type notifications", self.type_notifications.len()),
             )
-            .field(
-                "entity_notifications",
-                &format_args!(
-                    "{} entity notification indices",
-                    self.entity_notifications.len()
-                ),
-            )
-            .field(
-                "type_notifications",
-                &format_args!(
-                    "{} type notification indices",
-                    self.type_notifications.len()
-                ),
-            )
             .finish()
     }
 }
