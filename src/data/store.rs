@@ -3,7 +3,8 @@ use std::{collections::HashMap, error, mem::discriminant, sync::Arc};
 
 use crate::{
     data::{
-        entity_schema::Complete, now, request::PushCondition, EntityType, FieldType, Timestamp, NotifyConfig, Notification, INDIRECTION_DELIMITER
+        entity_schema::Complete, now, request::PushCondition, EntityType, FieldType, Notification,
+        NotifyConfig, Timestamp, INDIRECTION_DELIMITER,
     },
     sadd, sread, sref, sreflist, sstr, ssub, swrite, AdjustBehavior, Entity, EntityId,
     EntitySchema, Field, FieldSchema, Request, Result, Single, Snowflake, Value,
@@ -209,7 +210,7 @@ pub struct Store {
     entities: HashMap<EntityType, Vec<EntityId>>,
     types: Vec<EntityType>,
     fields: HashMap<EntityId, HashMap<FieldType, Field>>,
-    
+
     /// Maps parent types to all their derived types (including direct and indirect children)
     /// This allows fast lookup of all entity types that inherit from a given parent type
     #[serde(skip)]
@@ -220,11 +221,13 @@ pub struct Store {
 
     /// Notification configurations indexed by entity ID and field type
     #[serde(skip)]
-    entity_notifications: HashMap<EntityId, HashMap<FieldType, Vec<(NotifyConfig, NotificationCallback)>>>,
+    entity_notifications:
+        HashMap<EntityId, HashMap<FieldType, Vec<(NotifyConfig, NotificationCallback)>>>,
 
     /// Notification configurations indexed by entity type and field type
     #[serde(skip)]
-    type_notifications: HashMap<EntityType, HashMap<FieldType, Vec<(NotifyConfig, NotificationCallback)>>>,
+    type_notifications:
+        HashMap<EntityType, HashMap<FieldType, Vec<(NotifyConfig, NotificationCallback)>>>,
 }
 
 impl std::fmt::Debug for Store {
@@ -235,10 +238,28 @@ impl std::fmt::Debug for Store {
             .field("types", &self.types)
             .field("fields", &self.fields)
             .field("inheritance_map", &self.inheritance_map)
-            .field("entity_notifications", &format_args!("{} entity notifications", self.entity_notifications.len()))
-            .field("type_notifications", &format_args!("{} type notifications", self.type_notifications.len()))
-            .field("entity_notifications", &format_args!("{} entity notification indices", self.entity_notifications.len()))
-            .field("type_notifications", &format_args!("{} type notification indices", self.type_notifications.len()))
+            .field(
+                "entity_notifications",
+                &format_args!("{} entity notifications", self.entity_notifications.len()),
+            )
+            .field(
+                "type_notifications",
+                &format_args!("{} type notifications", self.type_notifications.len()),
+            )
+            .field(
+                "entity_notifications",
+                &format_args!(
+                    "{} entity notification indices",
+                    self.entity_notifications.len()
+                ),
+            )
+            .field(
+                "type_notifications",
+                &format_args!(
+                    "{} type notification indices",
+                    self.type_notifications.len()
+                ),
+            )
             .finish()
     }
 }
@@ -362,10 +383,10 @@ impl Store {
                     schema.inherit = None;
                     break;
                 }
-                
+
                 if let Some(inherit_schema) = self.schemas.get(inherit_type) {
                     visited_types.insert(inherit_type.clone());
-                    
+
                     // Merge inherited fields into the current schema
                     for (field_type, field_schema) in &inherit_schema.fields {
                         schema
@@ -463,8 +484,7 @@ impl Store {
         entity_type: &EntityType,
         field_type: &FieldType,
     ) -> Result<FieldSchema> {
-        self
-            .get_entity_schema(ctx, entity_type)?
+        self.get_entity_schema(ctx, entity_type)?
             .fields
             .get(field_type)
             .cloned()
@@ -481,10 +501,11 @@ impl Store {
         field_type: &FieldType,
         field_schema: FieldSchema,
     ) -> Result<()> {
-        let mut entity_schema = self
-            .get_entity_schema(ctx, entity_type)?;
+        let mut entity_schema = self.get_entity_schema(ctx, entity_type)?;
 
-        entity_schema.fields.insert(field_type.clone(), field_schema);
+        entity_schema
+            .fields
+            .insert(field_type.clone(), field_schema);
 
         self.set_entity_schema(ctx, &entity_schema)
     }
@@ -582,7 +603,9 @@ impl Store {
         adjust_behavior: &AdjustBehavior,
     ) -> Result<()> {
         let entity_schema = self.get_complete_entity_schema(ctx, entity_id.get_type())?;
-        let field_schema = entity_schema.fields.get(field_type)
+        let field_schema = entity_schema
+            .fields
+            .get(field_type)
             .ok_or_else(|| FieldNotFound(entity_id.clone(), field_type.clone()))?;
 
         let fields = self
@@ -643,12 +666,7 @@ impl Store {
                     new_value = Value::Blob(
                         old_file
                             .iter()
-                            .chain(
-                                new_value
-                                    .as_blob()
-                                    .map_or(&Vec::new(), |f| &f)
-                                    .iter(),
-                            )
+                            .chain(new_value.as_blob().map_or(&Vec::new(), |f| &f).iter())
                             .cloned()
                             .collect(),
                     );
@@ -731,7 +749,13 @@ impl Store {
         }
 
         // Trigger notifications after a write operation
-        self.trigger_notifications(ctx, entity_id, field_type, &notification_new_value, &notification_old_value);
+        self.trigger_notifications(
+            ctx,
+            entity_id,
+            field_type,
+            &notification_new_value,
+            &notification_old_value,
+        );
 
         Ok(())
     }
@@ -797,22 +821,22 @@ impl Store {
     }
 
     /// Find entities of a specific type with pagination
-    /// 
+    ///
     /// This method supports inheritance - when searching for a parent type,
     /// it will include entities of all derived types as well.
-    /// 
+    ///
     /// For example, if you have the hierarchy:
     /// - Animal (base type)
     ///   - Mammal (inherits from Animal)
     ///     - Dog (inherits from Mammal)
     ///     - Cat (inherits from Mammal)
-    /// 
+    ///
     /// Then calling `find_entities` with `EntityType::from("Animal")` will return
     /// all Dog, Cat, Mammal, and Animal entities.
-    /// 
+    ///
     /// Calling `find_entities` with `EntityType::from("Mammal")` will return
     /// all Dog, Cat, and Mammal entities (but not Animal entities).
-    /// 
+    ///
     /// If you need to find entities of an exact type without inheritance,
     /// use `find_entities_exact` instead.
     pub fn find_entities(
@@ -824,7 +848,8 @@ impl Store {
         let opts = page_opts.unwrap_or_default();
 
         // Get all entity types that match the requested type (including derived types)
-        let types_to_search = self.inheritance_map
+        let types_to_search = self
+            .inheritance_map
             .get(entity_type)
             .cloned()
             .unwrap_or_else(|| {
@@ -887,15 +912,15 @@ impl Store {
     }
 
     /// Find entities of exactly the specified type (no inheritance)
-    /// 
+    ///
     /// This method only returns entities of the exact type, not derived types.
     /// This is useful when you need to distinguish between parent and child
     /// types in an inheritance hierarchy.
-    /// 
+    ///
     /// For example, if you have the hierarchy:
     /// - Animal (base type)
     ///   - Dog (inherits from Animal)
-    /// 
+    ///
     /// Then calling `find_entities_exact` with `EntityType::from("Animal")` will
     /// only return entities that were created with the "Animal" type, not Dog entities.
     pub fn find_entities_exact(
@@ -1016,36 +1041,37 @@ impl Store {
     /// This should be called whenever schemas are added or updated
     fn rebuild_inheritance_map(&mut self) {
         self.inheritance_map.clear();
-        
+
         // For each entity type, find all types that inherit from it
         for entity_type in &self.types {
             let mut derived_types = Vec::new();
-            
+
             // Check all other types to see if they inherit from this type
             for other_type in &self.types {
                 if self.inherits_from(other_type, entity_type) {
                     derived_types.push(other_type.clone());
                 }
             }
-            
+
             // Include the type itself in the list
             derived_types.push(entity_type.clone());
-            
-            self.inheritance_map.insert(entity_type.clone(), derived_types);
+
+            self.inheritance_map
+                .insert(entity_type.clone(), derived_types);
         }
     }
-    
+
     /// Check if derived_type inherits from base_type (directly or indirectly)
     /// This method guards against circular inheritance by limiting the depth of inheritance traversal
     fn inherits_from(&self, derived_type: &EntityType, base_type: &EntityType) -> bool {
         if derived_type == base_type {
             return false; // A type doesn't inherit from itself
         }
-        
+
         let mut current_type = derived_type;
         let mut depth = 0;
         const MAX_INHERITANCE_DEPTH: usize = 100; // Prevent infinite loops
-        
+
         while depth < MAX_INHERITANCE_DEPTH {
             if let Some(schema) = self.schemas.get(current_type) {
                 if let Some(inherit_type) = &schema.inherit {
@@ -1061,13 +1087,18 @@ impl Store {
                 break;
             }
         }
-        
+
         false
     }
 
     /// Register a notification configuration with its callback
     /// Returns an error if the field_type contains indirection (context fields can be indirect)
-    pub fn register_notification(&mut self, _ctx: &Context, config: NotifyConfig, callback: NotificationCallback) -> Result<EntityId> {
+    pub fn register_notification(
+        &mut self,
+        _ctx: &Context,
+        config: NotifyConfig,
+        callback: NotificationCallback,
+    ) -> Result<()> {
         // Validate that the main field_type is not indirect
         let field_type = match &config {
             NotifyConfig::EntityId { field_type, .. } => field_type,
@@ -1076,16 +1107,18 @@ impl Store {
 
         if field_type.as_ref().contains(INDIRECTION_DELIMITER) {
             return Err(InvalidNotifyConfig(
-                "Cannot register notifications on indirect fields".to_string()
-            ).into());
+                "Cannot register notifications on indirect fields".to_string(),
+            )
+            .into());
         }
 
-        // Generate a unique ID for this notification config
-        let config_id = EntityId::new("NotifyConfig", self.snowflake.generate());
-        
         // Add to appropriate index based on config type
         match &config {
-            NotifyConfig::EntityId { entity_id, field_type, .. } => {
+            NotifyConfig::EntityId {
+                entity_id,
+                field_type,
+                ..
+            } => {
                 self.entity_notifications
                     .entry(entity_id.clone())
                     .or_insert_with(HashMap::new)
@@ -1093,7 +1126,11 @@ impl Store {
                     .or_insert_with(Vec::new)
                     .push((config.clone(), callback));
             }
-            NotifyConfig::EntityType { entity_type, field_type, .. } => {
+            NotifyConfig::EntityType {
+                entity_type,
+                field_type,
+                ..
+            } => {
                 self.type_notifications
                     .entry(EntityType::from(entity_type.clone()))
                     .or_insert_with(HashMap::new)
@@ -1102,21 +1139,25 @@ impl Store {
                     .push((config.clone(), callback));
             }
         }
-        
-        Ok(config_id)
+
+        Ok(())
     }
 
     /// Unregister a notification configuration
     /// Since configs are stored by entity/type, we need to specify what to remove
     pub fn unregister_notification(&mut self, target_config: &NotifyConfig) -> bool {
         match target_config {
-            NotifyConfig::EntityId { entity_id, field_type, .. } => {
+            NotifyConfig::EntityId {
+                entity_id,
+                field_type,
+                ..
+            } => {
                 if let Some(field_map) = self.entity_notifications.get_mut(entity_id) {
                     if let Some(configs) = field_map.get_mut(field_type) {
                         let initial_len = configs.len();
                         configs.retain(|(config, _)| config != target_config);
                         let removed_some = configs.len() != initial_len;
-                        
+
                         // Clean up empty vectors and maps
                         if configs.is_empty() {
                             field_map.remove(field_type);
@@ -1124,7 +1165,7 @@ impl Store {
                         if field_map.is_empty() {
                             self.entity_notifications.remove(entity_id);
                         }
-                        
+
                         removed_some
                     } else {
                         false
@@ -1133,14 +1174,18 @@ impl Store {
                     false
                 }
             }
-            NotifyConfig::EntityType { entity_type, field_type, .. } => {
+            NotifyConfig::EntityType {
+                entity_type,
+                field_type,
+                ..
+            } => {
                 let entity_type_key = EntityType::from(entity_type.clone());
                 if let Some(field_map) = self.type_notifications.get_mut(&entity_type_key) {
                     if let Some(configs) = field_map.get_mut(field_type) {
                         let initial_len = configs.len();
                         configs.retain(|(config, _)| config != target_config);
                         let removed_some = configs.len() != initial_len;
-                        
+
                         // Clean up empty vectors and maps
                         if configs.is_empty() {
                             field_map.remove(field_type);
@@ -1148,7 +1193,7 @@ impl Store {
                         if field_map.is_empty() {
                             self.type_notifications.remove(&entity_type_key);
                         }
-                        
+
                         removed_some
                     } else {
                         false
@@ -1187,13 +1232,18 @@ impl Store {
     }
 
     /// Build context fields using the perform method to handle indirection
-    fn build_context_fields(&mut self, ctx: &Context, entity_id: &EntityId, context_fields: &[FieldType]) -> std::collections::BTreeMap<FieldType, Option<Value>> {
+    fn build_context_fields(
+        &mut self,
+        ctx: &Context,
+        entity_id: &EntityId,
+        context_fields: &[FieldType],
+    ) -> std::collections::BTreeMap<FieldType, Option<Value>> {
         let mut context_map = std::collections::BTreeMap::new();
-        
+
         for context_field in context_fields {
             // Use perform to handle indirection properly
             let mut requests = vec![sread!(entity_id.clone(), context_field.clone())];
-            
+
             if let Ok(()) = self.perform(ctx, &mut requests) {
                 if let Request::Read { value, .. } = &requests[0] {
                     context_map.insert(context_field.clone(), value.clone());
@@ -1202,10 +1252,18 @@ impl Store {
                 context_map.insert(context_field.clone(), None);
             }
         }
-        
+
         context_map
-    }    /// Trigger notifications for a write operation
-    fn trigger_notifications(&mut self, ctx: &Context, entity_id: &EntityId, field_type: &FieldType, current_value: &Value, previous_value: &Value) {
+    }
+    /// Trigger notifications for a write operation
+    fn trigger_notifications(
+        &mut self,
+        ctx: &Context,
+        entity_id: &EntityId,
+        field_type: &FieldType,
+        current_value: &Value,
+        previous_value: &Value,
+    ) {
         // Collect notifications that need to be triggered to avoid borrowing conflicts
         let mut notifications_to_trigger = Vec::new();
 
@@ -1213,11 +1271,12 @@ impl Store {
         if let Some(field_map) = self.entity_notifications.get(entity_id) {
             if let Some(configs) = field_map.get(field_type) {
                 for (config, _) in configs {
-                    if let NotifyConfig::EntityId { 
-                        trigger_on_change, 
-                        context, 
-                        .. 
-                    } = config {
+                    if let NotifyConfig::EntityId {
+                        trigger_on_change,
+                        context,
+                        ..
+                    } = config
+                    {
                         let should_notify = if *trigger_on_change {
                             current_value != previous_value
                         } else {
@@ -1236,11 +1295,12 @@ impl Store {
         if let Some(field_map) = self.type_notifications.get(entity_id.get_type()) {
             if let Some(configs) = field_map.get(field_type) {
                 for (config, _) in configs {
-                    if let NotifyConfig::EntityType { 
-                        trigger_on_change, 
-                        context, 
-                        .. 
-                    } = config {
+                    if let NotifyConfig::EntityType {
+                        trigger_on_change,
+                        context,
+                        ..
+                    } = config
+                    {
                         let should_notify = if *trigger_on_change {
                             current_value != previous_value
                         } else {
@@ -1258,7 +1318,7 @@ impl Store {
         // Now trigger the collected notifications
         for (config, context) in notifications_to_trigger {
             let context_fields = self.build_context_fields(ctx, entity_id, &context);
-            
+
             let notification = Notification {
                 entity_id: entity_id.clone(),
                 field_type: field_type.clone(),
@@ -1266,10 +1326,13 @@ impl Store {
                 previous_value: previous_value.clone(),
                 context: context_fields,
             };
-            
+
             // Find and call the callback with O(1) lookup
             match &config {
-                NotifyConfig::EntityId { field_type: config_field_type, .. } => {
+                NotifyConfig::EntityId {
+                    field_type: config_field_type,
+                    ..
+                } => {
                     if let Some(field_map) = self.entity_notifications.get(entity_id) {
                         if let Some(configs) = field_map.get(config_field_type) {
                             for (stored_config, callback) in configs {
@@ -1281,7 +1344,10 @@ impl Store {
                         }
                     }
                 }
-                NotifyConfig::EntityType { field_type: config_field_type, .. } => {
+                NotifyConfig::EntityType {
+                    field_type: config_field_type,
+                    ..
+                } => {
                     if let Some(field_map) = self.type_notifications.get(entity_id.get_type()) {
                         if let Some(configs) = field_map.get(config_field_type) {
                             for (stored_config, callback) in configs {
@@ -1429,14 +1495,17 @@ pub fn resolve_indirection(
         }
     }
 
-    Ok((current_entity_id, fields.last().cloned().ok_or_else(|| {
-        BadIndirection::new(
-            entity_id.clone(),
-            field_type.clone(),
-            BadIndirectionReason::UnexpectedValueType(
-                "".into(),
-                "Empty field path".to_string(),
-            ),
-        )
-    })?))
+    Ok((
+        current_entity_id,
+        fields.last().cloned().ok_or_else(|| {
+            BadIndirection::new(
+                entity_id.clone(),
+                field_type.clone(),
+                BadIndirectionReason::UnexpectedValueType(
+                    "".into(),
+                    "Empty field path".to_string(),
+                ),
+            )
+        })?,
+    ))
 }
