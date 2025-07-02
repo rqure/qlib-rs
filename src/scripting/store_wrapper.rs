@@ -75,13 +75,10 @@ impl RhaiStoreWrapper {
     }
 
     /// Check if an entity exists
-    pub fn entity_exists(&self, entity_id: &str) -> bool {
+    pub fn entity_exists(&self, entity_id: &str) -> std::result::Result<bool, Box<rhai::EvalAltResult>> {
         let store = self.store.lock().unwrap();
-        if let Ok(entity_id) = EntityId::try_from(entity_id) {
-            store.entity_exists(&self.context, &entity_id)
-        } else {
-            false
-        }
+        let entity_id = EntityId::try_from(entity_id).map_err(|e| format!("Invalid entity ID: {}", e))?;
+        Ok(store.entity_exists(&self.context, &entity_id))
     }
 }
 

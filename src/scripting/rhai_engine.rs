@@ -63,12 +63,16 @@ impl QScriptEngine {
         engine.register_fn("perform", RhaiStoreWrapper::perform);
         engine.register_fn("create_entity", RhaiStoreWrapper::create_entity);
         engine.register_fn("delete_entity", RhaiStoreWrapper::delete_entity);
-        engine.register_fn("entity_exists", RhaiStoreWrapper::entity_exists);
         
-        // Register StoreProxy wrapper methods (perform-based API only)
-        engine.register_fn("perform", RhaiStoreProxyWrapper::perform);
-        engine.register_fn("create_entity", RhaiStoreProxyWrapper::create_entity);
-        engine.register_fn("entity_exists", RhaiStoreProxyWrapper::entity_exists);
+        // Register entity_exists with explicit closure to handle Result properly
+        engine.register_fn("entity_exists", |wrapper: &mut RhaiStoreWrapper, entity_id: &str| -> Result<bool, Box<rhai::EvalAltResult>> {
+            wrapper.entity_exists(entity_id)
+        });
+        
+        // Register StoreProxy wrapper methods with different names to avoid conflicts
+        engine.register_fn("perform_async", RhaiStoreProxyWrapper::perform);
+        engine.register_fn("create_entity_async", RhaiStoreProxyWrapper::create_entity);
+        engine.register_fn("entity_exists_async", RhaiStoreProxyWrapper::entity_exists);
         engine.register_fn("set_entity_schema", RhaiStoreProxyWrapper::set_entity_schema);
         
         // Register request creation helper functions (syntax sugar)
@@ -297,12 +301,26 @@ impl QScriptEngine {
         });
         
         // Register a fallback function that treats unknown variables as field names
-        // but only for simple identifiers that look like field names
+        // but only for simple identifiers that look like field names (excluding special keywords)
         engine.on_var(|name, _index, _context| {
-            // Only treat as field name if it starts with uppercase (field naming convention)
-            // and doesn't contain special characters
-            if name.chars().next().map_or(false, |c| c.is_uppercase()) 
-                && name.chars().all(|c| c.is_alphanumeric() || c == '_') {
+            // Don't treat special keywords as field names
+            if name == "DEFAULT" || name == "me" {
+                return Ok(None); // Let these be handled as variables
+            }
+            
+            // Don't treat function-like names, reserved words, or common variable names as field names
+            if name == "store" || name == "perform" || name == "create_entity" 
+                || name == "entity_exists" || name.contains("_") 
+                || name.starts_with("create_") 
+                || name == "array" || name == "map" || name == "result" || name == "script"
+                || name == "parsed" || name == "entity_id" {
+                return Ok(None);
+            }
+            
+            // Only treat simple CamelCase or lowercase identifiers as field names
+            if name.chars().next().map_or(false, |c| c.is_alphabetic()) 
+                && name.chars().all(|c| c.is_alphanumeric()) 
+                && name.len() > 1 {
                 Ok(Some(Dynamic::from(name.to_string())))
             } else {
                 Ok(None) // Let Rhai handle other variables normally
@@ -477,7 +495,9 @@ impl QScriptEngine {
     /// Execute a script with the given entity context
     pub fn execute_with_context(&mut self, script: &str, entity_id: &str) -> Result<Dynamic, Box<rhai::EvalAltResult>> {
         self.set_entity_context(Some(entity_id.to_string()));
-        self.engine.eval(script)
+        let mut scope = self.create_qlib_scope();
+        scope.set_value("me", entity_id.to_string()); // Override me with actual entity ID
+        self.engine.eval_with_scope(&mut scope, script)
     }
 
     /// Run a script with a pre-configured store proxy and entity context
@@ -491,7 +511,8 @@ impl QScriptEngine {
     /// Execute a qlib operation using custom syntax
     /// This is a convenience method for executing simple operations
     pub fn execute_qlib_operation(&self, operation: &str) -> Result<Dynamic, Box<EvalAltResult>> {
-        self.engine.eval::<Dynamic>(operation)
+        let mut scope = self.create_qlib_scope();
+        self.engine.eval_with_scope::<Dynamic>(&mut scope, operation)
     }
 
     /// Execute multiple qlib operations in sequence
@@ -513,6 +534,10 @@ impl QScriptEngine {
         scope.push_constant("SET", "Set");
         scope.push_constant("ADD", "Add");
         scope.push_constant("SUBTRACT", "Subtract");
+        
+        // Add special scripting variables
+        scope.push_constant("DEFAULT", Dynamic::UNIT); // DEFAULT maps to None/Unit
+        scope.push_constant("me", "me"); // me refers to the current entity
         
         scope
     }
@@ -816,5 +841,46 @@ mod tests {
         assert!(result[1].clone().try_cast::<rhai::Map>().unwrap().contains_key("Write"));
         assert!(result[2].clone().try_cast::<rhai::Map>().unwrap().contains_key("Write"));
         assert!(result[3].clone().try_cast::<rhai::Map>().unwrap().contains_key("Write"));
+    }
+
+    #[test]
+    fn test_special_variables_default_and_me() {
+        let engine = QScriptEngine::new();
+        
+        // Test WRITE DEFAULT INTO Example
+        let script1 = r#"
+            WRITE DEFAULT INTO Example
+        "#;
+
+        let result1_dynamic = engine.execute_qlib_operation(script1).unwrap();
+        let result1: rhai::Map = result1_dynamic.cast();
+        assert!(result1.contains_key("Write"));
+        
+        if let Some(write_map) = result1.get("Write").and_then(|v| v.clone().try_cast::<rhai::Map>()) {
+            assert_eq!(write_map.get("field_type").unwrap().clone().cast::<String>(), "Example");
+            // DEFAULT should map to Dynamic::UNIT (None value)
+            assert!(write_map.get("value").unwrap().is_unit());
+        }
+        
+        // Test WRITE me INTO NextStation->CurrentTrain
+        let script2 = r#"
+            WRITE me INTO NextStation->CurrentTrain
+        "#;
+
+        let result2_dynamic = engine.execute_qlib_operation(script2).unwrap();
+        let result2: rhai::Map = result2_dynamic.cast();
+        assert!(result2.contains_key("Write"));
+        
+        if let Some(write_map) = result2.get("Write").and_then(|v| v.clone().try_cast::<rhai::Map>()) {
+            assert_eq!(write_map.get("field_type").unwrap().clone().cast::<String>(), "NextStation");
+            assert_eq!(write_map.get("value").unwrap().clone().cast::<String>(), "me");
+            
+            if let Some(indirection) = write_map.get("indirection").and_then(|v| v.clone().try_cast::<Array>()) {
+                assert_eq!(indirection.len(), 1);
+                assert_eq!(indirection[0].clone().cast::<String>(), "CurrentTrain");
+            } else {
+                panic!("Expected indirection array in result");
+            }
+        }
     }
 }
