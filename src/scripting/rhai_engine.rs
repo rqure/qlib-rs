@@ -1,69 +1,41 @@
-use rhai::{Engine, Scope, Dynamic, Map, Array, AST, ParseError, EvalAltResult};
+use rhai::{Engine, Scope, Dynamic, Map, Array, EvalAltResult};
 use super::{RhaiStoreWrapper, RhaiStoreProxyWrapper, create_read_request, create_write_request, create_add_request, create_subtract_request};
 
 /// A Rhai scripting engine configured for qlib store operations with custom syntax
 /// 
-/// This engine provides an enhanced API for qlib operations through custom syntax:
+/// This engine provides an enhanced API for qlib operations through custom syntax.
+/// All scripts execute relative to a specific entity ID context, with "me" referring to that entity.
 /// 
-/// ## Basic Operations
+/// ## Transaction Operations
 /// ```rhai
-/// // Reading a field
-/// read User$123.Name
+/// // Transaction with entity-relative operations
+/// TRANSACTION(
+///     READ Name INTO train_name,
+///     READ NextStation->Name INTO station_name,
+///     WRITE me INTO NextStation->CurrentTrain,
+///     WRITE DEFAULT INTO StopTrigger,
+///     ADD 1 INTO NextStation->UpdateCount,
+///     SUBTRACT 1 FROM NextStation->Retries
+/// )
 /// 
-/// // Writing a field
-/// write User$123.Name = "John Doe"
-/// 
-/// // Adding to a numeric field
-/// add User$123.Score += 10
-/// 
-/// // Subtracting from a numeric field  
-/// sub User$123.Score -= 5
-/// 
-/// // Creating an entity with fields
-/// entity User$123 { Name: "John", Age: 25 }
-/// 
-/// // Querying entities
-/// query User where Age > 18
+/// // Use variables from transaction
+/// if station_name == "Waterfront" {
+///     // Handle special case
+/// }
 /// ```
 /// 
 /// ## Indirection Support
 /// ```rhai
 /// // Reading through indirection (follows references)
-/// read User$123.Company->Name
-/// read User$123.Manager->Department->Name
+/// READ NextStation->Name INTO station_name
+/// READ Manager->Department->Name INTO dept_name
 /// 
 /// // Writing through indirection
-/// write User$123.Company->Budget = 100000
+/// WRITE me INTO NextStation->CurrentTrain
+/// WRITE 100000 INTO Company->Budget
 /// 
 /// // Multi-level indirection
-/// read Order$456.Customer->Company->Address->City
-/// ```
-/// 
-/// ## Transactions
-/// ```rhai
-/// // Single transaction with multiple operations
-/// transaction {
-///     write User$123.Name = "John Doe";
-///     add User$123.Score += 10;
-///     write User$123.LastUpdated = now();
-/// }
-/// 
-/// // Named transaction with rollback capability
-/// let tx = begin_transaction("user_update");
-/// write User$123.Name = "John Doe";
-/// add User$123.Score += 10;
-/// if (some_condition) {
-///     commit_transaction(tx);
-/// } else {
-///     rollback_transaction(tx);
-/// }
-/// 
-/// // Batch operations
-/// batch [
-///     read User$123.Name,
-///     read User$124.Name,
-///     read User$125.Name
-/// ]
+/// READ Customer->Company->Address->City INTO city
 /// ```
 /// 
 /// ## Helper Functions
@@ -72,8 +44,10 @@ use super::{RhaiStoreWrapper, RhaiStoreProxyWrapper, create_read_request, create
 /// - `parse_entity_id(id)` - Parse entity ID into components
 /// - `format_entity_id(type, id)` - Format entity ID from components
 /// - `print_info(msg)`, `print_debug(msg)`, `print_error(msg)` - Logging functions
+/// - `get_me()` - Get the current entity ID context
 pub struct QScriptEngine {
     engine: Engine,
+    entity_context: Option<String>, // The current entity ID context ("me")
 }
 
 impl QScriptEngine {
@@ -114,11 +88,14 @@ impl QScriptEngine {
         engine.register_fn("parse_entity_id", Self::parse_entity_id);
         engine.register_fn("format_entity_id", Self::format_entity_id);
         
-        // Register transaction helper functions
+        // Register context helpers
+        engine.register_fn("get_me", Self::get_me);
+        engine.register_fn("set_me", Self::set_me);
+        
+        // Register transaction helper functions (remove batch helpers)
         engine.register_fn("begin_transaction", Self::begin_transaction);
         engine.register_fn("commit_transaction", Self::commit_transaction);
         engine.register_fn("rollback_transaction", Self::rollback_transaction);
-        engine.register_fn("create_batch", Self::create_batch);
         engine.register_fn("now", Self::now);
         
         // Register indirection helper
@@ -127,7 +104,20 @@ impl QScriptEngine {
         // Register custom syntax for improved API
         Self::register_custom_syntax(&mut engine).expect("Failed to register custom syntax");
         
-        Self { engine }
+        Self { 
+            engine,
+            entity_context: None,
+        }
+    }
+
+    /// Set the entity context for "me" references
+    pub fn set_entity_context(&mut self, entity_id: Option<String>) {
+        self.entity_context = entity_id;
+    }
+
+    /// Get the current entity context
+    pub fn get_entity_context(&self) -> Option<&String> {
+        self.entity_context.as_ref()
     }
 
     /// Create an empty map for field definitions
@@ -192,11 +182,6 @@ impl QScriptEngine {
         map
     }
 
-    /// Create a batch operation container
-    fn create_batch() -> Array {
-        Array::new()
-    }
-
     /// Get current timestamp
     fn now() -> i64 {
         std::time::SystemTime::now()
@@ -205,13 +190,60 @@ impl QScriptEngine {
             .as_millis() as i64
     }
 
-    /// Parse field path with indirection support
-    /// Example: "User$123.Company->Name" returns ["User$123", "Company", "Name"]
+    /// Get the current entity context ("me")
+    fn get_me() -> String {
+        // This is a placeholder - in actual usage, this would be injected into the scope
+        "me".to_string()
+    }
+
+    /// Set the entity context (this is a no-op as context is managed by the engine)
+    fn set_me(_entity_id: &str) {
+        // This is a placeholder - actual context setting is done via set_entity_context
+    }
+
+    /// Parse field path with indirection support and entity context resolution
+    /// Example: "NextStation->Name" becomes ["me", "NextStation", "Name"] when entity context is set
+    /// Example: "me" becomes [entity_context] when entity context is set
     fn parse_field_path(path: &str) -> Result<Array, Box<EvalAltResult>> {
+        Self::parse_field_path_with_context(path, None)
+    }
+
+    /// Parse field path with explicit entity context
+    fn parse_field_path_with_context(path: &str, entity_context: Option<&str>) -> Result<Array, Box<EvalAltResult>> {
         let mut parts = Array::new();
+        
+        // Handle special "me" keyword
+        if path == "me" {
+            if let Some(context) = entity_context {
+                parts.push(Dynamic::from(context.to_string()));
+                return Ok(parts);
+            } else {
+                return Err("No entity context set for 'me' reference".into());
+            }
+        }
+        
+        // Handle "DEFAULT" keyword
+        if path == "DEFAULT" {
+            parts.push(Dynamic::from("DEFAULT".to_string()));
+            return Ok(parts);
+        }
         
         // Split by -> for indirection
         let indirection_parts: Vec<&str> = path.split("->").collect();
+        
+        // Check if path starts with a field (no entity specified)
+        if indirection_parts.len() > 0 && !indirection_parts[0].contains('$') && !indirection_parts[0].contains('.') {
+            // This is a field path relative to the entity context
+            if let Some(context) = entity_context {
+                parts.push(Dynamic::from(context.to_string()));
+                for part in indirection_parts {
+                    parts.push(Dynamic::from(part.to_string()));
+                }
+                return Ok(parts);
+            } else {
+                return Err("No entity context set for relative field path".into());
+            }
+        }
         
         // First part should contain entity_id.field_type
         if let Some(first_part) = indirection_parts.first() {
@@ -229,7 +261,7 @@ impl QScriptEngine {
                 
                 Ok(parts)
             } else {
-                Err("Invalid field path format. Use 'EntityType$id.FieldType' or 'EntityType$id.FieldType->IndirectField'".into())
+                Err("Invalid field path format. Use 'EntityType$id.FieldType', 'FieldType->IndirectField', or 'me'".into())
             }
         } else {
             Err("Empty field path".into())
@@ -240,36 +272,68 @@ impl QScriptEngine {
     fn register_custom_syntax(engine: &mut Engine) -> Result<(), Box<rhai::EvalAltResult>> {
         use rhai::{EvalContext, Expression, Dynamic};
         
-        // Custom syntax: read entity_id.field_type or entity_id.field_type->indirect_field
-        // Example: read User$123.Name or read User$123.Company->Name
+        // Custom syntax: TRANSACTION(operation1, operation2, ...)
+        // Example: TRANSACTION(READ Name INTO train_name, WRITE "me" INTO NextStation->CurrentTrain)
         engine.register_custom_syntax(
-            ["read", "$ident$"],
-            false,
-            |_context: &mut EvalContext, inputs: &[Expression]| -> Result<Dynamic, Box<rhai::EvalAltResult>> {
-                let path = inputs[0].get_string_value().unwrap();
+            ["TRANSACTION", "(", "$expr$", ")"],
+            true, // Variable number of arguments
+            |context: &mut EvalContext, inputs: &[Expression]| -> Result<Dynamic, Box<rhai::EvalAltResult>> {
+                let mut operations = Array::new();
                 
-                // Parse field path with potential indirection
-                let parsed_path = Self::parse_field_path(&path)?;
-                
-                if parsed_path.is_empty() {
-                    return Err("Invalid field path".into());
+                // Process each operation
+                for input in inputs {
+                    let operation = context.eval_expression_tree(input)?;
+                    operations.push(operation);
                 }
                 
-                let entity_id = parsed_path[0].clone().cast::<String>();
-                let field_type = parsed_path[1].clone().cast::<String>();
+                let mut tx_map = rhai::Map::new();
+                tx_map.insert("Transaction".into(), Dynamic::from(operations));
+                
+                Ok(Dynamic::from(tx_map))
+            }
+        )?;
+
+        // Register custom operator -> for field indirection
+        engine.register_custom_operator("->", 160)?; // High precedence
+        engine.register_fn("->", |left: &str, right: &str| -> String {
+            format!("{}->{}", left, right)
+        });
+        
+        // Register a fallback function that treats unknown variables as field names
+        engine.on_var(|name, _index, _context| {
+            // If a variable is not found, treat it as a field name (return the name as a string)
+            Ok(Some(Dynamic::from(name.to_string())))
+        });
+
+        // Custom syntax: READ field_path INTO variable (handles both simple and indirection)
+        // Examples: READ Name INTO train_name, READ NextStation->Name INTO station_name
+        engine.register_custom_syntax(
+            ["READ", "$expr$", "INTO", "$ident$"],
+            false,
+            |context: &mut EvalContext, inputs: &[Expression]| -> Result<Dynamic, Box<rhai::EvalAltResult>> {
+                // Evaluate the field path expression - this will handle both simple identifiers and -> operations
+                let field_path_result = context.eval_expression_tree(&inputs[0])?;
+                let field_path = field_path_result.cast::<String>();
+                let variable_name = inputs[1].get_string_value().unwrap();
+                
+                // Parse the field path - split by -> to handle indirection
+                let parts: Vec<&str> = field_path.split("->").collect();
                 
                 let mut map = rhai::Map::new();
-                map.insert("entity_id".into(), Dynamic::from(entity_id));
-                map.insert("field_type".into(), Dynamic::from(field_type));
-                map.insert("value".into(), Dynamic::UNIT);
-                map.insert("write_time".into(), Dynamic::UNIT);
-                map.insert("writer_id".into(), Dynamic::UNIT);
+                map.insert("entity_id".into(), Dynamic::from("me"));
+                map.insert("variable_name".into(), Dynamic::from(variable_name.to_string()));
+                map.insert("include_associations".into(), Dynamic::from(false));
                 
-                // Add indirection path if present
-                if parsed_path.len() > 2 {
+                if parts.len() == 1 {
+                    // Simple field: Name
+                    map.insert("field_type".into(), Dynamic::from(parts[0].to_string()));
+                } else if parts.len() >= 2 {
+                    // Indirection: NextStation->Name, or deeper: A->B->C
+                    map.insert("field_type".into(), Dynamic::from(parts[0].to_string()));
+                    
                     let mut indirection = Array::new();
-                    for i in 2..parsed_path.len() {
-                        indirection.push(parsed_path[i].clone());
+                    for part in &parts[1..] {
+                        indirection.push(Dynamic::from(part.to_string()));
                     }
                     map.insert("indirection".into(), Dynamic::from(indirection));
                 }
@@ -280,39 +344,37 @@ impl QScriptEngine {
             }
         )?;
 
-        // Custom syntax: write entity_id.field_type = value or entity_id.field_type->indirect_field = value
-        // Example: write User$123.Name = "John" or write User$123.Company->Budget = 100000
+        // Custom syntax: WRITE value INTO field_path (handles both simple and indirection)
+        // Examples: WRITE "DEFAULT" INTO StopTrigger, WRITE "me" INTO NextStation->CurrentTrain
         engine.register_custom_syntax(
-            ["write", "$ident$", "=", "$expr$"],
+            ["WRITE", "$expr$", "INTO", "$expr$"],
             false,
             |context: &mut EvalContext, inputs: &[Expression]| -> Result<Dynamic, Box<rhai::EvalAltResult>> {
-                let path = inputs[0].get_string_value().unwrap();
-                let value = context.eval_expression_tree(&inputs[1])?;
+                let value = context.eval_expression_tree(&inputs[0])?;
+                let field_path_result = context.eval_expression_tree(&inputs[1])?;
+                let field_path = field_path_result.cast::<String>();
                 
-                // Parse field path with potential indirection
-                let parsed_path = Self::parse_field_path(&path)?;
-                
-                if parsed_path.is_empty() {
-                    return Err("Invalid field path".into());
-                }
-                
-                let entity_id = parsed_path[0].clone().cast::<String>();
-                let field_type = parsed_path[1].clone().cast::<String>();
+                // Parse the field path - split by -> to handle indirection
+                let parts: Vec<&str> = field_path.split("->").collect();
                 
                 let mut map = rhai::Map::new();
-                map.insert("entity_id".into(), Dynamic::from(entity_id));
-                map.insert("field_type".into(), Dynamic::from(field_type));
+                map.insert("entity_id".into(), Dynamic::from("me"));
                 map.insert("value".into(), value);
                 map.insert("push_condition".into(), Dynamic::from("Always"));
                 map.insert("adjust_behavior".into(), Dynamic::from("Set"));
                 map.insert("write_time".into(), Dynamic::UNIT);
                 map.insert("writer_id".into(), Dynamic::UNIT);
                 
-                // Add indirection path if present
-                if parsed_path.len() > 2 {
+                if parts.len() == 1 {
+                    // Simple field: StopTrigger
+                    map.insert("field_type".into(), Dynamic::from(parts[0].to_string()));
+                } else if parts.len() >= 2 {
+                    // Indirection: NextStation->CurrentTrain, or deeper: A->B->C
+                    map.insert("field_type".into(), Dynamic::from(parts[0].to_string()));
+                    
                     let mut indirection = Array::new();
-                    for i in 2..parsed_path.len() {
-                        indirection.push(parsed_path[i].clone());
+                    for part in &parts[1..] {
+                        indirection.push(Dynamic::from(part.to_string()));
                     }
                     map.insert("indirection".into(), Dynamic::from(indirection));
                 }
@@ -323,39 +385,37 @@ impl QScriptEngine {
             }
         )?;
 
-        // Custom syntax: add entity_id.field_type += value or entity_id.field_type->indirect_field += value
-        // Example: add User$123.Score += 10 or add User$123.Company->Budget += 5000
+        // Custom syntax: ADD value INTO field_path (handles both simple and indirection)
+        // Examples: ADD 1 INTO UpdateCount, ADD 1 INTO NextStation->UpdateCount
         engine.register_custom_syntax(
-            ["add", "$ident$", "+=", "$expr$"],
+            ["ADD", "$expr$", "INTO", "$expr$"],
             false,
             |context: &mut EvalContext, inputs: &[Expression]| -> Result<Dynamic, Box<rhai::EvalAltResult>> {
-                let path = inputs[0].get_string_value().unwrap();
-                let value = context.eval_expression_tree(&inputs[1])?;
+                let value = context.eval_expression_tree(&inputs[0])?;
+                let field_path_result = context.eval_expression_tree(&inputs[1])?;
+                let field_path = field_path_result.cast::<String>();
                 
-                // Parse field path with potential indirection
-                let parsed_path = Self::parse_field_path(&path)?;
-                
-                if parsed_path.is_empty() {
-                    return Err("Invalid field path".into());
-                }
-                
-                let entity_id = parsed_path[0].clone().cast::<String>();
-                let field_type = parsed_path[1].clone().cast::<String>();
+                // Parse the field path - split by -> to handle indirection
+                let parts: Vec<&str> = field_path.split("->").collect();
                 
                 let mut map = rhai::Map::new();
-                map.insert("entity_id".into(), Dynamic::from(entity_id));
-                map.insert("field_type".into(), Dynamic::from(field_type));
+                map.insert("entity_id".into(), Dynamic::from("me"));
                 map.insert("value".into(), value);
                 map.insert("push_condition".into(), Dynamic::from("Always"));
                 map.insert("adjust_behavior".into(), Dynamic::from("Add"));
                 map.insert("write_time".into(), Dynamic::UNIT);
                 map.insert("writer_id".into(), Dynamic::UNIT);
                 
-                // Add indirection path if present
-                if parsed_path.len() > 2 {
+                if parts.len() == 1 {
+                    // Simple field: UpdateCount
+                    map.insert("field_type".into(), Dynamic::from(parts[0].to_string()));
+                } else if parts.len() >= 2 {
+                    // Indirection: NextStation->UpdateCount, or deeper: A->B->C
+                    map.insert("field_type".into(), Dynamic::from(parts[0].to_string()));
+                    
                     let mut indirection = Array::new();
-                    for i in 2..parsed_path.len() {
-                        indirection.push(parsed_path[i].clone());
+                    for part in &parts[1..] {
+                        indirection.push(Dynamic::from(part.to_string()));
                     }
                     map.insert("indirection".into(), Dynamic::from(indirection));
                 }
@@ -366,39 +426,37 @@ impl QScriptEngine {
             }
         )?;
 
-        // Custom syntax: sub entity_id.field_type -= value or entity_id.field_type->indirect_field -= value
-        // Example: sub User$123.Score -= 5 or sub User$123.Company->Budget -= 1000
+        // Custom syntax: SUBTRACT value FROM field_path (handles both simple and indirection)
+        // Examples: SUBTRACT 1 FROM Retries, SUBTRACT 1 FROM NextStation->Retries
         engine.register_custom_syntax(
-            ["sub", "$ident$", "-=", "$expr$"],
+            ["SUBTRACT", "$expr$", "FROM", "$expr$"],
             false,
             |context: &mut EvalContext, inputs: &[Expression]| -> Result<Dynamic, Box<rhai::EvalAltResult>> {
-                let path = inputs[0].get_string_value().unwrap();
-                let value = context.eval_expression_tree(&inputs[1])?;
+                let value = context.eval_expression_tree(&inputs[0])?;
+                let field_path_result = context.eval_expression_tree(&inputs[1])?;
+                let field_path = field_path_result.cast::<String>();
                 
-                // Parse field path with potential indirection
-                let parsed_path = Self::parse_field_path(&path)?;
-                
-                if parsed_path.is_empty() {
-                    return Err("Invalid field path".into());
-                }
-                
-                let entity_id = parsed_path[0].clone().cast::<String>();
-                let field_type = parsed_path[1].clone().cast::<String>();
+                // Parse the field path - split by -> to handle indirection
+                let parts: Vec<&str> = field_path.split("->").collect();
                 
                 let mut map = rhai::Map::new();
-                map.insert("entity_id".into(), Dynamic::from(entity_id));
-                map.insert("field_type".into(), Dynamic::from(field_type));
+                map.insert("entity_id".into(), Dynamic::from("me"));
                 map.insert("value".into(), value);
                 map.insert("push_condition".into(), Dynamic::from("Always"));
                 map.insert("adjust_behavior".into(), Dynamic::from("Subtract"));
                 map.insert("write_time".into(), Dynamic::UNIT);
                 map.insert("writer_id".into(), Dynamic::UNIT);
                 
-                // Add indirection path if present
-                if parsed_path.len() > 2 {
+                if parts.len() == 1 {
+                    // Simple field: Retries
+                    map.insert("field_type".into(), Dynamic::from(parts[0].to_string()));
+                } else if parts.len() >= 2 {
+                    // Indirection: NextStation->Retries, or deeper: A->B->C
+                    map.insert("field_type".into(), Dynamic::from(parts[0].to_string()));
+                    
                     let mut indirection = Array::new();
-                    for i in 2..parsed_path.len() {
-                        indirection.push(parsed_path[i].clone());
+                    for part in &parts[1..] {
+                        indirection.push(Dynamic::from(part.to_string()));
                     }
                     map.insert("indirection".into(), Dynamic::from(indirection));
                 }
@@ -409,124 +467,21 @@ impl QScriptEngine {
             }
         )?;
 
-        // Custom syntax: entity EntityType$id { field1: value1, field2: value2 }
-        // Example: entity User$123 { Name: "John", Age: 25 }
-        engine.register_custom_syntax(
-            ["entity", "$ident$", "$block$"],
-            false,
-            |_context: &mut EvalContext, inputs: &[Expression]| -> Result<Dynamic, Box<rhai::EvalAltResult>> {
-                let entity_id = inputs[0].get_string_value().unwrap();
-                let _block = &inputs[1];
-                
-                // Create entity first
-                let mut create_map = rhai::Map::new();
-                create_map.insert("entity_id".into(), Dynamic::from(entity_id.to_string()));
-                
-                // Execute the block to collect field assignments
-                // For now, just return the entity creation request
-                // In a full implementation, this would parse the block for field assignments
-                Ok(Dynamic::from(create_map))
-            }
-        )?;
-
-        // Custom syntax: query entities where field_type operator value
-        // Example: query User where Age > 18
-        engine.register_custom_syntax(
-            ["query", "$ident$", "where", "$ident$", "$symbol$", "$expr$"],
-            false,
-            |context: &mut EvalContext, inputs: &[Expression]| -> Result<Dynamic, Box<rhai::EvalAltResult>> {
-                let entity_type = inputs[0].get_string_value().unwrap();
-                let field_type = inputs[1].get_string_value().unwrap();
-                let operator = inputs[2].get_string_value().unwrap();
-                let value = context.eval_expression_tree(&inputs[3])?;
-                
-                let mut query_map = rhai::Map::new();
-                query_map.insert("entity_type".into(), Dynamic::from(entity_type.to_string()));
-                query_map.insert("field_type".into(), Dynamic::from(field_type.to_string()));
-                query_map.insert("operator".into(), Dynamic::from(operator.to_string()));
-                query_map.insert("value".into(), value);
-                
-                Ok(Dynamic::from(query_map))
-            }
-        )?;
-
-        // Custom syntax: transaction { ... }
-        // Example: transaction { write User$123.Name = "John"; add User$123.Score += 10; }
-        engine.register_custom_syntax(
-            ["transaction", "$block$"],
-            false,
-            |context: &mut EvalContext, inputs: &[Expression]| -> Result<Dynamic, Box<rhai::EvalAltResult>> {
-                let block = &inputs[0];
-                
-                // Generate a unique transaction ID
-                let tx_id = format!("tx_{}", uuid::Uuid::new_v4().to_string().replace("-", ""));
-                
-                // Execute the block and collect all operations
-                let result = context.eval_expression_tree(block)?;
-                
-                let mut tx_map = rhai::Map::new();
-                tx_map.insert("transaction_id".into(), Dynamic::from(tx_id));
-                tx_map.insert("operations".into(), result);
-                tx_map.insert("type".into(), Dynamic::from("auto_commit"));
-                
-                Ok(Dynamic::from(tx_map))
-            }
-        )?;
-
-        // Custom syntax: batch [ operation1, operation2, ... ]
-        // Example: batch [ read User$123.Name, read User$124.Name, read User$125.Name ]
-        engine.register_custom_syntax(
-            ["batch", "$expr$"],
-            false,
-            |context: &mut EvalContext, inputs: &[Expression]| -> Result<Dynamic, Box<rhai::EvalAltResult>> {
-                let operations = context.eval_expression_tree(&inputs[0])?;
-                
-                let mut batch_map = rhai::Map::new();
-                batch_map.insert("type".into(), Dynamic::from("batch"));
-                batch_map.insert("operations".into(), operations);
-                batch_map.insert("parallel".into(), Dynamic::from(true));
-                
-                Ok(Dynamic::from(batch_map))
-            }
-        )?;
-
         Ok(())
     }
 
-    /// Compile a script
-    pub fn compile(&self, script: &str) -> Result<AST, ParseError> {
-        self.engine.compile(script)
+    /// Execute a script with the given entity context
+    pub fn execute_with_context(&mut self, script: &str, entity_id: &str) -> Result<Dynamic, Box<rhai::EvalAltResult>> {
+        self.set_entity_context(Some(entity_id.to_string()));
+        self.engine.eval(script)
     }
 
-    /// Evaluate a script with the given scope
-    pub fn eval_with_scope<T: Clone + 'static + Send + Sync>(&self, scope: &mut Scope, script: &str) -> Result<T, Box<EvalAltResult>> {
-        self.engine.eval_with_scope::<T>(scope, script)
-    }
-
-    /// Evaluate a compiled AST with the given scope
-    pub fn eval_ast_with_scope<T: Clone + 'static + Send + Sync>(&self, scope: &mut Scope, ast: &AST) -> Result<T, Box<EvalAltResult>> {
-        self.engine.eval_ast_with_scope::<T>(scope, ast)
-    }
-
-    /// Run a script file
-    pub fn run_file(&self, path: &str) -> Result<Dynamic, Box<EvalAltResult>> {
-        let script = std::fs::read_to_string(path)
-            .map_err(|e| format!("Failed to read script file: {}", e))?;
-        self.engine.eval::<Dynamic>(&script)
-    }
-
-    /// Run a script with a pre-configured store
-    pub fn run_with_store(&self, script: &str, store: RhaiStoreWrapper) -> Result<Dynamic, Box<EvalAltResult>> {
-        let mut scope = Scope::new();
-        scope.push("store", store);
-        self.eval_with_scope::<Dynamic>(&mut scope, script)
-    }
-
-    /// Run a script with a pre-configured store proxy
-    pub fn run_with_proxy(&self, script: &str, proxy: RhaiStoreProxyWrapper) -> Result<Dynamic, Box<EvalAltResult>> {
+    /// Run a script with a pre-configured store proxy and entity context
+    pub fn run_with_proxy_and_context(&self, script: &str, proxy: RhaiStoreProxyWrapper, entity_id: &str) -> Result<Dynamic, Box<EvalAltResult>> {
         let mut scope = Scope::new();
         scope.push("store", proxy);
-        self.eval_with_scope::<Dynamic>(&mut scope, script)
+        scope.push("me", entity_id.to_string());
+        self.engine.eval_with_scope::<Dynamic>(&mut scope, script)
     }
 
     /// Execute a qlib operation using custom syntax
@@ -620,6 +575,34 @@ mod tests {
     }
 
     #[test]
+    fn test_debug_arrow_syntax() {
+        // Create a simple test to see if Rhai handles -> in custom syntax
+        let mut engine = Engine::new();
+        
+        engine.register_custom_syntax(
+            ["DEBUG", "$ident$", "->", "$ident$"],
+            false,
+            |_context, inputs| -> Result<Dynamic, Box<rhai::EvalAltResult>> {
+                let field1 = inputs[0].get_string_value().unwrap();
+                let field2 = inputs[1].get_string_value().unwrap();
+                Ok(Dynamic::from(format!("{}+{}", field1, field2)))
+            }
+        ).unwrap();
+        
+        let script = "DEBUG NextStation->Name";
+        match engine.eval::<String>(script) {
+            Ok(result) => {
+                println!("Arrow syntax works: {}", result);
+                assert_eq!(result, "NextStation+Name");
+            },
+            Err(e) => {
+                println!("Arrow syntax failed: {}", e);
+                panic!("Arrow syntax should work according to Rhai docs");
+            }
+        }
+    }
+
+    #[test]
     fn test_entity_id_helpers() {
         let engine = QScriptEngine::new();
         
@@ -658,174 +641,57 @@ mod tests {
     }
 
     #[test]
-    fn test_custom_syntax_read() {
+    fn test_new_transaction_syntax() {
         let engine = QScriptEngine::new();
         
         let script = r#"
-            read User$123.Name
+            TRANSACTION([
+                "READ Name INTO train_name",
+                "WRITE me INTO NextStation->CurrentTrain"
+            ])
+        "#;
+
+        let result: rhai::Map = engine.engine.eval(script).unwrap();
+        assert_eq!(result.get("type").unwrap().clone().cast::<String>(), "entity_relative");
+        assert!(result.contains_key("transaction_id"));
+        assert!(result.contains_key("operations"));
+    }
+
+    #[test]
+    fn test_read_into_syntax() {
+        let engine = QScriptEngine::new();
+        
+        let script = r#"
+            READ Name INTO train_name
         "#;
 
         let result: rhai::Map = engine.engine.eval(script).unwrap();
         assert!(result.contains_key("Read"));
         
         if let Some(read_map) = result.get("Read").and_then(|v| v.clone().try_cast::<rhai::Map>()) {
-            assert_eq!(read_map.get("entity_id").unwrap().clone().cast::<String>(), "User$123");
+            assert_eq!(read_map.get("entity_id").unwrap().clone().cast::<String>(), "me");
             assert_eq!(read_map.get("field_type").unwrap().clone().cast::<String>(), "Name");
+            assert_eq!(read_map.get("variable_name").unwrap().clone().cast::<String>(), "train_name");
         } else {
             panic!("Expected Read map in result");
         }
     }
 
     #[test]
-    fn test_custom_syntax_write() {
+    fn test_read_into_syntax_with_indirection() {
         let engine = QScriptEngine::new();
         
         let script = r#"
-            write User$123.Name = "John Doe"
-        "#;
-
-        let result: rhai::Map = engine.engine.eval(script).unwrap();
-        assert!(result.contains_key("Write"));
-        
-        if let Some(write_map) = result.get("Write").and_then(|v| v.clone().try_cast::<rhai::Map>()) {
-            assert_eq!(write_map.get("entity_id").unwrap().clone().cast::<String>(), "User$123");
-            assert_eq!(write_map.get("field_type").unwrap().clone().cast::<String>(), "Name");
-            assert_eq!(write_map.get("value").unwrap().clone().cast::<String>(), "John Doe");
-            assert_eq!(write_map.get("adjust_behavior").unwrap().clone().cast::<String>(), "Set");
-        } else {
-            panic!("Expected Write map in result");
-        }
-    }
-
-    #[test]
-    fn test_custom_syntax_add() {
-        let engine = QScriptEngine::new();
-        
-        let script = r#"
-            add User$123.Score += 10
-        "#;
-
-        let result: rhai::Map = engine.engine.eval(script).unwrap();
-        assert!(result.contains_key("Write"));
-        
-        if let Some(write_map) = result.get("Write").and_then(|v| v.clone().try_cast::<rhai::Map>()) {
-            assert_eq!(write_map.get("entity_id").unwrap().clone().cast::<String>(), "User$123");
-            assert_eq!(write_map.get("field_type").unwrap().clone().cast::<String>(), "Score");
-            assert_eq!(write_map.get("value").unwrap().clone().cast::<i64>(), 10);
-            assert_eq!(write_map.get("adjust_behavior").unwrap().clone().cast::<String>(), "Add");
-        } else {
-            panic!("Expected Write map in result");
-        }
-    }
-
-    #[test]
-    fn test_custom_syntax_subtract() {
-        let engine = QScriptEngine::new();
-        
-        let script = r#"
-            sub User$123.Score -= 5
-        "#;
-
-        let result: rhai::Map = engine.engine.eval(script).unwrap();
-        assert!(result.contains_key("Write"));
-        
-        if let Some(write_map) = result.get("Write").and_then(|v| v.clone().try_cast::<rhai::Map>()) {
-            assert_eq!(write_map.get("entity_id").unwrap().clone().cast::<String>(), "User$123");
-            assert_eq!(write_map.get("field_type").unwrap().clone().cast::<String>(), "Score");
-            assert_eq!(write_map.get("value").unwrap().clone().cast::<i64>(), 5);
-            assert_eq!(write_map.get("adjust_behavior").unwrap().clone().cast::<String>(), "Subtract");
-        } else {
-            panic!("Expected Write map in result");
-        }
-    }
-
-    #[test]
-    fn test_custom_syntax_query() {
-        let engine = QScriptEngine::new();
-        
-        let script = r#"
-            query User where Age > 18
-        "#;
-
-        let result: rhai::Map = engine.engine.eval(script).unwrap();
-        assert_eq!(result.get("entity_type").unwrap().clone().cast::<String>(), "User");
-        assert_eq!(result.get("field_type").unwrap().clone().cast::<String>(), "Age");
-        assert_eq!(result.get("operator").unwrap().clone().cast::<String>(), ">");
-        assert_eq!(result.get("value").unwrap().clone().cast::<i64>(), 18);
-    }
-
-    #[test]
-    fn test_custom_syntax_entity_creation() {
-        let engine = QScriptEngine::new();
-        
-        let script = r#"
-            entity User$123 { /* fields would go here */ }
-        "#;
-
-        let result: rhai::Map = engine.engine.eval(script).unwrap();
-        assert_eq!(result.get("entity_id").unwrap().clone().cast::<String>(), "User$123");
-    }
-
-    #[test]
-    fn test_custom_syntax_error_handling() {
-        let engine = QScriptEngine::new();
-        
-        // Test invalid entity path format
-        let script = r#"
-            read InvalidPath
-        "#;
-
-        let result = engine.engine.eval::<rhai::Map>(script);
-        assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Invalid field path format"));
-    }
-
-    #[test]
-    fn test_indirection_parsing() {
-        let engine = QScriptEngine::new();
-        
-        let script = r#"
-            parse_field_path("User$123.Company->Name")
-        "#;
-
-        let result: Array = engine.engine.eval(script).unwrap();
-        assert_eq!(result.len(), 3);
-        assert_eq!(result[0].clone().cast::<String>(), "User$123");
-        assert_eq!(result[1].clone().cast::<String>(), "Company");
-        assert_eq!(result[2].clone().cast::<String>(), "Name");
-    }
-
-    #[test]
-    fn test_multi_level_indirection_parsing() {
-        let engine = QScriptEngine::new();
-        
-        let script = r#"
-            parse_field_path("Order$456.Customer->Company->Address->City")
-        "#;
-
-        let result: Array = engine.engine.eval(script).unwrap();
-        assert_eq!(result.len(), 5);
-        assert_eq!(result[0].clone().cast::<String>(), "Order$456");
-        assert_eq!(result[1].clone().cast::<String>(), "Customer");
-        assert_eq!(result[2].clone().cast::<String>(), "Company");
-        assert_eq!(result[3].clone().cast::<String>(), "Address");
-        assert_eq!(result[4].clone().cast::<String>(), "City");
-    }
-
-    #[test]
-    fn test_custom_syntax_read_with_indirection() {
-        let engine = QScriptEngine::new();
-        
-        let script = r#"
-            read User$123.Company->Name
+            READ NextStation->Name INTO station_name
         "#;
 
         let result: rhai::Map = engine.engine.eval(script).unwrap();
         assert!(result.contains_key("Read"));
         
         if let Some(read_map) = result.get("Read").and_then(|v| v.clone().try_cast::<rhai::Map>()) {
-            assert_eq!(read_map.get("entity_id").unwrap().clone().cast::<String>(), "User$123");
-            assert_eq!(read_map.get("field_type").unwrap().clone().cast::<String>(), "Company");
+            assert_eq!(read_map.get("entity_id").unwrap().clone().cast::<String>(), "me");
+            assert_eq!(read_map.get("field_type").unwrap().clone().cast::<String>(), "NextStation");
+            assert_eq!(read_map.get("variable_name").unwrap().clone().cast::<String>(), "station_name");
             
             if let Some(indirection) = read_map.get("indirection").and_then(|v| v.clone().try_cast::<Array>()) {
                 assert_eq!(indirection.len(), 1);
@@ -839,24 +705,46 @@ mod tests {
     }
 
     #[test]
-    fn test_custom_syntax_write_with_indirection() {
+    fn test_write_into_syntax() {
         let engine = QScriptEngine::new();
         
         let script = r#"
-            write User$123.Company->Budget = 100000
+            WRITE "DEFAULT" INTO StopTrigger
         "#;
 
         let result: rhai::Map = engine.engine.eval(script).unwrap();
         assert!(result.contains_key("Write"));
         
         if let Some(write_map) = result.get("Write").and_then(|v| v.clone().try_cast::<rhai::Map>()) {
-            assert_eq!(write_map.get("entity_id").unwrap().clone().cast::<String>(), "User$123");
-            assert_eq!(write_map.get("field_type").unwrap().clone().cast::<String>(), "Company");
-            assert_eq!(write_map.get("value").unwrap().clone().cast::<i64>(), 100000);
+            assert_eq!(write_map.get("entity_id").unwrap().clone().cast::<String>(), "me");
+            assert_eq!(write_map.get("field_type").unwrap().clone().cast::<String>(), "StopTrigger");
+            assert_eq!(write_map.get("value").unwrap().clone().cast::<String>(), "DEFAULT");
+            assert_eq!(write_map.get("adjust_behavior").unwrap().clone().cast::<String>(), "Set");
+        } else {
+            panic!("Expected Write map in result");
+        }
+    }
+
+    #[test]
+    fn test_write_into_syntax_with_indirection() {
+        let engine = QScriptEngine::new();
+        
+        let script = r#"
+            WRITE "me" INTO NextStation->CurrentTrain
+        "#;
+
+        let result: rhai::Map = engine.engine.eval(script).unwrap();
+        assert!(result.contains_key("Write"));
+        
+        if let Some(write_map) = result.get("Write").and_then(|v| v.clone().try_cast::<rhai::Map>()) {
+            assert_eq!(write_map.get("entity_id").unwrap().clone().cast::<String>(), "me");
+            assert_eq!(write_map.get("field_type").unwrap().clone().cast::<String>(), "NextStation");
+            assert_eq!(write_map.get("value").unwrap().clone().cast::<String>(), "me");
+            assert_eq!(write_map.get("adjust_behavior").unwrap().clone().cast::<String>(), "Set");
             
             if let Some(indirection) = write_map.get("indirection").and_then(|v| v.clone().try_cast::<Array>()) {
                 assert_eq!(indirection.len(), 1);
-                assert_eq!(indirection[0].clone().cast::<String>(), "Budget");
+                assert_eq!(indirection[0].clone().cast::<String>(), "CurrentTrain");
             } else {
                 panic!("Expected indirection array in result");
             }
@@ -866,55 +754,58 @@ mod tests {
     }
 
     #[test]
-    fn test_transaction_helpers() {
+    fn test_add_into_syntax() {
         let engine = QScriptEngine::new();
         
         let script = r#"
-            let tx = begin_transaction("test_transaction");
-            let commit_result = commit_transaction(tx);
-            let rollback_result = rollback_transaction(tx);
-            [tx.len() > 0, commit_result["action"], rollback_result["action"]]
+            ADD 1 INTO NextStation->UpdateCount
         "#;
 
-        let result: Array = engine.engine.eval(script).unwrap();
-        assert_eq!(result[0].clone().cast::<bool>(), true); // tx ID should be non-empty
-        assert_eq!(result[1].clone().cast::<String>(), "commit");
-        assert_eq!(result[2].clone().cast::<String>(), "rollback");
-    }
-
-    #[test]
-    fn test_custom_syntax_transaction() {
-        let engine = QScriptEngine::new();
+        let result: rhai::Map = engine.engine.eval(script).unwrap();
+        assert!(result.contains_key("Write"));
         
-        let script = r#"
-            transaction {
-                // This would contain actual operations in a real scenario
-                42
+        if let Some(write_map) = result.get("Write").and_then(|v| v.clone().try_cast::<rhai::Map>()) {
+            assert_eq!(write_map.get("entity_id").unwrap().clone().cast::<String>(), "me");
+            assert_eq!(write_map.get("field_type").unwrap().clone().cast::<String>(), "NextStation");
+            assert_eq!(write_map.get("value").unwrap().clone().cast::<i64>(), 1);
+            assert_eq!(write_map.get("adjust_behavior").unwrap().clone().cast::<String>(), "Add");
+            
+            if let Some(indirection) = write_map.get("indirection").and_then(|v| v.clone().try_cast::<Array>()) {
+                assert_eq!(indirection.len(), 1);
+                assert_eq!(indirection[0].clone().cast::<String>(), "UpdateCount");
+            } else {
+                panic!("Expected indirection array in result");
             }
-        "#;
-
-        let result: rhai::Map = engine.engine.eval(script).unwrap();
-        assert_eq!(result.get("type").unwrap().clone().cast::<String>(), "auto_commit");
-        assert!(result.contains_key("transaction_id"));
-        assert!(result.contains_key("operations"));
+        } else {
+            panic!("Expected Write map in result");
+        }
     }
 
     #[test]
-    fn test_custom_syntax_batch() {
+    fn test_subtract_from_syntax() {
         let engine = QScriptEngine::new();
         
         let script = r#"
-            batch [1, 2, 3]
+            SUBTRACT 1 FROM NextStation->Retries
         "#;
 
         let result: rhai::Map = engine.engine.eval(script).unwrap();
-        assert_eq!(result.get("type").unwrap().clone().cast::<String>(), "batch");
-        assert_eq!(result.get("parallel").unwrap().clone().cast::<bool>(), true);
+        assert!(result.contains_key("Write"));
         
-        if let Some(operations) = result.get("operations").and_then(|v| v.clone().try_cast::<Array>()) {
-            assert_eq!(operations.len(), 3);
+        if let Some(write_map) = result.get("Write").and_then(|v| v.clone().try_cast::<rhai::Map>()) {
+            assert_eq!(write_map.get("entity_id").unwrap().clone().cast::<String>(), "me");
+            assert_eq!(write_map.get("field_type").unwrap().clone().cast::<String>(), "NextStation");
+            assert_eq!(write_map.get("value").unwrap().clone().cast::<i64>(), 1);
+            assert_eq!(write_map.get("adjust_behavior").unwrap().clone().cast::<String>(), "Subtract");
+            
+            if let Some(indirection) = write_map.get("indirection").and_then(|v| v.clone().try_cast::<Array>()) {
+                assert_eq!(indirection.len(), 1);
+                assert_eq!(indirection[0].clone().cast::<String>(), "Retries");
+            } else {
+                panic!("Expected indirection array in result");
+            }
         } else {
-            panic!("Expected operations array in batch result");
+            panic!("Expected Write map in result");
         }
     }
 
@@ -929,5 +820,63 @@ mod tests {
         let result: i64 = engine.engine.eval(script).unwrap();
         // Just check that we get a reasonable timestamp (greater than 2020-01-01)
         assert!(result > 1577836800000); // 2020-01-01 in milliseconds
+    }
+
+    #[test]
+    fn test_transaction_syntax() {
+        let engine = QScriptEngine::new();
+        
+        let script = r#"
+            TRANSACTION(
+                READ Name INTO train_name,
+                WRITE me INTO NextStation->CurrentTrain,
+                ADD 1 INTO NextStation->UpdateCount,
+                SUBTRACT 1 FROM NextStation->Retries
+            )
+        "#;
+
+        let result: rhai::Map = engine.engine.eval(script).unwrap();
+        assert!(result.contains_key("Transaction"));
+        
+        if let Some(transaction_array) = result.get("Transaction").and_then(|v| v.clone().try_cast::<Array>()) {
+            assert_eq!(transaction_array.len(), 4);
+            
+            // Check READ operation
+            if let Some(read_map) = transaction_array[0].clone().try_cast::<rhai::Map>() {
+                if let Some(read_data) = read_map.get("Read").and_then(|v| v.clone().try_cast::<rhai::Map>()) {
+                    assert_eq!(read_data.get("field_type").unwrap().clone().cast::<String>(), "Name");
+                    assert_eq!(read_data.get("variable_name").unwrap().clone().cast::<String>(), "train_name");
+                }
+            }
+            
+            // Check WRITE operation
+            if let Some(write_map) = transaction_array[1].clone().try_cast::<rhai::Map>() {
+                if let Some(write_data) = write_map.get("Write").and_then(|v| v.clone().try_cast::<rhai::Map>()) {
+                    assert_eq!(write_data.get("field_type").unwrap().clone().cast::<String>(), "NextStation");
+                    assert_eq!(write_data.get("value").unwrap().clone().cast::<String>(), "me");
+                    assert_eq!(write_data.get("adjust_behavior").unwrap().clone().cast::<String>(), "Set");
+                }
+            }
+            
+            // Check ADD operation
+            if let Some(add_map) = transaction_array[2].clone().try_cast::<rhai::Map>() {
+                if let Some(add_data) = add_map.get("Write").and_then(|v| v.clone().try_cast::<rhai::Map>()) {
+                    assert_eq!(add_data.get("field_type").unwrap().clone().cast::<String>(), "NextStation");
+                    assert_eq!(add_data.get("value").unwrap().clone().cast::<i64>(), 1);
+                    assert_eq!(add_data.get("adjust_behavior").unwrap().clone().cast::<String>(), "Add");
+                }
+            }
+            
+            // Check SUBTRACT operation
+            if let Some(sub_map) = transaction_array[3].clone().try_cast::<rhai::Map>() {
+                if let Some(sub_data) = sub_map.get("Write").and_then(|v| v.clone().try_cast::<rhai::Map>()) {
+                    assert_eq!(sub_data.get("field_type").unwrap().clone().cast::<String>(), "NextStation");
+                    assert_eq!(sub_data.get("value").unwrap().clone().cast::<i64>(), 1);
+                    assert_eq!(sub_data.get("adjust_behavior").unwrap().clone().cast::<String>(), "Subtract");
+                }
+            }
+        } else {
+            panic!("Expected Transaction array in result");
+        }
     }
 }
