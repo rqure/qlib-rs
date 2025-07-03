@@ -1,4 +1,5 @@
 mod data;
+mod scripting;
 mod test;
 
 pub use data::{
@@ -8,6 +9,8 @@ pub use data::{
     Store, StoreProxy, StoreMessage, Timestamp, Value, INDIRECTION_DELIMITER, epoch, now,
     resolve_indirection, Notification,
 };
+
+pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
 /// Create a Read request with minimal syntax
 ///
@@ -241,8 +244,6 @@ macro_rules! ssub {
         }
     };
 }
-
-pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
 /// Creates a `Some(Value::Bool)` for use in write requests.
 ///
