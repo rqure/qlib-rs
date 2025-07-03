@@ -5,7 +5,6 @@ mod field;
 mod field_schema;
 mod notify_token;
 mod request;
-mod scripting;
 mod snowflake;
 mod store;
 mod store_proxy;
@@ -23,7 +22,6 @@ pub use field_schema::FieldSchema;
 pub use notify_token::NotifyToken;
 pub use request::{AdjustBehavior, PushCondition, Request};
 use serde::{Deserialize, Serialize};
-pub use scripting::{ScriptEngine, ScriptContext};
 pub use snowflake::Snowflake;
 pub use store::{
     resolve_indirection, BadIndirection, BadIndirectionReason, Context, Store, PageOpts,
