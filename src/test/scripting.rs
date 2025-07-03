@@ -100,7 +100,7 @@ fn test_script_compilation() -> Result<()> {
     // Execute the compiled script multiple times
     let context = ScriptContext::new(None);
     for _ in 0..3 {
-        let result = engine.execute_ast(&ast, context.clone())?;
+        let result = engine.execute_ast_raw(&ast, context.clone())?;
         assert_eq!(result.as_int()?, 84);
     }
 
@@ -124,7 +124,7 @@ fn test_entity_context_access() -> Result<()> {
         [entity_type, entity_id_str, entity_type, entity_id_str]
     "#;
 
-    let result = engine.execute(script, context)?;
+    let result = engine.execute_raw(script, context)?;
     let array = result.into_array()?;
     
     assert_eq!(array[0].clone().into_string()?, "Person");
@@ -153,7 +153,7 @@ fn test_basic_scripting_logic() -> Result<()> {
         [sum, product, is_greater]
     "#;
 
-    let result = engine.execute(script, context)?;
+    let result = engine.execute_raw(script, context)?;
     let array = result.into_array()?;
     
     assert_eq!(array[0].as_int()?, 30);   // sum
@@ -183,10 +183,39 @@ fn test_script_with_write_requests() -> Result<()> {
     "#;
 
     let result = engine.execute(script, context.clone())?;
-    assert!(result.as_bool()?);
+    assert!(result);
 
     // Note: We can't easily verify the requests were added without access to the context
     // This would need to be tested in a more integrated manner
+
+    Ok(())
+}
+
+#[test]
+fn test_boolean_conversion() -> Result<()> {
+    let store = Arc::new(Store::new(Arc::new(Snowflake::new())));
+    let engine = ScriptEngine::new(store);
+    let context = ScriptContext::new(None);
+
+    // Test different types of return values and their boolean conversion
+    let test_cases = vec![
+        ("true", true),                    // Boolean true
+        ("false", false),                  // Boolean false
+        ("1", true),                       // Non-zero integer
+        ("0", false),                      // Zero integer
+        ("5.5", true),                     // Non-zero float
+        ("0.0", false),                    // Zero float
+        ("\"hello\"", true),               // Non-empty string
+        ("\"\"", false),                   // Empty string
+        ("[1, 2, 3]", true),              // Non-empty array
+        ("[]", false),                     // Empty array
+        ("()", false),                     // Unit/void
+    ];
+
+    for (script, expected) in test_cases {
+        let result = engine.execute(script, context.clone())?;
+        assert_eq!(result, expected, "Script '{}' should convert to {}", script, expected);
+    }
 
     Ok(())
 }

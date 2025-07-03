@@ -53,8 +53,34 @@ impl ScriptEngine {
         Self { engine, store }
     }
 
-    /// Execute a script with the given context
-    pub fn execute(&self, script: &str, context: ScriptContext) -> Result<Dynamic, Box<EvalAltResult>> {
+    /// Convert a Dynamic result to a boolean
+    fn convert_to_bool(&self, result: Dynamic) -> Result<bool, Box<EvalAltResult>> {
+        match result {
+            // If it's already a boolean, return it
+            v if v.is_bool() => Ok(v.as_bool().unwrap_or(false)),
+            // If it's an integer, convert to bool (0 = false, non-zero = true)
+            v if v.is_int() => Ok(v.as_int().unwrap_or(0) != 0),
+            // If it's a float, convert to bool (0.0 = false, non-zero = true)
+            v if v.is_float() => Ok(v.as_float().unwrap_or(0.0) != 0.0),
+            // If it's a string, check if it's non-empty
+            v if v.is_string() => Ok(!v.into_string().unwrap_or_default().is_empty()),
+            // If it's an array, check if it's non-empty
+            v if v.is_array() => Ok(!v.into_array().unwrap_or_default().is_empty()),
+            // If it's UNIT (void), return false
+            v if v.is_unit() => Ok(false),
+            // For any other type, return true (exists)
+            _ => Ok(true),
+        }
+    }
+
+    /// Execute a script with the given context - returns boolean result
+    pub fn execute(&self, script: &str, context: ScriptContext) -> Result<bool, Box<EvalAltResult>> {
+        let result = self.execute_raw(script, context)?;
+        self.convert_to_bool(result)
+    }
+
+    /// Execute a script with the given context - returns raw Dynamic result  
+    pub fn execute_raw(&self, script: &str, context: ScriptContext) -> Result<Dynamic, Box<EvalAltResult>> {
         let mut scope = Scope::new();
         
         // Add entity context variables if available
@@ -86,8 +112,14 @@ impl ScriptEngine {
         }
     }
 
-    /// Execute a compiled script with the given context
-    pub fn execute_ast(&self, ast: &AST, context: ScriptContext) -> Result<Dynamic, Box<EvalAltResult>> {
+    /// Execute a compiled script with the given context - returns boolean result
+    pub fn execute_ast(&self, ast: &AST, context: ScriptContext) -> Result<bool, Box<EvalAltResult>> {
+        let result = self.execute_ast_raw(ast, context)?;
+        self.convert_to_bool(result)
+    }
+
+    /// Execute a compiled script with the given context - returns raw Dynamic result
+    pub fn execute_ast_raw(&self, ast: &AST, context: ScriptContext) -> Result<Dynamic, Box<EvalAltResult>> {
         let mut scope = Scope::new();
         
         // Add entity context variables if available
@@ -122,10 +154,8 @@ impl ScriptEngine {
         scope.push("current_value", value_to_dynamic(&notification.current_value));
         scope.push("previous_value", value_to_dynamic(&notification.previous_value));
         
-        match self.engine.eval_with_scope::<Dynamic>(&mut scope, script)? {
-            v if v.is_bool() => Ok(v.as_bool().unwrap_or(false)),
-            _ => Ok(false),
-        }
+        let result = self.engine.eval_with_scope::<Dynamic>(&mut scope, script)?;
+        self.convert_to_bool(result)
     }
 }
 
