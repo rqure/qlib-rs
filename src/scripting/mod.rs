@@ -135,6 +135,105 @@ impl ScriptingEngine {
             },
         );
 
+        // Write function with writer_id (6 parameters)
+        engine.register_fn(
+            "write",
+            |entity_id: &str, field_type: &str, value: Dynamic, push_condition: &str, adjust_behavior: &str, writer_id: &str| {
+                let mut map = Map::new();
+                map.insert("action".into(), Dynamic::from("write"));
+                map.insert("entity_id".into(), Dynamic::from(entity_id.to_string()));
+                map.insert("field_type".into(), Dynamic::from(field_type.to_string()));
+                map.insert("value".into(), value);
+                map.insert("push_condition".into(), Dynamic::from(push_condition.to_string()));
+                map.insert("adjust_behavior".into(), Dynamic::from(adjust_behavior.to_string()));
+                map.insert("writer_id".into(), Dynamic::from(writer_id.to_string()));
+                map
+            },
+        );
+
+        // Write function with writer_id and write_time (7 parameters)
+        engine.register_fn(
+            "write",
+            |entity_id: &str, field_type: &str, value: Dynamic, push_condition: &str, adjust_behavior: &str, writer_id: &str, write_time: i64| {
+                let mut map = Map::new();
+                map.insert("action".into(), Dynamic::from("write"));
+                map.insert("entity_id".into(), Dynamic::from(entity_id.to_string()));
+                map.insert("field_type".into(), Dynamic::from(field_type.to_string()));
+                map.insert("value".into(), value);
+                map.insert("push_condition".into(), Dynamic::from(push_condition.to_string()));
+                map.insert("adjust_behavior".into(), Dynamic::from(adjust_behavior.to_string()));
+                map.insert("writer_id".into(), Dynamic::from(writer_id.to_string()));
+                map.insert("write_time".into(), Dynamic::from(write_time as u64));
+                map
+            },
+        );
+
+        // Add function with writer_id (5 parameters)
+        engine.register_fn(
+            "add",
+            |entity_id: &str, field_type: &str, value: Dynamic, push_condition: &str, writer_id: &str| {
+                let mut map = Map::new();
+                map.insert("action".into(), Dynamic::from("write"));
+                map.insert("entity_id".into(), Dynamic::from(entity_id.to_string()));
+                map.insert("field_type".into(), Dynamic::from(field_type.to_string()));
+                map.insert("value".into(), value);
+                map.insert("push_condition".into(), Dynamic::from(push_condition.to_string()));
+                map.insert("adjust_behavior".into(), Dynamic::from("add"));
+                map.insert("writer_id".into(), Dynamic::from(writer_id.to_string()));
+                map
+            },
+        );
+
+        // Add function with writer_id and write_time (6 parameters)
+        engine.register_fn(
+            "add",
+            |entity_id: &str, field_type: &str, value: Dynamic, push_condition: &str, writer_id: &str, write_time: i64| {
+                let mut map = Map::new();
+                map.insert("action".into(), Dynamic::from("write"));
+                map.insert("entity_id".into(), Dynamic::from(entity_id.to_string()));
+                map.insert("field_type".into(), Dynamic::from(field_type.to_string()));
+                map.insert("value".into(), value);
+                map.insert("push_condition".into(), Dynamic::from(push_condition.to_string()));
+                map.insert("adjust_behavior".into(), Dynamic::from("add"));
+                map.insert("writer_id".into(), Dynamic::from(writer_id.to_string()));
+                map.insert("write_time".into(), Dynamic::from(write_time as u64));
+                map
+            },
+        );
+
+        // Sub function with writer_id (5 parameters)
+        engine.register_fn(
+            "sub",
+            |entity_id: &str, field_type: &str, value: Dynamic, push_condition: &str, writer_id: &str| {
+                let mut map = Map::new();
+                map.insert("action".into(), Dynamic::from("write"));
+                map.insert("entity_id".into(), Dynamic::from(entity_id.to_string()));
+                map.insert("field_type".into(), Dynamic::from(field_type.to_string()));
+                map.insert("value".into(), value);
+                map.insert("push_condition".into(), Dynamic::from(push_condition.to_string()));
+                map.insert("adjust_behavior".into(), Dynamic::from("subtract"));
+                map.insert("writer_id".into(), Dynamic::from(writer_id.to_string()));
+                map
+            },
+        );
+
+        // Sub function with writer_id and write_time (6 parameters)
+        engine.register_fn(
+            "sub",
+            |entity_id: &str, field_type: &str, value: Dynamic, push_condition: &str, writer_id: &str, write_time: i64| {
+                let mut map = Map::new();
+                map.insert("action".into(), Dynamic::from("write"));
+                map.insert("entity_id".into(), Dynamic::from(entity_id.to_string()));
+                map.insert("field_type".into(), Dynamic::from(field_type.to_string()));
+                map.insert("value".into(), value);
+                map.insert("push_condition".into(), Dynamic::from(push_condition.to_string()));
+                map.insert("adjust_behavior".into(), Dynamic::from("subtract"));
+                map.insert("writer_id".into(), Dynamic::from(writer_id.to_string()));
+                map.insert("write_time".into(), Dynamic::from(write_time as u64));
+                map
+            },
+        );
+
         let store_clone = store.clone();
         engine.register_fn("perform", move |requests: Array| -> Result<(), Box<EvalAltResult>> {
             let mut requests = requests
