@@ -3,7 +3,6 @@ use crate::data::EntityType;
 use std::sync::Arc;
 
 // Helper to create an entity schema with basic fields
-#[allow(dead_code)]
 fn create_entity_schema(store: &mut Store, entity_type: &EntityType) -> Result<()> {
     let mut schema = EntitySchema::<Single>::new(entity_type.clone(), None);
     let ft_name = FieldType::from("Name");

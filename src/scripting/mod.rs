@@ -4,7 +4,7 @@ use rhai::{Array, Dynamic, Engine, EvalAltResult, Map, Position, Scope};
 
 use crate::{data::nanos_to_timestamp, AdjustBehavior, EntityId, FieldType, PushCondition, Request, Store, Value};
 
-trait IntoEvalError<T> {
+pub trait IntoEvalError<T> {
     fn err(self) -> Result<T, Box<EvalAltResult>>;
 }
 
@@ -15,7 +15,6 @@ impl<T> IntoEvalError<T> for &str {
 }
 
 pub struct ScriptingEngine {
-    store: Rc<RefCell<Store>>,
     engine: Engine,
 }
 
@@ -401,7 +400,7 @@ impl ScriptingEngine {
             Ok(())
         });
 
-        ScriptingEngine { store, engine }
+        ScriptingEngine { engine }
     }
 
     /// Executes a Rhai script with access to the store
@@ -415,7 +414,7 @@ impl ScriptingEngine {
     }
 }
 
-fn convert_rhai_to_value(dynamic: &Dynamic, type_hint: Value) -> Result<Value, Box<EvalAltResult>> {
+pub fn convert_rhai_to_value(dynamic: &Dynamic, type_hint: Value) -> Result<Value, Box<EvalAltResult>> {
     match type_hint {
         Value::String(_) => {
             if let Some(s) = dynamic.as_immutable_string_ref().ok() {
@@ -454,9 +453,13 @@ fn convert_rhai_to_value(dynamic: &Dynamic, type_hint: Value) -> Result<Value, B
         },
         Value::EntityReference(_) => {
             if let Some(entity_id) = dynamic.as_immutable_string_ref().ok() {
-                let entity_id = EntityId::try_from(entity_id.as_str())
-                    .map_err(|_| "Invalid entity ID format")?;
-                Ok(Value::from_entity_reference(Some(entity_id)))
+                if entity_id.as_str().is_empty() {
+                    Ok(Value::from_entity_reference(None))
+                } else {
+                    let entity_id = EntityId::try_from(entity_id.as_str())
+                        .map_err(|_| "Invalid entity ID format")?;
+                    Ok(Value::from_entity_reference(Some(entity_id)))
+                }
             } else {
                 Err("Expected an entity reference value".into())
             }
@@ -490,7 +493,7 @@ fn convert_rhai_to_value(dynamic: &Dynamic, type_hint: Value) -> Result<Value, B
     }
 }
 
-fn convert_value_to_rhai(value: &Value) -> Dynamic {
+pub fn convert_value_to_rhai(value: &Value) -> Dynamic {
     match value {
         Value::String(s) => Dynamic::from(s.clone()),
         Value::Int(i) => Dynamic::from(*i),

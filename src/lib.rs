@@ -7,7 +7,12 @@ pub use data::{
     EntitySchema, EntityType, Field, FieldSchema, FieldType, NotificationCallback, NotifyConfig,
     NotifyToken, PageOpts, PageResult, PushCondition, Request, Single, Snapshot, Snowflake,
     Store, StoreProxy, StoreMessage, Timestamp, Value, INDIRECTION_DELIMITER, epoch, now,
-    resolve_indirection, Notification,
+    resolve_indirection, Notification, nanos_to_timestamp, secs_to_timestamp,
+    millis_to_timestamp, micros_to_timestamp,
+};
+
+pub use scripting::{
+    convert_value_to_rhai, IntoEvalError, ScriptingEngine,
 };
 
 pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
