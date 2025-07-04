@@ -15,7 +15,7 @@ mod tests {
             request1
         "#;
         
-        let result1 = scripting_engine.execute(script1).unwrap();
+        let result1 = scripting_engine.execute_raw(script1).unwrap();
         let map1 = result1.try_cast::<rhai::Map>().unwrap();
         
         assert_eq!(map1.get("action").unwrap().clone().try_cast::<String>().unwrap(), "write");
@@ -31,7 +31,7 @@ mod tests {
             request2
         "#;
         
-        let result2 = scripting_engine.execute(script2).unwrap();
+        let result2 = scripting_engine.execute_raw(script2).unwrap();
         let map2 = result2.try_cast::<rhai::Map>().unwrap();
         
         assert_eq!(map2.get("push_condition").unwrap().clone().try_cast::<String>().unwrap(), "changes");
@@ -43,7 +43,7 @@ mod tests {
             request3
         "#;
         
-        let result3 = scripting_engine.execute(script3).unwrap();
+        let result3 = scripting_engine.execute_raw(script3).unwrap();
         let map3 = result3.try_cast::<rhai::Map>().unwrap();
         
         assert_eq!(map3.get("push_condition").unwrap().clone().try_cast::<String>().unwrap(), "always");
@@ -63,7 +63,7 @@ mod tests {
             request1
         "#;
         
-        let result1 = scripting_engine.execute(script1).unwrap();
+        let result1 = scripting_engine.execute_raw(script1).unwrap();
         let map1 = result1.try_cast::<rhai::Map>().unwrap();
         
         assert_eq!(map1.get("action").unwrap().clone().try_cast::<String>().unwrap(), "write");
@@ -79,7 +79,7 @@ mod tests {
             request2
         "#;
         
-        let result2 = scripting_engine.execute(script2).unwrap();
+        let result2 = scripting_engine.execute_raw(script2).unwrap();
         let map2 = result2.try_cast::<rhai::Map>().unwrap();
         
         assert_eq!(map2.get("push_condition").unwrap().clone().try_cast::<String>().unwrap(), "changes");
@@ -99,7 +99,7 @@ mod tests {
             request1
         "#;
         
-        let result1 = scripting_engine.execute(script1).unwrap();
+        let result1 = scripting_engine.execute_raw(script1).unwrap();
         let map1 = result1.try_cast::<rhai::Map>().unwrap();
         
         assert_eq!(map1.get("action").unwrap().clone().try_cast::<String>().unwrap(), "write");
@@ -115,7 +115,7 @@ mod tests {
             request2
         "#;
         
-        let result2 = scripting_engine.execute(script2).unwrap();
+        let result2 = scripting_engine.execute_raw(script2).unwrap();
         let map2 = result2.try_cast::<rhai::Map>().unwrap();
         
         assert_eq!(map2.get("push_condition").unwrap().clone().try_cast::<String>().unwrap(), "changes");
@@ -157,7 +157,7 @@ mod tests {
             requests
         "#;
         
-        let result = scripting_engine.execute(script).unwrap();
+        let result = scripting_engine.execute_raw(script).unwrap();
         let requests = result.try_cast::<rhai::Array>().unwrap();
         
         assert_eq!(requests.len(), 7);
@@ -188,7 +188,7 @@ mod tests {
             request
         "#;
         
-        let result = scripting_engine.execute(script).unwrap();
+        let result = scripting_engine.execute_raw(script).unwrap();
         let map = result.try_cast::<rhai::Map>().unwrap();
         
         assert_eq!(map.get("action").unwrap().clone().try_cast::<String>().unwrap(), "write");
@@ -213,7 +213,7 @@ mod tests {
             request
         "#;
         
-        let result = scripting_engine.execute(script).unwrap();
+        let result = scripting_engine.execute_raw(script).unwrap();
         let map = result.try_cast::<rhai::Map>().unwrap();
         
         assert_eq!(map.get("action").unwrap().clone().try_cast::<String>().unwrap(), "write");
@@ -239,7 +239,7 @@ mod tests {
             request
         "#;
         
-        let result = scripting_engine.execute(script).unwrap();
+        let result = scripting_engine.execute_raw(script).unwrap();
         let map = result.try_cast::<rhai::Map>().unwrap();
         
         assert_eq!(map.get("action").unwrap().clone().try_cast::<String>().unwrap(), "write");
@@ -264,7 +264,7 @@ mod tests {
             request
         "#;
         
-        let result = scripting_engine.execute(script).unwrap();
+        let result = scripting_engine.execute_raw(script).unwrap();
         let map = result.try_cast::<rhai::Map>().unwrap();
         
         assert_eq!(map.get("action").unwrap().clone().try_cast::<String>().unwrap(), "write");
@@ -290,7 +290,7 @@ mod tests {
             request
         "#;
         
-        let result = scripting_engine.execute(script).unwrap();
+        let result = scripting_engine.execute_raw(script).unwrap();
         let map = result.try_cast::<rhai::Map>().unwrap();
         
         assert_eq!(map.get("action").unwrap().clone().try_cast::<String>().unwrap(), "write");
@@ -315,7 +315,7 @@ mod tests {
             request
         "#;
         
-        let result = scripting_engine.execute(script).unwrap();
+        let result = scripting_engine.execute_raw(script).unwrap();
         let map = result.try_cast::<rhai::Map>().unwrap();
         
         assert_eq!(map.get("action").unwrap().clone().try_cast::<String>().unwrap(), "write");
@@ -358,7 +358,7 @@ mod tests {
             requests
         "#;
         
-        let result = scripting_engine.execute(script).unwrap();
+        let result = scripting_engine.execute_raw(script).unwrap();
         let requests = result.try_cast::<rhai::Array>().unwrap();
         
         assert_eq!(requests.len(), 9);

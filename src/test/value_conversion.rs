@@ -116,7 +116,7 @@ mod tests {
             perform(requests);
         "#;
         
-        let result = scripting_engine.execute(script);
+        let result = scripting_engine.execute_raw(script);
         assert!(result.is_ok(), "Script execution failed: {:?}", result.err());
         
         Ok(())
@@ -133,7 +133,7 @@ mod tests {
             perform(requests);
         "#;
         
-        let result = scripting_engine.execute(script);
+        let result = scripting_engine.execute_raw(script);
         assert!(result.is_ok(), "Script execution failed: {:?}", result.err());
         
         Ok(())
@@ -150,7 +150,7 @@ mod tests {
             perform(requests);
         "#;
         
-        let result = scripting_engine.execute(script);
+        let result = scripting_engine.execute_raw(script);
         assert!(result.is_ok(), "Script execution failed: {:?}", result.err());
         
         Ok(())
@@ -167,7 +167,7 @@ mod tests {
             perform(requests);
         "#;
         
-        let result = scripting_engine.execute(script);
+        let result = scripting_engine.execute_raw(script);
         assert!(result.is_ok(), "Script execution failed: {:?}", result.err());
         
         Ok(())
@@ -185,7 +185,7 @@ mod tests {
             perform(requests);
         "#;
         
-        let result = scripting_engine.execute(script);
+        let result = scripting_engine.execute_raw(script);
         // This might fail if blob() function is not registered, which is expected
         // The test verifies that the conversion code path is exercised
         if result.is_err() {
@@ -208,7 +208,7 @@ mod tests {
             perform(requests);
         "#;
         
-        let result = scripting_engine.execute(script);
+        let result = scripting_engine.execute_raw(script);
         assert!(result.is_ok(), "Script execution failed: {:?}", result.err());
         
         Ok(())
@@ -226,7 +226,7 @@ mod tests {
             perform(requests);
         "#;
         
-        let result = scripting_engine.execute(script);
+        let result = scripting_engine.execute_raw(script);
         assert!(result.is_ok(), "Script execution failed: {:?}", result.err());
         
         Ok(())
@@ -243,7 +243,7 @@ mod tests {
             perform(requests);
         "#;
         
-        let result = scripting_engine.execute(script);
+        let result = scripting_engine.execute_raw(script);
         assert!(result.is_ok(), "Script execution failed: {:?}", result.err());
         
         Ok(())
@@ -260,7 +260,7 @@ mod tests {
             perform(requests);
         "#;
         
-        let result = scripting_engine.execute(script);
+        let result = scripting_engine.execute_raw(script);
         assert!(result.is_ok(), "Script execution failed: {:?}", result.err());
         
         Ok(())
@@ -281,7 +281,7 @@ mod tests {
             perform(requests);
         "#;
         
-        let write_result = scripting_engine.execute(write_script);
+        let write_result = scripting_engine.execute_raw(write_script);
         assert!(write_result.is_ok(), "Write script failed: {:?}", write_result.err());
         
         // Test that we can create read requests (the perform function works but doesn't modify the original array)
@@ -299,7 +299,7 @@ mod tests {
             requests
         "#;
         
-        let read_result = scripting_engine.execute(read_script);
+        let read_result = scripting_engine.execute_raw(read_script);
         assert!(read_result.is_ok(), "Read script failed: {:?}", read_result.err());
         
         let requests = read_result.unwrap().try_cast::<rhai::Array>().unwrap();
@@ -329,7 +329,7 @@ mod tests {
             perform(requests);
         "#;
         
-        let result = scripting_engine.execute(script);
+        let result = scripting_engine.execute_raw(script);
         // This should fail because we're trying to convert a string to an int
         assert!(result.is_err());
         
@@ -368,7 +368,7 @@ mod tests {
             read_requests.len()
         "#;
         
-        let result = scripting_engine.execute(script);
+        let result = scripting_engine.execute_raw(script);
         assert!(result.is_ok(), "Mixed types script failed: {:?}", result.err());
         assert_eq!(result.unwrap().as_int().unwrap(), 6);
         
@@ -409,7 +409,7 @@ mod tests {
             final_requests
         "#;
         
-        let result = scripting_engine.execute(script);
+        let result = scripting_engine.execute_raw(script);
         assert!(result.is_ok(), "Arithmetic operations script failed: {:?}", result.err());
         
         let requests = result.unwrap().try_cast::<rhai::Array>().unwrap();

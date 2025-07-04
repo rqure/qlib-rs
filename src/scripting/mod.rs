@@ -404,12 +404,19 @@ impl ScriptingEngine {
     }
 
     /// Executes a Rhai script with access to the store
-    pub fn execute(&self, script: &str) -> Result<Dynamic, Box<EvalAltResult>> {
+    pub fn execute_raw(&self, script: &str) -> Result<Dynamic, Box<EvalAltResult>> {
         let mut scope = Scope::new();
 
         match self.engine.eval_with_scope::<Dynamic>(&mut scope, script) {
             Ok(result) => Ok(result),
             Err(e) => Err(format!("Script execution error: {}", e).into()),
+        }
+    }
+
+    pub fn execute(&self, script: &str) -> Result<bool, Box<EvalAltResult>> {
+        return match self.execute_raw(script) {
+            Ok(result) => Ok(result.as_bool().unwrap_or_default()),
+            Err(e) => Err(e),
         }
     }
 }

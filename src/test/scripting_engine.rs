@@ -33,7 +33,7 @@ mod tests {
         
         // Test that the engine was created successfully
         // We can verify this by executing a simple script
-        let result = scripting_engine.execute("42");
+        let result = scripting_engine.execute_raw("42");
         assert!(result.is_ok());
         
         let value = result.unwrap();
@@ -46,17 +46,17 @@ mod tests {
         let scripting_engine = ScriptingEngine::new(store.clone());
         
         // Test basic arithmetic
-        let result = scripting_engine.execute("2 + 3 * 4");
+        let result = scripting_engine.execute_raw("2 + 3 * 4");
         assert!(result.is_ok());
         assert_eq!(result.unwrap().as_int().unwrap(), 14);
         
         // Test string operations
-        let result = scripting_engine.execute("\"Hello, \" + \"World!\"");
+        let result = scripting_engine.execute_raw("\"Hello, \" + \"World!\"");
         assert!(result.is_ok());
         assert_eq!(result.unwrap().into_string().unwrap(), "Hello, World!");
         
         // Test boolean operations
-        let result = scripting_engine.execute("true && false");
+        let result = scripting_engine.execute_raw("true && false");
         assert!(result.is_ok());
         assert_eq!(result.unwrap().as_bool().unwrap(), false);
     }
@@ -72,7 +72,7 @@ mod tests {
             x + y
         "#;
         
-        let result = scripting_engine.execute(script);
+        let result = scripting_engine.execute_raw(script);
         assert!(result.is_ok());
         assert_eq!(result.unwrap().as_int().unwrap(), 30);
     }
@@ -87,7 +87,7 @@ mod tests {
             arr.len()
         "#;
         
-        let result = scripting_engine.execute(script);
+        let result = scripting_engine.execute_raw(script);
         assert!(result.is_ok());
         assert_eq!(result.unwrap().as_int().unwrap(), 5);
     }
@@ -105,7 +105,7 @@ mod tests {
             add(15, 25)
         "#;
         
-        let result = scripting_engine.execute(script);
+        let result = scripting_engine.execute_raw(script);
         assert!(result.is_ok());
         assert_eq!(result.unwrap().as_int().unwrap(), 40);
     }
@@ -121,7 +121,7 @@ mod tests {
             read_request
         "#;
         
-        let result = scripting_engine.execute(script);
+        let result = scripting_engine.execute_raw(script);
         assert!(result.is_ok());
         
         let map = result.unwrap().try_cast::<rhai::Map>().unwrap();
@@ -141,7 +141,7 @@ mod tests {
             write_request
         "#;
         
-        let result = scripting_engine.execute(script);
+        let result = scripting_engine.execute_raw(script);
         assert!(result.is_ok());
         
         let map = result.unwrap().try_cast::<rhai::Map>().unwrap();
@@ -162,7 +162,7 @@ mod tests {
             add_request
         "#;
         
-        let result = scripting_engine.execute(script);
+        let result = scripting_engine.execute_raw(script);
         assert!(result.is_ok());
         
         let map = result.unwrap().try_cast::<rhai::Map>().unwrap();
@@ -174,7 +174,7 @@ mod tests {
             sub_request
         "#;
         
-        let result = scripting_engine.execute(script);
+        let result = scripting_engine.execute_raw(script);
         assert!(result.is_ok());
         
         let map = result.unwrap().try_cast::<rhai::Map>().unwrap();
@@ -187,7 +187,7 @@ mod tests {
         let scripting_engine = ScriptingEngine::new(store.clone());
         
         // Test syntax error
-        let result = scripting_engine.execute("let x = ;"); // Invalid syntax
+        let result = scripting_engine.execute_raw("let x = ;"); // Invalid syntax
         assert!(result.is_err());
         
         let error_message = format!("{}", result.unwrap_err());
@@ -214,7 +214,7 @@ mod tests {
             requests.len()
         "#;
         
-        let result = scripting_engine.execute(script);
+        let result = scripting_engine.execute_raw(script);
         assert!(result.is_ok());
         assert_eq!(result.unwrap().as_int().unwrap(), 5);
     }
@@ -229,7 +229,7 @@ mod tests {
             request
         "#;
         
-        let result = scripting_engine.execute(script);
+        let result = scripting_engine.execute_raw(script);
         assert!(result.is_ok());
         
         let map = result.unwrap().try_cast::<rhai::Map>().unwrap();
@@ -244,13 +244,13 @@ mod tests {
         
         // Execute first script that defines a variable
         let script1 = "let x = 42; x";
-        let result1 = scripting_engine.execute(script1);
+        let result1 = scripting_engine.execute_raw(script1);
         assert!(result1.is_ok());
         assert_eq!(result1.unwrap().as_int().unwrap(), 42);
         
         // Execute second script - variable x should not be accessible
         let script2 = "x"; // This should fail because x is not defined in this scope
-        let result2 = scripting_engine.execute(script2);
+        let result2 = scripting_engine.execute_raw(script2);
         assert!(result2.is_err()); // Should fail because x is not defined
     }
 }
