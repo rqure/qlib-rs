@@ -2,7 +2,7 @@
 mod tests {
     use crate::*;
     use crate::scripting::{ScriptingEngine, IntoEvalError};
-    use std::{cell::RefCell, rc::Rc, sync::Arc};
+    use std::sync::{Arc, Mutex};
     use rhai::EvalAltResult;
 
     #[test]
@@ -28,7 +28,7 @@ mod tests {
 
     #[test]
     fn test_scripting_engine_new() {
-        let store = Rc::new(RefCell::new(Store::new(Arc::new(Snowflake::new()))));
+        let store = Arc::new(Mutex::new(Store::new(Arc::new(Snowflake::new()))));
         let scripting_engine = ScriptingEngine::new(store.clone());
         
         // Test that the engine was created successfully
@@ -42,7 +42,7 @@ mod tests {
 
     #[test]
     fn test_scripting_engine_execute_basic_operations() {
-        let store = Rc::new(RefCell::new(Store::new(Arc::new(Snowflake::new()))));
+        let store = Arc::new(Mutex::new(Store::new(Arc::new(Snowflake::new()))));
         let scripting_engine = ScriptingEngine::new(store.clone());
         
         // Test basic arithmetic
@@ -63,7 +63,7 @@ mod tests {
 
     #[test]
     fn test_scripting_engine_execute_variables() {
-        let store = Rc::new(RefCell::new(Store::new(Arc::new(Snowflake::new()))));
+        let store = Arc::new(Mutex::new(Store::new(Arc::new(Snowflake::new()))));
         let scripting_engine = ScriptingEngine::new(store.clone());
         
         let script = r#"
@@ -79,7 +79,7 @@ mod tests {
 
     #[test]
     fn test_scripting_engine_execute_arrays() {
-        let store = Rc::new(RefCell::new(Store::new(Arc::new(Snowflake::new()))));
+        let store = Arc::new(Mutex::new(Store::new(Arc::new(Snowflake::new()))));
         let scripting_engine = ScriptingEngine::new(store.clone());
         
         let script = r#"
@@ -94,7 +94,7 @@ mod tests {
 
     #[test]
     fn test_scripting_engine_execute_functions() {
-        let store = Rc::new(RefCell::new(Store::new(Arc::new(Snowflake::new()))));
+        let store = Arc::new(Mutex::new(Store::new(Arc::new(Snowflake::new()))));
         let scripting_engine = ScriptingEngine::new(store.clone());
         
         let script = r#"
@@ -112,7 +112,7 @@ mod tests {
 
     #[test]
     fn test_scripting_engine_execute_registered_functions() {
-        let store = Rc::new(RefCell::new(Store::new(Arc::new(Snowflake::new()))));
+        let store = Arc::new(Mutex::new(Store::new(Arc::new(Snowflake::new()))));
         let scripting_engine = ScriptingEngine::new(store.clone());
         
         // Test the read function
@@ -132,7 +132,7 @@ mod tests {
 
     #[test]
     fn test_scripting_engine_execute_write_functions() {
-        let store = Rc::new(RefCell::new(Store::new(Arc::new(Snowflake::new()))));
+        let store = Arc::new(Mutex::new(Store::new(Arc::new(Snowflake::new()))));
         let scripting_engine = ScriptingEngine::new(store.clone());
         
         // Test basic write function
@@ -153,7 +153,7 @@ mod tests {
 
     #[test]
     fn test_scripting_engine_execute_add_sub_functions() {
-        let store = Rc::new(RefCell::new(Store::new(Arc::new(Snowflake::new()))));
+        let store = Arc::new(Mutex::new(Store::new(Arc::new(Snowflake::new()))));
         let scripting_engine = ScriptingEngine::new(store.clone());
         
         // Test add function
@@ -183,7 +183,7 @@ mod tests {
 
     #[test]
     fn test_scripting_engine_execute_error_handling() {
-        let store = Rc::new(RefCell::new(Store::new(Arc::new(Snowflake::new()))));
+        let store = Arc::new(Mutex::new(Store::new(Arc::new(Snowflake::new()))));
         let scripting_engine = ScriptingEngine::new(store.clone());
         
         // Test syntax error
@@ -196,7 +196,7 @@ mod tests {
 
     #[test]
     fn test_scripting_engine_execute_complex_script() {
-        let store = Rc::new(RefCell::new(Store::new(Arc::new(Snowflake::new()))));
+        let store = Arc::new(Mutex::new(Store::new(Arc::new(Snowflake::new()))));
         let scripting_engine = ScriptingEngine::new(store.clone());
         
         let script = r#"
@@ -221,7 +221,7 @@ mod tests {
 
     #[test]
     fn test_scripting_engine_execute_with_metadata() {
-        let store = Rc::new(RefCell::new(Store::new(Arc::new(Snowflake::new()))));
+        let store = Arc::new(Mutex::new(Store::new(Arc::new(Snowflake::new()))));
         let scripting_engine = ScriptingEngine::new(store.clone());
         
         let script = r#"
@@ -239,7 +239,7 @@ mod tests {
 
     #[test]
     fn test_scripting_engine_scope_isolation() {
-        let store = Rc::new(RefCell::new(Store::new(Arc::new(Snowflake::new()))));
+        let store = Arc::new(Mutex::new(Store::new(Arc::new(Snowflake::new()))));
         let scripting_engine = ScriptingEngine::new(store.clone());
         
         // Execute first script that defines a variable

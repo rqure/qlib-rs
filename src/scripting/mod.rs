@@ -1,4 +1,4 @@
-use std::{cell::RefCell, rc::Rc};
+use std::{sync::{Arc, Mutex}};
 
 use rhai::{Array, Dynamic, Engine, EvalAltResult, Map, Position, Scope};
 
@@ -19,7 +19,7 @@ pub struct ScriptingEngine {
 }
 
 impl ScriptingEngine {
-    pub fn new(store: Rc<RefCell<Store>>) -> Self {
+    pub fn new(store: Arc<Mutex<Store>>) -> Self {
         let mut engine = Engine::new();
 
         engine.register_fn("read", |entity_id: &str, field_type: &str| {
@@ -233,8 +233,9 @@ impl ScriptingEngine {
             },
         );
 
-        let store_clone = store.clone();
         engine.register_fn("perform", move |requests: Array| -> Result<(), Box<EvalAltResult>> {
+            let mut store = store.lock().unwrap();
+
             let mut requests = requests
                 .into_iter()
                 .filter_map(|req| req.try_cast::<Map>())
@@ -289,8 +290,7 @@ impl ScriptingEngine {
                             });
                         }
                         "write" => {
-                            let entity_schema = store_clone
-                                .borrow()
+                            let entity_schema = store
                                 .get_complete_entity_schema(&crate::Context {  }, &entity_id.get_type())
                                 .map_err(|e| format!("Failed to get entity schema: {}", e))?;
 
@@ -349,7 +349,7 @@ impl ScriptingEngine {
                 }
 
                 // Execute the requests
-                if let Err(e) = store_clone.borrow_mut().perform(&crate::Context {}, &mut store_requests) {
+                if let Err(e) = store.perform(&crate::Context {}, &mut store_requests) {
                     return Err(format!("Failed to perform requests: {}", e).into());
                 }
 

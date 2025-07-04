@@ -2,11 +2,11 @@
 mod tests {
     use crate::*;
     use crate::scripting::ScriptingEngine;
-    use std::{cell::RefCell, rc::Rc, sync::Arc};
+    use std::{sync::{Arc, Mutex}};
 
     // Helper function to create a test store with basic entity schema
-    fn create_test_store_with_schema() -> Result<Rc<RefCell<Store>>> {
-        let store = Rc::new(RefCell::new(Store::new(Arc::new(Snowflake::new()))));
+    fn create_test_store_with_schema() -> Result<Arc<Mutex<Store>>> {
+        let store = Arc::new(Mutex::new(Store::new(Arc::new(Snowflake::new()))));
         let ctx = Context {};
         
         // Create a basic entity type with various field types
@@ -96,11 +96,12 @@ mod tests {
         schema.fields.insert(FieldType::from("EntityListField"), entity_list_field);
         schema.fields.insert(FieldType::from("ChoiceField"), choice_field);
         schema.fields.insert(FieldType::from("TimestampField"), timestamp_field);
-        
-        store.borrow_mut().set_entity_schema(&ctx, &schema)?;
-        
-        // Create a test entity
-        store.borrow_mut().create_entity(&ctx, &et_test, None, "TestEntity")?;
+
+        {
+            let mut store = store.lock().unwrap();
+            store.set_entity_schema(&ctx, &schema)?;
+            store.create_entity(&ctx, &et_test, None, "TestEntity")?;
+        }
         
         Ok(store)
     }

@@ -196,6 +196,16 @@ pub enum StoreMessage {
         notification: Notification,
     },
     
+    // Script execution
+    ExecuteScript {
+        id: String,
+        script: String,
+    },
+    ExecuteScriptResponse {
+        id: String,
+        response: std::result::Result<bool, String>,
+    },
+    
     // Connection management
     Error {
         id: String,
@@ -242,6 +252,8 @@ pub fn extract_message_id(message: &StoreMessage) -> Option<String> {
         StoreMessage::UnregisterNotificationResponse { id, .. } => Some(id.clone()),
         StoreMessage::GetNotificationConfigs { id, .. } => Some(id.clone()),
         StoreMessage::GetNotificationConfigsResponse { id, .. } => Some(id.clone()),
+        StoreMessage::ExecuteScript { id, .. } => Some(id.clone()),
+        StoreMessage::ExecuteScriptResponse { id, .. } => Some(id.clone()),
         StoreMessage::Error { id, .. } => Some(id.clone()),
         StoreMessage::Notification { .. } => None, // Notifications don't have request IDs
     }
@@ -709,5 +721,21 @@ impl StoreProxy {
     /// Stop notification subscription
     pub async fn unsubscribe_notifications(&self) {
         *self.notification_sender.write().await = None;
+    }
+
+    /// Execute a script on the cluster
+    pub async fn execute_script(&self, _ctx: &Context, script: &str) -> Result<bool> {
+        let request = StoreMessage::ExecuteScript {
+            id: Uuid::new_v4().to_string(),
+            script: script.to_string(),
+        };
+
+        let response: StoreMessage = self.send_request(request).await?;
+        match response {
+            StoreMessage::ExecuteScriptResponse { response, .. } => {
+                response.map_err(|e| StoreProxyError(e).into())
+            }
+            _ => Err(StoreProxyError("Unexpected response type".to_string()).into()),
+        }
     }
 }

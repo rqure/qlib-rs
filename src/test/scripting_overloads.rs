@@ -2,11 +2,11 @@
 mod tests {
     use crate::*;
     use crate::scripting::ScriptingEngine;
-    use std::{cell::RefCell, rc::Rc, sync::Arc};
+    use std::{sync::{Arc, Mutex}};
 
     #[test]
     fn test_write_function_overloads() -> Result<()> {
-        let store = Rc::new(RefCell::new(Store::new(Arc::new(Snowflake::new()))));
+        let store = Arc::new(Mutex::new(Store::new(Arc::new(Snowflake::new()))));
         let scripting_engine = ScriptingEngine::new(store.clone());
 
         // Test basic write function (3 parameters)
@@ -54,7 +54,7 @@ mod tests {
 
     #[test]
     fn test_add_function() -> Result<()> {
-        let store = Rc::new(RefCell::new(Store::new(Arc::new(Snowflake::new()))));
+        let store = Arc::new(Mutex::new(Store::new(Arc::new(Snowflake::new()))));
         let scripting_engine = ScriptingEngine::new(store.clone());
 
         // Test basic add function (3 parameters)
@@ -90,7 +90,7 @@ mod tests {
 
     #[test]
     fn test_sub_function() -> Result<()> {
-        let store = Rc::new(RefCell::new(Store::new(Arc::new(Snowflake::new()))));
+        let store = Arc::new(Mutex::new(Store::new(Arc::new(Snowflake::new()))));
         let scripting_engine = ScriptingEngine::new(store.clone());
 
         // Test basic sub function (3 parameters)
@@ -126,7 +126,7 @@ mod tests {
 
     #[test]
     fn test_mixed_operations_script() -> Result<()> {
-        let store = Rc::new(RefCell::new(Store::new(Arc::new(Snowflake::new()))));
+        let store = Arc::new(Mutex::new(Store::new(Arc::new(Snowflake::new()))));
         let scripting_engine = ScriptingEngine::new(store.clone());
 
         // Test a script that uses all function variants
@@ -179,7 +179,7 @@ mod tests {
 
     #[test]
     fn test_write_with_writer_id() -> Result<()> {
-        let store = Rc::new(RefCell::new(Store::new(Arc::new(Snowflake::new()))));
+        let store = Arc::new(Mutex::new(Store::new(Arc::new(Snowflake::new()))));
         let scripting_engine = ScriptingEngine::new(store.clone());
 
         // Test write function with writer_id (6 parameters)
@@ -204,7 +204,7 @@ mod tests {
 
     #[test]
     fn test_write_with_writer_id_and_write_time() -> Result<()> {
-        let store = Rc::new(RefCell::new(Store::new(Arc::new(Snowflake::new()))));
+        let store = Arc::new(Mutex::new(Store::new(Arc::new(Snowflake::new()))));
         let scripting_engine = ScriptingEngine::new(store.clone());
 
         // Test write function with writer_id and write_time (7 parameters)
@@ -230,7 +230,7 @@ mod tests {
 
     #[test]
     fn test_add_with_writer_id() -> Result<()> {
-        let store = Rc::new(RefCell::new(Store::new(Arc::new(Snowflake::new()))));
+        let store = Arc::new(Mutex::new(Store::new(Arc::new(Snowflake::new()))));
         let scripting_engine = ScriptingEngine::new(store.clone());
 
         // Test add function with writer_id (5 parameters)
@@ -255,7 +255,7 @@ mod tests {
 
     #[test]
     fn test_add_with_writer_id_and_write_time() -> Result<()> {
-        let store = Rc::new(RefCell::new(Store::new(Arc::new(Snowflake::new()))));
+        let store = Arc::new(Mutex::new(Store::new(Arc::new(Snowflake::new()))));
         let scripting_engine = ScriptingEngine::new(store.clone());
 
         // Test add function with writer_id and write_time (6 parameters)
@@ -281,7 +281,7 @@ mod tests {
 
     #[test]
     fn test_sub_with_writer_id() -> Result<()> {
-        let store = Rc::new(RefCell::new(Store::new(Arc::new(Snowflake::new()))));
+        let store = Arc::new(Mutex::new(Store::new(Arc::new(Snowflake::new()))));
         let scripting_engine = ScriptingEngine::new(store.clone());
 
         // Test sub function with writer_id (5 parameters)
@@ -306,7 +306,7 @@ mod tests {
 
     #[test]
     fn test_sub_with_writer_id_and_write_time() -> Result<()> {
-        let store = Rc::new(RefCell::new(Store::new(Arc::new(Snowflake::new()))));
+        let store = Arc::new(Mutex::new(Store::new(Arc::new(Snowflake::new()))));
         let scripting_engine = ScriptingEngine::new(store.clone());
 
         // Test sub function with writer_id and write_time (6 parameters)
@@ -332,7 +332,7 @@ mod tests {
 
     #[test]
     fn test_comprehensive_script_with_metadata() -> Result<()> {
-        let store = Rc::new(RefCell::new(Store::new(Arc::new(Snowflake::new()))));
+        let store = Arc::new(Mutex::new(Store::new(Arc::new(Snowflake::new()))));
         let scripting_engine = ScriptingEngine::new(store.clone());
 
         // Test a comprehensive script that uses all variants with metadata
