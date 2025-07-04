@@ -12,7 +12,7 @@ mod value;
 mod constants;
 mod notifications;
 
-use std::fmt;
+use std::{fmt, time::Duration};
 
 pub use entity::Entity;
 pub use entity_id::EntityId;
@@ -95,4 +95,20 @@ pub fn now() -> Timestamp {
 
 pub fn epoch() -> Timestamp {
     std::time::UNIX_EPOCH
+}
+
+pub fn nanos_to_timestamp(nanos: u64) -> Timestamp {
+    epoch() + Duration::from_nanos(nanos)
+}
+
+pub fn secs_to_timestamp(secs: u64) -> Timestamp {
+    epoch() + Duration::from_secs(secs)
+}
+
+pub fn millis_to_timestamp(millis: u64) -> Timestamp {
+    epoch() + Duration::from_millis(millis)
+}
+
+pub fn micros_to_timestamp(micros: u64) -> Timestamp {
+    epoch() + Duration::from_micros(micros)
 }
