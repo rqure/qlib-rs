@@ -101,9 +101,19 @@ impl ScriptingEngine {
                             });
                         }
                         "write" => {
+                            let entity_schema = store_clone
+                                .borrow()
+                                .get_complete_entity_schema(&crate::Context {  }, &entity_id.get_type())
+                                .map_err(|e| format!("Failed to get entity schema: {}", e))?;
+
+                            let field_schema = entity_schema.fields
+                                .get(&field_type)
+                                .ok_or("Field type not found in entity schema")?;
+
                             let value = convert_rhai_to_value(req_map
                                 .get("value")
-                                .ok_or("Request map must contain 'value' field")?
+                                .ok_or("Request map must contain 'value' field")?,
+                                field_schema.default_value()                                
                             )?;
 
                             let push_condition = req_map
@@ -216,157 +226,98 @@ impl ScriptingEngine {
     }
 }
 
-fn convert_rhai_to_value(dynamic: &Dynamic) -> Result<Value, Box<EvalAltResult>> {
-    let map = dynamic
-        .clone()
-        .try_cast::<Map>()
-        .ok_or("Expected a Rhai Map")?;
-
-    let value_type = map.get("type")
-        .cloned()
-        .ok_or("Expected 'type' field in Rhai Map")?
-        .try_cast::<String>()
-        .ok_or("Failed to cast 'type' field to String")?;
-
-    match value_type.as_str() {
-        "string" => {
-            let value = map.get("value")
-                .cloned()
-                .ok_or("Expected 'value' field in Rhai Map")?
-                .try_cast::<String>()
-                .ok_or("Failed to cast 'value' field to String")?;
-            Ok(Value::String(value))
-        }
-        "int" => {
-            let value = map.get("value")
-                .cloned()
-                .ok_or("Expected 'value' field in Rhai Map")?
-                .try_cast::<i64>()
-                .ok_or("Failed to cast 'value' field to i64")?;
-            Ok(Value::Int(value))
-        }
-        "bool" => {
-            let value = map.get("value")
-                .cloned()
-                .ok_or("Expected 'value' field in Rhai Map")?
-                .try_cast::<bool>()
-                .ok_or("Failed to cast 'value' field to bool")?;
-            Ok(Value::Bool(value))
-        }
-        "float" => {
-            let value = map.get("value")
-                .cloned()
-                .ok_or("Expected 'value' field in Rhai Map")?
-                .try_cast::<f64>()
-                .ok_or("Failed to cast 'value' field to f64")?;
-            Ok(Value::Float(value))
-        }
-        "choice" => {
-            let value = map.get("value")
-                .cloned()
-                .ok_or("Expected 'value' field in Rhai Map")?
-                .try_cast::<i64>()
-                .ok_or("Failed to cast 'value' field to i64")?;
-            Ok(Value::Choice(value))
-        }
-        "entity_reference" => {
-            let value = map.get("value")
-                .cloned()
-                .ok_or("Expected 'value' field in Rhai Map")?
-                .try_cast::<String>()
-                .ok_or("Failed to cast 'value' field to String")?;
-
-            if !value.is_empty() {
-                let value = EntityId::try_from(value.as_str())
-                    .map_err(|e| format!("Failed to convert entity reference: {}", e))?;
-
-                Ok(Value::EntityReference(Some(value)))
+fn convert_rhai_to_value(dynamic: &Dynamic, type_hint: Value) -> Result<Value, Box<EvalAltResult>> {
+    match type_hint {
+        Value::String(_) => {
+            if let Some(s) = dynamic.as_immutable_string_ref().ok() {
+                Ok(Value::from_string(s.to_string()))
             } else {
-                Ok(Value::EntityReference(None))
+                Err("Expected a string value".into())
             }
-        }
-        "entity_list" => {
-            let value = map.get("value")
-                .cloned()
-                .ok_or("Expected 'value' field in Rhai Map")?
-                .try_cast::<Array>()
-                .ok_or("Failed to cast 'value' field to Array")?;
-
-            let entity_ids = value
-                .iter()
-                .filter_map(|v| v.clone().try_cast::<String>())
-                .filter_map(|s| EntityId::try_from(s.as_str()).ok())
-                .collect();
-
-            Ok(Value::EntityList(entity_ids))
-        }
-        "blob" => {
-            let value = map.get("value")
-                .cloned()
-                .ok_or("Expected 'value' field in Rhai Map")?
-                .try_cast::<Vec<u8>>()
-                .ok_or("Failed to cast 'value' field to Vec<u8>")?;
-            Ok(Value::Blob(value))
-        }
-        "timestamp" => {
-            let value = map.get("value")
-                .cloned()
-                .ok_or("Expected 'value' field in Rhai Map")?
-                .try_cast::<u64>()
-                .ok_or("Failed to cast 'value' field to u64")?;
-            Ok(Value::Timestamp(nanos_to_timestamp(value)))
-        }
-        _ => Err(format!("Unsupported value type: {}", value_type).into()),
+        },
+        Value::Int(_) => {
+            if let Some(i) = dynamic.as_int().ok() {
+                Ok(Value::from_int(i))
+            } else {
+                Err("Expected an integer value".into())
+            }
+        },
+        Value::Bool(_) => {
+            if let Some(b) = dynamic.as_bool().ok() {
+                Ok(Value::from_bool(b))
+            } else {
+                Err("Expected a boolean value".into())
+            }
+        },
+        Value::Float(_) => {
+            if let Some(f) = dynamic.as_float().ok() {
+                Ok(Value::from_float(f))
+            } else {
+                Err("Expected a float value".into())
+            }
+        },
+        Value::Blob(_) => {
+            if let Some(blob) = dynamic.as_blob_ref().ok() {
+                Ok(Value::from_blob(blob.clone()))
+            } else {
+                Err("Expected a blob value".into())
+            }
+        },
+        Value::EntityReference(_) => {
+            if let Some(entity_id) = dynamic.as_immutable_string_ref().ok() {
+                let entity_id = EntityId::try_from(entity_id.as_str())
+                    .map_err(|_| "Invalid entity ID format")?;
+                Ok(Value::from_entity_reference(Some(entity_id)))
+            } else {
+                Err("Expected an entity reference value".into())
+            }
+        },
+        Value::EntityList(_) => {
+            if let Some(list) = dynamic.as_array_ref().ok() {
+                let entity_ids = list
+                    .iter()
+                    .filter_map(|item| item.as_immutable_string_ref().ok())
+                    .filter_map(|s| EntityId::try_from(s.as_str()).ok())
+                    .collect::<Vec<EntityId>>();
+                Ok(Value::from_entity_list(entity_ids))
+            } else {
+                Err("Expected an entity list value".into())
+            }
+        },
+        Value::Choice(_) => {
+            if let Some(choice) = dynamic.as_int().ok() {
+                Ok(Value::from_choice(choice))
+            } else {
+                Err("Expected a choice value".into())
+            }
+        },
+        Value::Timestamp(_) => {
+            if let Some(ts) = dynamic.as_int().ok() {
+                Ok(Value::from_timestamp(nanos_to_timestamp(ts as u64)))
+            } else {
+                Err("Expected a timestamp value".into())
+            }
+        },
     }
 }
 
 fn convert_value_to_rhai(value: &Value) -> Dynamic {
-    let mut map = Map::new();
     match value {
-        Value::String(s) => {
-            map.insert("type".into(), Dynamic::from("string"));
-            map.insert("value".into(), Dynamic::from(s.clone()));
-        }
-        Value::Int(i) => {
-            map.insert("type".into(), Dynamic::from("int"));
-            map.insert("value".into(), Dynamic::from(*i));
-        }
-        Value::Bool(b) => {
-            map.insert("type".into(), Dynamic::from("bool"));
-            map.insert("value".into(), Dynamic::from(*b));
-        }
-        Value::Float(f) => {
-            map.insert("type".into(), Dynamic::from("float"));
-            map.insert("value".into(), Dynamic::from(*f));
-        }
-        Value::Choice(c) => {
-            map.insert("type".into(), Dynamic::from("choice"));
-            map.insert("value".into(), Dynamic::from(*c));
-        }
-        Value::EntityReference(Some(e)) => {
-            map.insert("type".into(), Dynamic::from("entity_reference"));
-            map.insert("value".into(), Dynamic::from(e.to_string()));
-        }
-        Value::EntityReference(None) => {
-            map.insert("type".into(), Dynamic::from("entity_reference"));
-            map.insert("value".into(), Dynamic::from(""));
-        }
-        Value::EntityList(ids) => {
-            let array: Array = ids.iter().map(|id| Dynamic::from(id.to_string())).collect();
-            map.insert("type".into(), Dynamic::from("entity_list"));
-            map.insert("value".into(), Dynamic::from(array));
-        }
-        Value::Blob(b) => {
-            map.insert("type".into(), Dynamic::from("blob"));
-            map.insert("value".into(), Dynamic::from(b.clone()));
-        }
-        Value::Timestamp(ts) => {
-            map.insert("type".into(), Dynamic::from("timestamp"));
-            let nanos = ts.duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_nanos() as u64;
-            map.insert("value".into(), Dynamic::from(nanos));
-        }
+        Value::String(s) => Dynamic::from(s.clone()),
+        Value::Int(i) => Dynamic::from(*i),
+        Value::Bool(b) => Dynamic::from(*b),
+        Value::Float(f) => Dynamic::from(*f),
+        Value::Blob(b) => Dynamic::from(b.clone()),
+        Value::EntityReference(Some(e)) => Dynamic::from(e.to_string()),
+        Value::EntityReference(None) => Dynamic::from(""),
+        Value::EntityList(e_list) => {
+            let array = Array::from_iter(e_list.iter().map(|e| Dynamic::from(e.to_string())));
+            Dynamic::from(array)
+        },
+        Value::Choice(c) => Dynamic::from(*c),
+        Value::Timestamp(t) => {
+            let nanos = t.duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_nanos() as i64;
+            Dynamic::from(nanos)
+        },
     }
-    Dynamic::from(map)
 }
