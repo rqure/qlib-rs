@@ -14,6 +14,7 @@ impl<T> IntoEvalError<T> for &str {
     }
 }
 
+#[derive(Debug)]
 pub struct ScriptingEngine {
     engine: Engine,
 }
