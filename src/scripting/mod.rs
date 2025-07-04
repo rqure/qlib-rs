@@ -45,6 +45,96 @@ impl ScriptingEngine {
             },
         );
 
+        // Overloaded write function with push_condition
+        engine.register_fn(
+            "write",
+            |entity_id: &str, field_type: &str, value: Dynamic, push_condition: &str| {
+                let mut map = Map::new();
+                map.insert("action".into(), Dynamic::from("write"));
+                map.insert("entity_id".into(), Dynamic::from(entity_id.to_string()));
+                map.insert("field_type".into(), Dynamic::from(field_type.to_string()));
+                map.insert("value".into(), value);
+                map.insert("push_condition".into(), Dynamic::from(push_condition.to_string()));
+                map.insert("adjust_behavior".into(), Dynamic::from("set"));
+                map
+            },
+        );
+
+        // Overloaded write function with push_condition and adjust_behavior
+        engine.register_fn(
+            "write",
+            |entity_id: &str, field_type: &str, value: Dynamic, push_condition: &str, adjust_behavior: &str| {
+                let mut map = Map::new();
+                map.insert("action".into(), Dynamic::from("write"));
+                map.insert("entity_id".into(), Dynamic::from(entity_id.to_string()));
+                map.insert("field_type".into(), Dynamic::from(field_type.to_string()));
+                map.insert("value".into(), value);
+                map.insert("push_condition".into(), Dynamic::from(push_condition.to_string()));
+                map.insert("adjust_behavior".into(), Dynamic::from(adjust_behavior.to_string()));
+                map
+            },
+        );
+
+        // Add function - equivalent to write with Add adjust behavior
+        engine.register_fn(
+            "add",
+            |entity_id: &str, field_type: &str, value: Dynamic| {
+                let mut map = Map::new();
+                map.insert("action".into(), Dynamic::from("write"));
+                map.insert("entity_id".into(), Dynamic::from(entity_id.to_string()));
+                map.insert("field_type".into(), Dynamic::from(field_type.to_string()));
+                map.insert("value".into(), value);
+                map.insert("push_condition".into(), Dynamic::from("always"));
+                map.insert("adjust_behavior".into(), Dynamic::from("add"));
+                map
+            },
+        );
+
+        // Overloaded add function with push_condition
+        engine.register_fn(
+            "add",
+            |entity_id: &str, field_type: &str, value: Dynamic, push_condition: &str| {
+                let mut map = Map::new();
+                map.insert("action".into(), Dynamic::from("write"));
+                map.insert("entity_id".into(), Dynamic::from(entity_id.to_string()));
+                map.insert("field_type".into(), Dynamic::from(field_type.to_string()));
+                map.insert("value".into(), value);
+                map.insert("push_condition".into(), Dynamic::from(push_condition.to_string()));
+                map.insert("adjust_behavior".into(), Dynamic::from("add"));
+                map
+            },
+        );
+
+        // Sub function - equivalent to write with Subtract adjust behavior
+        engine.register_fn(
+            "sub",
+            |entity_id: &str, field_type: &str, value: Dynamic| {
+                let mut map = Map::new();
+                map.insert("action".into(), Dynamic::from("write"));
+                map.insert("entity_id".into(), Dynamic::from(entity_id.to_string()));
+                map.insert("field_type".into(), Dynamic::from(field_type.to_string()));
+                map.insert("value".into(), value);
+                map.insert("push_condition".into(), Dynamic::from("always"));
+                map.insert("adjust_behavior".into(), Dynamic::from("subtract"));
+                map
+            },
+        );
+
+        // Overloaded sub function with push_condition
+        engine.register_fn(
+            "sub",
+            |entity_id: &str, field_type: &str, value: Dynamic, push_condition: &str| {
+                let mut map = Map::new();
+                map.insert("action".into(), Dynamic::from("write"));
+                map.insert("entity_id".into(), Dynamic::from(entity_id.to_string()));
+                map.insert("field_type".into(), Dynamic::from(field_type.to_string()));
+                map.insert("value".into(), value);
+                map.insert("push_condition".into(), Dynamic::from(push_condition.to_string()));
+                map.insert("adjust_behavior".into(), Dynamic::from("subtract"));
+                map
+            },
+        );
+
         let store_clone = store.clone();
         engine.register_fn("perform", move |requests: Array| -> Result<(), Box<EvalAltResult>> {
             let mut requests = requests
