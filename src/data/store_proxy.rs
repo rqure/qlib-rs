@@ -118,7 +118,6 @@ pub enum StoreMessage {
     FindEntities {
         id: String,
         entity_type: EntityType,
-        parent_id: Option<EntityId>,
         page_opts: Option<PageOpts>,
     },
     FindEntitiesResponse {
@@ -129,7 +128,6 @@ pub enum StoreMessage {
     FindEntitiesExact {
         id: String,
         entity_type: EntityType,
-        parent_id: Option<EntityId>,
         page_opts: Option<PageOpts>,
     },
     FindEntitiesExactResponse {
@@ -139,7 +137,6 @@ pub enum StoreMessage {
     
     GetEntityTypes {
         id: String,
-        parent_type: Option<EntityType>,
         page_opts: Option<PageOpts>,
     },
     GetEntityTypesResponse {
@@ -566,13 +563,11 @@ impl StoreProxy {
         &self,
         _ctx: &Context,
         entity_type: &EntityType,
-        parent_id: Option<EntityId>,
         page_opts: Option<PageOpts>,
     ) -> Result<PageResult<EntityId>> {
         let request = StoreMessage::FindEntities {
             id: Uuid::new_v4().to_string(),
             entity_type: entity_type.clone(),
-            parent_id,
             page_opts,
         };
 
@@ -590,13 +585,11 @@ impl StoreProxy {
         &self,
         _ctx: &Context,
         entity_type: &EntityType,
-        parent_id: Option<EntityId>,
         page_opts: Option<PageOpts>,
     ) -> Result<PageResult<EntityId>> {
         let request = StoreMessage::FindEntitiesExact {
             id: Uuid::new_v4().to_string(),
             entity_type: entity_type.clone(),
-            parent_id,
             page_opts,
         };
 
@@ -613,12 +606,10 @@ impl StoreProxy {
     pub async fn get_entity_types(
         &self,
         _ctx: &Context,
-        parent_type: Option<EntityType>,
         page_opts: Option<PageOpts>,
     ) -> Result<PageResult<EntityType>> {
         let request = StoreMessage::GetEntityTypes {
             id: Uuid::new_v4().to_string(),
-            parent_type,
             page_opts,
         };
 
