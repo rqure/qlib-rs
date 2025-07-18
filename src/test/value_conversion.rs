@@ -18,64 +18,64 @@ mod tests {
             field_type: FieldType::from("StringField"),
             default_value: "default".to_string(),
             rank: 0,
-            read_permission: None,
-            write_permission: None,
+            
+            
         };
         
         let int_field = FieldSchema::Int {
             field_type: FieldType::from("IntField"),
             default_value: 0,
             rank: 1,
-            read_permission: None,
-            write_permission: None,
+            
+            
         };
         
         let bool_field = FieldSchema::Bool {
             field_type: FieldType::from("BoolField"),
             default_value: false,
             rank: 2,
-            read_permission: None,
-            write_permission: None,
+            
+            
         };
         
         let float_field = FieldSchema::Float {
             field_type: FieldType::from("FloatField"),
             default_value: 0.0,
             rank: 3,
-            read_permission: None,
-            write_permission: None,
+            
+            
         };
         
         let blob_field = FieldSchema::Blob {
             field_type: FieldType::from("BlobField"),
             default_value: vec![],
             rank: 4,
-            read_permission: None,
-            write_permission: None,
+            
+            
         };
         
         let entity_ref_field = FieldSchema::EntityReference {
             field_type: FieldType::from("EntityRefField"),
             default_value: None,
             rank: 5,
-            read_permission: None,
-            write_permission: None,
+            
+            
         };
         
         let entity_list_field = FieldSchema::EntityList {
             field_type: FieldType::from("EntityListField"),
             default_value: vec![],
             rank: 6,
-            read_permission: None,
-            write_permission: None,
+            
+            
         };
         
         let choice_field = FieldSchema::Choice {
             field_type: FieldType::from("ChoiceField"),
             default_value: 0,
             rank: 7,
-            read_permission: None,
-            write_permission: None,
+            
+            
             choices: vec!["Option1".to_string(), "Option2".to_string()],
         };
         
@@ -83,8 +83,8 @@ mod tests {
             field_type: FieldType::from("TimestampField"),
             default_value: epoch(),
             rank: 8,
-            read_permission: None,
-            write_permission: None,
+            
+            
         };
         
         schema.fields.insert(FieldType::from("StringField"), string_field);

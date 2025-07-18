@@ -9,40 +9,30 @@ mod tests {
             field_type: FieldType::from("test_string"),
             default_value: "hello".to_string(),  // String instead of Value::String
             rank: 0,
-            read_permission: None,
-            write_permission: None,
         };
         
         let bool_schema = FieldSchema::Bool {
             field_type: FieldType::from("test_bool"),
             default_value: true,  // bool instead of Value::Bool
             rank: 1,
-            read_permission: None,
-            write_permission: None,
         };
         
         let int_schema = FieldSchema::Int {
             field_type: FieldType::from("test_int"),
             default_value: 42,  // i64 instead of Value::Int
             rank: 2,
-            read_permission: None,
-            write_permission: None,
         };
 
         let entity_ref_schema = FieldSchema::EntityReference {
             field_type: FieldType::from("test_ref"),
             default_value: None,  // Option<EntityId> instead of Value::EntityReference
             rank: 3,
-            read_permission: None,
-            write_permission: None,
         };
 
         let entity_list_schema = FieldSchema::EntityList {
             field_type: FieldType::from("test_list"),
             default_value: Vec::new(),  // Vec<EntityId> instead of Value::EntityList
             rank: 4,
-            read_permission: None,
-            write_permission: None,
         };
         
         // Test that default_value() method still returns Value enum
@@ -58,8 +48,6 @@ mod tests {
         //     field_type: FieldType::from("bad"),
         //     default_value: Value::Int(42),  // This would be a compile error!
         //     rank: 0,
-        //     read_permission: None,
-        //     write_permission: None,
         // };
     }
 
@@ -70,8 +58,6 @@ mod tests {
             field_type: FieldType::from("test_choice"),
             default_value: 1,  // i64 instead of Value::Choice
             rank: 0,
-            read_permission: None,
-            write_permission: None,
             choices: vec!["option1".to_string(), "option2".to_string()],
         };
         

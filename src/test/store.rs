@@ -14,24 +14,18 @@ fn create_entity_schema(store: &mut Store, entity_type: &EntityType) -> Result<(
         field_type: ft_name.clone(),
         default_value: "".to_string(),
         rank: 0,
-        read_permission: None,
-        write_permission: None,
     };
 
     let parent_schema = FieldSchema::EntityReference {
         field_type: ft_parent.clone(),
         default_value: None,
         rank: 1,
-        read_permission: None,
-        write_permission: None,
     };
 
     let children_schema = FieldSchema::EntityList {
         field_type: ft_children.clone(),
         default_value: Vec::new(),
         rank: 2,
-        read_permission: None,
-        write_permission: None,
     };
 
     schema.fields.insert(ft_name.clone(), name_schema);
@@ -66,8 +60,6 @@ fn setup_test_database() -> Result<Store> {
         field_type: ft_email.clone(),
         default_value: "".to_string(),
         rank: 3,
-        read_permission: None,
-        write_permission: None,
     };
 
     store.set_field_schema(&ctx, &et_user, &ft_email, email_schema)?;

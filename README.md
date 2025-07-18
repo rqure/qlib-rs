@@ -105,13 +105,10 @@ The `qlib-rs` library supports an entity inheritance model similar to object-ori
 
    ```rust
    // Parent "Object" has a default Name field, but User can override it with different properties
-   let name_schema = FieldSchema {
+   let name_schema = FieldSchema::String {
        field_type: "Name".into(),
-       default_value: Value::String("New User".into()),  // Override default value
+       default_value: "New User".to_string(),  // Override default value
        rank: 0,
-       read_permission: None,
-       write_permission: None,
-       choices: None,
    };
    ```
 
@@ -147,14 +144,10 @@ By convention, all entity types should inherit from the "Object" base type, whic
 let mut person_schema = EntitySchema::<Single>::new("Person".into(), Some("Object".into()));
 
 // Add Person-specific fields
-person_schema.fields.insert("Age".into(), FieldSchema {
-    entity_type: "Person".into(),
+person_schema.fields.insert("Age".into(), FieldSchema::Int {
     field_type: "Age".into(),
-    default_value: Value::Int(0),
+    default_value: 0,
     rank: 3,
-    read_permission: None,
-    write_permission: None,
-    choices: None,
 });
 
 // Register the schema
@@ -164,14 +157,10 @@ store.set_entity_schema(&ctx, &person_schema)?;
 let mut employee_schema = EntitySchema::<Single>::new("Employee".into(), Some("Person".into()));
 
 // Add Employee-specific fields
-employee_schema.fields.insert("Department".into(), FieldSchema {
-    entity_type: "Employee".into(),
+employee_schema.fields.insert("Department".into(), FieldSchema::String {
     field_type: "Department".into(),
-    default_value: Value::String("".into()),
+    default_value: "".to_string(),
     rank: 4,
-    read_permission: None,
-    write_permission: None,
-    choices: None,
 });
 
 // Register the schema

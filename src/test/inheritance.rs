@@ -28,8 +28,6 @@ fn test_inheritance_in_find_entities() -> Result<()> {
             field_type: FieldType::from("Name"),
             default_value: "".to_string(),
             rank: 0,
-            read_permission: None,
-            write_permission: None,
         }
     );
     store.set_entity_schema(&ctx, &animal_schema)?;
@@ -42,8 +40,6 @@ fn test_inheritance_in_find_entities() -> Result<()> {
             field_type: FieldType::from("FurColor"),
             default_value: "brown".to_string(),
             rank: 1,
-            read_permission: None,
-            write_permission: None,
         }
     );
     store.set_entity_schema(&ctx, &mammal_schema)?;
@@ -56,8 +52,6 @@ fn test_inheritance_in_find_entities() -> Result<()> {
             field_type: FieldType::from("Breed"),
             default_value: "mixed".to_string(),
             rank: 2,
-            read_permission: None,
-            write_permission: None,
         }
     );
     store.set_entity_schema(&ctx, &dog_schema)?;
