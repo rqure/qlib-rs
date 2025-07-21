@@ -18,6 +18,8 @@ async-trait = { version = "0.1" }
 futures-util = "0.3.31"
 log = "0.4"
 rhai = "1.22.2"
+argon2 = "0.5.3"
+rand = "0.8.5"
 
 [dev-dependencies]
 env_logger = "0.10"
