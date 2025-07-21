@@ -1,7 +1,9 @@
 mod authentication_manager;
+mod authorization_manager;
 mod error;
 
 pub use authentication_manager::{AuthenticationManager, AuthConfig};
+pub use authorization_manager::{AuthorizationManager, AuthorizationConfig, AuthorizationScope, AccessType};
 pub use error::{AuthError, AuthResult};
 
 use crate::{FieldType, EntityType};
@@ -14,6 +16,13 @@ pub const LAST_LOGIN_FIELD: &str = "LastLogin";
 pub const CREATED_AT_FIELD: &str = "CreatedAt";
 pub const FAILED_ATTEMPTS_FIELD: &str = "FailedAttempts";
 pub const LOCKED_UNTIL_FIELD: &str = "LockedUntil";
+
+/// Constants for authorization-related field types
+pub const TEST_FN_FIELD: &str = "TestFn";
+pub const SCOPE_FIELD: &str = "Scope";
+pub const RESOURCE_TYPE_FIELD: &str = "ResourceType";
+pub const RESOURCE_FIELD_FIELD: &str = "ResourceField";
+pub const PERMISSION_FIELD: &str = "Permission";
 
 /// Helper functions to get field types
 pub fn password_field() -> FieldType {
@@ -47,4 +56,44 @@ pub fn locked_until_field() -> FieldType {
 /// Helper function to get the User entity type
 pub fn user_entity_type() -> EntityType {
     EntityType::from("User")
+}
+
+/// Helper function to get the Subject entity type
+pub fn subject_entity_type() -> EntityType {
+    EntityType::from("Subject")
+}
+
+/// Helper function to get the Permission entity type
+pub fn permission_entity_type() -> EntityType {
+    EntityType::from("Permission")
+}
+
+/// Helper function to get the AuthorizationRule entity type
+pub fn authorization_rule_entity_type() -> EntityType {
+    EntityType::from("AuthorizationRule")
+}
+
+/// Helper function to get the TestFn field type
+pub fn test_fn_field() -> FieldType {
+    FieldType::from(TEST_FN_FIELD)
+}
+
+/// Helper function to get the Scope field type
+pub fn scope_field() -> FieldType {
+    FieldType::from(SCOPE_FIELD)
+}
+
+/// Helper function to get the ResourceType field type
+pub fn resource_type_field() -> FieldType {
+    FieldType::from(RESOURCE_TYPE_FIELD)
+}
+
+/// Helper function to get the ResourceField field type
+pub fn resource_field_field() -> FieldType {
+    FieldType::from(RESOURCE_FIELD_FIELD)
+}
+
+/// Helper function to get the Permission field type (for authorization rules)
+pub fn permission_field() -> FieldType {
+    FieldType::from(PERMISSION_FIELD)
 }

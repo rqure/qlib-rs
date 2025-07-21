@@ -10,3 +10,4 @@ mod scripting_engine;
 mod value_conversion;
 mod conversion_functions;
 mod authentication;
+mod authorization;

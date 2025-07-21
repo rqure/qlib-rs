@@ -14,7 +14,10 @@ pub use data::{
 
 pub use scripting::{ScriptingEngine, IntoEvalError, convert_rhai_to_value, convert_value_to_rhai};
 
-pub use auth::{AuthenticationManager, AuthConfig, AuthError, AuthResult};
+pub use auth::{
+    AuthenticationManager, AuthConfig, AuthError, AuthResult,
+    AuthorizationManager, AuthorizationConfig, AuthorizationScope, AccessType
+};
 
 pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
