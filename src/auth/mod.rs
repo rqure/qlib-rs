@@ -1,10 +1,10 @@
-mod authentication_manager;
-mod authorization_manager;
+mod authentication;
+mod authorization;
 mod error;
 mod security;
 
-pub use authentication_manager::{AuthenticationManager, AuthConfig};
-pub use authorization_manager::{AuthorizationManager, AuthorizationConfig, AuthorizationScope, AccessType};
+pub use authentication::{AuthenticationManager, AuthConfig};
+pub use authorization::{get_scope};
 pub use error::{AuthError, AuthResult};
 pub use security::{
     SecurityContext, JwtClaims, JwtManager, Resource

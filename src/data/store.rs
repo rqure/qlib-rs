@@ -284,10 +284,6 @@ pub struct Store {
     #[serde(skip)]
     type_notifications:
         HashMap<EntityType, HashMap<FieldType, HashMap<NotifyToken, (NotifyConfig, NotificationCallback)>>>,
-
-    /// Permission checker for authorization
-    #[serde(skip)]
-    permission_checker: super::PermissionChecker,
 }
 
 impl std::fmt::Debug for Store {
@@ -321,13 +317,7 @@ impl Store {
             snowflake,
             entity_notifications: HashMap::new(),
             type_notifications: HashMap::new(),
-            permission_checker: super::PermissionChecker::new(),
         }
-    }
-
-    /// Set the authorization manager for permission checking
-    pub fn set_authorization_manager(&mut self, auth_manager: crate::auth::AuthorizationManager) {
-        self.permission_checker = super::PermissionChecker::with_authorization_manager(auth_manager);
     }
 
     pub fn create_entity(
@@ -637,22 +627,7 @@ impl Store {
         write_time: &mut Option<Timestamp>,
         writer_id: &mut Option<EntityId>,
     ) -> Result<()> {
-        // Check read permission using QOS authorization model
-        let has_permission = {
-            // If no security context, allow by default (for backward compatibility)
-            let _security_context = match ctx.get_security_context() {
-                Some(sc) => sc,
-                None => return self.read_field_data(entity_id, field_type, value, write_time, writer_id),
-            };
-
-            // QOS Default policy: If no AuthorizationRules exist, allow access
-            // This implements the QOS specification: "By default, if a resource does not have an 
-            // AuthorizationRule associated to it, anyone can read or write to it"
-            // TODO: Implement full AuthorizationRule checking here
-            true
-        };
-
-        if !has_permission {
+        if !has_permission() {
             return Err(format!("Permission denied: cannot read field {} on entity {}", 
                 field_type, entity_id).into());
         }
@@ -1085,6 +1060,32 @@ impl Store {
             total,
             next_cursor,
         })
+    }
+
+    pub fn find_all_entities(
+        &self,
+        ctx: &Context,
+        entity_type: &EntityType
+    ) -> Result<Vec<EntityId>> {
+        let result = Vec::new();
+        let pageOpts: Option<PageOpts> = None;
+
+        loop {
+            let page_result = self.find_entities(ctx, entity_type, pageOpts.clone())?;
+            if page_result.items.is_empty() {
+                break;
+            }
+
+            result.extend(page_result.items);
+            if page_result.next_cursor.is_none() {
+                break;
+            }
+
+            // Update the cursor for the next iteration
+            pageOpts = Some(PageOpts::new(page_result.items.len(), page_result.next_cursor));
+        }
+
+        Ok(result)
     }
 
     /// Get all entity types with pagination

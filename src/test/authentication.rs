@@ -1,11 +1,14 @@
-use crate::*;
-use crate::auth::*;
-use std::sync::Arc;
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
+
+use crate::{AuthConfig, AuthError, AuthenticationManager, Context, Result, Snowflake, Store};
+
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use std::{sync::Arc, time::Duration};
+
+    use crate::{AuthConfig, AuthError, AuthenticationManager, Context, Snowflake, Store};
+
 
     fn create_test_store() -> Store {
         Store::new(Arc::new(Snowflake::new()))

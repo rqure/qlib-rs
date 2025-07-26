@@ -9,14 +9,13 @@ pub use data::{
     Field, FieldSchema, NotifyToken, AdjustBehavior, PushCondition, Request, Snowflake, 
     StoreProxy, StoreMessage, Value, INDIRECTION_DELIMITER, NotifyConfig, Notification,
     EntityType, FieldType, Timestamp, now, epoch, nanos_to_timestamp, secs_to_timestamp, 
-    millis_to_timestamp, micros_to_timestamp, PermissionChecker
+    millis_to_timestamp, micros_to_timestamp
 };
 
 pub use scripting::{ScriptingEngine, IntoEvalError, convert_rhai_to_value, convert_value_to_rhai};
 
 pub use auth::{
     AuthenticationManager, AuthConfig, AuthError, AuthResult,
-    AuthorizationManager, AuthorizationConfig, AuthorizationScope, AccessType,
     SecurityContext, JwtClaims, JwtManager, Resource
 };
 
