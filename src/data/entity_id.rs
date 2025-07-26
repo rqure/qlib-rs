@@ -33,14 +33,14 @@ impl TryFrom<&str> for EntityId {
     fn try_from(value: &str) -> Result<Self, Self::Error> {
         let parts: Vec<&str> = value.split(&EntityId::SEPARATOR).collect();
 
-        if parts.len() != 2 {
-            return Err("Invalid EntityId format, expected 'type&id'".to_string());
+        if parts.len() == 2 {
+            // Parse as "type$id" format
+            let typ = parts[0].to_string();
+            let id = parts[1].parse::<u64>().map_err(|e| format!("Invalid id: {}", e))?;
+            Ok(EntityId { typ: typ.into(), id })
+        } else {
+            Err(format!("Invalid EntityId format, expected 'type{}id'", EntityId::SEPARATOR))
         }
-
-        let typ = parts[0].to_string();
-        let id = parts[1].parse::<u64>().map_err(|e| format!("Invalid id: {}", e))?;
-
-        Ok(EntityId { typ: typ.into(), id })
     }
 }
 

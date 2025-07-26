@@ -7,7 +7,7 @@ mod tests {
     // Helper function to create a test store with basic entity schema
     fn create_test_store_with_schema() -> Result<Arc<Mutex<Store>>> {
         let store = Arc::new(Mutex::new(Store::new(Arc::new(Snowflake::new()))));
-        let ctx = Context {};
+        let ctx = Context::new();
         
         // Create a basic entity type with various field types
         let et_test = EntityType::from("TestEntity");

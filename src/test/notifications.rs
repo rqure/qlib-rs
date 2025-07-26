@@ -5,7 +5,7 @@ mod tests {
     #[test]
     fn test_register_notification_entity_id() -> Result<()> {
         let mut store = Store::new(Arc::new(Snowflake::new()));
-        let ctx = Context {};
+        let ctx = Context::new();
         // Create entity type and schema
         let et_user = EntityType::from("User");
         let mut user_schema = EntitySchema::<Single>::new(et_user.clone(), None);
@@ -57,7 +57,7 @@ mod tests {
     #[test]
     fn test_register_notification_entity_type() -> Result<()> {
         let mut store = Store::new(Arc::new(Snowflake::new()));
-        let ctx = Context {};
+        let ctx = Context::new();
         // Create entity type and schema
         let et_user = EntityType::from("User");
         let mut user_schema = EntitySchema::<Single>::new(et_user.clone(), None);
@@ -106,7 +106,7 @@ mod tests {
     #[test]
     fn test_notification_with_context_fields() -> Result<()> {
         let mut store = Store::new(Arc::new(Snowflake::new()));
-        let ctx = Context {};
+        let ctx = Context::new();
         // Create entity type and schema
         let et_user = EntityType::from("User");
         let mut user_schema = EntitySchema::<Single>::new(et_user.clone(), None);
@@ -169,7 +169,7 @@ mod tests {
     #[test]
     fn test_cannot_register_notification_on_indirect_field() -> Result<()> {
         let mut store = Store::new(Arc::new(Snowflake::new()));
-        let ctx = Context {};
+        let ctx = Context::new();
         let callback = Box::new(|_: &Notification| {});
         // Try to register notification on indirect field - should fail
         let config = NotifyConfig::EntityId {
@@ -186,7 +186,7 @@ mod tests {
     #[test]
     fn test_get_notification_configs() -> Result<()> {
         let mut store = Store::new(Arc::new(Snowflake::new()));
-        let ctx = Context {};
+        let ctx = Context::new();
         let callback1 = Box::new(|_: &Notification| {});
         let callback2 = Box::new(|_: &Notification| {});
         let config1 = NotifyConfig::EntityId {
@@ -216,7 +216,7 @@ mod tests {
     #[test]
     fn test_unregister_notification() -> Result<()> {
         let mut store = Store::new(Arc::new(Snowflake::new()));
-        let ctx = Context {};
+        let ctx = Context::new();
         // Create entity schema
         let et_user = EntityType::from("User");
         let mut user_schema = EntitySchema::<Single>::new(et_user.clone(), None);
@@ -272,7 +272,7 @@ mod tests {
     #[test]
     fn test_notification_inheritance_parent_type() -> Result<()> {
         let mut store = Store::new(Arc::new(Snowflake::new()));
-        let ctx = Context {};
+        let ctx = Context::new();
         // Create inheritance hierarchy: Animal -> Mammal -> Dog
         let et_animal = EntityType::from("Animal");
         let et_mammal = EntityType::from("Mammal");
@@ -333,7 +333,7 @@ mod tests {
     #[test]
     fn test_notification_inheritance_multiple_levels() -> Result<()> {
         let mut store = Store::new(Arc::new(Snowflake::new()));
-        let ctx = Context {};
+        let ctx = Context::new();
         // Create inheritance hierarchy: Object -> Vehicle -> Car -> Sedan
         let et_object = EntityType::from("Object");
         let et_vehicle = EntityType::from("Vehicle");
@@ -439,7 +439,7 @@ mod tests {
     #[test]
     fn test_notification_inheritance_no_duplicate_triggers() -> Result<()> {
         let mut store = Store::new(Arc::new(Snowflake::new()));
-        let ctx = Context {};
+        let ctx = Context::new();
         // Create inheritance hierarchy: Animal -> Dog
         let et_animal = EntityType::from("Animal");
         let et_dog = EntityType::from("Dog");
@@ -509,7 +509,7 @@ mod tests {
     #[test]
     fn test_notification_inheritance_context_fields() -> Result<()> {
         let mut store = Store::new(Arc::new(Snowflake::new()));
-        let ctx = Context {};
+        let ctx = Context::new();
         // Create inheritance hierarchy with parent-child relationships
         let et_object = EntityType::from("Object");
         let et_folder = EntityType::from("Folder");
@@ -592,7 +592,7 @@ mod tests {
     #[test]
     fn test_notification_inheritance_mixed_entity_and_type() -> Result<()> {
         let mut store = Store::new(Arc::new(Snowflake::new()));
-        let ctx = Context {};
+        let ctx = Context::new();
         // Create inheritance hierarchy: Animal -> Dog
         let et_animal = EntityType::from("Animal");
         let et_dog = EntityType::from("Dog");

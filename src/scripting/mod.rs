@@ -292,7 +292,7 @@ impl ScriptingEngine {
                         }
                         "write" => {
                             let entity_schema = store
-                                .get_complete_entity_schema(&crate::Context {  }, &entity_id.get_type())
+                                .get_complete_entity_schema(&crate::Context::new(), &entity_id.get_type())
                                 .map_err(|e| format!("Failed to get entity schema: {}", e))?;
 
                             let field_schema = entity_schema.fields
@@ -350,7 +350,7 @@ impl ScriptingEngine {
                 }
 
                 // Execute the requests
-                if let Err(e) = store.perform(&crate::Context {}, &mut store_requests) {
+                if let Err(e) = store.perform(&crate::Context::new(), &mut store_requests) {
                     return Err(format!("Failed to perform requests: {}", e).into());
                 }
 

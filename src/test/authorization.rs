@@ -11,7 +11,7 @@ mod tests {
     }
 
     fn create_test_context() -> Context {
-        Context {}
+        Context::new()
     }
 
     #[test]

@@ -12,7 +12,7 @@ mod tests {
     }
 
     fn create_test_context() -> Context {
-        Context {}
+        Context::new()
     }
 
     #[test]
@@ -319,7 +319,7 @@ mod tests {
 fn test_auth_manager_initialization() -> Result<()> {
     let mut store = Store::new(Arc::new(Snowflake::new()));
     let auth_manager = AuthenticationManager::new();
-    let ctx = Context {};
+    let ctx = Context::new();
 
     // Initialize the user schema
     auth_manager.initialize_user_schema(&mut store, &ctx)?;
@@ -331,7 +331,7 @@ fn test_auth_manager_initialization() -> Result<()> {
 fn test_create_user() -> Result<()> {
     let mut store = Store::new(Arc::new(Snowflake::new()));
     let auth_manager = AuthenticationManager::new();
-    let ctx = Context {};
+    let ctx = Context::new();
 
     // Initialize the user schema
     auth_manager.initialize_user_schema(&mut store, &ctx)?;
@@ -349,7 +349,7 @@ fn test_create_user() -> Result<()> {
 fn test_authenticate_valid_user() -> Result<()> {
     let mut store = Store::new(Arc::new(Snowflake::new()));
     let auth_manager = AuthenticationManager::new();
-    let ctx = Context {};
+    let ctx = Context::new();
 
     // Initialize the user schema
     auth_manager.initialize_user_schema(&mut store, &ctx)?;
@@ -370,7 +370,7 @@ fn test_authenticate_valid_user() -> Result<()> {
 fn test_authenticate_invalid_password() -> Result<()> {
     let mut store = Store::new(Arc::new(Snowflake::new()));
     let auth_manager = AuthenticationManager::new();
-    let ctx = Context {};
+    let ctx = Context::new();
 
     // Initialize the user schema
     auth_manager.initialize_user_schema(&mut store, &ctx)?;
@@ -391,7 +391,7 @@ fn test_authenticate_invalid_password() -> Result<()> {
 fn test_authenticate_non_existent_user() -> Result<()> {
     let mut store = Store::new(Arc::new(Snowflake::new()));
     let auth_manager = AuthenticationManager::new();
-    let ctx = Context {};
+    let ctx = Context::new();
 
     // Initialize the user schema
     auth_manager.initialize_user_schema(&mut store, &ctx)?;
@@ -409,7 +409,7 @@ fn test_authenticate_non_existent_user() -> Result<()> {
 fn test_password_validation() -> Result<()> {
     let mut store = Store::new(Arc::new(Snowflake::new()));
     let auth_manager = AuthenticationManager::new();
-    let ctx = Context {};
+    let ctx = Context::new();
 
     // Initialize the user schema
     auth_manager.initialize_user_schema(&mut store, &ctx)?;
@@ -433,7 +433,7 @@ fn test_password_validation() -> Result<()> {
 fn test_user_already_exists() -> Result<()> {
     let mut store = Store::new(Arc::new(Snowflake::new()));
     let auth_manager = AuthenticationManager::new();
-    let ctx = Context {};
+    let ctx = Context::new();
 
     // Initialize the user schema
     auth_manager.initialize_user_schema(&mut store, &ctx)?;
@@ -454,7 +454,7 @@ fn test_user_already_exists() -> Result<()> {
 fn test_disable_and_enable_user() -> Result<()> {
     let mut store = Store::new(Arc::new(Snowflake::new()));
     let auth_manager = AuthenticationManager::new();
-    let ctx = Context {};
+    let ctx = Context::new();
 
     // Initialize the user schema
     auth_manager.initialize_user_schema(&mut store, &ctx)?;
@@ -485,7 +485,7 @@ fn test_disable_and_enable_user() -> Result<()> {
 fn test_change_password() -> Result<()> {
     let mut store = Store::new(Arc::new(Snowflake::new()));
     let auth_manager = AuthenticationManager::new();
-    let ctx = Context {};
+    let ctx = Context::new();
 
     // Initialize the user schema
     auth_manager.initialize_user_schema(&mut store, &ctx)?;
@@ -518,7 +518,7 @@ fn test_account_lockout() -> Result<()> {
     let auth_manager = AuthenticationManager::with_config(config);
     
     let mut store = Store::new(Arc::new(Snowflake::new()));
-    let ctx = Context {};
+    let ctx = Context::new();
 
     // Initialize the user schema
     auth_manager.initialize_user_schema(&mut store, &ctx)?;
@@ -548,7 +548,7 @@ fn test_unlock_user() -> Result<()> {
     let auth_manager = AuthenticationManager::with_config(config);
     
     let mut store = Store::new(Arc::new(Snowflake::new()));
-    let ctx = Context {};
+    let ctx = Context::new();
 
     // Initialize the user schema
     auth_manager.initialize_user_schema(&mut store, &ctx)?;
@@ -587,7 +587,7 @@ fn test_custom_auth_config() -> Result<()> {
     
     let auth_manager = AuthenticationManager::with_config(config);
     let mut store = Store::new(Arc::new(Snowflake::new()));
-    let ctx = Context {};
+    let ctx = Context::new();
 
     // Initialize the user schema
     auth_manager.initialize_user_schema(&mut store, &ctx)?;

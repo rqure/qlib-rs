@@ -148,7 +148,52 @@ impl std::fmt::Display for BadIndirection {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Context {}
+pub struct Context {
+    /// Optional security context for JWT-based authorization
+    pub security_context: Option<crate::auth::SecurityContext>,
+}
+
+impl Default for Context {
+    fn default() -> Self {
+        Self {
+            security_context: None,
+        }
+    }
+}
+
+impl Context {
+    /// Create a new context without security
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Create a new context with a security context
+    pub fn with_security(security_context: crate::auth::SecurityContext) -> Self {
+        Self {
+            security_context: Some(security_context),
+        }
+    }
+
+    /// Get the security context if present
+    pub fn get_security_context(&self) -> Option<&crate::auth::SecurityContext> {
+        self.security_context.as_ref()
+    }
+
+    /// Check if the context is authenticated
+    pub fn is_authenticated(&self) -> bool {
+        self.security_context
+            .as_ref()
+            .map(|sc| sc.is_authenticated())
+            .unwrap_or(false)
+    }
+
+    /// Get the subject ID if authenticated
+    pub fn get_subject_id(&self) -> Option<&EntityId> {
+        self.security_context
+            .as_ref()
+            .and_then(|sc| sc.get_subject_id())
+    }
+}
 
 /// Represents a complete snapshot of the store at a point in time
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -239,6 +284,10 @@ pub struct Store {
     #[serde(skip)]
     type_notifications:
         HashMap<EntityType, HashMap<FieldType, HashMap<NotifyToken, (NotifyConfig, NotificationCallback)>>>,
+
+    /// Permission checker for authorization
+    #[serde(skip)]
+    permission_checker: super::PermissionChecker,
 }
 
 impl std::fmt::Debug for Store {
@@ -272,7 +321,13 @@ impl Store {
             snowflake,
             entity_notifications: HashMap::new(),
             type_notifications: HashMap::new(),
+            permission_checker: super::PermissionChecker::new(),
         }
+    }
+
+    /// Set the authorization manager for permission checking
+    pub fn set_authorization_manager(&mut self, auth_manager: crate::auth::AuthorizationManager) {
+        self.permission_checker = super::PermissionChecker::with_authorization_manager(auth_manager);
     }
 
     pub fn create_entity(
@@ -574,8 +629,39 @@ impl Store {
     }
 
     fn read(
+        &mut self,
+        ctx: &Context,
+        entity_id: &EntityId,
+        field_type: &FieldType,
+        value: &mut Option<Value>,
+        write_time: &mut Option<Timestamp>,
+        writer_id: &mut Option<EntityId>,
+    ) -> Result<()> {
+        // Check read permission using QOS authorization model
+        let has_permission = {
+            // If no security context, allow by default (for backward compatibility)
+            let _security_context = match ctx.get_security_context() {
+                Some(sc) => sc,
+                None => return self.read_field_data(entity_id, field_type, value, write_time, writer_id),
+            };
+
+            // QOS Default policy: If no AuthorizationRules exist, allow access
+            // This implements the QOS specification: "By default, if a resource does not have an 
+            // AuthorizationRule associated to it, anyone can read or write to it"
+            // TODO: Implement full AuthorizationRule checking here
+            true
+        };
+
+        if !has_permission {
+            return Err(format!("Permission denied: cannot read field {} on entity {}", 
+                field_type, entity_id).into());
+        }
+
+        self.read_field_data(entity_id, field_type, value, write_time, writer_id)
+    }
+
+    fn read_field_data(
         &self,
-        _: &Context,
         entity_id: &EntityId,
         field_type: &FieldType,
         value: &mut Option<Value>,
@@ -609,6 +695,25 @@ impl Store {
         write_option: &PushCondition,
         adjust_behavior: &AdjustBehavior,
     ) -> Result<()> {
+        // Check write permission using QOS authorization model
+        let has_permission = {
+            if let Some(_security_context) = ctx.get_security_context() {
+                // QOS Default policy: If no AuthorizationRules exist, allow access
+                // This implements the QOS specification: "By default, if a resource does not have an 
+                // AuthorizationRule associated to it, anyone can read or write to it"
+                // TODO: Implement full AuthorizationRule checking here
+                true
+            } else {
+                // No security context, allow by default
+                true
+            }
+        };
+
+        if !has_permission {
+            return Err(format!("Permission denied: cannot write field {} on entity {}", 
+                field_type, entity_id).into());
+        }
+
         let entity_schema = self.get_complete_entity_schema(ctx, entity_id.get_type())?;
         let field_schema = entity_schema
             .fields

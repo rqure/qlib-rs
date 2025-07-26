@@ -32,7 +32,7 @@ fn create_entity_schema(store: &mut Store, entity_type: &EntityType) -> Result<(
     schema.fields.insert(ft_parent.clone(), parent_schema);
     schema.fields.insert(ft_children.clone(), children_schema);
 
-    store.set_entity_schema(&Context {}, &schema)?;
+    store.set_entity_schema(&Context::new(), &schema)?;
     Ok(())
 }
 
@@ -40,7 +40,7 @@ fn create_entity_schema(store: &mut Store, entity_type: &EntityType) -> Result<(
 #[allow(dead_code)]
 fn setup_test_database() -> Result<Store> {
     let mut store = Store::new(Arc::new(Snowflake::new()));
-    let ctx = Context {};
+    let ctx = Context::new();
 
     let et_root = EntityType::from("Root");
     let et_folder = EntityType::from("Folder");
@@ -73,7 +73,7 @@ fn setup_test_database() -> Result<Store> {
 #[test]
 fn test_create_entity_hierarchy() -> Result<()> {
     let mut store = setup_test_database()?;
-    let ctx = Context {};
+    let ctx = Context::new();
 
     let et_root = EntityType::from("Root");
     let et_folder = EntityType::from("Folder");
@@ -147,7 +147,7 @@ fn test_create_entity_hierarchy() -> Result<()> {
 #[test]
 fn test_field_operations() -> Result<()> {
     let mut store = setup_test_database()?;
-    let ctx = Context {};
+    let ctx = Context::new();
 
     let et_root = EntityType::from("Root");
     let et_folder = EntityType::from("Folder");
@@ -204,7 +204,7 @@ fn test_field_operations() -> Result<()> {
 #[test]
 fn test_indirection_resolution() -> Result<()> {
     let mut store = setup_test_database()?;
-    let ctx = Context {};
+    let ctx = Context::new();
 
     let et_root = EntityType::from("Root");
     let et_folder = EntityType::from("Folder");
@@ -259,7 +259,7 @@ fn test_indirection_resolution() -> Result<()> {
 #[test]
 fn test_entity_deletion() -> Result<()> {
     let mut store = setup_test_database()?;
-    let ctx = Context {};
+    let ctx = Context::new();
 
     let et_root = EntityType::from("Root");
     let et_folder = EntityType::from("Folder");
@@ -308,7 +308,7 @@ fn test_entity_deletion() -> Result<()> {
 #[test]
 fn test_entity_listing_with_pagination() -> Result<()> {
     let mut store = setup_test_database()?;
-    let ctx = Context {};
+    let ctx = Context::new();
 
     // Create multiple entities of the same type
     let et_root = EntityType::from("Root");

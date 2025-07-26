@@ -6,7 +6,7 @@ use std::sync::Arc;
 #[test]
 fn test_inheritance_in_find_entities() -> Result<()> {
     let mut store = Store::new(Arc::new(Snowflake::new()));
-    let ctx = Context {};
+    let ctx = Context::new();
 
     // Create base and derived entity types
     let et_animal = EntityType::from("Animal");
@@ -108,7 +108,7 @@ fn test_inheritance_in_find_entities() -> Result<()> {
 #[test]
 fn test_inheritance_with_direct_instances() -> Result<()> {
     let mut store = Store::new(Arc::new(Snowflake::new()));
-    let ctx = Context {};
+    let ctx = Context::new();
 
     // Create hierarchy with direct instances at each level
     let et_vehicle = EntityType::from("Vehicle");
@@ -160,7 +160,7 @@ fn test_inheritance_with_direct_instances() -> Result<()> {
 #[test]
 fn test_circular_inheritance_protection() -> Result<()> {
     let mut store = Store::new(Arc::new(Snowflake::new()));
-    let ctx = Context {};
+    let ctx = Context::new();
 
     // Try to create circular inheritance: A -> B -> C -> A
     let et_a = EntityType::from("TypeA");

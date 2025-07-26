@@ -20,6 +20,8 @@ log = "0.4"
 rhai = "1.22.2"
 argon2 = "0.5.3"
 rand = "0.8.5"
+jsonwebtoken = "9.3.0"
+chrono = { version = "0.4", features = ["serde"] }
 
 [dev-dependencies]
 env_logger = "0.10"

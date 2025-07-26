@@ -11,6 +11,7 @@ mod store_proxy;
 mod value;
 mod constants;
 mod notifications;
+mod permission_checker;
 
 use std::{fmt, time::Duration};
 
@@ -31,6 +32,7 @@ pub use store_proxy::{StoreProxy, StoreMessage};
 pub use value::Value;
 pub use constants::{INDIRECTION_DELIMITER};
 pub use notifications::{NotifyConfig, Notification};
+pub use permission_checker::PermissionChecker;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash)]
 pub struct EntityType(pub String);
