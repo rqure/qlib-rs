@@ -260,6 +260,98 @@ impl<T> PageResult<T> {
     }
 }
 
+pub trait StoreTrait {
+    async fn create_entity(
+        &mut self,
+        ctx: &Context,
+        entity_type: &EntityType,
+        parent_id: Option<EntityId>,
+        name: &str,
+    ) -> Result<Entity>;
+
+    async fn get_entity_schema(
+        &self,
+        ctx: &Context,
+        entity_type: &EntityType,
+    ) -> Result<EntitySchema<Single>>;
+
+    async fn get_complete_entity_schema(
+        &self,
+        ctx: &Context,
+        entity_type: &EntityType,
+    ) -> Result<EntitySchema<Complete>>;
+
+    async fn set_entity_schema(
+        &mut self,
+        ctx: &Context,
+        entity_schema: &EntitySchema<Single>,
+    ) -> Result<()>;
+
+    async fn get_field_schema(
+        &self,
+        ctx: &Context,
+        entity_type: &EntityType,
+        field_type: &FieldType,
+    ) -> Result<FieldSchema>;
+
+    async fn set_field_schema(
+        &mut self,
+        ctx: &Context,
+        entity_type: &EntityType,
+        field_type: &FieldType,
+        field_schema: FieldSchema,
+    ) -> Result<()>;
+
+    async fn entity_exists(&self, ctx: &Context, entity_id: &EntityId) -> bool;
+
+    async fn field_exists(
+        &self,
+        ctx: &Context,
+        entity_type: &EntityType,
+        field_type: &FieldType,
+    ) -> bool;
+
+    async fn perform(&mut self, ctx: &Context, requests: &mut Vec<Request>) -> Result<()>;
+
+    async fn delete_entity(&mut self, ctx: &Context, entity_id: &EntityId) -> Result<()>;
+
+    async fn find_entities_paginated(
+        &self,
+        _: &Context,
+        entity_type: &EntityType,
+        page_opts: Option<PageOpts>,
+    ) -> Result<PageResult<EntityId>>;
+
+    async fn find_entities_exact(
+        &self,
+        ctx: &Context,
+        entity_type: &EntityType,
+        page_opts: Option<PageOpts>,
+    ) -> Result<PageResult<EntityId>>;
+
+    async fn find_entities(
+        &self,
+        ctx: &Context,
+        entity_type: &EntityType
+    ) -> Result<Vec<EntityId>>;
+
+    async fn get_entity_types(
+        &self,
+        ctx: &Context,
+        page_opts: Option<PageOpts>,
+    ) -> Result<PageResult<EntityType>>;
+
+    async fn register_notification(
+        &mut self,
+        ctx: &Context,
+        config: NotifyConfig,
+        callback: NotificationCallback,
+    ) -> Result<NotifyToken>;
+
+    async fn unregister_notification(&mut self, target_config: &NotifyConfig) -> bool;
+
+}
+
 #[derive(Serialize, Deserialize, Default)]
 pub struct Store {
     schemas: HashMap<EntityType, EntitySchema<Single>>,
@@ -277,13 +369,13 @@ pub struct Store {
 
     /// Notification configurations indexed by entity ID and field type
     #[serde(skip)]
-    entity_notifications:
-        HashMap<EntityId, HashMap<FieldType, HashMap<NotifyToken, (NotifyConfig, NotificationCallback)>>>,
+    id_notifications:
+        HashMap<EntityId, HashMap<FieldType, HashMap<NotifyConfig, NotificationCallback>>>,
 
     /// Notification configurations indexed by entity type and field type
     #[serde(skip)]
     type_notifications:
-        HashMap<EntityType, HashMap<FieldType, HashMap<NotifyToken, (NotifyConfig, NotificationCallback)>>>,
+        HashMap<EntityType, HashMap<FieldType, HashMap<NotifyConfig, NotificationCallback>>>,
 }
 
 impl std::fmt::Debug for Store {
@@ -296,7 +388,7 @@ impl std::fmt::Debug for Store {
             .field("inheritance_map", &self.inheritance_map)
             .field(
                 "entity_notifications",
-                &format_args!("{} entity notifications", self.entity_notifications.len()),
+                &format_args!("{} entity notifications", self.id_notifications.len()),
             )
             .field(
                 "type_notifications",
@@ -306,21 +398,8 @@ impl std::fmt::Debug for Store {
     }
 }
 
-impl Store {
-    pub fn new(snowflake: Arc<Snowflake>) -> Self {
-        Store {
-            schemas: HashMap::new(),
-            entities: HashMap::new(),
-            types: Vec::new(),
-            fields: HashMap::new(),
-            inheritance_map: HashMap::new(),
-            snowflake,
-            entity_notifications: HashMap::new(),
-            type_notifications: HashMap::new(),
-        }
-    }
-
-    pub fn create_entity(
+impl StoreTrait for Store {
+    async fn create_entity(
         &mut self,
         ctx: &Context,
         entity_type: &EntityType,
@@ -332,7 +411,7 @@ impl Store {
         }
 
         if let Some(parent) = &parent_id {
-            if !self.entity_exists(ctx, &parent) {
+            if !self.entity_exists(ctx, &parent).await {
                 return Err(EntityNotFound(parent.clone()).into());
             }
         }
@@ -357,7 +436,7 @@ impl Store {
         }
 
         {
-            let complete_schema = self.get_complete_entity_schema(ctx, entity_type)?;
+            let complete_schema = self.get_complete_entity_schema(ctx, entity_type).await?;
             let mut writes = complete_schema
                 .fields
                 .iter()
@@ -389,13 +468,13 @@ impl Store {
                 ));
             }
 
-            self.perform(ctx, &mut writes)?;
+            self.perform(ctx, &mut writes).await?;
         }
 
         Ok(Entity::new(entity_id))
     }
 
-    pub fn get_entity_schema(
+    async fn get_entity_schema(
         &self,
         _: &Context,
         entity_type: &EntityType,
@@ -406,12 +485,12 @@ impl Store {
             .ok_or_else(|| EntityTypeNotFound(entity_type.clone()).into())
     }
 
-    pub fn get_complete_entity_schema(
+    async fn get_complete_entity_schema(
         &self,
         ctx: &Context,
         entity_type: &EntityType,
     ) -> Result<EntitySchema<Complete>> {
-        let mut schema = EntitySchema::<Complete>::from(self.get_entity_schema(ctx, entity_type)?);
+        let mut schema = EntitySchema::<Complete>::from(self.get_entity_schema(ctx, entity_type).await?);
         let mut visited_types = std::collections::HashSet::new();
         visited_types.insert(entity_type.clone());
 
@@ -448,7 +527,7 @@ impl Store {
     }
 
     /// Set or update the schema for an entity type
-    pub fn set_entity_schema(
+    async fn set_entity_schema(
         &mut self,
         ctx: &Context,
         entity_schema: &EntitySchema<Single>,
@@ -457,6 +536,7 @@ impl Store {
         // We'll use this to see if any fields have been added or removed
         let complete_old_schema = self
             .get_complete_entity_schema(ctx, &entity_schema.entity_type)
+            .await
             .unwrap_or_else(|_| EntitySchema::<Complete>::new(entity_schema.entity_type.clone()));
 
         self.schemas
@@ -473,7 +553,8 @@ impl Store {
 
         // Get the complete schema for the entity type
         let complete_new_schema =
-            self.get_complete_entity_schema(ctx, &entity_schema.entity_type)?;
+            self.get_complete_entity_schema(ctx, &entity_schema.entity_type)
+            .await?;
 
         for removed_field in complete_old_schema.diff(&complete_new_schema) {
             // If the field was removed, we need to remove it from all entities
@@ -518,13 +599,14 @@ impl Store {
     }
 
     /// Get the schema for a specific field
-    pub fn get_field_schema(
+    async fn get_field_schema(
         &self,
         ctx: &Context,
         entity_type: &EntityType,
         field_type: &FieldType,
     ) -> Result<FieldSchema> {
-        self.get_entity_schema(ctx, entity_type)?
+        self.get_entity_schema(ctx, entity_type)
+            .await?
             .fields
             .get(field_type)
             .cloned()
@@ -534,27 +616,27 @@ impl Store {
     }
 
     /// Set or update the schema for a specific field
-    pub fn set_field_schema(
+    async fn set_field_schema(
         &mut self,
         ctx: &Context,
         entity_type: &EntityType,
         field_type: &FieldType,
         field_schema: FieldSchema,
     ) -> Result<()> {
-        let mut entity_schema = self.get_entity_schema(ctx, entity_type)?;
+        let mut entity_schema = self.get_entity_schema(ctx, entity_type).await?;
 
         entity_schema
             .fields
             .insert(field_type.clone(), field_schema);
 
-        self.set_entity_schema(ctx, &entity_schema)
+        self.set_entity_schema(ctx, &entity_schema).await
     }
 
-    pub fn entity_exists(&self, _: &Context, entity_id: &EntityId) -> bool {
+    async fn entity_exists(&self, _: &Context, entity_id: &EntityId) -> bool {
         self.fields.contains_key(entity_id)
     }
 
-    pub fn field_exists(
+    async fn field_exists(
         &self,
         _: &Context,
         entity_type: &EntityType,
@@ -566,19 +648,7 @@ impl Store {
             .unwrap_or(false)
     }
 
-    pub fn entity_field_exists(
-        &self,
-        _: &Context,
-        entity_id: &EntityId,
-        field_type: &FieldType,
-    ) -> bool {
-        self.fields
-            .get(entity_id)
-            .map(|fields| fields.contains_key(field_type))
-            .unwrap_or(false)
-    }
-
-    pub fn perform(&mut self, ctx: &Context, requests: &mut Vec<Request>) -> Result<()> {
+    async fn perform(&mut self, ctx: &Context, requests: &mut Vec<Request>) -> Result<()> {
         for request in requests.iter_mut() {
             match request {
                 Request::Read {
@@ -589,8 +659,8 @@ impl Store {
                     writer_id,
                 } => {
                     let indir: (EntityId, FieldType) =
-                        resolve_indirection(ctx, self, entity_id, field_type)?;
-                    self.read(ctx, &indir.0, &indir.1, value, write_time, writer_id)?;
+                        Box::pin(resolve_indirection(ctx, self, entity_id, field_type)).await?;
+                    self.read(ctx, &indir.0, &indir.1, value, write_time, writer_id).await?;
                 }
                 Request::Write {
                     entity_id,
@@ -601,7 +671,7 @@ impl Store {
                     push_condition,
                     adjust_behavior,
                 } => {
-                    let indir = resolve_indirection(ctx, self, entity_id, field_type)?;
+                    let indir = resolve_indirection(ctx, self, entity_id, field_type).await?;
                     self.write(
                         ctx,
                         &indir.0,
@@ -611,14 +681,448 @@ impl Store {
                         writer_id,
                         push_condition,
                         adjust_behavior,
-                    )?;
+                    ).await?;
                 }
             }
         }
         Ok(())
     }
 
-    fn read(
+    /// Deletes an entity and all its fields
+    /// Returns an error if the entity doesn't exist
+    async fn delete_entity(&mut self, ctx: &Context, entity_id: &EntityId) -> Result<()> {
+        // Check if the entity exists
+        {
+            if !self.fields.contains_key(entity_id) {
+                return Err(EntityNotFound(entity_id.clone()).into());
+            }
+        }
+
+        // Remove all childrens
+        {
+            let mut reqs = vec![sread!(entity_id.clone(), "Children".into())];
+            self.perform(ctx, &mut reqs).await?;
+            if let Request::Read { value, .. } = &reqs[0] {
+                if let Some(Value::EntityList(children)) = value {
+                    for child in children {
+                        Box::pin(self.delete_entity(ctx, child)).await?;
+                    }
+                } else {
+                    return Err(BadIndirection::new(
+                        entity_id.clone(),
+                        "Children".into(),
+                        BadIndirectionReason::UnexpectedValueType(
+                            "Children".into(),
+                            format!("{:?}", value),
+                        ),
+                    )
+                    .into());
+                }
+            }
+        }
+
+        // Remove from parent's children list
+        {
+            self.perform(
+                ctx,
+                &mut vec![ssub!(
+                    entity_id.clone(),
+                    "Parent->Children".into(),
+                    sreflist![entity_id.clone()]
+                )],
+            ).await?;
+        }
+
+        // Remove fields
+        {
+            self.fields.remove(entity_id);
+        }
+
+        // Remove from entity type list
+        {
+            if let Some(entities) = self.entities.get_mut(entity_id.get_type()) {
+                entities.retain(|id| id != entity_id);
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Find entities of a specific type with pagination
+    ///
+    /// This method supports inheritance - when searching for a parent type,
+    /// it will include entities of all derived types as well.
+    ///
+    /// For example, if you have the hierarchy:
+    /// - Animal (base type)
+    ///   - Mammal (inherits from Animal)
+    ///     - Dog (inherits from Mammal)
+    ///     - Cat (inherits from Mammal)
+    ///
+    /// Then calling `find_entities` with `EntityType::from("Animal")` will return
+    /// all Dog, Cat, Mammal, and Animal entities.
+    ///
+    /// Calling `find_entities` with `EntityType::from("Mammal")` will return
+    /// all Dog, Cat, and Mammal entities (but not Animal entities).
+    ///
+    /// If you need to find entities of an exact type without inheritance,
+    /// use `find_entities_exact` instead.
+    async fn find_entities_paginated(
+        &self,
+        _: &Context,
+        entity_type: &EntityType,
+        page_opts: Option<PageOpts>,
+    ) -> Result<PageResult<EntityId>> {
+        let opts = page_opts.unwrap_or_default();
+
+        // Get all entity types that match the requested type (including derived types)
+        let types_to_search = self
+            .inheritance_map
+            .get(entity_type)
+            .cloned()
+            .unwrap_or_else(|| {
+                // If not in inheritance map, just check the exact type
+                if self.entities.contains_key(entity_type) {
+                    vec![entity_type.clone()]
+                } else {
+                    Vec::new()
+                }
+            });
+
+        // Collect all entities from all matching types
+        let mut all_entities = Vec::new();
+        for et in &types_to_search {
+            if let Some(entities) = self.entities.get(et) {
+                all_entities.extend(entities.iter().cloned());
+            }
+        }
+
+        let total = all_entities.len();
+
+        if total == 0 {
+            return Ok(PageResult {
+                items: Vec::new(),
+                total: 0,
+                next_cursor: None,
+            });
+        }
+
+        // Find the starting index based on cursor
+        let start_idx = if let Some(cursor) = &opts.cursor {
+            match cursor.parse::<usize>() {
+                Ok(idx) => idx,
+                Err(_) => 0,
+            }
+        } else {
+            0
+        };
+
+        // Get the slice of entities for this page
+        let end_idx = std::cmp::min(start_idx + opts.limit, total);
+        let items: Vec<EntityId> = if start_idx < total {
+            all_entities[start_idx..end_idx].to_vec()
+        } else {
+            Vec::new()
+        };
+
+        // Calculate the next cursor
+        let next_cursor = if end_idx < total {
+            Some(end_idx.to_string())
+        } else {
+            None
+        };
+
+        Ok(PageResult {
+            items,
+            total,
+            next_cursor,
+        })
+    }
+
+    /// Find entities of exactly the specified type (no inheritance)
+    ///
+    /// This method only returns entities of the exact type, not derived types.
+    /// This is useful when you need to distinguish between parent and child
+    /// types in an inheritance hierarchy.
+    ///
+    /// For example, if you have the hierarchy:
+    /// - Animal (base type)
+    ///   - Dog (inherits from Animal)
+    ///
+    /// Then calling `find_entities_exact` with `EntityType::from("Animal")` will
+    /// only return entities that were created with the "Animal" type, not Dog entities.
+    async fn find_entities_exact(
+        &self,
+        _: &Context,
+        entity_type: &EntityType,
+        page_opts: Option<PageOpts>,
+    ) -> Result<PageResult<EntityId>> {
+        let opts = page_opts.unwrap_or_default();
+
+        // Check if entity type exists
+        if !self.entities.contains_key(entity_type) {
+            return Ok(PageResult {
+                items: Vec::new(),
+                total: 0,
+                next_cursor: None,
+            });
+        }
+
+        let all_entities = self.entities.get(entity_type).unwrap();
+        let total = all_entities.len();
+
+        // Find the starting index based on cursor
+        let start_idx = if let Some(cursor) = &opts.cursor {
+            match cursor.parse::<usize>() {
+                Ok(idx) => idx,
+                Err(_) => 0,
+            }
+        } else {
+            0
+        };
+
+        // Get the slice of entities for this page
+        let end_idx = std::cmp::min(start_idx + opts.limit, total);
+        let items: Vec<EntityId> = if start_idx < total {
+            all_entities[start_idx..end_idx].to_vec()
+        } else {
+            Vec::new()
+        };
+
+        // Calculate the next cursor
+        let next_cursor = if end_idx < total {
+            Some(end_idx.to_string())
+        } else {
+            None
+        };
+
+        Ok(PageResult {
+            items,
+            total,
+            next_cursor,
+        })
+    }
+
+    async fn find_entities(
+        &self,
+        ctx: &Context,
+        entity_type: &EntityType
+    ) -> Result<Vec<EntityId>> {
+        let mut result = Vec::new();
+        let mut page_opts: Option<PageOpts> = None;
+
+        loop {
+            let page_result = self.find_entities_paginated(ctx, entity_type, page_opts.clone()).await?;
+            if page_result.items.is_empty() {
+                break;
+            }
+
+            let length = page_result.items.len();
+            result.extend(page_result.items);
+            if page_result.next_cursor.is_none() {
+                break;
+            }
+
+            page_opts = Some(PageOpts::new(length, page_result.next_cursor));
+        }
+
+        Ok(result)
+    }
+
+    /// Get all entity types with pagination
+    async fn get_entity_types(
+        &self,
+        _: &Context,
+        page_opts: Option<PageOpts>,
+    ) -> Result<PageResult<EntityType>> {
+        let opts = page_opts.unwrap_or_default();
+
+        // Collect all types from schema
+        let all_types: Vec<EntityType> = self.schemas.keys().cloned().collect();
+        let total = all_types.len();
+
+        // Find the starting index based on cursor
+        let start_idx = if let Some(cursor) = &opts.cursor {
+            match cursor.parse::<usize>() {
+                Ok(idx) => idx,
+                Err(_) => 0,
+            }
+        } else {
+            0
+        };
+
+        // Get the slice of types for this page
+        let end_idx = std::cmp::min(start_idx + opts.limit, total);
+        let items: Vec<EntityType> = if start_idx < total {
+            all_types[start_idx..end_idx].to_vec()
+        } else {
+            Vec::new()
+        };
+
+        // Calculate the next cursor
+        let next_cursor = if end_idx < total {
+            Some(end_idx.to_string())
+        } else {
+            None
+        };
+
+        Ok(PageResult {
+            items,
+            total,
+            next_cursor,
+        })
+    }
+
+    /// Register a notification configuration with its callback
+    /// Returns a NotifyToken that can be used to unregister the notification
+    /// Returns an error if the field_type contains indirection (context fields can be indirect)
+    async fn register_notification(
+        &mut self,
+        _ctx: &Context,
+        config: NotifyConfig,
+        callback: NotificationCallback,
+    ) -> Result<NotifyToken> {
+        // Validate that the main field_type is not indirect
+        let field_type = match &config {
+            NotifyConfig::EntityId { field_type, .. } => field_type,
+            NotifyConfig::EntityType { field_type, .. } => field_type,
+        };
+
+        if field_type.as_ref().contains(INDIRECTION_DELIMITER) {
+            return Err(InvalidNotifyConfig(
+                "Cannot register notifications on indirect fields".to_string(),
+            )
+            .into());
+        }
+
+        // Generate a unique token for this notification
+        let token = NotifyToken::new();
+
+        // Add to appropriate index based on config type
+        match &config {
+            NotifyConfig::EntityId {
+                entity_id,
+                field_type,
+                ..
+            } => {
+                self.id_notifications
+                    .entry(entity_id.clone())
+                    .or_insert_with(HashMap::new)
+                    .entry(field_type.clone())
+                    .or_insert_with(HashMap::new)
+                    .insert(config.clone(), callback);
+            }
+            NotifyConfig::EntityType {
+                entity_type,
+                field_type,
+                ..
+            } => {
+                self.type_notifications
+                    .entry(EntityType::from(entity_type.clone()))
+                    .or_insert_with(HashMap::new)
+                    .entry(field_type.clone())
+                    .or_insert_with(HashMap::new)
+                    .insert(config.clone(), callback);
+            }
+        }
+
+        Ok(token)
+    }
+
+    /// Unregister a notification configuration by config
+    async fn unregister_notification(&mut self, target_config: &NotifyConfig) -> bool {
+        let mut removed_any = false;
+        
+        match target_config {
+            NotifyConfig::EntityId {
+                entity_id,
+                field_type,
+                ..
+            } => {
+                if let Some(field_map) = self.id_notifications.get_mut(entity_id) {
+                    if let Some(token_map) = field_map.get_mut(field_type) {
+                        let tokens_to_remove: Vec<_> = token_map
+                            .iter()
+                            .filter_map(|(config, _)| {
+                                if config == target_config {
+                                    Some(config.clone())
+                                } else {
+                                    None
+                                }
+                            })
+                            .collect();
+
+                        for token in tokens_to_remove {
+                            token_map.remove(&token);
+                            removed_any = true;
+                        }
+
+                        // Clean up empty maps
+                        if token_map.is_empty() {
+                            field_map.remove(field_type);
+                        }
+
+                        if field_map.is_empty() {
+                            self.id_notifications.remove(entity_id);
+                        }
+                    }
+                }
+            }
+            NotifyConfig::EntityType {
+                entity_type,
+                field_type,
+                ..
+            } => {
+                let entity_type_key = EntityType::from(entity_type.clone());
+                if let Some(field_map) = self.type_notifications.get_mut(&entity_type_key) {
+                    if let Some(token_map) = field_map.get_mut(field_type) {
+                        let tokens_to_remove: Vec<_> = token_map
+                            .iter()
+                            .filter_map(|(config, _)| {
+                                if config == target_config {
+                                    Some(config.clone())
+                                } else {
+                                    None
+                                }
+                            })
+                            .collect();
+
+                        for token in tokens_to_remove {
+                            token_map.remove(&token);
+                            removed_any = true;
+                        }
+
+                        // Clean up empty maps
+                        if token_map.is_empty() {
+                            field_map.remove(field_type);
+                        }
+                        if field_map.is_empty() {
+                            self.type_notifications.remove(&entity_type_key);
+                        }
+                    }
+                }
+            }
+        }
+
+        removed_any
+    }
+}
+
+impl Store {
+    pub fn new(snowflake: Arc<Snowflake>) -> Self {
+        Store {
+            schemas: HashMap::new(),
+            entities: HashMap::new(),
+            types: Vec::new(),
+            fields: HashMap::new(),
+            inheritance_map: HashMap::new(),
+            snowflake,
+            id_notifications: HashMap::new(),
+            type_notifications: HashMap::new(),
+        }
+    }
+
+    async fn read(
         &mut self,
         ctx: &Context,
         entity_id: &EntityId,
@@ -632,17 +1136,6 @@ impl Store {
                 field_type, entity_id).into());
         }
 
-        self.read_field_data(entity_id, field_type, value, write_time, writer_id)
-    }
-
-    fn read_field_data(
-        &self,
-        entity_id: &EntityId,
-        field_type: &FieldType,
-        value: &mut Option<Value>,
-        write_time: &mut Option<Timestamp>,
-        writer_id: &mut Option<EntityId>,
-    ) -> Result<()> {
         let field = self
             .fields
             .get(&entity_id)
@@ -659,7 +1152,7 @@ impl Store {
         Ok(())
     }
 
-    fn write(
+    async fn write(
         &mut self,
         ctx: &Context,
         entity_id: &EntityId,
@@ -689,7 +1182,7 @@ impl Store {
                 field_type, entity_id).into());
         }
 
-        let entity_schema = self.get_complete_entity_schema(ctx, entity_id.get_type())?;
+        let entity_schema = self.get_complete_entity_schema(ctx, entity_id.get_type()).await?;
         let field_schema = entity_schema
             .fields
             .get(field_type)
@@ -847,291 +1340,6 @@ impl Store {
         Ok(())
     }
 
-    /// Deletes an entity and all its fields
-    /// Returns an error if the entity doesn't exist
-    pub fn delete_entity(&mut self, ctx: &Context, entity_id: &EntityId) -> Result<()> {
-        // Check if the entity exists
-        {
-            if !self.fields.contains_key(entity_id) {
-                return Err(EntityNotFound(entity_id.clone()).into());
-            }
-        }
-
-        // Remove all childrens
-        {
-            let mut reqs = vec![sread!(entity_id.clone(), "Children".into())];
-            self.perform(ctx, &mut reqs)?;
-            if let Request::Read { value, .. } = &reqs[0] {
-                if let Some(Value::EntityList(children)) = value {
-                    for child in children {
-                        self.delete_entity(ctx, child)?;
-                    }
-                } else {
-                    return Err(BadIndirection::new(
-                        entity_id.clone(),
-                        "Children".into(),
-                        BadIndirectionReason::UnexpectedValueType(
-                            "Children".into(),
-                            format!("{:?}", value),
-                        ),
-                    )
-                    .into());
-                }
-            }
-        }
-
-        // Remove from parent's children list
-        {
-            self.perform(
-                ctx,
-                &mut vec![ssub!(
-                    entity_id.clone(),
-                    "Parent->Children".into(),
-                    sreflist![entity_id.clone()]
-                )],
-            )?;
-        }
-
-        // Remove fields
-        {
-            self.fields.remove(entity_id);
-        }
-
-        // Remove from entity type list
-        {
-            if let Some(entities) = self.entities.get_mut(entity_id.get_type()) {
-                entities.retain(|id| id != entity_id);
-            }
-        }
-
-        Ok(())
-    }
-
-    /// Find entities of a specific type with pagination
-    ///
-    /// This method supports inheritance - when searching for a parent type,
-    /// it will include entities of all derived types as well.
-    ///
-    /// For example, if you have the hierarchy:
-    /// - Animal (base type)
-    ///   - Mammal (inherits from Animal)
-    ///     - Dog (inherits from Mammal)
-    ///     - Cat (inherits from Mammal)
-    ///
-    /// Then calling `find_entities` with `EntityType::from("Animal")` will return
-    /// all Dog, Cat, Mammal, and Animal entities.
-    ///
-    /// Calling `find_entities` with `EntityType::from("Mammal")` will return
-    /// all Dog, Cat, and Mammal entities (but not Animal entities).
-    ///
-    /// If you need to find entities of an exact type without inheritance,
-    /// use `find_entities_exact` instead.
-    pub fn find_entities(
-        &self,
-        _: &Context,
-        entity_type: &EntityType,
-        page_opts: Option<PageOpts>,
-    ) -> Result<PageResult<EntityId>> {
-        let opts = page_opts.unwrap_or_default();
-
-        // Get all entity types that match the requested type (including derived types)
-        let types_to_search = self
-            .inheritance_map
-            .get(entity_type)
-            .cloned()
-            .unwrap_or_else(|| {
-                // If not in inheritance map, just check the exact type
-                if self.entities.contains_key(entity_type) {
-                    vec![entity_type.clone()]
-                } else {
-                    Vec::new()
-                }
-            });
-
-        // Collect all entities from all matching types
-        let mut all_entities = Vec::new();
-        for et in &types_to_search {
-            if let Some(entities) = self.entities.get(et) {
-                all_entities.extend(entities.iter().cloned());
-            }
-        }
-
-        let total = all_entities.len();
-
-        if total == 0 {
-            return Ok(PageResult {
-                items: Vec::new(),
-                total: 0,
-                next_cursor: None,
-            });
-        }
-
-        // Find the starting index based on cursor
-        let start_idx = if let Some(cursor) = &opts.cursor {
-            match cursor.parse::<usize>() {
-                Ok(idx) => idx,
-                Err(_) => 0,
-            }
-        } else {
-            0
-        };
-
-        // Get the slice of entities for this page
-        let end_idx = std::cmp::min(start_idx + opts.limit, total);
-        let items: Vec<EntityId> = if start_idx < total {
-            all_entities[start_idx..end_idx].to_vec()
-        } else {
-            Vec::new()
-        };
-
-        // Calculate the next cursor
-        let next_cursor = if end_idx < total {
-            Some(end_idx.to_string())
-        } else {
-            None
-        };
-
-        Ok(PageResult {
-            items,
-            total,
-            next_cursor,
-        })
-    }
-
-    /// Find entities of exactly the specified type (no inheritance)
-    ///
-    /// This method only returns entities of the exact type, not derived types.
-    /// This is useful when you need to distinguish between parent and child
-    /// types in an inheritance hierarchy.
-    ///
-    /// For example, if you have the hierarchy:
-    /// - Animal (base type)
-    ///   - Dog (inherits from Animal)
-    ///
-    /// Then calling `find_entities_exact` with `EntityType::from("Animal")` will
-    /// only return entities that were created with the "Animal" type, not Dog entities.
-    pub fn find_entities_exact(
-        &self,
-        _: &Context,
-        entity_type: &EntityType,
-        page_opts: Option<PageOpts>,
-    ) -> Result<PageResult<EntityId>> {
-        let opts = page_opts.unwrap_or_default();
-
-        // Check if entity type exists
-        if !self.entities.contains_key(entity_type) {
-            return Ok(PageResult {
-                items: Vec::new(),
-                total: 0,
-                next_cursor: None,
-            });
-        }
-
-        let all_entities = self.entities.get(entity_type).unwrap();
-        let total = all_entities.len();
-
-        // Find the starting index based on cursor
-        let start_idx = if let Some(cursor) = &opts.cursor {
-            match cursor.parse::<usize>() {
-                Ok(idx) => idx,
-                Err(_) => 0,
-            }
-        } else {
-            0
-        };
-
-        // Get the slice of entities for this page
-        let end_idx = std::cmp::min(start_idx + opts.limit, total);
-        let items: Vec<EntityId> = if start_idx < total {
-            all_entities[start_idx..end_idx].to_vec()
-        } else {
-            Vec::new()
-        };
-
-        // Calculate the next cursor
-        let next_cursor = if end_idx < total {
-            Some(end_idx.to_string())
-        } else {
-            None
-        };
-
-        Ok(PageResult {
-            items,
-            total,
-            next_cursor,
-        })
-    }
-
-    pub fn find_all_entities(
-        &self,
-        ctx: &Context,
-        entity_type: &EntityType
-    ) -> Result<Vec<EntityId>> {
-        let result = Vec::new();
-        let pageOpts: Option<PageOpts> = None;
-
-        loop {
-            let page_result = self.find_entities(ctx, entity_type, pageOpts.clone())?;
-            if page_result.items.is_empty() {
-                break;
-            }
-
-            result.extend(page_result.items);
-            if page_result.next_cursor.is_none() {
-                break;
-            }
-
-            // Update the cursor for the next iteration
-            pageOpts = Some(PageOpts::new(page_result.items.len(), page_result.next_cursor));
-        }
-
-        Ok(result)
-    }
-
-    /// Get all entity types with pagination
-    pub fn get_entity_types(
-        &self,
-        _: &Context,
-        page_opts: Option<PageOpts>,
-    ) -> Result<PageResult<EntityType>> {
-        let opts = page_opts.unwrap_or_default();
-
-        // Collect all types from schema
-        let all_types: Vec<EntityType> = self.schemas.keys().cloned().collect();
-        let total = all_types.len();
-
-        // Find the starting index based on cursor
-        let start_idx = if let Some(cursor) = &opts.cursor {
-            match cursor.parse::<usize>() {
-                Ok(idx) => idx,
-                Err(_) => 0,
-            }
-        } else {
-            0
-        };
-
-        // Get the slice of types for this page
-        let end_idx = std::cmp::min(start_idx + opts.limit, total);
-        let items: Vec<EntityType> = if start_idx < total {
-            all_types[start_idx..end_idx].to_vec()
-        } else {
-            Vec::new()
-        };
-
-        // Calculate the next cursor
-        let next_cursor = if end_idx < total {
-            Some(end_idx.to_string())
-        } else {
-            None
-        };
-
-        Ok(PageResult {
-            items,
-            total,
-            next_cursor,
-        })
-    }
-
     /// Take a snapshot of the current store state
     pub fn take_snapshot(&self, _: &Context) -> Snapshot {
         Snapshot {
@@ -1230,238 +1438,8 @@ impl Store {
         parent_types
     }
 
-    /// Register a notification configuration with its callback
-    /// Returns a NotifyToken that can be used to unregister the notification
-    /// Returns an error if the field_type contains indirection (context fields can be indirect)
-    pub fn register_notification(
-        &mut self,
-        _ctx: &Context,
-        config: NotifyConfig,
-        callback: NotificationCallback,
-    ) -> Result<NotifyToken> {
-        // Validate that the main field_type is not indirect
-        let field_type = match &config {
-            NotifyConfig::EntityId { field_type, .. } => field_type,
-            NotifyConfig::EntityType { field_type, .. } => field_type,
-        };
-
-        if field_type.as_ref().contains(INDIRECTION_DELIMITER) {
-            return Err(InvalidNotifyConfig(
-                "Cannot register notifications on indirect fields".to_string(),
-            )
-            .into());
-        }
-
-        // Generate a unique token for this notification
-        let token = NotifyToken::new();
-
-        // Add to appropriate index based on config type
-        match &config {
-            NotifyConfig::EntityId {
-                entity_id,
-                field_type,
-                ..
-            } => {
-                self.entity_notifications
-                    .entry(entity_id.clone())
-                    .or_insert_with(HashMap::new)
-                    .entry(field_type.clone())
-                    .or_insert_with(HashMap::new)
-                    .insert(token.clone(), (config.clone(), callback));
-            }
-            NotifyConfig::EntityType {
-                entity_type,
-                field_type,
-                ..
-            } => {
-                self.type_notifications
-                    .entry(EntityType::from(entity_type.clone()))
-                    .or_insert_with(HashMap::new)
-                    .entry(field_type.clone())
-                    .or_insert_with(HashMap::new)
-                    .insert(token.clone(), (config.clone(), callback));
-            }
-        }
-
-        Ok(token)
-    }
-
-    /// Unregister a notification by token
-    /// This is the preferred method for unregistering notifications
-    pub fn unregister_notification_by_token(&mut self, token: &NotifyToken) -> bool {
-        // Search in entity notifications
-        for (entity_id, field_map) in self.entity_notifications.iter_mut() {
-            for (field_type, token_map) in field_map.iter_mut() {
-                if token_map.remove(token).is_some() {
-                    // Clean up empty maps after finding and removing the token
-                    if token_map.is_empty() {
-                        let field_type_to_remove = field_type.clone();
-                        field_map.remove(&field_type_to_remove);
-                        
-                        if field_map.is_empty() {
-                            let entity_id_to_remove = entity_id.clone();
-                            self.entity_notifications.remove(&entity_id_to_remove);
-                        }
-                    }
-                    return true;
-                }
-            }
-        }
-
-        // Search in type notifications
-        for (entity_type, field_map) in self.type_notifications.iter_mut() {
-            for (field_type, token_map) in field_map.iter_mut() {
-                if token_map.remove(token).is_some() {
-                    // Clean up empty maps after finding and removing the token
-                    if token_map.is_empty() {
-                        let field_type_to_remove = field_type.clone();
-                        field_map.remove(&field_type_to_remove);
-                        
-                        if field_map.is_empty() {
-                            let entity_type_to_remove = entity_type.clone();
-                            self.type_notifications.remove(&entity_type_to_remove);
-                        }
-                    }
-                    return true;
-                }
-            }
-        }
-
-        false
-    }
-
-    /// Unregister a notification configuration by config (legacy method)
-    /// Note: This will remove ALL notifications matching the config
-    /// Prefer using unregister_notification_by_token for precise removal
-    pub fn unregister_notification(&mut self, target_config: &NotifyConfig) -> bool {
-        let mut removed_any = false;
-        
-        match target_config {
-            NotifyConfig::EntityId {
-                entity_id,
-                field_type,
-                ..
-            } => {
-                if let Some(field_map) = self.entity_notifications.get_mut(entity_id) {
-                    if let Some(token_map) = field_map.get_mut(field_type) {
-                        let tokens_to_remove: Vec<_> = token_map
-                            .iter()
-                            .filter_map(|(token, (config, _))| {
-                                if config == target_config {
-                                    Some(token.clone())
-                                } else {
-                                    None
-                                }
-                            })
-                            .collect();
-
-                        for token in tokens_to_remove {
-                            token_map.remove(&token);
-                            removed_any = true;
-                        }
-
-                        // Clean up empty maps
-                        if token_map.is_empty() {
-                            field_map.remove(field_type);
-                        }
-                        if field_map.is_empty() {
-                            self.entity_notifications.remove(entity_id);
-                        }
-                    }
-                }
-            }
-            NotifyConfig::EntityType {
-                entity_type,
-                field_type,
-                ..
-            } => {
-                let entity_type_key = EntityType::from(entity_type.clone());
-                if let Some(field_map) = self.type_notifications.get_mut(&entity_type_key) {
-                    if let Some(token_map) = field_map.get_mut(field_type) {
-                        let tokens_to_remove: Vec<_> = token_map
-                            .iter()
-                            .filter_map(|(token, (config, _))| {
-                                if config == target_config {
-                                    Some(token.clone())
-                                } else {
-                                    None
-                                }
-                            })
-                            .collect();
-
-                        for token in tokens_to_remove {
-                            token_map.remove(&token);
-                            removed_any = true;
-                        }
-
-                        // Clean up empty maps
-                        if token_map.is_empty() {
-                            field_map.remove(field_type);
-                        }
-                        if field_map.is_empty() {
-                            self.type_notifications.remove(&entity_type_key);
-                        }
-                    }
-                }
-            }
-        }
-
-        removed_any
-    }
-
-    /// Get all registered notification configurations for a specific entity
-    pub fn get_entity_notification_configs(&self, entity_id: &EntityId) -> Vec<&NotifyConfig> {
-        self.entity_notifications
-            .get(entity_id)
-            .map(|field_map| {
-                field_map
-                    .values()
-                    .flat_map(|token_map| token_map.values().map(|(config, _)| config))
-                    .collect()
-            })
-            .unwrap_or_default()
-    }
-
-    /// Get all registered notification configurations for a specific entity type
-    pub fn get_type_notification_configs(&self, entity_type: &EntityType) -> Vec<&NotifyConfig> {
-        self.type_notifications
-            .get(entity_type)
-            .map(|field_map| {
-                field_map
-                    .values()
-                    .flat_map(|token_map| token_map.values().map(|(config, _)| config))
-                    .collect()
-            })
-            .unwrap_or_default()
-    }
-
-    /// Get all registered notification configurations with their tokens
-    pub fn get_notification_configs(&self, _ctx: &Context) -> Vec<(NotifyToken, NotifyConfig)> {
-        let mut configs = Vec::new();
-
-        // Add entity-specific notifications
-        for field_map in self.entity_notifications.values() {
-            for token_map in field_map.values() {
-                for (token, (config, _)) in token_map {
-                    configs.push((token.clone(), config.clone()));
-                }
-            }
-        }
-
-        // Add type-specific notifications
-        for field_map in self.type_notifications.values() {
-            for token_map in field_map.values() {
-                for (token, (config, _)) in token_map {
-                    configs.push((token.clone(), config.clone()));
-                }
-            }
-        }
-
-        configs
-    }
-
     /// Build context fields using the perform method to handle indirection
-    fn build_context_fields(
+    async fn build_context_fields(
         &mut self,
         ctx: &Context,
         entity_id: &EntityId,
@@ -1473,7 +1451,7 @@ impl Store {
             // Use perform to handle indirection properly
             let mut requests = vec![sread!(entity_id.clone(), context_field.clone())];
 
-            if let Ok(()) = self.perform(ctx, &mut requests) {
+            if let Ok(()) = self.perform(ctx, &mut requests).await {
                 if let Request::Read { value, .. } = &requests[0] {
                     context_map.insert(context_field.clone(), value.clone());
                 }
@@ -1485,7 +1463,7 @@ impl Store {
         context_map
     }
     /// Trigger notifications for a write operation
-    fn trigger_notifications(
+    async fn trigger_notifications(
         &mut self,
         ctx: &Context,
         entity_id: &EntityId,
@@ -1497,9 +1475,9 @@ impl Store {
         let mut notifications_to_trigger = Vec::new();
 
         // Check entity-specific notifications with O(1) lookup by entity_id and field_type
-        if let Some(field_map) = self.entity_notifications.get(entity_id) {
+        if let Some(field_map) = self.id_notifications.get(entity_id) {
             if let Some(token_map) = field_map.get(field_type) {
-                for (token, (config, _)) in token_map {
+                for ((config, _)) in token_map {
                     if let NotifyConfig::EntityId {
                         trigger_on_change,
                         context,
@@ -1513,7 +1491,7 @@ impl Store {
                         };
 
                         if should_notify {
-                            notifications_to_trigger.push((token.clone(), config.clone(), context.clone()));
+                            notifications_to_trigger.push((config.clone(), context.clone()));
                         }
                     }
                 }
@@ -1529,7 +1507,7 @@ impl Store {
         for entity_type_to_check in types_to_check {
             if let Some(field_map) = self.type_notifications.get(&entity_type_to_check) {
                 if let Some(token_map) = field_map.get(field_type) {
-                    for (token, (config, _)) in token_map {
+                for ((config, _)) in token_map {
                         if let NotifyConfig::EntityType {
                             trigger_on_change,
                             context,
@@ -1543,7 +1521,7 @@ impl Store {
                             };
 
                             if should_notify {
-                                notifications_to_trigger.push((token.clone(), config.clone(), context.clone()));
+                                notifications_to_trigger.push((config.clone(), context.clone()));
                             }
                         }
                     }
@@ -1552,8 +1530,8 @@ impl Store {
         }
 
         // Now trigger the collected notifications
-        for (token, config, context) in notifications_to_trigger {
-            let context_fields = self.build_context_fields(ctx, entity_id, &context);
+        for (config, context) in notifications_to_trigger {
+            let context_fields = self.build_context_fields(ctx, entity_id, &context).await;
 
             let notification = Notification {
                 entity_id: entity_id.clone(),
@@ -1569,9 +1547,9 @@ impl Store {
                     field_type: config_field_type,
                     ..
                 } => {
-                    if let Some(field_map) = self.entity_notifications.get(entity_id) {
+                    if let Some(field_map) = self.id_notifications.get(entity_id) {
                         if let Some(token_map) = field_map.get(config_field_type) {
-                            if let Some((_, callback)) = token_map.get(&token) {
+                            if let Some(callback) = token_map.get(&config) {
                                 callback(&notification);
                             }
                         }
@@ -1584,7 +1562,7 @@ impl Store {
                 } => {
                     if let Some(field_map) = self.type_notifications.get(config_entity_type) {
                         if let Some(token_map) = field_map.get(config_field_type) {
-                            if let Some((_, callback)) = token_map.get(&token) {
+                            if let Some(callback) = token_map.get(&config) {
                                 callback(&notification);
                             }
                         }
@@ -1595,7 +1573,7 @@ impl Store {
     }
 }
 
-pub fn resolve_indirection(
+pub async fn resolve_indirection(
     ctx: &Context,
     store: &mut Store,
     entity_id: &EntityId,
@@ -1628,7 +1606,7 @@ pub fn resolve_indirection(
             let prev_field = &fields[i - 1];
 
             let mut reqs = vec![sread!(current_entity_id.clone(), prev_field.clone())];
-            store.perform(ctx, &mut reqs)?;
+            store.perform(ctx, &mut reqs).await?;
 
             if let Request::Read { value, .. } = &reqs[0] {
                 if let Some(Value::EntityList(entities)) = value {
@@ -1665,7 +1643,7 @@ pub fn resolve_indirection(
         // Normal field resolution
         let mut reqs = vec![sread!(current_entity_id.clone(), field.clone())];
 
-        if let Err(e) = store.perform(ctx, &mut reqs) {
+        if let Err(e) = store.perform(ctx, &mut reqs).await {
             return Err(BadIndirection::new(
                 current_entity_id.clone(),
                 field_type.clone(),
@@ -1679,7 +1657,7 @@ pub fn resolve_indirection(
                 match reference {
                     Some(ref_id) => {
                         // Check if the reference is valid
-                        if !store.entity_exists(ctx, ref_id) {
+                        if !store.entity_exists(ctx, ref_id).await {
                             return Err(BadIndirection::new(
                                 current_entity_id.clone(),
                                 field_type.clone(),

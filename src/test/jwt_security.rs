@@ -3,9 +3,7 @@
 mod tests {
     use std::sync::Arc;
 
-    use crate::{Context, EntityId, EntityType, FieldType, JwtManager, SecurityContext, Snowflake, Store};
-
-    use super::*;
+    use crate::{Context, EntityId, EntityType, FieldType, JwtManager, Resource, SecurityContext, Snowflake, Store};
 
     fn create_test_store() -> Store {
         Store::new(Arc::new(Snowflake::new()))
@@ -204,10 +202,9 @@ mod tests {
         assert!(store.perform(&user_ctx, &mut write_reqs).is_ok());
 
         // Should be able to read due to QOS default-allow policy
-        let mut read_reqs = vec![sread!(
-            entity.entity_id.clone(),
-            field_type.clone()
-        )];
+        let mut read_reqs = vec![
+            sread!( entity.entity_id.clone(), field_type.clone())
+        ];
         assert!(store.perform(&user_ctx, &mut read_reqs).is_ok());
     }
 

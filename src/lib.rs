@@ -16,7 +16,7 @@ pub use scripting::{ScriptingEngine, IntoEvalError, convert_rhai_to_value, conve
 
 pub use auth::{
     AuthenticationManager, AuthConfig, AuthError, AuthResult,
-    SecurityContext, JwtClaims, JwtManager, Resource
+    SecurityContext, JwtClaims, JwtManager
 };
 
 pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;

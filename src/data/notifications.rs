@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{EntityId, EntityType, FieldType, Value};
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash)]
 pub enum NotifyConfig {
     EntityId {
         entity_id: EntityId,

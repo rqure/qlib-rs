@@ -178,43 +178,6 @@ impl JwtManager {
     }
 }
 
-/// Resource type for permission checking
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct Resource {
-    /// Entity ID (if applicable)
-    pub entity_id: Option<EntityId>,
-    /// Entity type (if applicable)
-    pub entity_type: Option<String>,
-    /// Field type (if applicable)  
-    pub field_type: Option<FieldType>,
-}
-
-impl Resource {
-    pub fn entity(entity_id: EntityId) -> Self {
-        Self {
-            entity_id: Some(entity_id),
-            entity_type: None,
-            field_type: None,
-        }
-    }
-
-    pub fn entity_type(entity_type: String) -> Self {
-        Self {
-            entity_id: None,
-            entity_type: Some(entity_type),
-            field_type: None,
-        }
-    }
-
-    pub fn field(entity_id: EntityId, field_type: FieldType) -> Self {
-        Self {
-            entity_id: Some(entity_id),
-            entity_type: None,
-            field_type: Some(field_type),
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

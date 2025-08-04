@@ -20,7 +20,7 @@ pub struct ScriptingEngine {
 }
 
 impl ScriptingEngine {
-    pub fn new(store: Arc<Mutex<Store>>) -> Self {
+    pub fn new(store: &mut Store) -> Self {
         let mut engine = Engine::new();
 
         engine.register_fn("read", |entity_id: &str, field_type: &str| {
@@ -235,8 +235,6 @@ impl ScriptingEngine {
         );
 
         engine.register_fn("perform", move |requests: Array| -> Result<(), Box<EvalAltResult>> {
-            let mut store = store.lock().unwrap();
-
             let mut requests = requests
                 .into_iter()
                 .filter_map(|req| req.try_cast::<Map>())

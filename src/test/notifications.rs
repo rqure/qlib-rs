@@ -204,7 +204,7 @@ mod tests {
         let _id1 = store.register_notification(&ctx, config1.clone(), callback1)?;
         let _id2 = store.register_notification(&ctx, config2.clone(), callback2)?;
         // Test entity-specific configs
-        let entity_configs = store.get_entity_notification_configs(&EntityId::new("User", 1));
+        let entity_configs = store.get_id_notification_configs(&EntityId::new("User", 1));
         assert_eq!(entity_configs.len(), 1);
         assert_eq!(*entity_configs[0], config1);
         // Test type-specific configs

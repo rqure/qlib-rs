@@ -4,10 +4,9 @@ mod error;
 mod security;
 
 pub use authentication::{AuthenticationManager, AuthConfig};
-pub use authorization::{get_scope};
 pub use error::{AuthError, AuthResult};
 pub use security::{
-    SecurityContext, JwtClaims, JwtManager, Resource
+    SecurityContext, JwtClaims, JwtManager
 };
 
 use crate::{FieldType, EntityType};
@@ -27,6 +26,7 @@ pub const SCOPE_FIELD: &str = "Scope";
 pub const RESOURCE_TYPE_FIELD: &str = "ResourceType";
 pub const RESOURCE_FIELD_FIELD: &str = "ResourceField";
 pub const PERMISSION_FIELD: &str = "Permission";
+pub const PERMISSION_TEST_FN_FIELD: &str = "Permission->TestFn";
 
 /// Helper functions to get field types
 pub fn password_field() -> FieldType {
@@ -100,4 +100,8 @@ pub fn resource_field_field() -> FieldType {
 /// Helper function to get the Permission field type (for authorization rules)
 pub fn permission_field() -> FieldType {
     FieldType::from(PERMISSION_FIELD)
+}
+
+pub fn permission_test_fn_field() -> FieldType {
+    FieldType::from(PERMISSION_TEST_FN_FIELD)
 }
