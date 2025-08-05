@@ -1,356 +1,12 @@
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, error, mem::discriminant, sync::Arc};
+use std::{collections::HashMap, mem::discriminant, sync::Arc};
 
 use crate::{
     data::{
         entity_schema::Complete, now, request::PushCondition, EntityType, FieldType, Notification,
-        NotifyConfig, NotifyToken, Timestamp, INDIRECTION_DELIMITER,
-    },
-    sadd, sread, sref, sreflist, sstr, ssub, swrite, AdjustBehavior, Entity, EntityId,
-    EntitySchema, Field, FieldSchema, Request, Result, Single, Snowflake, Value,
+        NotifyConfig, Timestamp, INDIRECTION_DELIMITER,
+    }, resolve_indirection, sadd, sread, sref, sreflist, sstr, ssub, swrite, AdjustBehavior, BadIndirectionReason, Context, Entity, EntityId, EntitySchema, Error, Field, FieldSchema, NotificationCallback, PageOpts, PageResult, Request, Result, Single, Snapshot, Snowflake, StoreTrait, Value
 };
-
-/// Callback function type for notifications
-pub type NotificationCallback = Box<dyn Fn(&Notification) + Send + Sync>;
-
-#[derive(Debug, Clone)]
-pub struct InvalidNotifyConfig(String);
-impl error::Error for InvalidNotifyConfig {}
-impl std::fmt::Display for InvalidNotifyConfig {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Invalid NotifyConfig: {}", self.0)
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct EntityExists(EntityId);
-impl error::Error for EntityExists {}
-impl std::fmt::Display for EntityExists {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Entity already exists: {}", self.0)
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct EntityTypeNotFound(EntityType);
-impl error::Error for EntityTypeNotFound {}
-impl std::fmt::Display for EntityTypeNotFound {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Unknown entity type: {}", self.0)
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct EntityNotFound(EntityId);
-impl error::Error for EntityNotFound {}
-impl std::fmt::Display for EntityNotFound {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Entity not found: {}", self.0)
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct FieldNotFound(EntityId, FieldType);
-impl error::Error for FieldNotFound {}
-impl std::fmt::Display for FieldNotFound {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Field not found for entity {}: {}", self.0, self.1)
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct ValueTypeMismatch(EntityId, FieldType, Value, Value);
-impl error::Error for ValueTypeMismatch {}
-impl std::fmt::Display for ValueTypeMismatch {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "Value type mismatch for entity {} field {}: expected {:?}, got {:?}",
-            self.0, self.1, self.2, self.3
-        )
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct UnsupportAdjustBehavior(EntityId, FieldType, AdjustBehavior);
-impl error::Error for UnsupportAdjustBehavior {}
-impl std::fmt::Display for UnsupportAdjustBehavior {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "Unsupported adjust behavior for entity {} field {}: {:?}",
-            self.0, self.1, self.2
-        )
-    }
-}
-
-#[derive(Debug, Clone)]
-pub enum BadIndirectionReason {
-    NegativeIndex(i64),
-    ArrayIndexOutOfBounds(usize, usize),
-    EmptyEntityReference,
-    InvalidEntityId(EntityId),
-    UnexpectedValueType(FieldType, String),
-    ExpectedIndexAfterEntityList(FieldType),
-    FailedToResolveField(FieldType, String),
-}
-
-#[derive(Debug, Clone)]
-pub struct BadIndirection {
-    entity_id: EntityId,
-    field_type: FieldType,
-    reason: BadIndirectionReason,
-}
-
-impl BadIndirection {
-    pub fn new(entity_id: EntityId, field_type: FieldType, reason: BadIndirectionReason) -> Self {
-        BadIndirection {
-            entity_id,
-            field_type,
-            reason,
-        }
-    }
-}
-
-impl error::Error for BadIndirection {}
-
-impl std::fmt::Display for BadIndirection {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "Bad indirection for entity {}, field {}: ",
-            self.entity_id, self.field_type
-        )?;
-        match &self.reason {
-            BadIndirectionReason::NegativeIndex(index) => {
-                write!(f, "negative index: {}", index)
-            }
-            BadIndirectionReason::ArrayIndexOutOfBounds(index, size) => {
-                write!(f, "array index out of bounds: {} >= {}", index, size)
-            }
-            BadIndirectionReason::EmptyEntityReference => {
-                write!(f, "empty entity reference")
-            }
-            BadIndirectionReason::InvalidEntityId(id) => {
-                write!(f, "invalid entity id: {}", id)
-            }
-            BadIndirectionReason::UnexpectedValueType(field, value) => {
-                write!(f, "unexpected value type for field {}: {}", field, value)
-            }
-            BadIndirectionReason::ExpectedIndexAfterEntityList(field) => {
-                write!(f, "expected index after EntityList, got: {}", field)
-            }
-            BadIndirectionReason::FailedToResolveField(field, error) => {
-                write!(f, "failed to resolve field {}: {}", field, error)
-            }
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Context {
-    /// Optional security context for JWT-based authorization
-    pub security_context: Option<crate::auth::SecurityContext>,
-}
-
-impl Default for Context {
-    fn default() -> Self {
-        Self {
-            security_context: None,
-        }
-    }
-}
-
-impl Context {
-    /// Create a new context without security
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Create a new context with a security context
-    pub fn with_security(security_context: crate::auth::SecurityContext) -> Self {
-        Self {
-            security_context: Some(security_context),
-        }
-    }
-
-    /// Get the security context if present
-    pub fn get_security_context(&self) -> Option<&crate::auth::SecurityContext> {
-        self.security_context.as_ref()
-    }
-
-    /// Check if the context is authenticated
-    pub fn is_authenticated(&self) -> bool {
-        self.security_context
-            .as_ref()
-            .map(|sc| sc.is_authenticated())
-            .unwrap_or(false)
-    }
-
-    /// Get the subject ID if authenticated
-    pub fn get_subject_id(&self) -> Option<&EntityId> {
-        self.security_context
-            .as_ref()
-            .and_then(|sc| sc.get_subject_id())
-    }
-}
-
-/// Represents a complete snapshot of the store at a point in time
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Snapshot {
-    schemas: HashMap<EntityType, EntitySchema<Single>>,
-    entities: HashMap<EntityType, Vec<EntityId>>,
-    types: Vec<EntityType>,
-    fields: HashMap<EntityId, HashMap<FieldType, Field>>,
-}
-
-impl Default for Snapshot {
-    fn default() -> Self {
-        Self {
-            schemas: HashMap::new(),
-            entities: HashMap::new(),
-            types: Vec::new(),
-            fields: HashMap::new(),
-        }
-    }
-}
-
-/// Pagination options for retrieving lists of items
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PageOpts {
-    /// The maximum number of items to return
-    pub limit: usize,
-    /// The starting point for pagination
-    pub cursor: Option<String>,
-}
-
-impl Default for PageOpts {
-    fn default() -> Self {
-        PageOpts {
-            limit: 100,
-            cursor: None,
-        }
-    }
-}
-
-impl PageOpts {
-    pub fn new(limit: usize, cursor: Option<String>) -> Self {
-        PageOpts { limit, cursor }
-    }
-}
-
-/// Result of a paginated query
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PageResult<T> {
-    /// The items returned in this page
-    pub items: Vec<T>,
-    /// The total number of items available
-    pub total: usize,
-    /// Cursor for retrieving the next page, if available
-    pub next_cursor: Option<String>,
-}
-
-impl<T> PageResult<T> {
-    pub fn new(items: Vec<T>, total: usize, next_cursor: Option<String>) -> Self {
-        PageResult {
-            items,
-            total,
-            next_cursor,
-        }
-    }
-}
-
-pub trait StoreTrait {
-    async fn create_entity(
-        &mut self,
-        ctx: &Context,
-        entity_type: &EntityType,
-        parent_id: Option<EntityId>,
-        name: &str,
-    ) -> Result<Entity>;
-
-    async fn get_entity_schema(
-        &self,
-        ctx: &Context,
-        entity_type: &EntityType,
-    ) -> Result<EntitySchema<Single>>;
-
-    async fn get_complete_entity_schema(
-        &self,
-        ctx: &Context,
-        entity_type: &EntityType,
-    ) -> Result<EntitySchema<Complete>>;
-
-    async fn set_entity_schema(
-        &mut self,
-        ctx: &Context,
-        entity_schema: &EntitySchema<Single>,
-    ) -> Result<()>;
-
-    async fn get_field_schema(
-        &self,
-        ctx: &Context,
-        entity_type: &EntityType,
-        field_type: &FieldType,
-    ) -> Result<FieldSchema>;
-
-    async fn set_field_schema(
-        &mut self,
-        ctx: &Context,
-        entity_type: &EntityType,
-        field_type: &FieldType,
-        field_schema: FieldSchema,
-    ) -> Result<()>;
-
-    async fn entity_exists(&self, ctx: &Context, entity_id: &EntityId) -> bool;
-
-    async fn field_exists(
-        &self,
-        ctx: &Context,
-        entity_type: &EntityType,
-        field_type: &FieldType,
-    ) -> bool;
-
-    async fn perform(&mut self, ctx: &Context, requests: &mut Vec<Request>) -> Result<()>;
-
-    async fn delete_entity(&mut self, ctx: &Context, entity_id: &EntityId) -> Result<()>;
-
-    async fn find_entities_paginated(
-        &self,
-        _: &Context,
-        entity_type: &EntityType,
-        page_opts: Option<PageOpts>,
-    ) -> Result<PageResult<EntityId>>;
-
-    async fn find_entities_exact(
-        &self,
-        ctx: &Context,
-        entity_type: &EntityType,
-        page_opts: Option<PageOpts>,
-    ) -> Result<PageResult<EntityId>>;
-
-    async fn find_entities(
-        &self,
-        ctx: &Context,
-        entity_type: &EntityType
-    ) -> Result<Vec<EntityId>>;
-
-    async fn get_entity_types(
-        &self,
-        ctx: &Context,
-        page_opts: Option<PageOpts>,
-    ) -> Result<PageResult<EntityType>>;
-
-    async fn register_notification(
-        &mut self,
-        ctx: &Context,
-        config: NotifyConfig,
-        callback: NotificationCallback,
-    ) -> Result<NotifyToken>;
-
-    async fn unregister_notification(&mut self, target_config: &NotifyConfig) -> bool;
-
-}
 
 #[derive(Serialize, Deserialize, Default)]
 pub struct Store {
@@ -407,18 +63,18 @@ impl StoreTrait for Store {
         name: &str,
     ) -> Result<Entity> {
         if !self.schemas.contains_key(&entity_type) {
-            return Err(EntityTypeNotFound(entity_type.clone()).into());
+            return Err(Error::EntityTypeNotFound(entity_type.clone()));
         }
 
         if let Some(parent) = &parent_id {
             if !self.entity_exists(ctx, &parent).await {
-                return Err(EntityNotFound(parent.clone()).into());
+                return Err(Error::EntityNotFound(parent.clone()));
             }
         }
 
         let entity_id = EntityId::new(entity_type.clone(), self.snowflake.generate());
         if self.fields.contains_key(&entity_id) {
-            return Err(EntityExists(entity_id).into());
+            return Err(Error::EntityExists(entity_id));
         }
 
         {
@@ -482,7 +138,7 @@ impl StoreTrait for Store {
         self.schemas
             .get(entity_type)
             .cloned()
-            .ok_or_else(|| EntityTypeNotFound(entity_type.clone()).into())
+            .ok_or_else(|| Error::EntityTypeNotFound(entity_type.clone()))
     }
 
     async fn get_complete_entity_schema(
@@ -516,7 +172,7 @@ impl StoreTrait for Store {
                     // Move up the inheritance chain
                     schema.inherit = inherit_schema.inherit.clone();
                 } else {
-                    return Err(EntityTypeNotFound(inherit_type.clone()).into());
+                    return Err(Error::EntityTypeNotFound(inherit_type.clone()));
                 }
             } else {
                 break;
@@ -611,7 +267,7 @@ impl StoreTrait for Store {
             .get(field_type)
             .cloned()
             .ok_or_else(|| {
-                FieldNotFound(EntityId::new(entity_type.clone(), 0), field_type.clone()).into()
+                Error::FieldNotFound(EntityId::new(entity_type.clone(), 0), field_type.clone())
             })
     }
 
@@ -694,7 +350,7 @@ impl StoreTrait for Store {
         // Check if the entity exists
         {
             if !self.fields.contains_key(entity_id) {
-                return Err(EntityNotFound(entity_id.clone()).into());
+                return Err(Error::EntityNotFound(entity_id.clone()));
             }
         }
 
@@ -708,15 +364,14 @@ impl StoreTrait for Store {
                         Box::pin(self.delete_entity(ctx, child)).await?;
                     }
                 } else {
-                    return Err(BadIndirection::new(
+                    return Err(Error::BadIndirection(
                         entity_id.clone(),
                         "Children".into(),
                         BadIndirectionReason::UnexpectedValueType(
                             "Children".into(),
                             format!("{:?}", value),
                         ),
-                    )
-                    .into());
+                    ));
                 }
             }
         }
@@ -981,7 +636,7 @@ impl StoreTrait for Store {
         _ctx: &Context,
         config: NotifyConfig,
         callback: NotificationCallback,
-    ) -> Result<NotifyToken> {
+    ) -> Result<()> {
         // Validate that the main field_type is not indirect
         let field_type = match &config {
             NotifyConfig::EntityId { field_type, .. } => field_type,
@@ -989,14 +644,10 @@ impl StoreTrait for Store {
         };
 
         if field_type.as_ref().contains(INDIRECTION_DELIMITER) {
-            return Err(InvalidNotifyConfig(
+            return Err(Error::InvalidNotifyConfig(
                 "Cannot register notifications on indirect fields".to_string(),
-            )
-            .into());
+            ));
         }
-
-        // Generate a unique token for this notification
-        let token = NotifyToken::new();
 
         // Add to appropriate index based on config type
         match &config {
@@ -1026,7 +677,7 @@ impl StoreTrait for Store {
             }
         }
 
-        Ok(token)
+        Ok(())
     }
 
     /// Unregister a notification configuration by config
@@ -1146,7 +797,7 @@ impl Store {
             *write_time = Some(field.write_time.clone());
             *writer_id = field.writer_id.clone();
         } else {
-            return Err(FieldNotFound(entity_id.clone(), field_type.clone()).into());
+            return Err(Error::FieldNotFound(entity_id.clone(), field_type.clone()).into());
         }
 
         Ok(())
@@ -1186,7 +837,7 @@ impl Store {
         let field_schema = entity_schema
             .fields
             .get(field_type)
-            .ok_or_else(|| FieldNotFound(entity_id.clone(), field_type.clone()))?;
+            .ok_or_else(|| Error::FieldNotFound(entity_id.clone(), field_type.clone()))?;
 
         let fields = self
             .fields
@@ -1206,13 +857,12 @@ impl Store {
         // If the value is None, use the default value from the schema
         if let Some(value) = value {
             if discriminant(value) != discriminant(&field_schema.default_value()) {
-                return Err(ValueTypeMismatch(
+                return Err(Error::ValueTypeMismatch(
                     entity_id.clone(),
                     field_type.clone(),
                     field_schema.default_value(),
                     value.clone(),
-                )
-                .into());
+                ));
             }
 
             new_value = value.clone();
@@ -1252,12 +902,11 @@ impl Store {
                     );
                 }
                 _ => {
-                    return Err(UnsupportAdjustBehavior(
+                    return Err(Error::UnsupportedAdjustBehavior(
                         entity_id.clone(),
                         field_type.clone(),
                         adjust_behavior.clone(),
-                    )
-                    .into());
+                    ));
                 }
             },
             AdjustBehavior::Subtract => match &old_value {
@@ -1278,12 +927,11 @@ impl Store {
                     );
                 }
                 _ => {
-                    return Err(UnsupportAdjustBehavior(
+                    return Err(Error::UnsupportedAdjustBehavior(
                         entity_id.clone(),
                         field_type.clone(),
                         adjust_behavior.clone(),
-                    )
-                    .into());
+                    ));
                 }
             },
             _ => {
@@ -1571,150 +1219,4 @@ impl Store {
             }
         }
     }
-}
-
-pub async fn resolve_indirection(
-    ctx: &Context,
-    store: &mut Store,
-    entity_id: &EntityId,
-    field_type: &FieldType,
-) -> Result<(EntityId, FieldType)> {
-    let fields = field_type.indirect_fields();
-
-    if fields.len() == 1 {
-        return Ok((entity_id.clone(), field_type.clone()));
-    }
-
-    let mut current_entity_id = entity_id.clone();
-
-    for i in 0..fields.len() - 1 {
-        let field = &fields[i];
-
-        // Handle array index navigation (for EntityList fields)
-        if i > 0 && field.0.parse::<i64>().is_ok() {
-            let index = field.0.parse::<i64>().unwrap();
-            if index < 0 {
-                return Err(BadIndirection::new(
-                    current_entity_id.clone(),
-                    field_type.clone(),
-                    BadIndirectionReason::NegativeIndex(index),
-                )
-                .into());
-            }
-
-            // The previous field should have been an EntityList
-            let prev_field = &fields[i - 1];
-
-            let mut reqs = vec![sread!(current_entity_id.clone(), prev_field.clone())];
-            store.perform(ctx, &mut reqs).await?;
-
-            if let Request::Read { value, .. } = &reqs[0] {
-                if let Some(Value::EntityList(entities)) = value {
-                    let index_usize = index as usize;
-                    if index_usize >= entities.len() {
-                        return Err(BadIndirection::new(
-                            current_entity_id.clone(),
-                            field_type.clone(),
-                            BadIndirectionReason::ArrayIndexOutOfBounds(
-                                index_usize,
-                                entities.len(),
-                            ),
-                        )
-                        .into());
-                    }
-
-                    current_entity_id = entities[index_usize].clone();
-                } else {
-                    return Err(BadIndirection::new(
-                        current_entity_id.clone(),
-                        field_type.clone(),
-                        BadIndirectionReason::UnexpectedValueType(
-                            prev_field.clone(),
-                            format!("{:?}", value),
-                        ),
-                    )
-                    .into());
-                }
-            }
-
-            continue;
-        }
-
-        // Normal field resolution
-        let mut reqs = vec![sread!(current_entity_id.clone(), field.clone())];
-
-        if let Err(e) = store.perform(ctx, &mut reqs).await {
-            return Err(BadIndirection::new(
-                current_entity_id.clone(),
-                field_type.clone(),
-                BadIndirectionReason::FailedToResolveField(field.clone(), e.to_string()),
-            )
-            .into());
-        }
-
-        if let Request::Read { value, .. } = &reqs[0] {
-            if let Some(Value::EntityReference(reference)) = value {
-                match reference {
-                    Some(ref_id) => {
-                        // Check if the reference is valid
-                        if !store.entity_exists(ctx, ref_id).await {
-                            return Err(BadIndirection::new(
-                                current_entity_id.clone(),
-                                field_type.clone(),
-                                BadIndirectionReason::InvalidEntityId(ref_id.clone()),
-                            )
-                            .into());
-                        }
-                        current_entity_id = ref_id.clone();
-                    }
-                    None => {
-                        // If the reference is None, this is an error
-                        return Err(BadIndirection::new(
-                            current_entity_id.clone(),
-                            field_type.clone(),
-                            BadIndirectionReason::EmptyEntityReference,
-                        )
-                        .into());
-                    }
-                }
-
-                continue;
-            }
-
-            if let Some(Value::EntityList(_)) = value {
-                // If next segment is not an index, this is an error
-                if i + 1 >= fields.len() - 1 || fields[i + 1].0.parse::<i64>().is_err() {
-                    return Err(BadIndirection::new(
-                        current_entity_id.clone(),
-                        field_type.clone(),
-                        BadIndirectionReason::ExpectedIndexAfterEntityList(fields[i + 1].clone()),
-                    )
-                    .into());
-                }
-                // The index will be processed in the next iteration
-                continue;
-            }
-
-            return Err(BadIndirection::new(
-                current_entity_id.clone(),
-                field_type.clone(),
-                BadIndirectionReason::UnexpectedValueType(field.clone(), format!("{:?}", value)),
-            )
-            .into());
-        }
-    }
-
-    Ok((
-        current_entity_id,
-        fields.last().cloned().ok_or_else(|| {
-            BadIndirection::new(
-                entity_id.clone(),
-                field_type.clone(),
-                BadIndirectionReason::UnexpectedValueType(
-                    "".into(),
-                    "Empty field path".to_string(),
-                ),
-            )
-        })?,
-    ))
 }

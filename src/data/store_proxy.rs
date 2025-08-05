@@ -7,10 +7,8 @@ use tokio_tungstenite::{connect_async, tungstenite::Message};
 use uuid::Uuid;
 
 use crate::{
-    data::store::StoreTrait, Complete, Context, Entity, EntityId, EntitySchema, EntityType, FieldSchema, FieldType, Notification, NotifyConfig, NotifyToken, PageOpts, PageResult, Request, Single, Snapshot
+    data::store::StoreTrait, Complete, Context, Entity, EntityId, EntitySchema, EntityType, FieldSchema, FieldType, Notification, NotifyConfig, PageOpts, PageResult, Request, Result, Single, Snapshot
 };
-
-pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
 /// WebSocket message types for Store proxy communication
 /// These messages are compatible with the qcore-rs WebSocketMessage format
@@ -147,12 +145,12 @@ pub enum StoreMessage {
     },
     TakeSnapshotResponse {
         id: String,
-        response: crate::data::store::Snapshot,
+        response: Snapshot,
     },
     
     RestoreSnapshot {
         id: String,
-        snapshot: crate::data::store::Snapshot,
+        snapshot: Snapshot,
     },
     RestoreSnapshotResponse {
         id: String,
@@ -166,39 +164,21 @@ pub enum StoreMessage {
     },
     RegisterNotificationResponse {
         id: String,
-        response: std::result::Result<NotifyToken, String>,
+        response: std::result::Result<(), String>,
     },
     
     UnregisterNotification {
         id: String,
-        token: NotifyToken,
+        config: NotifyConfig,
     },
     UnregisterNotificationResponse {
         id: String,
         response: bool,
     },
     
-    GetNotificationConfigs {
-        id: String,
-    },
-    GetNotificationConfigsResponse {
-        id: String,
-        response: Vec<(NotifyToken, NotifyConfig)>,
-    },
-    
     // Notification delivery
     Notification {
         notification: Notification,
-    },
-    
-    // Script execution
-    ExecuteScript {
-        id: String,
-        script: String,
-    },
-    ExecuteScriptResponse {
-        id: String,
-        response: std::result::Result<bool, String>,
     },
     
     // Connection management
@@ -245,10 +225,6 @@ pub fn extract_message_id(message: &StoreMessage) -> Option<String> {
         StoreMessage::RegisterNotificationResponse { id, .. } => Some(id.clone()),
         StoreMessage::UnregisterNotification { id, .. } => Some(id.clone()),
         StoreMessage::UnregisterNotificationResponse { id, .. } => Some(id.clone()),
-        StoreMessage::GetNotificationConfigs { id, .. } => Some(id.clone()),
-        StoreMessage::GetNotificationConfigsResponse { id, .. } => Some(id.clone()),
-        StoreMessage::ExecuteScript { id, .. } => Some(id.clone()),
-        StoreMessage::ExecuteScriptResponse { id, .. } => Some(id.clone()),
         StoreMessage::Error { id, .. } => Some(id.clone()),
         StoreMessage::Notification { .. } => None, // Notifications don't have request IDs
     }
@@ -276,8 +252,8 @@ pub struct StoreProxy {
 impl StoreTrait for StoreProxy {
         /// Create a new entity
     async fn create_entity(
-        &self,
-        _ctx: &Context,
+        &mut self,
+        ctx: &Context,
         entity_type: &EntityType,
         parent_id: Option<EntityId>,
         name: &str,
@@ -292,7 +268,8 @@ impl StoreTrait for StoreProxy {
         let response: StoreMessage = self.send_request(request).await?;
         match response {
             StoreMessage::CreateEntityResponse { response, .. } => {
-                response.map_err(|e| StoreProxyError(e).into())
+                response
+                    .map_err(|e| StoreProxyError(e).into())
             }
             _ => Err(StoreProxyError("Unexpected response type".to_string()).into()),
         }
@@ -571,7 +548,7 @@ impl StoreTrait for StoreProxy {
         &self,
         _ctx: &Context,
         config: NotifyConfig,
-    ) -> Result<NotifyToken> {
+    ) -> Result<()> {
         let request = StoreMessage::RegisterNotification {
             id: Uuid::new_v4().to_string(),
             config,
@@ -592,7 +569,7 @@ impl StoreTrait for StoreProxy {
     async fn unregister_notification(&mut self, target_config: &NotifyConfig) -> bool {
         let request = StoreMessage::UnregisterNotification {
             id: Uuid::new_v4().to_string(),
-            token: NotifyToken::from_config(target_config),
+            config: target_config.clone(),
         };
 
         let response: StoreMessage = self.send_request(request).await.unwrap();
@@ -709,22 +686,6 @@ impl StoreProxy {
             StoreMessage::RestoreSnapshotResponse { response, .. } => {
                 response.map_err(|e| StoreProxyError(e).into())
             }
-            _ => Err(StoreProxyError("Unexpected response type".to_string()).into()),
-        }
-    }
-
-    /// Get notification configs
-    pub async fn get_notification_configs(
-        &self,
-        _ctx: &Context,
-    ) -> Result<Vec<(NotifyToken, NotifyConfig)>> {
-        let request = StoreMessage::GetNotificationConfigs {
-            id: Uuid::new_v4().to_string(),
-        };
-
-        let response: StoreMessage = self.send_request(request).await?;
-        match response {
-            StoreMessage::GetNotificationConfigsResponse { response, .. } => Ok(response),
             _ => Err(StoreProxyError("Unexpected response type".to_string()).into()),
         }
     }

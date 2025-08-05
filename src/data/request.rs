@@ -13,6 +13,15 @@ pub enum AdjustBehavior {
     Add,
     Subtract,
 }
+impl std::fmt::Display for AdjustBehavior {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            AdjustBehavior::Set => write!(f, "Set"),
+            AdjustBehavior::Add => write!(f, "Add"),
+            AdjustBehavior::Subtract => write!(f, "Subtract"),
+        }
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Request {

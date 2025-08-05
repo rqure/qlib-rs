@@ -3,7 +3,7 @@ mod auth;
 mod test;
 
 pub use data::{
-    resolve_indirection, BadIndirection, BadIndirectionReason, Context, Store, PageOpts,
+    resolve_indirection, BadIndirectionReason, Context, Store, StoreTrait, PageOpts,
     PageResult, NotificationCallback, Snapshot, Entity, EntityId, EntitySchema, Single, Complete, 
     Field, FieldSchema, AdjustBehavior, PushCondition, Request, Snowflake, 
     StoreProxy, StoreMessage, Value, INDIRECTION_DELIMITER, NotifyConfig, Notification,
@@ -16,7 +16,53 @@ pub use auth::{
     SecurityContext, JwtClaims, JwtManager
 };
 
-pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
+pub type Result<T> = std::result::Result<T, Error>;
+
+#[derive(Debug, Clone)]
+pub enum Error {
+    // Store related errors
+    BadIndirection(EntityId, FieldType, BadIndirectionReason),
+    EntityExists(EntityId),
+    EntityNotFound(EntityId),
+    EntityTypeNotFound(EntityType),
+    FieldNotFound(EntityId, FieldType),
+    InvalidNotifyConfig(String),
+    UnsupportedAdjustBehavior(EntityId, FieldType, AdjustBehavior),
+    ValueTypeMismatch(EntityId, FieldType, Value, Value),
+
+    // Auth related errors
+    InvalidCredentials,
+    AccountDisabled,
+    AccountLocked,
+    UserNotFound,
+    PasswordHashError(String),
+    InvalidName,
+    InvalidPassword(String),
+    UserAlreadyExists,
+}
+impl std::error::Error for Error {}
+impl std::fmt::Display for Error {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Error::BadIndirection(id, field, reason) => write!(f, "Bad indirection for {}.{}: {}", id, field, reason),
+            Error::EntityExists(id) => write!(f, "Entity already exists: {}", id),
+            Error::EntityNotFound(id) => write!(f, "Entity not found: {}", id),
+            Error::EntityTypeNotFound(et) => write!(f, "Entity type not found: {}", et),
+            Error::FieldNotFound(id, field) => write!(f, "Field not found for {}: {}", id, field),
+            Error::InvalidNotifyConfig(msg) => write!(f, "Invalid notification config: {}", msg),
+            Error::UnsupportedAdjustBehavior(id, field, behavior) => write!(f, "Unsupported adjust behavior {} for {}.{}", behavior, id, field),
+            Error::ValueTypeMismatch(id, field, current_value, previous_value) => write!(f, "Value type mismatch for {}.{}: current value {:?}, previous value {:?}", id, field, current_value, previous_value),
+            Error::InvalidCredentials => write!(f, "Invalid credentials"),
+            Error::AccountDisabled => write!(f, "Account is disabled"),
+            Error::AccountLocked => write!(f, "Account is locked due to too many failed attempts"),
+            Error::UserNotFound => write!(f, "User not found"),
+            Error::PasswordHashError(msg) => write!(f, "Password hashing error: {}", msg),
+            Error::InvalidName => write!(f, "Invalid name format"),
+            Error::InvalidPassword(msg) => write!(f, "Invalid password: {}", msg),
+            Error::UserAlreadyExists => write!(f, "User already exists"),
+        }
+    }
+}
 
 /// Create a Read request with minimal syntax
 ///

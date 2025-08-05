@@ -1,15 +1,20 @@
-mod entity;
+mod constants;
+mod context;
 mod entity_id;
 mod entity_schema;
-mod field;
+mod entity;
 mod field_schema;
-mod request;
-mod snowflake;
-mod store;
-mod store_proxy;
-mod value;
-mod constants;
+mod field;
+mod indirection;
 mod notifications;
+mod pagination;
+mod request;
+mod snapshots;
+mod snowflake;
+mod store_proxy;
+mod store_trait;
+mod store;
+mod value;
 
 use std::{fmt, time::Duration};
 
@@ -21,14 +26,17 @@ pub use field_schema::FieldSchema;
 pub use request::{AdjustBehavior, PushCondition, Request};
 use serde::{Deserialize, Serialize};
 pub use snowflake::Snowflake;
-pub use store::{
-    resolve_indirection, BadIndirection, BadIndirectionReason, Context, Store, PageOpts,
-    PageResult, NotificationCallback, Snapshot,
-};
+pub use store::{Store};
+pub use store_trait::StoreTrait;
+pub use context::Context;
+pub use indirection::{BadIndirectionReason, resolve_indirection};
+pub use pagination::{PageOpts, PageResult};
+pub use snapshots::Snapshot;
+
 pub use store_proxy::{StoreProxy, StoreMessage};
 pub use value::Value;
 pub use constants::{INDIRECTION_DELIMITER};
-pub use notifications::{NotifyConfig, Notification};
+pub use notifications::{NotifyConfig, Notification, NotificationCallback};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash)]
 pub struct EntityType(pub String);

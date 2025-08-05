@@ -155,7 +155,7 @@ fn test_field_operations() -> Result<()> {
 
     let ft_email = FieldType::from("Email");
 
-    let root_entities = store.find_entities(&ctx, &et_root, None)?;
+    let root_entities = store.find_entities(&ctx, &et_root)?;
     let root_id = root_entities.items[0].clone();
 
     let users_folder = store.create_entity(&ctx, &et_folder, Some(root_id.clone()), "Users")?;

@@ -28,3 +28,6 @@ pub struct Notification {
     pub previous_value: Value,
     pub context: BTreeMap<FieldType, Option<Value>>, // Option because the indirection may fail
 }
+
+/// Callback function type for notifications
+pub type NotificationCallback = Box<dyn Fn(&Notification) + Send + Sync>;
