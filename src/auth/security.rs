@@ -1,4 +1,4 @@
-use crate::{EntityId, FieldType};
+use crate::{EntityId};
 use serde::{Deserialize, Serialize};
 use jsonwebtoken::{encode, decode, Header, Algorithm, Validation, EncodingKey, DecodingKey};
 use chrono::{Duration, Utc};

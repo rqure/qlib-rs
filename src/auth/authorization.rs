@@ -1,4 +1,4 @@
-use crate::{auth::{authorization_rule_entity_type, permission_test_fn_field, resource_field_field, resource_type_field, scope_field}, sread, Context, EntityId, FieldType, Request, Store, StoreTrait, Value};
+use crate::{Context, EntityId, FieldType, StoreTrait, ft, et, sread};
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum AuthorizationScope {
@@ -13,16 +13,16 @@ pub fn get_scope(
     resource_entity_id: &EntityId,
     resource_field: &FieldType,
 ) -> AuthorizationScope {
-    let rules = store.find_all_entities(ctx, &authorization_rule_entity_type()).ok();
+    let rules = store.find_all_entities(ctx, &et::authorization_rule()).ok();
     let mut filtered_rules: Vec<AuthorizationScope> = Vec::new();
 
     if let Some(entities) = rules {
         for entity_id in entities {
             let mut req = vec![
-                sread!( entity_id.clone(), scope_field() ),
-                sread!( entity_id.clone(), resource_type_field() ),
-                sread!( entity_id.clone(), resource_field_field() ),
-                sread!( entity_id.clone(), permission_test_fn_field() ),
+                sread!( entity_id.clone(), ft::scope() ),
+                sread!( entity_id.clone(), ft::resource_type() ),
+                sread!( entity_id.clone(), ft::resource_field() ),
+                sread!( entity_id.clone(), ft::permission_test_fn() ),
             ];
 
             if store.perform(ctx, &mut req).is_ok() {

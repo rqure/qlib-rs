@@ -1,13 +1,15 @@
-use serde::{Deserialize, Serialize};
 use futures_util::{SinkExt, StreamExt};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::{Mutex, RwLock, oneshot, mpsc};
+use tokio::sync::{mpsc, oneshot, Mutex, RwLock};
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 use uuid::Uuid;
 
 use crate::{
-    data::store::StoreTrait, Complete, Context, Entity, EntityId, EntitySchema, EntityType, FieldSchema, FieldType, Notification, NotifyConfig, PageOpts, PageResult, Request, Result, Single, Snapshot
+    Complete, Context, Entity, EntityId, EntitySchema, EntityType, FieldSchema, FieldType,
+    Notification, NotifyConfig, PageOpts, PageResult, Request, Result, Single, Snapshot,
+    StoreTrait,
 };
 
 /// WebSocket message types for Store proxy communication
@@ -25,7 +27,7 @@ pub enum StoreMessage {
         id: String,
         response: std::result::Result<Entity, String>,
     },
-    
+
     DeleteEntity {
         id: String,
         entity_id: EntityId,
@@ -34,7 +36,7 @@ pub enum StoreMessage {
         id: String,
         response: std::result::Result<(), String>,
     },
-    
+
     SetEntitySchema {
         id: String,
         schema: EntitySchema<Single>,
@@ -43,7 +45,7 @@ pub enum StoreMessage {
         id: String,
         response: std::result::Result<(), String>,
     },
-    
+
     GetEntitySchema {
         id: String,
         entity_type: EntityType,
@@ -52,7 +54,7 @@ pub enum StoreMessage {
         id: String,
         response: std::result::Result<Option<EntitySchema<Single>>, String>,
     },
-    
+
     GetCompleteEntitySchema {
         id: String,
         entity_type: EntityType,
@@ -61,7 +63,7 @@ pub enum StoreMessage {
         id: String,
         response: std::result::Result<EntitySchema<Complete>, String>,
     },
-    
+
     SetFieldSchema {
         id: String,
         entity_type: EntityType,
@@ -72,7 +74,7 @@ pub enum StoreMessage {
         id: String,
         response: std::result::Result<(), String>,
     },
-    
+
     GetFieldSchema {
         id: String,
         entity_type: EntityType,
@@ -82,7 +84,7 @@ pub enum StoreMessage {
         id: String,
         response: std::result::Result<Option<FieldSchema>, String>,
     },
-    
+
     EntityExists {
         id: String,
         entity_id: EntityId,
@@ -91,7 +93,7 @@ pub enum StoreMessage {
         id: String,
         response: bool,
     },
-    
+
     FieldExists {
         id: String,
         entity_id: EntityId,
@@ -101,7 +103,7 @@ pub enum StoreMessage {
         id: String,
         response: bool,
     },
-    
+
     Perform {
         id: String,
         requests: Vec<Request>,
@@ -110,7 +112,7 @@ pub enum StoreMessage {
         id: String,
         response: std::result::Result<Vec<Request>, String>,
     },
-    
+
     FindEntities {
         id: String,
         entity_type: EntityType,
@@ -120,7 +122,7 @@ pub enum StoreMessage {
         id: String,
         response: std::result::Result<PageResult<EntityId>, String>,
     },
-    
+
     FindEntitiesExact {
         id: String,
         entity_type: EntityType,
@@ -130,7 +132,7 @@ pub enum StoreMessage {
         id: String,
         response: std::result::Result<PageResult<EntityId>, String>,
     },
-    
+
     GetEntityTypes {
         id: String,
         page_opts: Option<PageOpts>,
@@ -139,7 +141,7 @@ pub enum StoreMessage {
         id: String,
         response: std::result::Result<PageResult<EntityType>, String>,
     },
-    
+
     TakeSnapshot {
         id: String,
     },
@@ -147,7 +149,7 @@ pub enum StoreMessage {
         id: String,
         response: Snapshot,
     },
-    
+
     RestoreSnapshot {
         id: String,
         snapshot: Snapshot,
@@ -156,7 +158,7 @@ pub enum StoreMessage {
         id: String,
         response: std::result::Result<(), String>,
     },
-    
+
     // Notification support
     RegisterNotification {
         id: String,
@@ -166,7 +168,7 @@ pub enum StoreMessage {
         id: String,
         response: std::result::Result<(), String>,
     },
-    
+
     UnregisterNotification {
         id: String,
         config: NotifyConfig,
@@ -175,12 +177,12 @@ pub enum StoreMessage {
         id: String,
         response: bool,
     },
-    
+
     // Notification delivery
     Notification {
         notification: Notification,
     },
-    
+
     // Connection management
     Error {
         id: String,
@@ -230,7 +232,8 @@ pub fn extract_message_id(message: &StoreMessage) -> Option<String> {
     }
 }
 
-type WsStream = tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
+type WsStream =
+    tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
 
 #[derive(Debug, Clone)]
 pub struct StoreProxyError(String);
@@ -250,7 +253,7 @@ pub struct StoreProxy {
 }
 
 impl StoreTrait for StoreProxy {
-        /// Create a new entity
+    /// Create a new entity
     async fn create_entity(
         &mut self,
         ctx: &Context,
@@ -268,8 +271,7 @@ impl StoreTrait for StoreProxy {
         let response: StoreMessage = self.send_request(request).await?;
         match response {
             StoreMessage::CreateEntityResponse { response, .. } => {
-                response
-                    .map_err(|e| StoreProxyError(e).into())
+                response.map_err(|e| StoreProxyError(e).into())
             }
             _ => Err(StoreProxyError("Unexpected response type".to_string()).into()),
         }
@@ -292,11 +294,7 @@ impl StoreTrait for StoreProxy {
     }
 
     /// Set entity schema
-    async fn set_entity_schema(
-        &self,
-        _ctx: &Context,
-        schema: &EntitySchema<Single>,
-    ) -> Result<()> {
+    async fn set_entity_schema(&self, _ctx: &Context, schema: &EntitySchema<Single>) -> Result<()> {
         let request = StoreMessage::SetEntitySchema {
             id: Uuid::new_v4().to_string(),
             schema: schema.clone(),
@@ -440,15 +438,13 @@ impl StoreTrait for StoreProxy {
 
         let response: StoreMessage = self.send_request(request).await?;
         match response {
-            StoreMessage::PerformResponse { response, .. } => {
-                match response {
-                    Ok(updated_requests) => {
-                        *requests = updated_requests;
-                        Ok(())
-                    }
-                    Err(e) => Err(StoreProxyError(e).into()),
+            StoreMessage::PerformResponse { response, .. } => match response {
+                Ok(updated_requests) => {
+                    *requests = updated_requests;
+                    Ok(())
                 }
-            }
+                Err(e) => Err(StoreProxyError(e).into()),
+            },
             _ => Err(StoreProxyError("Unexpected response type".to_string()).into()),
         }
     }
@@ -500,13 +496,15 @@ impl StoreTrait for StoreProxy {
     async fn find_entities(
         &self,
         ctx: &Context,
-        entity_type: &EntityType
+        entity_type: &EntityType,
     ) -> Result<Vec<EntityId>> {
         let mut result = Vec::new();
         let mut page_opts: Option<PageOpts> = None;
 
         loop {
-            let page_result = self.find_entities_paginated(ctx, entity_type, page_opts.clone()).await?;
+            let page_result = self
+                .find_entities_paginated(ctx, entity_type, page_opts.clone())
+                .await?;
             if page_result.items.is_empty() {
                 break;
             }
@@ -544,11 +542,7 @@ impl StoreTrait for StoreProxy {
     }
 
     /// Register notification
-    async fn register_notification(
-        &self,
-        _ctx: &Context,
-        config: NotifyConfig,
-    ) -> Result<()> {
+    async fn register_notification(&self, _ctx: &Context, config: NotifyConfig) -> Result<()> {
         let request = StoreMessage::RegisterNotification {
             id: Uuid::new_v4().to_string(),
             config,
@@ -583,18 +577,21 @@ impl StoreTrait for StoreProxy {
 impl StoreProxy {
     /// Connect to a qcore-rs WebSocket server
     pub async fn connect(url: &str) -> Result<Self> {
-        let (ws_stream, _) = connect_async(url).await
+        let (ws_stream, _) = connect_async(url)
+            .await
             .map_err(|e| StoreProxyError(format!("Failed to connect to WebSocket: {}", e)))?;
 
         let (sink, mut stream) = ws_stream.split();
         let sender = Arc::new(Mutex::new(sink));
-        let pending_requests: Arc<Mutex<HashMap<String, oneshot::Sender<serde_json::Value>>>> = Arc::new(Mutex::new(HashMap::new()));
-        let notification_sender: Arc<RwLock<Option<mpsc::UnboundedSender<Notification>>>> = Arc::new(RwLock::new(None));
+        let pending_requests: Arc<Mutex<HashMap<String, oneshot::Sender<serde_json::Value>>>> =
+            Arc::new(Mutex::new(HashMap::new()));
+        let notification_sender: Arc<RwLock<Option<mpsc::UnboundedSender<Notification>>>> =
+            Arc::new(RwLock::new(None));
 
         // Spawn task to handle incoming messages
         let pending_requests_clone = pending_requests.clone();
         let notification_sender_clone = notification_sender.clone();
-        
+
         tokio::spawn(async move {
             while let Some(msg) = stream.next().await {
                 match msg {
@@ -603,14 +600,18 @@ impl StoreProxy {
                             match store_msg {
                                 StoreMessage::Notification { notification } => {
                                     // Handle notification
-                                    if let Some(sender) = notification_sender_clone.read().await.as_ref() {
+                                    if let Some(sender) =
+                                        notification_sender_clone.read().await.as_ref()
+                                    {
                                         let _ = sender.send(notification);
                                     }
                                 }
                                 _ => {
                                     // Handle response messages
                                     if let Some(id) = extract_message_id(&store_msg) {
-                                        if let Some(sender) = pending_requests_clone.lock().await.remove(&id) {
+                                        if let Some(sender) =
+                                            pending_requests_clone.lock().await.remove(&id)
+                                        {
                                             let response_json = serde_json::to_value(&store_msg)
                                                 .unwrap_or_else(|_| serde_json::Value::Null);
                                             let _ = sender.send(response_json);
@@ -651,10 +652,15 @@ impl StoreProxy {
         let message_text = serde_json::to_string(&request)
             .map_err(|e| StoreProxyError(format!("Failed to serialize request: {}", e)))?;
 
-        self.sender.lock().await.send(Message::Text(message_text)).await
+        self.sender
+            .lock()
+            .await
+            .send(Message::Text(message_text))
+            .await
             .map_err(|e| StoreProxyError(format!("Failed to send message: {}", e)))?;
 
-        let response = rx.await
+        let response = rx
+            .await
             .map_err(|_| StoreProxyError("Request cancelled".to_string()))?;
 
         serde_json::from_value(response)

@@ -1,5 +1,7 @@
 use crate::{sread, Context, EntityId, Error, FieldType, Request, Result, StoreTrait, Value};
 
+pub const INDIRECTION_DELIMITER: &str = "->";
+
 #[derive(Debug, Clone)]
 pub enum BadIndirectionReason {
     NegativeIndex(i64),

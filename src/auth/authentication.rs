@@ -3,15 +3,10 @@ use argon2::{
     Argon2,
 };
 use rand::rngs::OsRng;
-use std::time::{Duration, SystemTime};
+use std::time::{Duration};
 
 use crate::{
-    auth::{
-        error::{AuthError, AuthResult},
-        *,
-    },
-    Context, EntityId, EntitySchema, FieldSchema, Single, Store, Value,
-    now, AdjustBehavior, PushCondition, Request,
+    et, ft, now, sint, sread, sstr, stimestamp, swrite, Context, EntityId, Error, Request, Result, StoreTrait, Value
 };
 
 /// Configuration for authentication behavior
@@ -58,347 +53,79 @@ impl AuthenticationManager {
         }
     }
 
-    /// Initialize the User entity schema with authentication fields
-    pub fn initialize_user_schema(&self, store: &mut Store, ctx: &Context) -> AuthResult<()> {
-        // Check if User schema already exists
-        if store.get_entity_schema(ctx, &user_entity_type()).is_ok() {
-            return Ok(()); // Schema already exists
-        }
-
-        // First ensure Object schema exists
-        self.initialize_object_schema(store, ctx)?;
-
-        // Create User schema that inherits from Object
-        let mut user_schema = EntitySchema::<Single>::new(user_entity_type(), Some(EntityType::from("Object")));
-
-        // Add authentication fields (Note: Name field is inherited from Object)
-        user_schema.fields.insert(
-            password_field(),
-            FieldSchema::String {
-                field_type: password_field(),
-                default_value: String::new(),
-                rank: 0,
-            },
-        );
-
-        user_schema.fields.insert(
-            active_field(),
-            FieldSchema::Bool {
-                field_type: active_field(),
-                default_value: true,
-                rank: 1,
-            },
-        );
-
-        user_schema.fields.insert(
-            last_login_field(),
-            FieldSchema::Timestamp {
-                field_type: last_login_field(),
-                default_value: SystemTime::UNIX_EPOCH,
-                rank: 2,
-            },
-        );
-
-        user_schema.fields.insert(
-            created_at_field(),
-            FieldSchema::Timestamp {
-                field_type: created_at_field(),
-                default_value: now(),
-                rank: 3,
-            },
-        );
-
-        user_schema.fields.insert(
-            failed_attempts_field(),
-            FieldSchema::Int {
-                field_type: failed_attempts_field(),
-                default_value: 0,
-                rank: 4,
-            },
-        );
-
-        user_schema.fields.insert(
-            locked_until_field(),
-            FieldSchema::Timestamp {
-                field_type: locked_until_field(),
-                default_value: SystemTime::UNIX_EPOCH,
-                rank: 5,
-            },
-        );
-
-        store
-            .set_entity_schema(ctx, &user_schema)
-            .map_err(|e| AuthError::StoreError(e.to_string()))?;
-
-        Ok(())
-    }
-
-    /// Initialize the Object entity schema that serves as the base for User
-    fn initialize_object_schema(&self, store: &mut Store, ctx: &Context) -> AuthResult<()> {
-        // Check if Object schema already exists
-        if store.get_entity_schema(ctx, &EntityType::from("Object")).is_ok() {
-            return Ok(()); // Schema already exists
-        }
-
-        let mut object_schema = EntitySchema::<Single>::new(EntityType::from("Object"), None);
-
-        // Add base Object fields
-        object_schema.fields.insert(
-            name_field(),
-            FieldSchema::String {
-                field_type: name_field(),
-                default_value: String::new(),
-                rank: 0,
-            },
-        );
-
-        object_schema.fields.insert(
-            FieldType::from("Parent"),
-            FieldSchema::EntityReference {
-                field_type: FieldType::from("Parent"),
-                default_value: None,
-                rank: 1,
-            },
-        );
-
-        object_schema.fields.insert(
-            FieldType::from("Children"),
-            FieldSchema::EntityList {
-                field_type: FieldType::from("Children"),
-                default_value: Vec::new(),
-                rank: 2,
-            },
-        );
-
-        store
-            .set_entity_schema(ctx, &object_schema)
-            .map_err(|e| AuthError::StoreError(e.to_string()))?;
-
-        Ok(())
-    }
-
-    /// Create a new user with name and password
-    pub fn create_user(&self, store: &mut Store, ctx: &Context, name: &str, password: &str) -> AuthResult<EntityId> {
-        // Validate name
-        if name.trim().is_empty() {
-            return Err(AuthError::InvalidName);
-        }
-
-        // Validate password
-        self.validate_password(password)?;
-
-        // Check if user already exists
-        if self.find_user_by_name(store, ctx, name)?.is_some() {
-            return Err(AuthError::UserAlreadyExists);
-        }
-
-        // Hash the password
-        let password_hash = self.hash_password(password)?;
-
-        // Create the user entity (the name will be set as the Object's Name field)
-        let user = store
-            .create_entity(ctx, &user_entity_type(), None, name)
-            .map_err(|e| AuthError::StoreError(e.to_string()))?;
-
-        // Set user fields
-        let mut requests = vec![
-            Request::Write {
-                entity_id: user.entity_id.clone(),
-                field_type: password_field(),
-                value: Some(Value::String(password_hash)),
-                push_condition: PushCondition::Always,
-                adjust_behavior: AdjustBehavior::Set,
-                write_time: None,
-                writer_id: None,
-            },
-            Request::Write {
-                entity_id: user.entity_id.clone(),
-                field_type: active_field(),
-                value: Some(Value::Bool(true)),
-                push_condition: PushCondition::Always,
-                adjust_behavior: AdjustBehavior::Set,
-                write_time: None,
-                writer_id: None,
-            },
-            Request::Write {
-                entity_id: user.entity_id.clone(),
-                field_type: created_at_field(),
-                value: Some(Value::Timestamp(now())),
-                push_condition: PushCondition::Always,
-                adjust_behavior: AdjustBehavior::Set,
-                write_time: None,
-                writer_id: None,
-            },
-            Request::Write {
-                entity_id: user.entity_id.clone(),
-                field_type: failed_attempts_field(),
-                value: Some(Value::Int(0)),
-                push_condition: PushCondition::Always,
-                adjust_behavior: AdjustBehavior::Set,
-                write_time: None,
-                writer_id: None,
-            },
-        ];
-
-        store
-            .perform(ctx, &mut requests)
-            .map_err(|e| AuthError::StoreError(e.to_string()))?;
-
-        Ok(user.entity_id)
-    }
-
     /// Authenticate a user with name and password
-    pub fn authenticate(&self, store: &mut Store, ctx: &Context, name: &str, password: &str) -> AuthResult<EntityId> {
+    pub async fn authenticate(&self, store: &mut impl StoreTrait, ctx: &Context, name: &str, password: &str) -> Result<EntityId> {
         let user_id = self
-            .find_user_by_name(store, ctx, name)?
-            .ok_or(AuthError::UserNotFound)?;
+            .find_user_by_name(store, ctx, name)
+            .await?
+            .ok_or(Error::UserNotFound)?;
 
         // Check if account is active
-        if !self.is_user_active(store, ctx, &user_id)? {
-            return Err(AuthError::AccountDisabled);
+        if !self.is_user_active(store, ctx, &user_id).await? {
+            return Err(Error::AccountDisabled);
         }
 
         // Check if account is locked
-        if self.is_user_locked(store, ctx, &user_id)? {
-            return Err(AuthError::AccountLocked);
+        if self.is_user_locked(store, ctx, &user_id).await? {
+            return Err(Error::AccountLocked);
         }
 
         // Get stored password hash
-        let stored_hash = self.get_user_password_hash(store, ctx, &user_id)?;
+        let stored_hash = self.get_user_password_hash(store, ctx, &user_id).await?;
 
         // Verify password
         if self.verify_password(password, &stored_hash)? {
             // Reset failed attempts and update last login
-            self.reset_failed_attempts(store, ctx, &user_id)?;
-            self.update_last_login(store, ctx, &user_id)?;
+            self.reset_failed_attempts(store, ctx, &user_id).await?;
+            self.update_last_login(store, ctx, &user_id).await?;
             Ok(user_id)
         } else {
             // Increment failed attempts
-            self.increment_failed_attempts(store, ctx, &user_id)?;
-            Err(AuthError::InvalidCredentials)
+            self.increment_failed_attempts(store, ctx, &user_id).await?;
+            Err(Error::InvalidCredentials)
         }
     }
 
     /// Change a user's password
-    pub fn change_password(
+    pub async fn change_password(
         &self,
-        store: &mut Store,
+        store: &mut impl StoreTrait,
         ctx: &Context,
         user_id: &EntityId,
         new_password: &str,
-    ) -> AuthResult<()> {
+    ) -> Result<()> {
         // Validate new password
         self.validate_password(new_password)?;
 
         // Hash the new password
         let password_hash = self.hash_password(new_password)?;
 
-        let mut requests = vec![Request::Write {
-            entity_id: user_id.clone(),
-            field_type: password_field(),
-            value: Some(Value::String(password_hash)),
-            push_condition: PushCondition::Always,
-            adjust_behavior: AdjustBehavior::Set,
-            write_time: None,
-            writer_id: None,
-        }];
-
-        store
-            .perform(ctx, &mut requests)
-            .map_err(|e| AuthError::StoreError(e.to_string()))?;
-
-        Ok(())
-    }
-
-    /// Disable a user account
-    pub fn disable_user(&self, store: &mut Store, ctx: &Context, user_id: &EntityId) -> AuthResult<()> {
-        let mut requests = vec![Request::Write {
-            entity_id: user_id.clone(),
-            field_type: active_field(),
-            value: Some(Value::Bool(false)),
-            push_condition: PushCondition::Always,
-            adjust_behavior: AdjustBehavior::Set,
-            write_time: None,
-            writer_id: None,
-        }];
-
-        store
-            .perform(ctx, &mut requests)
-            .map_err(|e| AuthError::StoreError(e.to_string()))?;
-
-        Ok(())
-    }
-
-    /// Enable a user account
-    pub fn enable_user(&self, store: &mut Store, ctx: &Context, user_id: &EntityId) -> AuthResult<()> {
-        let mut requests = vec![Request::Write {
-            entity_id: user_id.clone(),
-            field_type: active_field(),
-            value: Some(Value::Bool(true)),
-            push_condition: PushCondition::Always,
-            adjust_behavior: AdjustBehavior::Set,
-            write_time: None,
-            writer_id: None,
-        }];
-
-        store
-            .perform(ctx, &mut requests)
-            .map_err(|e| AuthError::StoreError(e.to_string()))?;
-
-        Ok(())
-    }
-
-    /// Unlock a user account manually
-    pub fn unlock_user(&self, store: &mut Store, ctx: &Context, user_id: &EntityId) -> AuthResult<()> {
         let mut requests = vec![
-            Request::Write {
-                entity_id: user_id.clone(),
-                field_type: failed_attempts_field(),
-                value: Some(Value::Int(0)),
-                push_condition: PushCondition::Always,
-                adjust_behavior: AdjustBehavior::Set,
-                write_time: None,
-                writer_id: None,
-            },
-            Request::Write {
-                entity_id: user_id.clone(),
-                field_type: locked_until_field(),
-                value: Some(Value::Timestamp(SystemTime::UNIX_EPOCH)),
-                push_condition: PushCondition::Always,
-                adjust_behavior: AdjustBehavior::Set,
-                write_time: None,
-                writer_id: None,
-            },
+            swrite!(user_id.clone(), ft::password(), sstr!(password_hash))
         ];
 
         store
             .perform(ctx, &mut requests)
-            .map_err(|e| AuthError::StoreError(e.to_string()))?;
+            .await?;
 
         Ok(())
     }
 
     // Private helper methods
-
-    fn find_user_by_name(&self, store: &mut Store, ctx: &Context, name: &str) -> AuthResult<Option<EntityId>> {
+    async fn find_user_by_name(&self, store: &mut impl StoreTrait, ctx: &Context, name: &str) -> Result<Option<EntityId>> {
         // Use the store's find_entities method to search for users with matching name
         let entities = store
-            .find_entities(ctx, &user_entity_type(), None)
-            .map_err(|e| AuthError::StoreError(e.to_string()))?;
+            .find_entities(ctx, &et::user())
+            .await?;
 
-        for entity_id in entities.items {
-            // Read the name field for this entity (from Object)
-            let mut requests = vec![Request::Read {
-                entity_id: entity_id.clone(),
-                field_type: name_field(),
-                value: None,
-                write_time: None,
-                writer_id: None,
-            }];
+        for entity_id in entities {
+            let mut requests = vec![
+                sread!(entity_id.clone(), ft::name()),
+            ];
 
             store
                 .perform(ctx, &mut requests)
-                .map_err(|e| AuthError::StoreError(e.to_string()))?;
+                .await?;
 
             if let Some(request) = requests.first() {
                 if let Request::Read { value: Some(Value::String(stored_name)), .. } = request {
@@ -412,18 +139,14 @@ impl AuthenticationManager {
         Ok(None)
     }
 
-    fn is_user_active(&self, store: &mut Store, ctx: &Context, user_id: &EntityId) -> AuthResult<bool> {
-        let mut requests = vec![Request::Read {
-            entity_id: user_id.clone(),
-            field_type: active_field(),
-            value: None,
-            write_time: None,
-            writer_id: None,
-        }];
+    async fn is_user_active(&self, store: &mut impl StoreTrait, ctx: &Context, user_id: &EntityId) -> Result<bool> {
+        let mut requests = vec![
+            sread!(user_id.clone(), ft::active()),
+        ];
 
         store
             .perform(ctx, &mut requests)
-            .map_err(|e| AuthError::StoreError(e.to_string()))?;
+            .await?;
 
         if let Some(request) = requests.first() {
             if let Request::Read { value: Some(Value::Bool(active)), .. } = request {
@@ -436,18 +159,14 @@ impl AuthenticationManager {
         }
     }
 
-    fn is_user_locked(&self, store: &mut Store, ctx: &Context, user_id: &EntityId) -> AuthResult<bool> {
-        let mut requests = vec![Request::Read {
-            entity_id: user_id.clone(),
-            field_type: locked_until_field(),
-            value: None,
-            write_time: None,
-            writer_id: None,
-        }];
+    async fn is_user_locked(&self, store: &mut impl StoreTrait, ctx: &Context, user_id: &EntityId) -> Result<bool> {
+        let mut requests = vec![
+            sread!(user_id.clone(), ft::locked_until()),
+        ];
 
         store
             .perform(ctx, &mut requests)
-            .map_err(|e| AuthError::StoreError(e.to_string()))?;
+            .await?;
 
         if let Some(request) = requests.first() {
             if let Request::Read { value: Some(Value::Timestamp(locked_until)), .. } = request {
@@ -458,41 +177,37 @@ impl AuthenticationManager {
         Ok(false)
     }
 
-    fn get_user_password_hash(&self, store: &mut Store, ctx: &Context, user_id: &EntityId) -> AuthResult<String> {
-        let mut requests = vec![Request::Read {
-            entity_id: user_id.clone(),
-            field_type: password_field(),
-            value: None,
-            write_time: None,
-            writer_id: None,
-        }];
+    async fn get_user_password_hash(&self, store: &mut impl StoreTrait, ctx: &Context, user_id: &EntityId) -> Result<String> {
+        let mut requests = vec![
+            sread!(user_id.clone(), ft::password()),
+        ];
 
         store
             .perform(ctx, &mut requests)
-            .map_err(|e| AuthError::StoreError(e.to_string()))?;
+            .await?;
 
         if let Some(request) = requests.first() {
             if let Request::Read { value: Some(Value::String(hash)), .. } = request {
                 Ok(hash.clone())
             } else {
-                Err(AuthError::UserNotFound)
+                Err(Error::UserNotFound)
             }
         } else {
-            Err(AuthError::UserNotFound)
+            Err(Error::UserNotFound)
         }
     }
 
-    fn hash_password(&self, password: &str) -> AuthResult<String> {
+    fn hash_password(&self, password: &str) -> Result<String> {
         let salt = SaltString::generate(&mut OsRng);
         let password_hash = self.argon2
             .hash_password(password.as_bytes(), &salt)
-            .map_err(|e| AuthError::PasswordHashError(e.to_string()))?;
+            .map_err(|e| Error::PasswordHashError(e.to_string()))?;
         Ok(password_hash.to_string())
     }
 
-    fn verify_password(&self, password: &str, hash: &str) -> AuthResult<bool> {
+    fn verify_password(&self, password: &str, hash: &str) -> Result<bool> {
         let parsed_hash = PasswordHash::new(hash)
-            .map_err(|e| AuthError::PasswordHashError(e.to_string()))?;
+            .map_err(|e| Error::PasswordHashError(e.to_string()))?;
 
         Ok(self
             .argon2
@@ -500,9 +215,9 @@ impl AuthenticationManager {
             .is_ok())
     }
 
-    fn validate_password(&self, password: &str) -> AuthResult<()> {
+    fn validate_password(&self, password: &str) -> Result<()> {
         if password.len() < self.config.min_password_length {
-            return Err(AuthError::InvalidPassword(format!(
+            return Err(Error::InvalidPassword(format!(
                 "Password must be at least {} characters long",
                 self.config.min_password_length
             )));
@@ -515,7 +230,7 @@ impl AuthenticationManager {
             let has_symbol = password.chars().any(|c| !c.is_alphanumeric());
 
             if !has_upper || !has_lower || !has_digit || !has_symbol {
-                return Err(AuthError::InvalidPassword(
+                return Err(Error::InvalidPassword(
                     "Password must contain uppercase, lowercase, digit, and symbol characters"
                         .to_string(),
                 ));
@@ -525,19 +240,13 @@ impl AuthenticationManager {
         Ok(())
     }
 
-    fn increment_failed_attempts(&self, store: &mut Store, ctx: &Context, user_id: &EntityId) -> AuthResult<()> {
+    async fn increment_failed_attempts(&self, store: &mut impl StoreTrait, ctx: &Context, user_id: &EntityId) -> Result<()> {
         // Get current failed attempts
-        let mut read_requests = vec![Request::Read {
-            entity_id: user_id.clone(),
-            field_type: failed_attempts_field(),
-            value: None,
-            write_time: None,
-            writer_id: None,
-        }];
+        let mut read_requests = vec![sread!(user_id.clone(), ft::failed_attempts())];
 
         store
             .perform(ctx, &mut read_requests)
-            .map_err(|e| AuthError::StoreError(e.to_string()))?;
+            .await?;
 
         let current_attempts = if let Some(request) = read_requests.first() {
             if let Request::Read { value: Some(Value::Int(attempts)), .. } = request {
@@ -552,69 +261,45 @@ impl AuthenticationManager {
         let new_attempts = current_attempts + 1;
 
         // Update failed attempts
-        let mut write_requests = vec![Request::Write {
-            entity_id: user_id.clone(),
-            field_type: failed_attempts_field(),
-            value: Some(Value::Int(new_attempts)),
-            push_condition: PushCondition::Always,
-            adjust_behavior: AdjustBehavior::Set,
-            write_time: None,
-            writer_id: None,
-        }];
+        let mut write_requests = vec![
+            swrite!(user_id.clone(), ft::failed_attempts(), sint!(new_attempts)),
+        ];
 
         // Lock account if max attempts reached
         if new_attempts >= self.config.max_failed_attempts {
             let lock_until = now() + self.config.lockout_duration;
-            write_requests.push(Request::Write {
-                entity_id: user_id.clone(),
-                field_type: locked_until_field(),
-                value: Some(Value::Timestamp(lock_until)),
-                push_condition: PushCondition::Always,
-                adjust_behavior: AdjustBehavior::Set,
-                write_time: None,
-                writer_id: None,
-            });
+            write_requests.push(
+                swrite!(user_id.clone(), ft::locked_until(), stimestamp!(lock_until)),
+            );
         }
 
         store
             .perform(ctx, &mut write_requests)
-            .map_err(|e| AuthError::StoreError(e.to_string()))?;
+            .await?;
 
         Ok(())
     }
 
-    fn reset_failed_attempts(&self, store: &mut Store, ctx: &Context, user_id: &EntityId) -> AuthResult<()> {
-        let mut requests = vec![Request::Write {
-            entity_id: user_id.clone(),
-            field_type: failed_attempts_field(),
-            value: Some(Value::Int(0)),
-            push_condition: PushCondition::Always,
-            adjust_behavior: AdjustBehavior::Set,
-            write_time: None,
-            writer_id: None,
-        }];
+    async fn reset_failed_attempts(&self, store: &mut impl StoreTrait, ctx: &Context, user_id: &EntityId) -> Result<()> {
+        let mut requests = vec![
+            swrite!(user_id.clone(), ft::failed_attempts(), sint!(0)),
+        ];
 
         store
             .perform(ctx, &mut requests)
-            .map_err(|e| AuthError::StoreError(e.to_string()))?;
+            .await?;
 
         Ok(())
     }
 
-    fn update_last_login(&self, store: &mut Store, ctx: &Context, user_id: &EntityId) -> AuthResult<()> {
-        let mut requests = vec![Request::Write {
-            entity_id: user_id.clone(),
-            field_type: last_login_field(),
-            value: Some(Value::Timestamp(now())),
-            push_condition: PushCondition::Always,
-            adjust_behavior: AdjustBehavior::Set,
-            write_time: None,
-            writer_id: None,
-        }];
+    async fn update_last_login(&self, store: &mut impl StoreTrait, ctx: &Context, user_id: &EntityId) -> Result<()> {
+        let mut requests = vec![
+            swrite!(user_id.clone(), ft::last_login(), stimestamp!(now())),
+        ];
 
         store
             .perform(ctx, &mut requests)
-            .map_err(|e| AuthError::StoreError(e.to_string()))?;
+            .await?;
 
         Ok(())
     }
