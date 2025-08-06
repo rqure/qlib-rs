@@ -7,13 +7,13 @@ pub enum AuthorizationScope {
     ReadWrite,
 }
 
-pub fn get_scope(
+pub async fn get_scope(
     store: &mut impl StoreTrait,
     ctx: &Context,
     resource_entity_id: &EntityId,
     resource_field: &FieldType,
 ) -> AuthorizationScope {
-    let rules = store.find_all_entities(ctx, &et::authorization_rule()).ok();
+    let rules = store.find_entities(ctx, &et::authorization_rule()).await.ok();
     let mut filtered_rules: Vec<AuthorizationScope> = Vec::new();
 
     if let Some(entities) = rules {
@@ -25,7 +25,7 @@ pub fn get_scope(
                 sread!( entity_id.clone(), ft::permission_test_fn() ),
             ];
 
-            if store.perform(ctx, &mut req).is_ok() {
+            if store.perform(ctx, &mut req).await.is_ok() {
                 let scope = req[0].value().unwrap().as_int();
                 let rule_resource_type = req[1].value().unwrap().as_string().unwrap();
                 let rule_resource_field = req[2].value().unwrap().as_string().unwrap();

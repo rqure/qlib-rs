@@ -74,7 +74,7 @@ impl StoreTrait for Store {
 
         let entity_id = EntityId::new(entity_type.clone(), self.snowflake.generate());
         if self.fields.contains_key(&entity_id) {
-            return Err(Error::EntityExists(entity_id));
+            return Err(Error::EntityAlreadyExists(entity_id));
         }
 
         {
@@ -327,7 +327,7 @@ impl StoreTrait for Store {
                     push_condition,
                     adjust_behavior,
                 } => {
-                    let indir = resolve_indirection(ctx, self, entity_id, field_type).await?;
+                    let indir = Box::pin(resolve_indirection(ctx, self, entity_id, field_type)).await?;
                     self.write(
                         ctx,
                         &indir.0,
@@ -782,11 +782,6 @@ impl Store {
         write_time: &mut Option<Timestamp>,
         writer_id: &mut Option<EntityId>,
     ) -> Result<()> {
-        if !has_permission() {
-            return Err(format!("Permission denied: cannot read field {} on entity {}", 
-                field_type, entity_id).into());
-        }
-
         let field = self
             .fields
             .get(&entity_id)
@@ -814,25 +809,6 @@ impl Store {
         write_option: &PushCondition,
         adjust_behavior: &AdjustBehavior,
     ) -> Result<()> {
-        // Check write permission using QOS authorization model
-        let has_permission = {
-            if let Some(_security_context) = ctx.get_security_context() {
-                // QOS Default policy: If no AuthorizationRules exist, allow access
-                // This implements the QOS specification: "By default, if a resource does not have an 
-                // AuthorizationRule associated to it, anyone can read or write to it"
-                // TODO: Implement full AuthorizationRule checking here
-                true
-            } else {
-                // No security context, allow by default
-                true
-            }
-        };
-
-        if !has_permission {
-            return Err(format!("Permission denied: cannot write field {} on entity {}", 
-                field_type, entity_id).into());
-        }
-
         let entity_schema = self.get_complete_entity_schema(ctx, entity_id.get_type()).await?;
         let field_schema = entity_schema
             .fields
@@ -1125,7 +1101,7 @@ impl Store {
         // Check entity-specific notifications with O(1) lookup by entity_id and field_type
         if let Some(field_map) = self.id_notifications.get(entity_id) {
             if let Some(token_map) = field_map.get(field_type) {
-                for ((config, _)) in token_map {
+                for (config, _) in token_map {
                     if let NotifyConfig::EntityId {
                         trigger_on_change,
                         context,
@@ -1155,7 +1131,7 @@ impl Store {
         for entity_type_to_check in types_to_check {
             if let Some(field_map) = self.type_notifications.get(&entity_type_to_check) {
                 if let Some(token_map) = field_map.get(field_type) {
-                for ((config, _)) in token_map {
+                for (config, _) in token_map {
                         if let NotifyConfig::EntityType {
                             trigger_on_change,
                             context,

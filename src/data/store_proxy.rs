@@ -7,9 +7,7 @@ use tokio_tungstenite::{connect_async, tungstenite::Message};
 use uuid::Uuid;
 
 use crate::{
-    Complete, Context, Entity, EntityId, EntitySchema, EntityType, FieldSchema, FieldType,
-    Notification, NotifyConfig, PageOpts, PageResult, Request, Result, Single, Snapshot,
-    StoreTrait,
+    Complete, Context, Entity, EntityId, EntitySchema, EntityType, Error, FieldSchema, FieldType, Notification, NotifyConfig, PageOpts, PageResult, Request, Result, Single, Snapshot, StoreTrait
 };
 
 /// WebSocket message types for Store proxy communication
@@ -235,17 +233,6 @@ pub fn extract_message_id(message: &StoreMessage) -> Option<String> {
 type WsStream =
     tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
 
-#[derive(Debug, Clone)]
-pub struct StoreProxyError(String);
-
-impl std::fmt::Display for StoreProxyError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "StoreProxy error: {}", self.0)
-    }
-}
-
-impl std::error::Error for StoreProxyError {}
-
 pub struct StoreProxy {
     sender: Arc<Mutex<futures_util::stream::SplitSink<WsStream, Message>>>,
     pending_requests: Arc<Mutex<HashMap<String, oneshot::Sender<serde_json::Value>>>>,
@@ -271,14 +258,14 @@ impl StoreTrait for StoreProxy {
         let response: StoreMessage = self.send_request(request).await?;
         match response {
             StoreMessage::CreateEntityResponse { response, .. } => {
-                response.map_err(|e| StoreProxyError(e).into())
+                response.map_err(|e| Error::StoreProxyError(e))
             }
-            _ => Err(StoreProxyError("Unexpected response type".to_string()).into()),
+            _ => Err(Error::StoreProxyError("Unexpected response type".to_string())),
         }
     }
 
     /// Delete an entity
-    async fn delete_entity(&self, _ctx: &Context, entity_id: &EntityId) -> Result<()> {
+    async fn delete_entity(&mut self, _ctx: &Context, entity_id: &EntityId) -> Result<()> {
         let request = StoreMessage::DeleteEntity {
             id: Uuid::new_v4().to_string(),
             entity_id: entity_id.clone(),
@@ -287,14 +274,14 @@ impl StoreTrait for StoreProxy {
         let response: StoreMessage = self.send_request(request).await?;
         match response {
             StoreMessage::DeleteEntityResponse { response, .. } => {
-                response.map_err(|e| StoreProxyError(e).into())
+                response.map_err(|e| Error::StoreProxyError(e))
             }
-            _ => Err(StoreProxyError("Unexpected response type".to_string()).into()),
+            _ => Err(Error::StoreProxyError("Unexpected response type".to_string())),
         }
     }
 
     /// Set entity schema
-    async fn set_entity_schema(&self, _ctx: &Context, schema: &EntitySchema<Single>) -> Result<()> {
+    async fn set_entity_schema(&mut self, _ctx: &Context, schema: &EntitySchema<Single>) -> Result<()> {
         let request = StoreMessage::SetEntitySchema {
             id: Uuid::new_v4().to_string(),
             schema: schema.clone(),
@@ -303,9 +290,9 @@ impl StoreTrait for StoreProxy {
         let response: StoreMessage = self.send_request(request).await?;
         match response {
             StoreMessage::SetEntitySchemaResponse { response, .. } => {
-                response.map_err(|e| StoreProxyError(e).into())
+                response.map_err(|e| Error::StoreProxyError(e))
             }
-            _ => Err(StoreProxyError("Unexpected response type".to_string()).into()),
+            _ => Err(Error::StoreProxyError("Unexpected response type".to_string())),
         }
     }
 
@@ -323,9 +310,9 @@ impl StoreTrait for StoreProxy {
         let response: StoreMessage = self.send_request(request).await?;
         match response {
             StoreMessage::GetEntitySchemaResponse { response, .. } => {
-                response.map_err(|e| StoreProxyError(e).into())
+                response.map_err(|e| Error::StoreProxyError(e))
             }
-            _ => Err(StoreProxyError("Unexpected response type".to_string()).into()),
+            _ => Err(Error::StoreProxyError("Unexpected response type".to_string())),
         }
     }
 
@@ -343,19 +330,19 @@ impl StoreTrait for StoreProxy {
         let response: StoreMessage = self.send_request(request).await?;
         match response {
             StoreMessage::GetCompleteEntitySchemaResponse { response, .. } => {
-                response.map_err(|e| StoreProxyError(e).into())
+                response.map_err(|e| Error::StoreProxyError(e))
             }
-            _ => Err(StoreProxyError("Unexpected response type".to_string()).into()),
+            _ => Err(Error::StoreProxyError("Unexpected response type".to_string())),
         }
     }
 
     /// Set field schema
     async fn set_field_schema(
-        &self,
+        &mut self,
         _ctx: &Context,
         entity_type: &EntityType,
         field_type: &FieldType,
-        schema: &FieldSchema,
+        schema: FieldSchema,
     ) -> Result<()> {
         let request = StoreMessage::SetFieldSchema {
             id: Uuid::new_v4().to_string(),
@@ -367,9 +354,9 @@ impl StoreTrait for StoreProxy {
         let response: StoreMessage = self.send_request(request).await?;
         match response {
             StoreMessage::SetFieldSchemaResponse { response, .. } => {
-                response.map_err(|e| StoreProxyError(e).into())
+                response.map_err(|e| Error::StoreProxyError(e))
             }
-            _ => Err(StoreProxyError("Unexpected response type".to_string()).into()),
+            _ => Err(Error::StoreProxyError("Unexpected response type".to_string())),
         }
     }
 
@@ -389,9 +376,9 @@ impl StoreTrait for StoreProxy {
         let response: StoreMessage = self.send_request(request).await?;
         match response {
             StoreMessage::GetFieldSchemaResponse { response, .. } => {
-                response.map_err(|e| StoreProxyError(e).into())
+                response.map_err(|e| Error::StoreProxyError(e))
             }
-            _ => Err(StoreProxyError("Unexpected response type".to_string()).into()),
+            _ => Err(Error::StoreProxyError("Unexpected response type".to_string())),
         }
     }
 
@@ -405,7 +392,7 @@ impl StoreTrait for StoreProxy {
         let response: StoreMessage = self.send_request(request).await?;
         match response {
             StoreMessage::EntityExistsResponse { response, .. } => Ok(response),
-            _ => Err(StoreProxyError("Unexpected response type".to_string()).into()),
+            _ => Err(Error::StoreProxyError("Unexpected response type".to_string())),
         }
     }
 
@@ -425,7 +412,7 @@ impl StoreTrait for StoreProxy {
         let response: StoreMessage = self.send_request(request).await?;
         match response {
             StoreMessage::FieldExistsResponse { response, .. } => Ok(response),
-            _ => Err(StoreProxyError("Unexpected response type".to_string()).into()),
+            _ => Err(Error::StoreProxyError("Unexpected response type".to_string())),
         }
     }
 
@@ -443,9 +430,9 @@ impl StoreTrait for StoreProxy {
                     *requests = updated_requests;
                     Ok(())
                 }
-                Err(e) => Err(StoreProxyError(e).into()),
+                Err(e) => Err(Error::StoreProxyError(e)),
             },
-            _ => Err(StoreProxyError("Unexpected response type".to_string()).into()),
+            _ => Err(Error::StoreProxyError("Unexpected response type".to_string())),
         }
     }
 
@@ -465,9 +452,9 @@ impl StoreTrait for StoreProxy {
         let response: StoreMessage = self.send_request(request).await?;
         match response {
             StoreMessage::FindEntitiesResponse { response, .. } => {
-                response.map_err(|e| StoreProxyError(e).into())
+                response.map_err(|e| Error::StoreProxyError(e))
             }
-            _ => Err(StoreProxyError("Unexpected response type".to_string()).into()),
+            _ => Err(Error::StoreProxyError("Unexpected response type".to_string())),
         }
     }
 
@@ -487,9 +474,9 @@ impl StoreTrait for StoreProxy {
         let response: StoreMessage = self.send_request(request).await?;
         match response {
             StoreMessage::FindEntitiesExactResponse { response, .. } => {
-                response.map_err(|e| StoreProxyError(e).into())
+                response.map_err(|e| Error::StoreProxyError(e))
             }
-            _ => Err(StoreProxyError("Unexpected response type".to_string()).into()),
+            _ => Err(Error::StoreProxyError("Unexpected response type".to_string())),
         }
     }
 
@@ -535,9 +522,9 @@ impl StoreTrait for StoreProxy {
         let response: StoreMessage = self.send_request(request).await?;
         match response {
             StoreMessage::GetEntityTypesResponse { response, .. } => {
-                response.map_err(|e| StoreProxyError(e).into())
+                response.map_err(|e| Error::StoreProxyError(e))
             }
-            _ => Err(StoreProxyError("Unexpected response type".to_string()).into()),
+            _ => Err(Error::StoreProxyError("Unexpected response type".to_string())),
         }
     }
 
@@ -551,9 +538,9 @@ impl StoreTrait for StoreProxy {
         let response: StoreMessage = self.send_request(request).await?;
         match response {
             StoreMessage::RegisterNotificationResponse { response, .. } => {
-                response.map_err(|e| StoreProxyError(e).into())
+                response.map_err(|e| Error::StoreProxyError(e))
             }
-            _ => Err(StoreProxyError("Unexpected response type".to_string()).into()),
+            _ => Err(Error::StoreProxyError("Unexpected response type".to_string())),
         }
     }
 
@@ -579,7 +566,7 @@ impl StoreProxy {
     pub async fn connect(url: &str) -> Result<Self> {
         let (ws_stream, _) = connect_async(url)
             .await
-            .map_err(|e| StoreProxyError(format!("Failed to connect to WebSocket: {}", e)))?;
+            .map_err(|e| Error::StoreProxyError(format!("Failed to connect to WebSocket: {}", e)))?;
 
         let (sink, mut stream) = ws_stream.split();
         let sender = Arc::new(Mutex::new(sink));
@@ -644,27 +631,27 @@ impl StoreProxy {
         T: serde::de::DeserializeOwned,
     {
         let id = extract_message_id(&request)
-            .ok_or_else(|| StoreProxyError("Request missing ID".to_string()))?;
+            .ok_or_else(|| Error::StoreProxyError("Request missing ID".to_string()))?;
 
         let (tx, rx) = oneshot::channel();
         self.pending_requests.lock().await.insert(id.clone(), tx);
 
         let message_text = serde_json::to_string(&request)
-            .map_err(|e| StoreProxyError(format!("Failed to serialize request: {}", e)))?;
+            .map_err(|e| Error::StoreProxyError(format!("Failed to serialize request: {}", e)))?;
 
         self.sender
             .lock()
             .await
             .send(Message::Text(message_text))
             .await
-            .map_err(|e| StoreProxyError(format!("Failed to send message: {}", e)))?;
+            .map_err(|e| Error::StoreProxyError(format!("Failed to send message: {}", e)))?;
 
         let response = rx
             .await
-            .map_err(|_| StoreProxyError("Request cancelled".to_string()))?;
+            .map_err(|_| Error::StoreProxyError("Request cancelled".to_string()))?;
 
         serde_json::from_value(response)
-            .map_err(|e| StoreProxyError(format!("Failed to deserialize response: {}", e)).into())
+            .map_err(|e| Error::StoreProxyError(format!("Failed to deserialize response: {}", e)))
     }
 
     /// Take snapshot
@@ -676,7 +663,7 @@ impl StoreProxy {
         let response: StoreMessage = self.send_request(request).await?;
         match response {
             StoreMessage::TakeSnapshotResponse { response, .. } => Ok(response),
-            _ => Err(StoreProxyError("Unexpected response type".to_string()).into()),
+            _ => Err(Error::StoreProxyError("Unexpected response type".to_string())),
         }
     }
 
@@ -690,9 +677,9 @@ impl StoreProxy {
         let response: StoreMessage = self.send_request(request).await?;
         match response {
             StoreMessage::RestoreSnapshotResponse { response, .. } => {
-                response.map_err(|e| StoreProxyError(e).into())
+                response.map_err(|e| Error::StoreProxyError(e))
             }
-            _ => Err(StoreProxyError("Unexpected response type".to_string()).into()),
+            _ => Err(Error::StoreProxyError("Unexpected response type".to_string())),
         }
     }
 

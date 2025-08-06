@@ -22,7 +22,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 pub enum Error {
     // Store related errors
     BadIndirection(EntityId, FieldType, BadIndirectionReason),
-    EntityExists(EntityId),
+    EntityAlreadyExists(EntityId),
     EntityNotFound(EntityId),
     EntityTypeNotFound(EntityType),
     FieldNotFound(EntityId, FieldType),
@@ -39,13 +39,16 @@ pub enum Error {
     InvalidName,
     InvalidPassword(String),
     UserAlreadyExists,
+
+    // StoreProxy related errors
+    StoreProxyError(String),
 }
 impl std::error::Error for Error {}
 impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Error::BadIndirection(id, field, reason) => write!(f, "Bad indirection for {}.{}: {}", id, field, reason),
-            Error::EntityExists(id) => write!(f, "Entity already exists: {}", id),
+            Error::EntityAlreadyExists(id) => write!(f, "Entity already exists: {}", id),
             Error::EntityNotFound(id) => write!(f, "Entity not found: {}", id),
             Error::EntityTypeNotFound(et) => write!(f, "Entity type not found: {}", et),
             Error::FieldNotFound(id, field) => write!(f, "Field not found for {}: {}", id, field),
@@ -60,6 +63,7 @@ impl std::fmt::Display for Error {
             Error::InvalidName => write!(f, "Invalid name format"),
             Error::InvalidPassword(msg) => write!(f, "Invalid password: {}", msg),
             Error::UserAlreadyExists => write!(f, "User already exists"),
+            Error::StoreProxyError(msg) => write!(f, "Store proxy error: {}", msg),
         }
     }
 }
