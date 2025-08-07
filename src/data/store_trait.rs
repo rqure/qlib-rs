@@ -1,4 +1,4 @@
-use crate::{Complete, Context, Entity, EntityId, EntitySchema, EntityType, FieldSchema, FieldType, NotificationCallback, NotifyConfig, PageOpts, PageResult, Request, Result, Single};
+use crate::{Complete, Context, Entity, EntityId, EntitySchema, EntityType, FieldSchema, FieldType, NotificationSender, NotifyConfig, PageOpts, PageResult, Request, Result, Single};
 
 pub trait StoreTrait {
     async fn create_entity(
@@ -81,13 +81,17 @@ pub trait StoreTrait {
         page_opts: Option<PageOpts>,
     ) -> Result<PageResult<EntityType>>;
 
+    /// Register a notification configuration with a provided sender
+    /// The sender will be added to the list of senders for this notification config
     async fn register_notification(
         &mut self,
         ctx: &Context,
         config: NotifyConfig,
-        callback: NotificationCallback,
+        sender: NotificationSender,
     ) -> Result<()>;
 
-    async fn unregister_notification(&mut self, target_config: &NotifyConfig) -> bool;
+    /// Unregister a notification by removing a specific sender
+    /// Returns true if the sender was found and removed
+    async fn unregister_notification(&mut self, target_config: &NotifyConfig, sender: &NotificationSender) -> bool;
 
 }

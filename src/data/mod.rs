@@ -36,7 +36,7 @@ pub use snapshots::Snapshot;
 
 pub use store_proxy::{StoreProxy, StoreMessage};
 pub use value::Value;
-pub use notifications::{NotifyConfig, Notification, NotificationCallback};
+pub use notifications::{NotifyConfig, Notification, NotificationSender, NotificationReceiver, notification_channel, hash_notify_config};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash)]
 pub struct EntityType(pub String);

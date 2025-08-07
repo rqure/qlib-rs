@@ -4,7 +4,7 @@ mod test;
 
 pub use data::{
     resolve_indirection, BadIndirectionReason, Context, Store, StoreTrait, PageOpts,
-    PageResult, NotificationCallback, Snapshot, Entity, EntityId, EntitySchema, Single, Complete, 
+    PageResult, NotificationSender, NotificationReceiver, notification_channel, hash_notify_config, Snapshot, Entity, EntityId, EntitySchema, Single, Complete, 
     Field, FieldSchema, AdjustBehavior, PushCondition, Request, Snowflake, 
     StoreProxy, StoreMessage, Value, INDIRECTION_DELIMITER, NotifyConfig, Notification,
     EntityType, FieldType, Timestamp, now, epoch, nanos_to_timestamp, secs_to_timestamp, 

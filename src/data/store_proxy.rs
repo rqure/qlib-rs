@@ -2,12 +2,12 @@ use futures_util::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::{mpsc, oneshot, Mutex, RwLock};
+use tokio::sync::{oneshot, Mutex, RwLock};
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 use uuid::Uuid;
 
 use crate::{
-    Complete, Context, Entity, EntityId, EntitySchema, EntityType, Error, FieldSchema, FieldType, Notification, NotificationCallback, NotifyConfig, PageOpts, PageResult, Request, Result, Single, Snapshot, StoreTrait
+    Complete, Context, Entity, EntityId, EntitySchema, EntityType, Error, FieldSchema, FieldType, Notification, NotificationSender, NotifyConfig, hash_notify_config, PageOpts, PageResult, Request, Result, Single, Snapshot, StoreTrait
 };
 
 /// WebSocket message types for Store proxy communication
@@ -236,7 +236,8 @@ type WsStream =
 pub struct StoreProxy {
     sender: Arc<Mutex<futures_util::stream::SplitSink<WsStream, Message>>>,
     pending_requests: Arc<Mutex<HashMap<String, oneshot::Sender<serde_json::Value>>>>,
-    notification_sender: Arc<RwLock<Option<mpsc::UnboundedSender<Notification>>>>,
+    // Map from config hash to list of notification senders
+    notification_configs: Arc<RwLock<HashMap<u64, Vec<NotificationSender>>>>,
 }
 
 impl StoreTrait for StoreProxy {
@@ -550,40 +551,77 @@ impl StoreTrait for StoreProxy {
         }
     }
 
-    /// Register notification
+    /// Register notification with provided sender
+    /// Note: For proxy, this registers the notification on the remote server
+    /// and stores the sender locally to forward notifications
     async fn register_notification(
         &mut self,
         _ctx: &Context,
         config: NotifyConfig,
-        callback: NotificationCallback,
+        sender: NotificationSender,
     ) -> Result<()> {
         let request = StoreMessage::RegisterNotification {
             id: Uuid::new_v4().to_string(),
-            config,
+            config: config.clone(),
         };
 
         let response: StoreMessage = self.send_request(request).await?;
         match response {
             StoreMessage::RegisterNotificationResponse { response, .. } => {
-                response.map_err(|e| Error::StoreProxyError(e))
+                match response {
+                    Ok(_) => {
+                        // Store the sender locally so we can forward notifications
+                        let config_hash = hash_notify_config(&config);
+                        let mut configs = self.notification_configs.write().await;
+                        configs.entry(config_hash).or_insert_with(Vec::new).push(sender);
+                        Ok(())
+                    }
+                    Err(e) => Err(Error::StoreProxyError(e)),
+                }
             }
             _ => Err(Error::StoreProxyError("Unexpected response type".to_string())),
         }
     }
 
-    /// Unregister a notification configuration by config (legacy method)
-    /// Note: This will remove ALL notifications matching the config
-    /// Prefer using unregister_notification_by_token for precise removal
-    async fn unregister_notification(&mut self, target_config: &NotifyConfig) -> bool {
-        let request = StoreMessage::UnregisterNotification {
-            id: Uuid::new_v4().to_string(),
-            config: target_config.clone(),
-        };
+    /// Unregister a notification by removing a specific sender
+    /// Note: This will remove ALL notifications matching the config for proxy
+    async fn unregister_notification(&mut self, target_config: &NotifyConfig, sender: &NotificationSender) -> bool {
+        // First remove the sender from local mapping
+        let config_hash = hash_notify_config(target_config);
+        let mut configs = self.notification_configs.write().await;
+        let mut removed_locally = false;
+        
+        if let Some(senders) = configs.get_mut(&config_hash) {
+            // Find and remove the specific sender by comparing addresses
+            if let Some(pos) = senders.iter().position(|s| std::ptr::eq(s, sender)) {
+                senders.remove(pos);
+                removed_locally = true;
+                
+                // If no more senders for this config, remove the entry
+                if senders.is_empty() {
+                    configs.remove(&config_hash);
+                }
+            }
+        }
+        drop(configs);
 
-        let response: StoreMessage = self.send_request(request).await.unwrap();
-        match response {
-            StoreMessage::UnregisterNotificationResponse { response, .. } => response,
-            _ => false,
+        // If we removed a sender locally, also unregister from remote
+        if removed_locally {
+            let request = StoreMessage::UnregisterNotification {
+                id: Uuid::new_v4().to_string(),
+                config: target_config.clone(),
+            };
+
+            if let Ok(response) = self.send_request(request).await {
+                match response {
+                    StoreMessage::UnregisterNotificationResponse { response, .. } => response,
+                    _ => false,
+                }
+            } else {
+                false
+            }
+        } else {
+            false
         }
     }
 }
@@ -599,12 +637,11 @@ impl StoreProxy {
         let sender = Arc::new(Mutex::new(sink));
         let pending_requests: Arc<Mutex<HashMap<String, oneshot::Sender<serde_json::Value>>>> =
             Arc::new(Mutex::new(HashMap::new()));
-        let notification_sender: Arc<RwLock<Option<mpsc::UnboundedSender<Notification>>>> =
-            Arc::new(RwLock::new(None));
 
-        // Spawn task to handle incoming messages
+        // Clone for the spawn task
         let pending_requests_clone = pending_requests.clone();
-        let notification_sender_clone = notification_sender.clone();
+        let notification_configs = Arc::new(RwLock::new(HashMap::new()));
+        let notification_configs_clone = notification_configs.clone();
 
         tokio::spawn(async move {
             while let Some(msg) = stream.next().await {
@@ -613,11 +650,13 @@ impl StoreProxy {
                         if let Ok(store_msg) = serde_json::from_str::<StoreMessage>(&text) {
                             match store_msg {
                                 StoreMessage::Notification { notification } => {
-                                    // Handle notification
-                                    if let Some(sender) =
-                                        notification_sender_clone.read().await.as_ref()
-                                    {
-                                        let _ = sender.send(notification);
+                                    // Forward notification to registered senders based on config hash
+                                    let config_hash = notification.config_hash;
+                                    if let Some(senders) = notification_configs_clone.read().await.get(&config_hash) {
+                                        for sender in senders {
+                                            // Ignore send errors (receiver may have been dropped)
+                                            let _ = NotificationSender::send(sender, notification.clone());
+                                        }
                                     }
                                 }
                                 _ => {
@@ -648,7 +687,7 @@ impl StoreProxy {
         Ok(StoreProxy {
             sender,
             pending_requests,
-            notification_sender,
+            notification_configs,
         })
     }
 
@@ -710,16 +749,4 @@ impl StoreProxy {
         }
     }
 
-    /// Subscribe to notifications
-    /// Returns a receiver that will get notification events
-    pub async fn subscribe_notifications(&self) -> mpsc::UnboundedReceiver<Notification> {
-        let (tx, rx) = mpsc::unbounded_channel();
-        *self.notification_sender.write().await = Some(tx);
-        rx
-    }
-
-    /// Stop notification subscription
-    pub async fn unsubscribe_notifications(&self) {
-        *self.notification_sender.write().await = None;
-    }
 }

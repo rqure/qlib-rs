@@ -4,8 +4,8 @@ use std::{collections::HashMap, mem::discriminant, sync::Arc};
 use crate::{
     data::{
         entity_schema::Complete, now, request::PushCondition, EntityType, FieldType, Notification,
-        NotifyConfig, Timestamp, INDIRECTION_DELIMITER,
-    }, resolve_indirection, sadd, sread, sref, sreflist, sstr, ssub, swrite, AdjustBehavior, BadIndirectionReason, Context, Entity, EntityId, EntitySchema, Error, Field, FieldSchema, NotificationCallback, PageOpts, PageResult, Request, Result, Single, Snapshot, Snowflake, StoreTrait, Value
+        NotifyConfig, NotificationSender, hash_notify_config, Timestamp, INDIRECTION_DELIMITER,
+    }, resolve_indirection, sadd, sread, sref, sreflist, sstr, ssub, swrite, AdjustBehavior, BadIndirectionReason, Context, Entity, EntityId, EntitySchema, Error, Field, FieldSchema, PageOpts, PageResult, Request, Result, Single, Snapshot, Snowflake, StoreTrait, Value
 };
 
 #[derive(Serialize, Deserialize, Default)]
@@ -23,15 +23,17 @@ pub struct Store {
     #[serde(skip)]
     snowflake: Arc<Snowflake>,
 
-    /// Notification configurations indexed by entity ID and field type
+    /// Notification senders indexed by entity ID and field type
+    /// Each config can have multiple senders
     #[serde(skip)]
     id_notifications:
-        HashMap<EntityId, HashMap<FieldType, HashMap<NotifyConfig, NotificationCallback>>>,
+        HashMap<EntityId, HashMap<FieldType, HashMap<NotifyConfig, Vec<NotificationSender>>>>,
 
-    /// Notification configurations indexed by entity type and field type
+    /// Notification senders indexed by entity type and field type
+    /// Each config can have multiple senders
     #[serde(skip)]
     type_notifications:
-        HashMap<EntityType, HashMap<FieldType, HashMap<NotifyConfig, NotificationCallback>>>,
+        HashMap<EntityType, HashMap<FieldType, HashMap<NotifyConfig, Vec<NotificationSender>>>>,
 }
 
 impl std::fmt::Debug for Store {
@@ -628,14 +630,14 @@ impl StoreTrait for Store {
         })
     }
 
-    /// Register a notification configuration with its callback
-    /// Returns a NotifyToken that can be used to unregister the notification
+    /// Register a notification configuration with a provided sender
+    /// The sender will be added to the list of senders for this notification config
     /// Returns an error if the field_type contains indirection (context fields can be indirect)
     async fn register_notification(
         &mut self,
         _ctx: &Context,
         config: NotifyConfig,
-        callback: NotificationCallback,
+        sender: NotificationSender,
     ) -> Result<()> {
         // Validate that the main field_type is not indirect
         let field_type = match &config {
@@ -649,39 +651,46 @@ impl StoreTrait for Store {
             ));
         }
 
-        // Add to appropriate index based on config type
+        // Add sender to the list for this notification config
         match &config {
             NotifyConfig::EntityId {
                 entity_id,
                 field_type,
                 ..
             } => {
-                self.id_notifications
+                let senders = self
+                    .id_notifications
                     .entry(entity_id.clone())
                     .or_insert_with(HashMap::new)
                     .entry(field_type.clone())
                     .or_insert_with(HashMap::new)
-                    .insert(config.clone(), callback);
+                    .entry(config.clone())
+                    .or_insert_with(Vec::new);
+                senders.push(sender);
             }
             NotifyConfig::EntityType {
                 entity_type,
                 field_type,
                 ..
             } => {
-                self.type_notifications
+                let senders = self
+                    .type_notifications
                     .entry(EntityType::from(entity_type.clone()))
                     .or_insert_with(HashMap::new)
                     .entry(field_type.clone())
                     .or_insert_with(HashMap::new)
-                    .insert(config.clone(), callback);
+                    .entry(config.clone())
+                    .or_insert_with(Vec::new);
+                senders.push(sender);
             }
         }
 
         Ok(())
     }
 
-    /// Unregister a notification configuration by config
-    async fn unregister_notification(&mut self, target_config: &NotifyConfig) -> bool {
+    /// Unregister a notification by removing a specific sender
+    /// Returns true if the sender was found and removed
+    async fn unregister_notification(&mut self, target_config: &NotifyConfig, target_sender: &NotificationSender) -> bool {
         let mut removed_any = false;
         
         match target_config {
@@ -691,25 +700,21 @@ impl StoreTrait for Store {
                 ..
             } => {
                 if let Some(field_map) = self.id_notifications.get_mut(entity_id) {
-                    if let Some(token_map) = field_map.get_mut(field_type) {
-                        let tokens_to_remove: Vec<_> = token_map
-                            .iter()
-                            .filter_map(|(config, _)| {
-                                if config == target_config {
-                                    Some(config.clone())
-                                } else {
-                                    None
-                                }
-                            })
-                            .collect();
-
-                        for token in tokens_to_remove {
-                            token_map.remove(&token);
-                            removed_any = true;
+                    if let Some(sender_map) = field_map.get_mut(field_type) {
+                        if let Some(senders) = sender_map.get_mut(target_config) {
+                            // Find and remove the specific sender
+                            let original_len = senders.len();
+                            senders.retain(|sender| !std::ptr::eq(sender, target_sender));
+                            removed_any = senders.len() != original_len;
+                            
+                            // Clean up empty entries
+                            if senders.is_empty() {
+                                sender_map.remove(target_config);
+                            }
                         }
 
                         // Clean up empty maps
-                        if token_map.is_empty() {
+                        if sender_map.is_empty() {
                             field_map.remove(field_type);
                         }
 
@@ -726,25 +731,21 @@ impl StoreTrait for Store {
             } => {
                 let entity_type_key = EntityType::from(entity_type.clone());
                 if let Some(field_map) = self.type_notifications.get_mut(&entity_type_key) {
-                    if let Some(token_map) = field_map.get_mut(field_type) {
-                        let tokens_to_remove: Vec<_> = token_map
-                            .iter()
-                            .filter_map(|(config, _)| {
-                                if config == target_config {
-                                    Some(config.clone())
-                                } else {
-                                    None
-                                }
-                            })
-                            .collect();
-
-                        for token in tokens_to_remove {
-                            token_map.remove(&token);
-                            removed_any = true;
+                    if let Some(sender_map) = field_map.get_mut(field_type) {
+                        if let Some(senders) = sender_map.get_mut(target_config) {
+                            // Find and remove the specific sender
+                            let original_len = senders.len();
+                            senders.retain(|sender| !std::ptr::eq(sender, target_sender));
+                            removed_any = senders.len() != original_len;
+                            
+                            // Clean up empty entries
+                            if senders.is_empty() {
+                                sender_map.remove(target_config);
+                            }
                         }
 
                         // Clean up empty maps
-                        if token_map.is_empty() {
+                        if sender_map.is_empty() {
                             field_map.remove(field_type);
                         }
                         if field_map.is_empty() {
@@ -1100,8 +1101,8 @@ impl Store {
 
         // Check entity-specific notifications with O(1) lookup by entity_id and field_type
         if let Some(field_map) = self.id_notifications.get(entity_id) {
-            if let Some(token_map) = field_map.get(field_type) {
-                for (config, _) in token_map {
+            if let Some(sender_map) = field_map.get(field_type) {
+                for (config, _) in sender_map {
                     if let NotifyConfig::EntityId {
                         trigger_on_change,
                         context,
@@ -1130,8 +1131,8 @@ impl Store {
 
         for entity_type_to_check in types_to_check {
             if let Some(field_map) = self.type_notifications.get(&entity_type_to_check) {
-                if let Some(token_map) = field_map.get(field_type) {
-                for (config, _) in token_map {
+                if let Some(sender_map) = field_map.get(field_type) {
+                for (config, _) in sender_map {
                         if let NotifyConfig::EntityType {
                             trigger_on_change,
                             context,
@@ -1156,6 +1157,7 @@ impl Store {
         // Now trigger the collected notifications
         for (config, context) in notifications_to_trigger {
             let context_fields = self.build_context_fields(ctx, entity_id, &context).await;
+            let config_hash = hash_notify_config(&config);
 
             let notification = Notification {
                 entity_id: entity_id.clone(),
@@ -1163,18 +1165,23 @@ impl Store {
                 current_value: current_value.clone(),
                 previous_value: previous_value.clone(),
                 context: context_fields,
+                config_hash,
             };
 
-            // Find and call the callback with O(1) lookup using the token
+            // Find the senders and send the notification through each channel
             match &config {
                 NotifyConfig::EntityId {
                     field_type: config_field_type,
                     ..
                 } => {
                     if let Some(field_map) = self.id_notifications.get(entity_id) {
-                        if let Some(token_map) = field_map.get(config_field_type) {
-                            if let Some(callback) = token_map.get(&config) {
-                                callback(&notification);
+                        if let Some(sender_map) = field_map.get(config_field_type) {
+                            if let Some(senders) = sender_map.get(&config) {
+                                // Send to all senders for this config
+                                for sender in senders {
+                                    // Ignore send errors (receiver may have been dropped)
+                                    let _ = sender.send(notification.clone());
+                                }
                             }
                         }
                     }
@@ -1185,9 +1192,13 @@ impl Store {
                     ..
                 } => {
                     if let Some(field_map) = self.type_notifications.get(config_entity_type) {
-                        if let Some(token_map) = field_map.get(config_field_type) {
-                            if let Some(callback) = token_map.get(&config) {
-                                callback(&notification);
+                        if let Some(sender_map) = field_map.get(config_field_type) {
+                            if let Some(senders) = sender_map.get(&config) {
+                                // Send to all senders for this config
+                                for sender in senders {
+                                    // Ignore send errors (receiver may have been dropped)
+                                    let _ = sender.send(notification.clone());
+                                }
                             }
                         }
                     }
