@@ -7,7 +7,7 @@ use tokio_tungstenite::{connect_async, tungstenite::Message};
 use uuid::Uuid;
 
 use crate::{
-    Complete, Context, Entity, EntityId, EntitySchema, EntityType, Error, FieldSchema, FieldType, Notification, NotifyConfig, PageOpts, PageResult, Request, Result, Single, Snapshot, StoreTrait
+    Complete, Context, Entity, EntityId, EntitySchema, EntityType, Error, FieldSchema, FieldType, Notification, NotificationCallback, NotifyConfig, PageOpts, PageResult, Request, Result, Single, Snapshot, StoreTrait
 };
 
 /// WebSocket message types for Store proxy communication
@@ -94,7 +94,7 @@ pub enum StoreMessage {
 
     FieldExists {
         id: String,
-        entity_id: EntityId,
+        entity_type: EntityType,
         field_type: FieldType,
     },
     FieldExistsResponse {
@@ -301,7 +301,7 @@ impl StoreTrait for StoreProxy {
         &self,
         _ctx: &Context,
         entity_type: &EntityType,
-    ) -> Result<Option<EntitySchema<Single>>> {
+    ) -> Result<EntitySchema<Single>> {
         let request = StoreMessage::GetEntitySchema {
             id: Uuid::new_v4().to_string(),
             entity_type: entity_type.clone(),
@@ -310,7 +310,15 @@ impl StoreTrait for StoreProxy {
         let response: StoreMessage = self.send_request(request).await?;
         match response {
             StoreMessage::GetEntitySchemaResponse { response, .. } => {
-                response.map_err(|e| Error::StoreProxyError(e))
+                response
+                    .and_then(|s| {
+                        if let Some(s) = s {
+                            Ok(s)
+                        } else {
+                            Err("Schema not found".to_string())
+                        }
+                    })
+                    .map_err(|e| Error::StoreProxyError(e))
             }
             _ => Err(Error::StoreProxyError("Unexpected response type".to_string())),
         }
@@ -363,10 +371,10 @@ impl StoreTrait for StoreProxy {
     /// Get field schema
     async fn get_field_schema(
         &self,
-        _ctx: &Context,
+        ctx: &Context,
         entity_type: &EntityType,
         field_type: &FieldType,
-    ) -> Result<Option<FieldSchema>> {
+    ) -> Result<FieldSchema> {
         let request = StoreMessage::GetFieldSchema {
             id: Uuid::new_v4().to_string(),
             entity_type: entity_type.clone(),
@@ -376,48 +384,62 @@ impl StoreTrait for StoreProxy {
         let response: StoreMessage = self.send_request(request).await?;
         match response {
             StoreMessage::GetFieldSchemaResponse { response, .. } => {
-                response.map_err(|e| Error::StoreProxyError(e))
+                response
+                    .and_then(|s| {
+                        if let Some(s) = s {
+                            Ok(s)
+                        } else {
+                            Err("Field schema not found".to_string())
+                        }
+                    })
+                    .map_err(|e| Error::StoreProxyError(e))
             }
             _ => Err(Error::StoreProxyError("Unexpected response type".to_string())),
         }
     }
 
     /// Check if entity exists
-    async fn entity_exists(&self, _ctx: &Context, entity_id: &EntityId) -> Result<bool> {
+    async fn entity_exists(&self, _: &Context, entity_id: &EntityId) -> bool {
         let request = StoreMessage::EntityExists {
             id: Uuid::new_v4().to_string(),
             entity_id: entity_id.clone(),
         };
 
-        let response: StoreMessage = self.send_request(request).await?;
-        match response {
-            StoreMessage::EntityExistsResponse { response, .. } => Ok(response),
-            _ => Err(Error::StoreProxyError("Unexpected response type".to_string())),
+        if let Ok(response) = self.send_request(request).await {
+            match response {
+                StoreMessage::EntityExistsResponse { response, .. } => response,
+                _ => false, // If we get an unexpected response, assume entity does not exist
+            }
+        } else {
+            false
         }
     }
 
     /// Check if field exists
     async fn field_exists(
         &self,
-        _ctx: &Context,
-        entity_id: &EntityId,
+        _: &Context,
+        entity_type: &EntityType,
         field_type: &FieldType,
-    ) -> Result<bool> {
+    ) -> bool {
         let request = StoreMessage::FieldExists {
             id: Uuid::new_v4().to_string(),
-            entity_id: entity_id.clone(),
+            entity_type: entity_type.clone(),
             field_type: field_type.clone(),
         };
 
-        let response: StoreMessage = self.send_request(request).await?;
-        match response {
-            StoreMessage::FieldExistsResponse { response, .. } => Ok(response),
-            _ => Err(Error::StoreProxyError("Unexpected response type".to_string())),
+        if let Ok(response) = self.send_request(request).await {
+            match response {
+                StoreMessage::FieldExistsResponse { response, .. } => response,
+                _ => false, // If we get an unexpected response, assume field does not exist
+            }
+        } else {
+            false
         }
     }
 
     /// Perform requests
-    async fn perform(&self, _ctx: &Context, requests: &mut Vec<Request>) -> Result<()> {
+    async fn perform(&mut self, ctx: &Context, requests: &mut Vec<Request>) -> Result<()> {
         let request = StoreMessage::Perform {
             id: Uuid::new_v4().to_string(),
             requests: requests.clone(),
@@ -529,7 +551,12 @@ impl StoreTrait for StoreProxy {
     }
 
     /// Register notification
-    async fn register_notification(&self, _ctx: &Context, config: NotifyConfig) -> Result<()> {
+    async fn register_notification(
+        &mut self,
+        _ctx: &Context,
+        config: NotifyConfig,
+        callback: NotificationCallback,
+    ) -> Result<()> {
         let request = StoreMessage::RegisterNotification {
             id: Uuid::new_v4().to_string(),
             config,
