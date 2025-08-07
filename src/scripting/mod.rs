@@ -113,6 +113,6 @@ pub async fn execute_file<T: StoreTrait + Send + Sync + 'static>(
     runtime.bind_store(store, context)?;
     
     let module = Module::load(file_path)
-        .map_err(|e| Error::ScriptingError(format!("Failed to load module: {}", e)))?;
+        .map_err(|e| Error::Scripting(format!("Failed to load module: {}", e)))?;
     runtime.execute_module(module, entrypoint, args).await
 }

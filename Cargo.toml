@@ -17,12 +17,11 @@ serde_json = { version = "1.0" }
 async-trait = { version = "0.1" }
 futures-util = "0.3.31"
 log = "0.4"
-rhai = "1.22.2"
 argon2 = "0.5.3"
 rand = "0.8.5"
 jsonwebtoken = "9.3.0"
 chrono = { version = "0.4", features = ["serde"] }
-rustyscript = { version = "0.10.0", features = ["console", "crypto", "webidl", "url"] }
+rustyscript = { version = "0.11.0", features = ["console", "crypto", "webidl", "url"] }
 
 [dev-dependencies]
 env_logger = "0.10"

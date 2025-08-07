@@ -27,13 +27,13 @@ impl<T: StoreTrait + Send + Sync + 'static> StoreWrapper<T> {
         
         let entity_type = EntityType::from(entity_type);
         let parent_id = parent_id.map(|id| {
-            EntityId::try_from(id).map_err(|e| Error::ScriptingError(format!("Invalid parent ID: {}", e)))
+            EntityId::try_from(id).map_err(|e| Error::Scripting(format!("Invalid parent ID: {}", e)))
         }).transpose()?;
 
         let entity = store.create_entity(&self.context, &entity_type, parent_id, name).await?;
         
         Ok(serde_json::to_value(entity)
-            .map_err(|e| Error::ScriptingError(format!("Failed to serialize entity: {}", e)))?)
+            .map_err(|e| Error::Scripting(format!("Failed to serialize entity: {}", e)))?)
     }
 
     /// Delete an entity
@@ -41,7 +41,7 @@ impl<T: StoreTrait + Send + Sync + 'static> StoreWrapper<T> {
         let mut store = self.store.lock().await;
         
         let entity_id = EntityId::try_from(entity_id)
-            .map_err(|e| Error::ScriptingError(format!("Invalid entity ID: {}", e)))?;
+            .map_err(|e| Error::Scripting(format!("Invalid entity ID: {}", e)))?;
 
         store.delete_entity(&self.context, &entity_id).await
     }
@@ -51,7 +51,7 @@ impl<T: StoreTrait + Send + Sync + 'static> StoreWrapper<T> {
         let store = self.store.lock().await;
         
         let entity_id = EntityId::try_from(entity_id)
-            .map_err(|e| Error::ScriptingError(format!("Invalid entity ID: {}", e)))?;
+            .map_err(|e| Error::Scripting(format!("Invalid entity ID: {}", e)))?;
 
         Ok(store.entity_exists(&self.context, &entity_id).await)
     }
@@ -64,7 +64,7 @@ impl<T: StoreTrait + Send + Sync + 'static> StoreWrapper<T> {
         let entities = store.find_entities(&self.context, &entity_type).await?;
         
         Ok(serde_json::to_value(entities)
-            .map_err(|e| Error::ScriptingError(format!("Failed to serialize entities: {}", e)))?)
+            .map_err(|e| Error::Scripting(format!("Failed to serialize entities: {}", e)))?)
     }
 
     /// Perform store operations (read/write requests)
@@ -73,19 +73,19 @@ impl<T: StoreTrait + Send + Sync + 'static> StoreWrapper<T> {
         
         // Parse the JSON into Request objects
         let mut requests: Vec<Request> = serde_json::from_value(requests_json.clone())
-            .map_err(|e| Error::ScriptingError(format!("Failed to parse requests: {}", e)))?;
+            .map_err(|e| Error::Scripting(format!("Failed to parse requests: {}", e)))?;
 
         store.perform(&self.context, &mut requests).await?;
 
         // Serialize the results back to JSON
         Ok(serde_json::to_value(requests)
-            .map_err(|e| Error::ScriptingError(format!("Failed to serialize results: {}", e)))?)
+            .map_err(|e| Error::Scripting(format!("Failed to serialize results: {}", e)))?)
     }
 
     /// Helper method to create a read request
     pub fn create_read_request(&self, entity_id: &str, field_type: &str) -> Result<JsonValue> {
         let entity_id = EntityId::try_from(entity_id)
-            .map_err(|e| Error::ScriptingError(format!("Invalid entity ID: {}", e)))?;
+            .map_err(|e| Error::Scripting(format!("Invalid entity ID: {}", e)))?;
         let field_type = FieldType::from(field_type);
 
         let request = Request::Read {
@@ -97,7 +97,7 @@ impl<T: StoreTrait + Send + Sync + 'static> StoreWrapper<T> {
         };
 
         Ok(serde_json::to_value(request)
-            .map_err(|e| Error::ScriptingError(format!("Failed to serialize request: {}", e)))?)
+            .map_err(|e| Error::Scripting(format!("Failed to serialize request: {}", e)))?)
     }
 
     /// Helper method to create a write request
@@ -108,7 +108,7 @@ impl<T: StoreTrait + Send + Sync + 'static> StoreWrapper<T> {
         value: Option<JsonValue>,
     ) -> Result<JsonValue> {
         let entity_id = EntityId::try_from(entity_id)
-            .map_err(|e| Error::ScriptingError(format!("Invalid entity ID: {}", e)))?;
+            .map_err(|e| Error::Scripting(format!("Invalid entity ID: {}", e)))?;
         let field_type = FieldType::from(field_type);
         
         // Convert JSON value to internal Value type
@@ -125,7 +125,7 @@ impl<T: StoreTrait + Send + Sync + 'static> StoreWrapper<T> {
         };
 
         Ok(serde_json::to_value(request)
-            .map_err(|e| Error::ScriptingError(format!("Failed to serialize request: {}", e)))?)
+            .map_err(|e| Error::Scripting(format!("Failed to serialize request: {}", e)))?)
     }
 
     /// Convert JSON value to internal Value type
@@ -138,7 +138,7 @@ impl<T: StoreTrait + Send + Sync + 'static> StoreWrapper<T> {
                 } else if let Some(f) = n.as_f64() {
                     Ok(Value::Float(f))
                 } else {
-                    Err(Error::ScriptingError("Invalid number value".to_string()))
+                    Err(Error::Scripting("Invalid number value".to_string()))
                 }
             }
             JsonValue::String(s) => Ok(Value::String(s)),
@@ -149,7 +149,7 @@ impl<T: StoreTrait + Send + Sync + 'static> StoreWrapper<T> {
                         .into_iter()
                         .map(|v| {
                             EntityId::try_from(v.as_str().unwrap())
-                                .map_err(|e| Error::ScriptingError(format!("Invalid entity ID: {}", e)))
+                                .map_err(|e| Error::Scripting(format!("Invalid entity ID: {}", e)))
                         })
                         .collect();
                     Ok(Value::EntityList(entity_ids?))
@@ -160,7 +160,7 @@ impl<T: StoreTrait + Send + Sync + 'static> StoreWrapper<T> {
                         .map(|v| {
                             v.as_u64()
                                 .and_then(|n| if n <= 255 { Some(n as u8) } else { None })
-                                .ok_or_else(|| Error::ScriptingError("Array elements must be 0-255 for blob".to_string()))
+                                .ok_or_else(|| Error::Scripting("Array elements must be 0-255 for blob".to_string()))
                         })
                         .collect();
                     Ok(Value::Blob(bytes?))
@@ -171,7 +171,7 @@ impl<T: StoreTrait + Send + Sync + 'static> StoreWrapper<T> {
                 if let Some(entity_id_value) = obj.get("entityId") {
                     if let Some(entity_id_str) = entity_id_value.as_str() {
                         let entity_id = EntityId::try_from(entity_id_str)
-                            .map_err(|e| Error::ScriptingError(format!("Invalid entity ID: {}", e)))?;
+                            .map_err(|e| Error::Scripting(format!("Invalid entity ID: {}", e)))?;
                         return Ok(Value::EntityReference(Some(entity_id)));
                     }
                 }
@@ -180,12 +180,12 @@ impl<T: StoreTrait + Send + Sync + 'static> StoreWrapper<T> {
                 if let Some(timestamp_value) = obj.get("timestamp") {
                     if let Some(timestamp_str) = timestamp_value.as_str() {
                         let timestamp = chrono::DateTime::parse_from_rfc3339(timestamp_str)
-                            .map_err(|e| Error::ScriptingError(format!("Invalid timestamp: {}", e)))?;
+                            .map_err(|e| Error::Scripting(format!("Invalid timestamp: {}", e)))?;
                         return Ok(Value::Timestamp(timestamp.into()));
                     }
                 }
 
-                Err(Error::ScriptingError("Unsupported object type".to_string()))
+                Err(Error::Scripting("Unsupported object type".to_string()))
             }
             JsonValue::Null => Ok(Value::EntityReference(None)),
         }
@@ -200,7 +200,7 @@ impl<T: StoreTrait + Send + Sync + 'static> StoreWrapper<T> {
         let page_result = store.get_entity_types(&self.context, None).await?;
         
         Ok(serde_json::to_value(page_result.items)
-            .map_err(|e| Error::ScriptingError(format!("Failed to serialize entity types: {}", e)))?)
+            .map_err(|e| Error::Scripting(format!("Failed to serialize entity types: {}", e)))?)
     }
 
     /// Get entity schema
@@ -210,7 +210,7 @@ impl<T: StoreTrait + Send + Sync + 'static> StoreWrapper<T> {
         let schema = store.get_entity_schema(&self.context, &entity_type).await?;
         
         Ok(serde_json::to_value(schema)
-            .map_err(|e| Error::ScriptingError(format!("Failed to serialize schema: {}", e)))?)
+            .map_err(|e| Error::Scripting(format!("Failed to serialize schema: {}", e)))?)
     }
 
     /// Get complete entity schema with inheritance
@@ -220,6 +220,6 @@ impl<T: StoreTrait + Send + Sync + 'static> StoreWrapper<T> {
         let schema = store.get_complete_entity_schema(&self.context, &entity_type).await?;
         
         Ok(serde_json::to_value(schema)
-            .map_err(|e| Error::ScriptingError(format!("Failed to serialize complete schema: {}", e)))?)
+            .map_err(|e| Error::Scripting(format!("Failed to serialize complete schema: {}", e)))?)
     }
 }

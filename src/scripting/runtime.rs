@@ -68,7 +68,7 @@ impl ScriptRuntime {
         };
 
         let mut runtime = Runtime::new(runtime_options)
-            .map_err(|e| Error::ScriptingError(format!("Failed to create runtime: {}", e)))?;
+            .map_err(|e| Error::Scripting(format!("Failed to create runtime: {}", e)))?;
 
         // Register console functions if enabled
         if options.enable_console {
@@ -84,7 +84,7 @@ impl ScriptRuntime {
                     output.push(format!("[LOG] {}", message));
                 });
                 Ok(Value::Null)
-            }).map_err(|e| Error::ScriptingError(format!("Failed to register console.log: {}", e)))?;
+            }).map_err(|e| Error::Scripting(format!("Failed to register console.log: {}", e)))?;
 
             let console_output_clone = console_output.clone();
             runtime.register_function("console_error", move |args| {
@@ -98,7 +98,7 @@ impl ScriptRuntime {
                     output.push(format!("[ERROR] {}", message));
                 });
                 Ok(Value::Null)
-            }).map_err(|e| Error::ScriptingError(format!("Failed to register console.error: {}", e)))?;
+            }).map_err(|e| Error::Scripting(format!("Failed to register console.error: {}", e)))?;
 
             let console_output_clone = console_output.clone();
             runtime.register_function("console_warn", move |args| {
@@ -112,7 +112,7 @@ impl ScriptRuntime {
                     output.push(format!("[WARN] {}", message));
                 });
                 Ok(Value::Null)
-            }).map_err(|e| Error::ScriptingError(format!("Failed to register console.warn: {}", e)))?;
+            }).map_err(|e| Error::Scripting(format!("Failed to register console.warn: {}", e)))?;
 
             // Override console in JavaScript to use our functions
             let console_setup = Module::new("console_setup", r#"
@@ -125,7 +125,7 @@ impl ScriptRuntime {
             "#);
             
             runtime.load_module(&console_setup)
-                .map_err(|e| Error::ScriptingError(format!("Failed to setup console: {}", e)))?;
+                .map_err(|e| Error::Scripting(format!("Failed to setup console: {}", e)))?;
         }
 
         Ok(Self {
@@ -167,7 +167,7 @@ impl ScriptRuntime {
                     Err(e) => Err(rustyscript::Error::Runtime(format!("Store error: {}", e))),
                 }
             })
-        }).map_err(|e| Error::ScriptingError(format!("Failed to register createEntity: {}", e)))?;
+        }).map_err(|e| Error::Scripting(format!("Failed to register createEntity: {}", e)))?;
 
         let store_clone = store_wrapper.clone();
         self.runtime.register_async_function("store_delete_entity", move |args| {
@@ -185,7 +185,7 @@ impl ScriptRuntime {
                     Err(e) => Err(rustyscript::Error::Runtime(format!("Store error: {}", e))),
                 }
             })
-        }).map_err(|e| Error::ScriptingError(format!("Failed to register deleteEntity: {}", e)))?;
+        }).map_err(|e| Error::Scripting(format!("Failed to register deleteEntity: {}", e)))?;
 
         let store_clone = store_wrapper.clone();
         self.runtime.register_async_function("store_entity_exists", move |args| {
@@ -203,7 +203,7 @@ impl ScriptRuntime {
                     Err(e) => Err(rustyscript::Error::Runtime(format!("Store error: {}", e))),
                 }
             })
-        }).map_err(|e| Error::ScriptingError(format!("Failed to register entityExists: {}", e)))?;
+        }).map_err(|e| Error::Scripting(format!("Failed to register entityExists: {}", e)))?;
 
         let store_clone = store_wrapper.clone();
         self.runtime.register_async_function("store_find_entities", move |args| {
@@ -221,7 +221,7 @@ impl ScriptRuntime {
                     Err(e) => Err(rustyscript::Error::Runtime(format!("Store error: {}", e))),
                 }
             })
-        }).map_err(|e| Error::ScriptingError(format!("Failed to register findEntities: {}", e)))?;
+        }).map_err(|e| Error::Scripting(format!("Failed to register findEntities: {}", e)))?;
 
         let store_clone = store_wrapper.clone();
         self.runtime.register_async_function("store_perform", move |args| {
@@ -236,7 +236,7 @@ impl ScriptRuntime {
                     Err(e) => Err(rustyscript::Error::Runtime(format!("Store error: {}", e))),
                 }
             })
-        }).map_err(|e| Error::ScriptingError(format!("Failed to register perform: {}", e)))?;
+        }).map_err(|e| Error::Scripting(format!("Failed to register perform: {}", e)))?;
 
         // Setup store object in JavaScript
         let store_setup = Module::new("store_setup", r#"
@@ -260,7 +260,7 @@ impl ScriptRuntime {
         "#);
         
         self.runtime.load_module(&store_setup)
-            .map_err(|e| Error::ScriptingError(format!("Failed to setup store: {}", e)))?;
+            .map_err(|e| Error::Scripting(format!("Failed to setup store: {}", e)))?;
 
         Ok(())
     }
