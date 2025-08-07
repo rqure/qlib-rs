@@ -3,7 +3,7 @@ use crate::data::EntityType;
 use std::sync::Arc;
 
 // Helper to create an entity schema with basic fields
-fn create_entity_schema(store: &mut Store, entity_type: &EntityType) -> Result<()> {
+async fn create_entity_schema(store: &mut Store, entity_type: &EntityType) -> Result<()> {
     let mut schema = EntitySchema::<Single>::new(entity_type.clone(), None);
     let ft_name = FieldType::from("Name");
     let ft_parent = FieldType::from("Parent");
@@ -32,13 +32,13 @@ fn create_entity_schema(store: &mut Store, entity_type: &EntityType) -> Result<(
     schema.fields.insert(ft_parent.clone(), parent_schema);
     schema.fields.insert(ft_children.clone(), children_schema);
 
-    store.set_entity_schema(&Context::new(), &schema)?;
+    store.set_entity_schema(&Context::new(), &schema).await?;
     Ok(())
 }
 
 // Helper to set up a basic database structure for testing
 #[allow(dead_code)]
-fn setup_test_database() -> Result<Store> {
+async fn setup_test_database() -> Result<Store> {
     let mut store = Store::new(Arc::new(Snowflake::new()));
     let ctx = Context::new();
 
@@ -50,10 +50,10 @@ fn setup_test_database() -> Result<Store> {
     let ft_email = FieldType::from("Email");
 
     // Create schemas for different entity types
-    create_entity_schema(&mut store, &et_root)?;
-    create_entity_schema(&mut store, &et_folder)?;
-    create_entity_schema(&mut store, &et_user)?;
-    create_entity_schema(&mut store, &et_role)?;
+    create_entity_schema(&mut store, &et_root).await?;
+    create_entity_schema(&mut store, &et_folder).await?;
+    create_entity_schema(&mut store, &et_user).await?;
+    create_entity_schema(&mut store, &et_role).await?;
 
     // Add custom fields to User schema
     let email_schema = FieldSchema::String {
@@ -62,17 +62,17 @@ fn setup_test_database() -> Result<Store> {
         rank: 3,
     };
 
-    store.set_field_schema(&ctx, &et_user, &ft_email, email_schema)?;
+    store.set_field_schema(&ctx, &et_user, &ft_email, email_schema).await?;
 
     // Create root entity
-    store.create_entity(&ctx, &et_root, None, "Root")?;
+    store.create_entity(&ctx, &et_root, None, "Root").await?;
 
     Ok(store)
 }
 
-#[test]
-fn test_create_entity_hierarchy() -> Result<()> {
-    let mut store = setup_test_database()?;
+#[tokio::test]
+async fn test_create_entity_hierarchy() -> Result<()> {
+    let mut store = setup_test_database().await?;
     let ctx = Context::new();
 
     let et_root = EntityType::from("Root");
@@ -84,13 +84,13 @@ fn test_create_entity_hierarchy() -> Result<()> {
     let ft_parent = FieldType::from("Parent");
 
     // Get the Root entity
-    let root_entities = store.find_entities(&ctx, &et_root, None)?;
-    assert_eq!(root_entities.items.len(), 1);
-    let root_id = root_entities.items[0].clone();
+    let root_entities = store.find_entities(&ctx, &et_root).await?;
+    assert_eq!(root_entities.len(), 1);
+    let root_id = root_entities[0].clone();
 
     // Create a folder under root
     let security_models =
-        store.create_entity(&ctx, &et_folder, Some(root_id.clone()), "Security Models")?;
+        store.create_entity(&ctx, &et_folder, Some(root_id.clone()), "Security Models").await?;
 
     // Create subfolders
     let users_folder = store.create_entity(
@@ -98,28 +98,28 @@ fn test_create_entity_hierarchy() -> Result<()> {
         &et_folder,
         Some(security_models.entity_id.clone()),
         "Users",
-    )?;
+    ).await?;
 
     let roles_folder = store.create_entity(
         &ctx,
         &et_folder,
         Some(security_models.entity_id.clone()),
         "Roles",
-    )?;
+    ).await?;
 
     // Create a user and role
-    let user = store.create_entity(&ctx, &et_user, Some(users_folder.entity_id.clone()), "qei")?;
+    let user = store.create_entity(&ctx, &et_user, Some(users_folder.entity_id.clone()), "qei").await?;
 
     store.create_entity(
         &ctx,
         &et_role,
         Some(roles_folder.entity_id.clone()),
         "Admin",
-    )?;
+    ).await?;
 
     // Read children of security models folder
     let mut reqs = vec![sread!(security_models.entity_id, ft_children.clone())];
-    store.perform(&ctx, &mut reqs)?;
+    store.perform(&ctx, &mut reqs).await?;
 
     if let Request::Read { value, .. } = &reqs[0] {
         if let Some(Value::EntityList(children)) = value {
@@ -131,7 +131,7 @@ fn test_create_entity_hierarchy() -> Result<()> {
 
     // Verify user's parent is the users folder
     let mut reqs = vec![sread!(user.entity_id, ft_parent.clone())];
-    store.perform(&ctx, &mut reqs)?;
+    store.perform(&ctx, &mut reqs).await?;
 
     if let Request::Read { value, .. } = &reqs[0] {
         if let Some(Value::EntityReference(parent)) = value {
@@ -144,9 +144,9 @@ fn test_create_entity_hierarchy() -> Result<()> {
     Ok(())
 }
 
-#[test]
-fn test_field_operations() -> Result<()> {
-    let mut store = setup_test_database()?;
+#[tokio::test]
+async fn test_field_operations() -> Result<()> {
+    let mut store = setup_test_database().await?;
     let ctx = Context::new();
 
     let et_root = EntityType::from("Root");
@@ -155,12 +155,12 @@ fn test_field_operations() -> Result<()> {
 
     let ft_email = FieldType::from("Email");
 
-    let root_entities = store.find_entities(&ctx, &et_root)?;
-    let root_id = root_entities.items[0].clone();
+    let root_entities = store.find_entities(&ctx, &et_root).await?;
+    let root_id = root_entities[0].clone();
 
-    let users_folder = store.create_entity(&ctx, &et_folder, Some(root_id.clone()), "Users")?;
+    let users_folder = store.create_entity(&ctx, &et_folder, Some(root_id.clone()), "Users").await?;
 
-    let user = store.create_entity(&ctx, &et_user, Some(users_folder.entity_id), "testuser")?;
+    let user = store.create_entity(&ctx, &et_user, Some(users_folder.entity_id), "testuser").await?;
 
     // Test writing to a field
     let mut writes = vec![swrite!(
@@ -168,11 +168,11 @@ fn test_field_operations() -> Result<()> {
         ft_email.clone(),
         sstr!("test@example.com")
     )];
-    store.perform(&ctx, &mut writes)?;
+    store.perform(&ctx, &mut writes).await?;
 
     // Test reading the field
     let mut reads = vec![sread!(user.entity_id.clone(), "Email".into())];
-    store.perform(&ctx, &mut reads)?;
+    store.perform(&ctx, &mut reads).await?;
 
     if let Request::Read { value, .. } = &reads[0] {
         assert_eq!(*value, Some(Value::String("test@example.com".to_string())));
@@ -185,11 +185,11 @@ fn test_field_operations() -> Result<()> {
         sstr!("updated@example.com"),
         PushCondition::Changes
     )];
-    store.perform(&ctx, &mut updates)?;
+    store.perform(&ctx, &mut updates).await?;
 
     // Verify update
     let mut verify = vec![sread!(user.entity_id.clone(), ft_email.clone())];
-    store.perform(&ctx, &mut verify)?;
+    store.perform(&ctx, &mut verify).await?;
 
     if let Request::Read { value, .. } = &verify[0] {
         assert_eq!(
@@ -201,9 +201,9 @@ fn test_field_operations() -> Result<()> {
     Ok(())
 }
 
-#[test]
-fn test_indirection_resolution() -> Result<()> {
-    let mut store = setup_test_database()?;
+#[tokio::test]
+async fn test_indirection_resolution() -> Result<()> {
+    let mut store = setup_test_database().await?;
     let ctx = Context::new();
 
     let et_root = EntityType::from("Root");
@@ -213,25 +213,25 @@ fn test_indirection_resolution() -> Result<()> {
     let ft_email = FieldType::from("Email");
 
     // Create entities
-    let root_entities = store.find_entities(&ctx, &et_root, None)?;
-    let root_id = root_entities.items[0].clone();
+    let root_entities = store.find_entities(&ctx, &et_root).await?;
+    let root_id = root_entities[0].clone();
 
     let security_folder =
-        store.create_entity(&ctx, &et_folder, Some(root_id.clone()), "Security")?;
+        store.create_entity(&ctx, &et_folder, Some(root_id.clone()), "Security").await?;
 
     let users_folder = store.create_entity(
         &ctx,
         &et_folder,
         Some(security_folder.entity_id.clone()),
         "Users",
-    )?;
+    ).await?;
 
     let admin_user = store.create_entity(
         &ctx,
         &et_user,
         Some(users_folder.entity_id.clone()),
         "admin",
-    )?;
+    ).await?;
 
     // Set email
     let mut writes = vec![swrite!(
@@ -239,7 +239,7 @@ fn test_indirection_resolution() -> Result<()> {
         ft_email.clone(),
         sstr!("admin@example.com")
     )];
-    store.perform(&ctx, &mut writes)?;
+    store.perform(&ctx, &mut writes).await?;
 
     // Test indirection
     let mut reqs = vec![sread!(
@@ -247,7 +247,7 @@ fn test_indirection_resolution() -> Result<()> {
         format!("Children->0->Children->0->Email").into()
     )];
 
-    store.perform(&ctx, &mut reqs)?;
+    store.perform(&ctx, &mut reqs).await?;
 
     if let Request::Read { value, .. } = &reqs[0] {
         assert_eq!(*value, Some(Value::String("admin@example.com".to_string())));
@@ -256,9 +256,9 @@ fn test_indirection_resolution() -> Result<()> {
     Ok(())
 }
 
-#[test]
-fn test_entity_deletion() -> Result<()> {
-    let mut store = setup_test_database()?;
+#[tokio::test]
+async fn test_entity_deletion() -> Result<()> {
+    let mut store = setup_test_database().await?;
     let ctx = Context::new();
 
     let et_root = EntityType::from("Root");
@@ -268,30 +268,30 @@ fn test_entity_deletion() -> Result<()> {
     let ft_children = FieldType::from("Children");
 
     // Create a folder and a user
-    let root_entities = store.find_entities(&ctx, &et_root, None)?;
-    let root_id = root_entities.items[0].clone();
+    let root_entities = store.find_entities(&ctx, &et_root).await?;
+    let root_id = root_entities[0].clone();
 
-    let users_folder = store.create_entity(&ctx, &et_folder, Some(root_id.clone()), "Users")?;
+    let users_folder = store.create_entity(&ctx, &et_folder, Some(root_id.clone()), "Users").await?;
 
     let user = store.create_entity(
         &ctx,
         &et_user,
         Some(users_folder.entity_id.clone()),
         "temp_user",
-    )?;
+    ).await?;
 
     // Verify user exists
-    assert!(store.entity_exists(&ctx, &user.entity_id));
+    assert!(store.entity_exists(&ctx, &user.entity_id).await);
 
     // Delete the user
-    store.delete_entity(&ctx, &user.entity_id)?;
+    store.delete_entity(&ctx, &user.entity_id).await?;
 
     // Verify user no longer exists
-    assert!(!store.entity_exists(&ctx, &user.entity_id));
+    assert!(!store.entity_exists(&ctx, &user.entity_id).await);
 
     // Check if the user was removed from the parent's children list
     let mut request = vec![sread!(users_folder.entity_id.clone(), ft_children.clone())];
-    store.perform(&ctx, &mut request)?;
+    store.perform(&ctx, &mut request).await?;
 
     if let Request::Read { value, .. } = &request[0] {
         if let Some(Value::EntityList(children)) = value {
@@ -305,9 +305,9 @@ fn test_entity_deletion() -> Result<()> {
     Ok(())
 }
 
-#[test]
-fn test_entity_listing_with_pagination() -> Result<()> {
-    let mut store = setup_test_database()?;
+#[tokio::test]
+async fn test_entity_listing_with_pagination() -> Result<()> {
+    let mut store = setup_test_database().await?;
     let ctx = Context::new();
 
     // Create multiple entities of the same type
@@ -315,10 +315,10 @@ fn test_entity_listing_with_pagination() -> Result<()> {
     let et_folder = EntityType::from("Folder");
     let et_user = EntityType::from("User");
 
-    let root_entities = store.find_entities(&ctx, &et_root, None)?;
-    let root_id = root_entities.items[0].clone();
+    let root_entities = store.find_entities(&ctx, &et_root).await?;
+    let root_id = root_entities[0].clone();
 
-    let users_folder = store.create_entity(&ctx, &et_folder, Some(root_id.clone()), "Users")?;
+    let users_folder = store.create_entity(&ctx, &et_folder, Some(root_id.clone()), "Users").await?;
 
     // Create 10 users
     for i in 1..=10 {
@@ -327,29 +327,13 @@ fn test_entity_listing_with_pagination() -> Result<()> {
             &et_user,
             Some(users_folder.entity_id.clone()),
             &format!("user{}", i),
-        )?;
+        ).await?;
     }
 
-    // Test pagination - first page (5 items)
-    let page_opts = PageOpts::new(5, None);
-    let page1 = store.find_entities(&ctx, &et_user, Some(page_opts))?;
+    // Test finding entities without pagination
+    let user_entities = store.find_entities(&ctx, &et_user).await?;
 
-    assert_eq!(page1.items.len(), 5);
-    assert_eq!(page1.total, 10);
-    assert!(page1.next_cursor.is_some());
-
-    // Test pagination - second page
-    let page_opts = PageOpts::new(5, page1.next_cursor.clone());
-    let page2 = store.find_entities(&ctx, &et_user, Some(page_opts))?;
-
-    assert_eq!(page2.items.len(), 5);
-    assert_eq!(page2.total, 10);
-    assert!(page2.next_cursor.is_none());
-
-    // Verify we got different sets of users
-    for item in &page1.items {
-        assert!(!page2.items.contains(item));
-    }
+    assert_eq!(user_entities.len(), 10);
 
     Ok(())
 }
