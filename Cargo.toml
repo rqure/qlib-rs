@@ -22,6 +22,7 @@ argon2 = "0.5.3"
 rand = "0.8.5"
 jsonwebtoken = "9.3.0"
 chrono = { version = "0.4", features = ["serde"] }
+rustyscript = { version = "0.10.0", features = ["console", "crypto", "webidl", "url"] }
 
 [dev-dependencies]
 env_logger = "0.10"

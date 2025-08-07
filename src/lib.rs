@@ -1,6 +1,7 @@
 mod data;
 mod auth;
 mod test;
+pub mod scripting;
 
 pub use data::{
     resolve_indirection, BadIndirectionReason, Context, Store, StoreTrait, PageOpts,
@@ -42,6 +43,9 @@ pub enum Error {
 
     // StoreProxy related errors
     StoreProxyError(String),
+
+    // Scripting related errors
+    Scripting(String),
 }
 impl std::error::Error for Error {}
 impl std::fmt::Display for Error {
@@ -64,6 +68,7 @@ impl std::fmt::Display for Error {
             Error::InvalidPassword(msg) => write!(f, "Invalid password: {}", msg),
             Error::UserAlreadyExists => write!(f, "User already exists"),
             Error::StoreProxyError(msg) => write!(f, "Store proxy error: {}", msg),
+            Error::Scripting(msg) => write!(f, "Scripting error: {}", msg),
         }
     }
 }
