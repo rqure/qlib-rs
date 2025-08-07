@@ -244,7 +244,7 @@ impl StoreTrait for StoreProxy {
     /// Create a new entity
     async fn create_entity(
         &mut self,
-        ctx: &Context,
+        _ctx: &Context,
         entity_type: &EntityType,
         parent_id: Option<EntityId>,
         name: &str,
@@ -372,7 +372,7 @@ impl StoreTrait for StoreProxy {
     /// Get field schema
     async fn get_field_schema(
         &self,
-        ctx: &Context,
+        _ctx: &Context,
         entity_type: &EntityType,
         field_type: &FieldType,
     ) -> Result<FieldSchema> {
@@ -440,7 +440,7 @@ impl StoreTrait for StoreProxy {
     }
 
     /// Perform requests
-    async fn perform(&mut self, ctx: &Context, requests: &mut Vec<Request>) -> Result<()> {
+    async fn perform(&mut self, _ctx: &Context, requests: &mut Vec<Request>) -> Result<()> {
         let request = StoreMessage::Perform {
             id: Uuid::new_v4().to_string(),
             requests: requests.clone(),
