@@ -23,5 +23,9 @@ jsonwebtoken = "9.3.0"
 chrono = { version = "0.4", features = ["serde"] }
 rustyscript = { version = "0.11.0", features = ["console", "crypto", "webidl", "url"] }
 
+# https://github.com/rscarson/rustyscript/issues/332
+[patch.crates-io]
+deno_media_type = { git = 'https://github.com/denoland/deno_media_type', tag = "0.2.6" }
+
 [dev-dependencies]
 env_logger = "0.10"

@@ -11,7 +11,7 @@ pub use runtime::{ScriptRuntime, ScriptRuntimeOptions, ScriptResult};
 pub use store_wrapper::StoreWrapper;
 
 use crate::{Context, Error, Result, StoreTrait};
-use rustyscript::{json_args, Module};
+use rustyscript::{Module};
 use serde_json::Value;
 use std::sync::Arc;
 use tokio::sync::Mutex;

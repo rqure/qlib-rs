@@ -1,5 +1,5 @@
 use crate::{Context, Error, Result, StoreTrait};
-use rustyscript::{json_args, Module, Runtime, RuntimeOptions};
+use rustyscript::{Module, Runtime, RuntimeOptions};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::sync::Arc;
@@ -67,6 +67,7 @@ impl ScriptRuntime {
             ..Default::default()
         };
 
+        // Create a new runtime - this may cause conflicts in test environments
         let mut runtime = Runtime::new(runtime_options)
             .map_err(|e| Error::Scripting(format!("Failed to create runtime: {}", e)))?;
 
@@ -75,12 +76,12 @@ impl ScriptRuntime {
             let console_output_clone = console_output.clone();
             runtime.register_function("console_log", move |args| {
                 let output = console_output_clone.clone();
+                let message = args.iter()
+                    .map(|arg| format!("{}", arg))
+                    .collect::<Vec<_>>()
+                    .join(" ");
                 tokio::spawn(async move {
                     let mut output = output.lock().await;
-                    let message = args.iter()
-                        .map(|arg| format!("{}", arg))
-                        .collect::<Vec<_>>()
-                        .join(" ");
                     output.push(format!("[LOG] {}", message));
                 });
                 Ok(Value::Null)
@@ -89,12 +90,12 @@ impl ScriptRuntime {
             let console_output_clone = console_output.clone();
             runtime.register_function("console_error", move |args| {
                 let output = console_output_clone.clone();
+                let message = args.iter()
+                    .map(|arg| format!("{}", arg))
+                    .collect::<Vec<_>>()
+                    .join(" ");
                 tokio::spawn(async move {
                     let mut output = output.lock().await;
-                    let message = args.iter()
-                        .map(|arg| format!("{}", arg))
-                        .collect::<Vec<_>>()
-                        .join(" ");
                     output.push(format!("[ERROR] {}", message));
                 });
                 Ok(Value::Null)
@@ -103,12 +104,12 @@ impl ScriptRuntime {
             let console_output_clone = console_output.clone();
             runtime.register_function("console_warn", move |args| {
                 let output = console_output_clone.clone();
+                let message = args.iter()
+                    .map(|arg| format!("{}", arg))
+                    .collect::<Vec<_>>()
+                    .join(" ");
                 tokio::spawn(async move {
                     let mut output = output.lock().await;
-                    let message = args.iter()
-                        .map(|arg| format!("{}", arg))
-                        .collect::<Vec<_>>()
-                        .join(" ");
                     output.push(format!("[WARN] {}", message));
                 });
                 Ok(Value::Null)
@@ -329,14 +330,14 @@ impl ScriptRuntime {
             
             if let Some(entrypoint_name) = entrypoint {
                 let args_array = if args.is_array() {
-                    args
+                    &args
                 } else {
-                    json_args!(args)
+                    &serde_json::Value::Array(vec![args])
                 };
                 self.runtime.call_function_async::<Value>(Some(&handle), entrypoint_name, args_array).await
             } else {
                 // Run default entrypoint
-                self.runtime.call_entrypoint_async::<Value>(&handle, args).await
+                self.runtime.call_entrypoint_async::<Value>(&handle, &args).await
             }
         }) {
             Ok(value) => {

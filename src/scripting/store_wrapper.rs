@@ -4,10 +4,18 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 
 /// Wrapper around StoreTrait that provides JavaScript-friendly methods
-#[derive(Clone)]
 pub struct StoreWrapper<T: StoreTrait + Send + Sync> {
     store: Arc<Mutex<T>>,
     context: Context,
+}
+
+impl<T: StoreTrait + Send + Sync> Clone for StoreWrapper<T> {
+    fn clone(&self) -> Self {
+        Self {
+            store: self.store.clone(),
+            context: self.context.clone(),
+        }
+    }
 }
 
 impl<T: StoreTrait + Send + Sync + 'static> StoreWrapper<T> {
