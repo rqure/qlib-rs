@@ -1,4 +1,4 @@
-use crate::{sread, Context, EntityId, Error, FieldType, Request, Result, StoreTrait, Value};
+use crate::{sread, Context, EntityId, Error, FieldType, Request, Result, StoreType, Value};
 
 pub const INDIRECTION_DELIMITER: &str = "->";
 
@@ -36,7 +36,7 @@ impl std::fmt::Display for BadIndirectionReason {
 
 pub async fn resolve_indirection(
     ctx: &Context,
-    store: &mut impl StoreTrait,
+    store: &mut StoreType,
     entity_id: &EntityId,
     field_type: &FieldType,
 ) -> Result<(EntityId, FieldType)> {

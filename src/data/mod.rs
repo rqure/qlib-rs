@@ -13,8 +13,8 @@ mod request;
 mod snapshots;
 mod snowflake;
 mod store_proxy;
-mod store_trait;
 mod store;
+mod store_type;
 mod value;
 
 use std::{fmt, time::Duration};
@@ -28,7 +28,7 @@ pub use request::{AdjustBehavior, PushCondition, Request};
 use serde::{Deserialize, Serialize};
 pub use snowflake::Snowflake;
 pub use store::{Store};
-pub use store_trait::StoreTrait;
+pub use store_type::StoreType;
 pub use context::Context;
 pub use indirection::{BadIndirectionReason, resolve_indirection, INDIRECTION_DELIMITER};
 pub use pagination::{PageOpts, PageResult};

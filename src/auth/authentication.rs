@@ -6,7 +6,7 @@ use rand::rngs::OsRng;
 use std::time::{Duration};
 
 use crate::{
-    et, ft, now, sint, sread, sstr, stimestamp, swrite, Context, EntityId, Error, Request, Result, StoreTrait, Value
+    et, ft, now, sint, sread, sstr, stimestamp, swrite, Context, EntityId, Error, Request, Result, StoreType, Value
 };
 
 /// Configuration for authentication behavior
@@ -54,7 +54,7 @@ impl AuthenticationManager {
     }
 
     /// Authenticate a user with name and password
-    pub async fn authenticate(&self, store: &mut impl StoreTrait, ctx: &Context, name: &str, password: &str) -> Result<EntityId> {
+    pub async fn authenticate(&self, store: &mut StoreType, ctx: &Context, name: &str, password: &str) -> Result<EntityId> {
         let user_id = self
             .find_user_by_name(store, ctx, name)
             .await?
@@ -89,7 +89,7 @@ impl AuthenticationManager {
     /// Change a user's password
     pub async fn change_password(
         &self,
-        store: &mut impl StoreTrait,
+        store: &mut StoreType,
         ctx: &Context,
         user_id: &EntityId,
         new_password: &str,
@@ -112,7 +112,7 @@ impl AuthenticationManager {
     }
 
     // Private helper methods
-    async fn find_user_by_name(&self, store: &mut impl StoreTrait, ctx: &Context, name: &str) -> Result<Option<EntityId>> {
+    async fn find_user_by_name(&self, store: &mut StoreType, ctx: &Context, name: &str) -> Result<Option<EntityId>> {
         // Use the store's find_entities method to search for users with matching name
         let entities = store
             .find_entities(ctx, &et::user())
@@ -139,7 +139,7 @@ impl AuthenticationManager {
         Ok(None)
     }
 
-    async fn is_user_active(&self, store: &mut impl StoreTrait, ctx: &Context, user_id: &EntityId) -> Result<bool> {
+    async fn is_user_active(&self, store: &mut StoreType, ctx: &Context, user_id: &EntityId) -> Result<bool> {
         let mut requests = vec![
             sread!(user_id.clone(), ft::active()),
         ];
@@ -159,7 +159,7 @@ impl AuthenticationManager {
         }
     }
 
-    async fn is_user_locked(&self, store: &mut impl StoreTrait, ctx: &Context, user_id: &EntityId) -> Result<bool> {
+    async fn is_user_locked(&self, store: &mut StoreType, ctx: &Context, user_id: &EntityId) -> Result<bool> {
         let mut requests = vec![
             sread!(user_id.clone(), ft::locked_until()),
         ];
@@ -177,7 +177,7 @@ impl AuthenticationManager {
         Ok(false)
     }
 
-    async fn get_user_password_hash(&self, store: &mut impl StoreTrait, ctx: &Context, user_id: &EntityId) -> Result<String> {
+    async fn get_user_password_hash(&self, store: &mut StoreType, ctx: &Context, user_id: &EntityId) -> Result<String> {
         let mut requests = vec![
             sread!(user_id.clone(), ft::password()),
         ];
@@ -240,7 +240,7 @@ impl AuthenticationManager {
         Ok(())
     }
 
-    async fn increment_failed_attempts(&self, store: &mut impl StoreTrait, ctx: &Context, user_id: &EntityId) -> Result<()> {
+    async fn increment_failed_attempts(&self, store: &mut StoreType, ctx: &Context, user_id: &EntityId) -> Result<()> {
         // Get current failed attempts
         let mut read_requests = vec![sread!(user_id.clone(), ft::failed_attempts())];
 
@@ -280,7 +280,7 @@ impl AuthenticationManager {
         Ok(())
     }
 
-    async fn reset_failed_attempts(&self, store: &mut impl StoreTrait, ctx: &Context, user_id: &EntityId) -> Result<()> {
+    async fn reset_failed_attempts(&self, store: &mut StoreType, ctx: &Context, user_id: &EntityId) -> Result<()> {
         let mut requests = vec![
             swrite!(user_id.clone(), ft::failed_attempts(), sint!(0)),
         ];
@@ -292,7 +292,7 @@ impl AuthenticationManager {
         Ok(())
     }
 
-    async fn update_last_login(&self, store: &mut impl StoreTrait, ctx: &Context, user_id: &EntityId) -> Result<()> {
+    async fn update_last_login(&self, store: &mut StoreType, ctx: &Context, user_id: &EntityId) -> Result<()> {
         let mut requests = vec![
             swrite!(user_id.clone(), ft::last_login(), stimestamp!(now())),
         ];

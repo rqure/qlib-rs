@@ -1,15 +1,15 @@
-use crate::{Context, EntityId, EntityType, Error, FieldType, Request, Result, StoreTrait, Value};
+use crate::{Context, EntityId, EntityType, Error, FieldType, Request, Result, StoreType, Value};
 use serde_json::Value as JsonValue;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
 /// Wrapper around StoreTrait that provides JavaScript-friendly methods
-pub struct StoreWrapper<T: StoreTrait + Send + Sync> {
-    store: Arc<Mutex<T>>,
+pub struct StoreWrapper {
+    store: Arc<Mutex<StoreType>>,
     context: Context,
 }
 
-impl<T: StoreTrait + Send + Sync> Clone for StoreWrapper<T> {
+impl Clone for StoreWrapper {
     fn clone(&self) -> Self {
         Self {
             store: self.store.clone(),
@@ -18,9 +18,9 @@ impl<T: StoreTrait + Send + Sync> Clone for StoreWrapper<T> {
     }
 }
 
-impl<T: StoreTrait + Send + Sync + 'static> StoreWrapper<T> {
+impl StoreWrapper {
     /// Create a new store wrapper
-    pub fn new(store: Arc<Mutex<T>>, context: Context) -> Self {
+    pub fn new(store: Arc<Mutex<StoreType>>, context: Context) -> Self {
         Self { store, context }
     }
 
@@ -201,7 +201,7 @@ impl<T: StoreTrait + Send + Sync + 'static> StoreWrapper<T> {
 }
 
 // Implement helper functions for the JavaScript environment
-impl<T: StoreTrait + Send + Sync + 'static> StoreWrapper<T> {
+impl StoreWrapper {
     /// Get available entity types
     pub async fn get_entity_types(&self) -> Result<JsonValue> {
         let store = self.store.lock().await;

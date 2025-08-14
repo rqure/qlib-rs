@@ -7,7 +7,7 @@ use tokio_tungstenite::{connect_async, tungstenite::Message};
 use uuid::Uuid;
 
 use crate::{
-    Complete, Context, Entity, EntityId, EntitySchema, EntityType, Error, FieldSchema, FieldType, Notification, NotificationSender, NotifyConfig, hash_notify_config, PageOpts, PageResult, Request, Result, Single, Snapshot, StoreTrait
+    Complete, Context, Entity, EntityId, EntitySchema, EntityType, Error, FieldSchema, FieldType, Notification, NotificationSender, NotifyConfig, hash_notify_config, PageOpts, PageResult, Request, Result, Single, Snapshot
 };
 
 /// WebSocket message types for Store proxy communication
@@ -233,6 +233,7 @@ pub fn extract_message_id(message: &StoreMessage) -> Option<String> {
 type WsStream =
     tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
 
+#[derive(Debug)]
 pub struct StoreProxy {
     sender: Arc<Mutex<futures_util::stream::SplitSink<WsStream, Message>>>,
     pending_requests: Arc<Mutex<HashMap<String, oneshot::Sender<serde_json::Value>>>>,
@@ -240,9 +241,9 @@ pub struct StoreProxy {
     notification_configs: Arc<RwLock<HashMap<u64, Vec<NotificationSender>>>>,
 }
 
-impl StoreTrait for StoreProxy {
+impl StoreProxy {
     /// Create a new entity
-    async fn create_entity(
+    pub async fn create_entity(
         &mut self,
         _ctx: &Context,
         entity_type: &EntityType,
@@ -266,7 +267,7 @@ impl StoreTrait for StoreProxy {
     }
 
     /// Delete an entity
-    async fn delete_entity(&mut self, _ctx: &Context, entity_id: &EntityId) -> Result<()> {
+    pub async fn delete_entity(&mut self, _ctx: &Context, entity_id: &EntityId) -> Result<()> {
         let request = StoreMessage::DeleteEntity {
             id: Uuid::new_v4().to_string(),
             entity_id: entity_id.clone(),
@@ -282,7 +283,7 @@ impl StoreTrait for StoreProxy {
     }
 
     /// Set entity schema
-    async fn set_entity_schema(&mut self, _ctx: &Context, schema: &EntitySchema<Single>) -> Result<()> {
+    pub async fn set_entity_schema(&mut self, _ctx: &Context, schema: &EntitySchema<Single>) -> Result<()> {
         let request = StoreMessage::SetEntitySchema {
             id: Uuid::new_v4().to_string(),
             schema: schema.clone(),
@@ -298,7 +299,7 @@ impl StoreTrait for StoreProxy {
     }
 
     /// Get entity schema
-    async fn get_entity_schema(
+    pub async fn get_entity_schema(
         &self,
         _ctx: &Context,
         entity_type: &EntityType,
@@ -326,7 +327,7 @@ impl StoreTrait for StoreProxy {
     }
 
     /// Get complete entity schema
-    async fn get_complete_entity_schema(
+    pub async fn get_complete_entity_schema(
         &self,
         _ctx: &Context,
         entity_type: &EntityType,
@@ -346,7 +347,7 @@ impl StoreTrait for StoreProxy {
     }
 
     /// Set field schema
-    async fn set_field_schema(
+    pub async fn set_field_schema(
         &mut self,
         _ctx: &Context,
         entity_type: &EntityType,
@@ -370,7 +371,7 @@ impl StoreTrait for StoreProxy {
     }
 
     /// Get field schema
-    async fn get_field_schema(
+    pub async fn get_field_schema(
         &self,
         _ctx: &Context,
         entity_type: &EntityType,
@@ -400,7 +401,7 @@ impl StoreTrait for StoreProxy {
     }
 
     /// Check if entity exists
-    async fn entity_exists(&self, _: &Context, entity_id: &EntityId) -> bool {
+    pub async fn entity_exists(&self, _: &Context, entity_id: &EntityId) -> bool {
         let request = StoreMessage::EntityExists {
             id: Uuid::new_v4().to_string(),
             entity_id: entity_id.clone(),
@@ -417,7 +418,7 @@ impl StoreTrait for StoreProxy {
     }
 
     /// Check if field exists
-    async fn field_exists(
+    pub async fn field_exists(
         &self,
         _: &Context,
         entity_type: &EntityType,
@@ -440,7 +441,7 @@ impl StoreTrait for StoreProxy {
     }
 
     /// Perform requests
-    async fn perform(&mut self, _ctx: &Context, requests: &mut Vec<Request>) -> Result<()> {
+    pub async fn perform(&mut self, _ctx: &Context, requests: &mut Vec<Request>) -> Result<()> {
         let request = StoreMessage::Perform {
             id: Uuid::new_v4().to_string(),
             requests: requests.clone(),
@@ -460,7 +461,7 @@ impl StoreTrait for StoreProxy {
     }
 
     /// Find entities
-    async fn find_entities_paginated(
+    pub async fn find_entities_paginated(
         &self,
         _ctx: &Context,
         entity_type: &EntityType,
@@ -482,7 +483,7 @@ impl StoreTrait for StoreProxy {
     }
 
     /// Find entities exact
-    async fn find_entities_exact(
+    pub async fn find_entities_exact(
         &self,
         _ctx: &Context,
         entity_type: &EntityType,
@@ -503,7 +504,7 @@ impl StoreTrait for StoreProxy {
         }
     }
 
-    async fn find_entities(
+    pub async fn find_entities(
         &self,
         ctx: &Context,
         entity_type: &EntityType,
@@ -532,7 +533,7 @@ impl StoreTrait for StoreProxy {
     }
 
     /// Get entity types
-    async fn get_entity_types(
+    pub async fn get_entity_types(
         &self,
         _ctx: &Context,
         page_opts: Option<PageOpts>,
@@ -554,7 +555,7 @@ impl StoreTrait for StoreProxy {
     /// Register notification with provided sender
     /// Note: For proxy, this registers the notification on the remote server
     /// and stores the sender locally to forward notifications
-    async fn register_notification(
+    pub async fn register_notification(
         &mut self,
         _ctx: &Context,
         config: NotifyConfig,
@@ -585,7 +586,7 @@ impl StoreTrait for StoreProxy {
 
     /// Unregister a notification by removing a specific sender
     /// Note: This will remove ALL notifications matching the config for proxy
-    async fn unregister_notification(&mut self, target_config: &NotifyConfig, sender: &NotificationSender) -> bool {
+   pub async fn unregister_notification(&mut self, target_config: &NotifyConfig, sender: &NotificationSender) -> bool {
         // First remove the sender from local mapping
         let config_hash = hash_notify_config(target_config);
         let mut configs = self.notification_configs.write().await;
@@ -624,9 +625,7 @@ impl StoreTrait for StoreProxy {
             false
         }
     }
-}
-
-impl StoreProxy {
+    
     /// Connect to a qcore-rs WebSocket server
     pub async fn connect(url: &str) -> Result<Self> {
         let (ws_stream, _) = connect_async(url)

@@ -7,14 +7,15 @@
 mod runtime;
 mod store_wrapper;
 
+use std::sync::Arc;
+
 pub use runtime::{ScriptRuntime, ScriptRuntimeOptions, ScriptResult};
 pub use store_wrapper::StoreWrapper;
-
-use crate::{Context, Error, Result, StoreTrait};
-use rustyscript::{Module};
-use serde_json::Value;
-use std::sync::Arc;
 use tokio::sync::Mutex;
+
+use crate::{Context, Error, Result, StoreType};
+use rustyscript::Module;
+use serde_json::Value;
 
 /// Execute a JavaScript expression with access to store operations
 /// 
@@ -34,8 +35,8 @@ use tokio::sync::Mutex;
 ///     "await store.createEntity('User', null, 'testuser')"
 /// ).await?;
 /// ```
-pub async fn execute_expression<T: StoreTrait + Send + Sync + 'static>(
-    store: Arc<Mutex<T>>,
+pub async fn execute_expression(
+    store: Arc<Mutex<StoreType>>,
     context: Context,
     expression: &str,
 ) -> Result<ScriptResult> {
@@ -76,8 +77,8 @@ pub async fn execute_expression<T: StoreTrait + Send + Sync + 'static>(
 ///     json_args!("alice")
 /// ).await?;
 /// ```
-pub async fn execute_module<T: StoreTrait + Send + Sync + 'static>(
-    store: Arc<Mutex<T>>,
+pub async fn execute_module(
+    store: Arc<Mutex<StoreType>>,
     context: Context,
     module_name: &str,
     module_code: &str,
@@ -102,8 +103,8 @@ pub async fn execute_module<T: StoreTrait + Send + Sync + 'static>(
 /// 
 /// # Returns
 /// A `ScriptResult` containing the result value and execution metadata
-pub async fn execute_file<T: StoreTrait + Send + Sync + 'static>(
-    store: Arc<Mutex<T>>,
+pub async fn execute_file(
+    store: Arc<Mutex<StoreType>>,
     context: Context,
     file_path: &str,
     entrypoint: Option<&str>,

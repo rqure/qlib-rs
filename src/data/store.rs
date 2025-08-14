@@ -5,7 +5,7 @@ use crate::{
     data::{
         entity_schema::Complete, now, request::PushCondition, EntityType, FieldType, Notification,
         NotifyConfig, NotificationSender, hash_notify_config, Timestamp, INDIRECTION_DELIMITER,
-    }, resolve_indirection, sadd, sread, sref, sreflist, sstr, ssub, swrite, AdjustBehavior, BadIndirectionReason, Context, Entity, EntityId, EntitySchema, Error, Field, FieldSchema, PageOpts, PageResult, Request, Result, Single, Snapshot, Snowflake, StoreTrait, Value
+    }, resolve_indirection, sadd, sread, sref, sreflist, sstr, ssub, swrite, AdjustBehavior, BadIndirectionReason, Context, Entity, EntityId, EntitySchema, Error, Field, FieldSchema, PageOpts, PageResult, Request, Result, Single, Snapshot, Snowflake, Value
 };
 
 #[derive(Serialize, Deserialize, Default)]
@@ -56,8 +56,8 @@ impl std::fmt::Debug for Store {
     }
 }
 
-impl StoreTrait for Store {
-    async fn create_entity(
+impl Store {
+    pub async fn create_entity(
         &mut self,
         ctx: &Context,
         entity_type: &EntityType,
@@ -132,7 +132,7 @@ impl StoreTrait for Store {
         Ok(Entity::new(entity_id))
     }
 
-    async fn get_entity_schema(
+    pub async fn get_entity_schema(
         &self,
         _: &Context,
         entity_type: &EntityType,
@@ -143,7 +143,7 @@ impl StoreTrait for Store {
             .ok_or_else(|| Error::EntityTypeNotFound(entity_type.clone()))
     }
 
-    async fn get_complete_entity_schema(
+    pub async fn get_complete_entity_schema(
         &self,
         ctx: &Context,
         entity_type: &EntityType,
@@ -185,7 +185,7 @@ impl StoreTrait for Store {
     }
 
     /// Set or update the schema for an entity type
-    async fn set_entity_schema(
+    pub async fn set_entity_schema(
         &mut self,
         ctx: &Context,
         entity_schema: &EntitySchema<Single>,
@@ -257,7 +257,7 @@ impl StoreTrait for Store {
     }
 
     /// Get the schema for a specific field
-    async fn get_field_schema(
+    pub async fn get_field_schema(
         &self,
         ctx: &Context,
         entity_type: &EntityType,
@@ -274,7 +274,7 @@ impl StoreTrait for Store {
     }
 
     /// Set or update the schema for a specific field
-    async fn set_field_schema(
+    pub async fn set_field_schema(
         &mut self,
         ctx: &Context,
         entity_type: &EntityType,
@@ -290,11 +290,11 @@ impl StoreTrait for Store {
         self.set_entity_schema(ctx, &entity_schema).await
     }
 
-    async fn entity_exists(&self, _: &Context, entity_id: &EntityId) -> bool {
+    pub async fn entity_exists(&self, _: &Context, entity_id: &EntityId) -> bool {
         self.fields.contains_key(entity_id)
     }
 
-    async fn field_exists(
+    pub async fn field_exists(
         &self,
         _: &Context,
         entity_type: &EntityType,
@@ -306,7 +306,7 @@ impl StoreTrait for Store {
             .unwrap_or(false)
     }
 
-    async fn perform(&mut self, ctx: &Context, requests: &mut Vec<Request>) -> Result<()> {
+    pub async fn perform(&mut self, ctx: &Context, requests: &mut Vec<Request>) -> Result<()> {
         for request in requests.iter_mut() {
             match request {
                 Request::Read {
@@ -317,7 +317,7 @@ impl StoreTrait for Store {
                     writer_id,
                 } => {
                     let indir: (EntityId, FieldType) =
-                        Box::pin(resolve_indirection(ctx, self, entity_id, field_type)).await?;
+                        Box::pin(resolve_indirection(ctx, &mut store_type, entity_id, field_type)).await?;
                     self.read(ctx, &indir.0, &indir.1, value, write_time, writer_id).await?;
                 }
                 Request::Write {
@@ -329,7 +329,7 @@ impl StoreTrait for Store {
                     push_condition,
                     adjust_behavior,
                 } => {
-                    let indir = Box::pin(resolve_indirection(ctx, self, entity_id, field_type)).await?;
+                    let indir = Box::pin(resolve_indirection(ctx, &mut store_type, entity_id, field_type)).await?;
                     self.write(
                         ctx,
                         &indir.0,
@@ -348,7 +348,7 @@ impl StoreTrait for Store {
 
     /// Deletes an entity and all its fields
     /// Returns an error if the entity doesn't exist
-    async fn delete_entity(&mut self, ctx: &Context, entity_id: &EntityId) -> Result<()> {
+    pub async fn delete_entity(&mut self, ctx: &Context, entity_id: &EntityId) -> Result<()> {
         // Check if the entity exists
         {
             if !self.fields.contains_key(entity_id) {
@@ -424,7 +424,7 @@ impl StoreTrait for Store {
     ///
     /// If you need to find entities of an exact type without inheritance,
     /// use `find_entities_exact` instead.
-    async fn find_entities_paginated(
+    pub async fn find_entities_paginated(
         &self,
         _: &Context,
         entity_type: &EntityType,
@@ -508,7 +508,7 @@ impl StoreTrait for Store {
     ///
     /// Then calling `find_entities_exact` with `EntityType::from("Animal")` will
     /// only return entities that were created with the "Animal" type, not Dog entities.
-    async fn find_entities_exact(
+    pub async fn find_entities_exact(
         &self,
         _: &Context,
         entity_type: &EntityType,
@@ -560,7 +560,7 @@ impl StoreTrait for Store {
         })
     }
 
-    async fn find_entities(
+    pub async fn find_entities(
         &self,
         ctx: &Context,
         entity_type: &EntityType
@@ -587,7 +587,7 @@ impl StoreTrait for Store {
     }
 
     /// Get all entity types with pagination
-    async fn get_entity_types(
+    pub async fn get_entity_types(
         &self,
         _: &Context,
         page_opts: Option<PageOpts>,
@@ -633,7 +633,7 @@ impl StoreTrait for Store {
     /// Register a notification configuration with a provided sender
     /// The sender will be added to the list of senders for this notification config
     /// Returns an error if the field_type contains indirection (context fields can be indirect)
-    async fn register_notification(
+    pub async fn register_notification(
         &mut self,
         _ctx: &Context,
         config: NotifyConfig,
@@ -690,7 +690,7 @@ impl StoreTrait for Store {
 
     /// Unregister a notification by removing a specific sender
     /// Returns true if the sender was found and removed
-    async fn unregister_notification(&mut self, target_config: &NotifyConfig, target_sender: &NotificationSender) -> bool {
+    pub async fn unregister_notification(&mut self, target_config: &NotifyConfig, target_sender: &NotificationSender) -> bool {
         let mut removed_any = false;
         
         match target_config {
@@ -758,9 +758,7 @@ impl StoreTrait for Store {
 
         removed_any
     }
-}
-
-impl Store {
+    
     pub fn new(snowflake: Arc<Snowflake>) -> Self {
         Store {
             schemas: HashMap::new(),
@@ -776,7 +774,7 @@ impl Store {
 
     async fn read(
         &mut self,
-        ctx: &Context,
+        _ctx: &Context,
         entity_id: &EntityId,
         field_type: &FieldType,
         value: &mut Option<Value>,
