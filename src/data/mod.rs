@@ -30,7 +30,7 @@ pub use snowflake::Snowflake;
 pub use store::{Store};
 pub use store_type::StoreType;
 pub use context::Context;
-pub use indirection::{BadIndirectionReason, resolve_indirection, INDIRECTION_DELIMITER};
+pub use indirection::{BadIndirectionReason, INDIRECTION_DELIMITER};
 pub use pagination::{PageOpts, PageResult};
 pub use snapshots::Snapshot;
 

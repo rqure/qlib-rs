@@ -2,10 +2,11 @@ use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, mem::discriminant, sync::Arc};
 
 use crate::{
+    resolve_indirection,
     data::{
         entity_schema::Complete, now, request::PushCondition, EntityType, FieldType, Notification,
         NotifyConfig, NotificationSender, hash_notify_config, Timestamp, INDIRECTION_DELIMITER,
-    }, resolve_indirection, sadd, sread, sref, sreflist, sstr, ssub, swrite, AdjustBehavior, BadIndirectionReason, Context, Entity, EntityId, EntitySchema, Error, Field, FieldSchema, PageOpts, PageResult, Request, Result, Single, Snapshot, Snowflake, Value
+    }, sadd, sread, sref, sreflist, sstr, ssub, swrite, AdjustBehavior, BadIndirectionReason, Context, Entity, EntityId, EntitySchema, Error, Field, FieldSchema, PageOpts, PageResult, Request, Result, Single, Snapshot, Snowflake, Value
 };
 
 #[derive(Serialize, Deserialize, Default)]
@@ -317,7 +318,7 @@ impl Store {
                     writer_id,
                 } => {
                     let indir: (EntityId, FieldType) =
-                        Box::pin(resolve_indirection(ctx, &mut store_type, entity_id, field_type)).await?;
+                        Box::pin(resolve_indirection!(ctx, self, entity_id, field_type)).await?;
                     self.read(ctx, &indir.0, &indir.1, value, write_time, writer_id).await?;
                 }
                 Request::Write {
@@ -329,7 +330,7 @@ impl Store {
                     push_condition,
                     adjust_behavior,
                 } => {
-                    let indir = Box::pin(resolve_indirection(ctx, &mut store_type, entity_id, field_type)).await?;
+                    let indir = Box::pin(resolve_indirection!(ctx, self, entity_id, field_type)).await?;
                     self.write(
                         ctx,
                         &indir.0,

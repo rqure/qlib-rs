@@ -4,7 +4,7 @@ mod test;
 pub mod scripting;
 
 pub use data::{
-    resolve_indirection, BadIndirectionReason, Context, Store, StoreType, PageOpts,
+    BadIndirectionReason, Context, Store, StoreType, PageOpts,
     PageResult, NotificationSender, NotificationReceiver, notification_channel, hash_notify_config, Snapshot, Entity, EntityId, EntitySchema, Single, Complete, 
     Field, FieldSchema, AdjustBehavior, PushCondition, Request, Snowflake, 
     StoreProxy, StoreMessage, Value, INDIRECTION_DELIMITER, NotifyConfig, Notification,
