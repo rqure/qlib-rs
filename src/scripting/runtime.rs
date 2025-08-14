@@ -277,9 +277,7 @@ impl ScriptRuntime {
             output.clear();
         }
 
-        let result = match self.runtime.tokio_runtime().block_on(async {
-            self.runtime.eval_async::<Value>(expression).await
-        }) {
+        let result = match self.runtime.eval_async::<Value>(expression).await {
             Ok(value) => {
                 // Get console output
                 {
