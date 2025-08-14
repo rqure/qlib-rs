@@ -331,7 +331,7 @@ impl Store {
                     adjust_behavior,
                 } => {
                     let indir = Box::pin(resolve_indirection!(ctx, self, entity_id, field_type)).await?;
-                    self.write(
+                    Box::pin(self.write(
                         ctx,
                         &indir.0,
                         &indir.1,
@@ -340,7 +340,7 @@ impl Store {
                         writer_id,
                         push_condition,
                         adjust_behavior,
-                    ).await?;
+                    )).await?;
                 }
             }
         }
@@ -959,7 +959,7 @@ impl Store {
             field_type,
             &notification_new_value,
             &notification_old_value,
-        );
+        ).await;
 
         Ok(())
     }
