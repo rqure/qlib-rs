@@ -52,7 +52,6 @@ pub struct ScriptResult {
 /// JavaScript runtime for executing scripts with store access
 pub struct ScriptRuntime {
     runtime: Runtime,
-    options: ScriptRuntimeOptions,
     console_output: Arc<Mutex<Vec<String>>>,
 }
 
@@ -131,7 +130,6 @@ impl ScriptRuntime {
 
         Ok(Self {
             runtime,
-            options,
             console_output,
         })
     }
