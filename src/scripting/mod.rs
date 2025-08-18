@@ -117,3 +117,19 @@ pub async fn execute_file(
         .map_err(|e| Error::Scripting(format!("Failed to load module: {}", e)))?;
     runtime.execute_module(module, entrypoint, args).await
 }
+
+pub async fn execute(
+    store: Arc<Mutex<StoreType>>,
+    context: Context,
+    code: &str,
+    entrypoint: Option<&str>,
+    args: Value,
+) -> Result<ScriptResult> {
+    let module_name = "inline_script";
+    let module_code = format!(r#"
+        export async function main(args) {{
+            {}
+        }}
+    "#, code);
+    execute_module(store, context, module_name, module_code.as_str(), entrypoint, args).await
+}
