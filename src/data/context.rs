@@ -1,30 +1,27 @@
-use serde::{Deserialize, Serialize};
+use crate::{EntityId, StoreType};
 
-use crate::EntityId;
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct Context {
+    // Reference to store
+    pub store: StoreType,
+
     /// Optional security context for JWT-based authorization
     pub security_context: Option<crate::auth::SecurityContext>,
 }
 
-impl Default for Context {
-    fn default() -> Self {
+impl Context {
+    /// Create a new context without security
+    pub fn new(store: StoreType) -> Self {
         Self {
+            store,
             security_context: None,
         }
     }
-}
-
-impl Context {
-    /// Create a new context without security
-    pub fn new() -> Self {
-        Self::default()
-    }
 
     /// Create a new context with a security context
-    pub fn with_security(security_context: crate::auth::SecurityContext) -> Self {
+    pub fn with_security(store: StoreType, security_context: crate::auth::SecurityContext) -> Self {
         Self {
+            store,
             security_context: Some(security_context),
         }
     }

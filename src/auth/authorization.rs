@@ -41,7 +41,7 @@ pub async fn get_scope(
                         _ => continue, // Invalid scope
                     };
 
-                    let result = scripting::execute(store, Context::new(), permission_test_fn, serde_json::json!({
+                    let result = scripting::execute(store, Context::new(store.clone()), permission_test_fn, serde_json::json!({
                         "subject_id": subject_entity_id.to_string(),
                         "resource_id": resource_entity_id.to_string(),
                         "resource_field": resource_field.to_string(),
