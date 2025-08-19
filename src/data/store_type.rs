@@ -11,21 +11,11 @@ use crate::{
 /// instead of using async traits which have limitations in Rust
 #[derive(Debug, Clone)]
 pub enum StoreType {
-    Local(Store),
-    Proxy(StoreProxy),
     SharedLocal(Arc<Mutex<Store>>),
     SharedProxy(Arc<Mutex<StoreProxy>>),
 }
 
 impl StoreType {
-    pub fn new_local(store: Store) -> Self {
-        StoreType::Local(store)
-    }
-
-    pub fn new_proxy(store_proxy: StoreProxy) -> Self {
-        StoreType::Proxy(store_proxy)
-    }
-
     pub fn new_shared_local(store: Store) -> Self {
         StoreType::SharedLocal(Arc::new(Mutex::new(store)))
     }
@@ -42,8 +32,6 @@ impl StoreType {
         name: &str,
     ) -> Result<Entity> {
         match self {
-            StoreType::Local(local) => local.create_entity(ctx, entity_type, parent_id, name).await,
-            StoreType::Proxy(proxy) => proxy.create_entity(ctx, entity_type, parent_id, name).await,
             StoreType::SharedLocal(shared_local) => {
                 let mut local = shared_local.lock().await;
                 local.create_entity(ctx, entity_type, parent_id, name).await
@@ -61,8 +49,6 @@ impl StoreType {
         entity_type: &EntityType,
     ) -> Result<EntitySchema<Single>> {
         match self {
-            StoreType::Local(local) => local.get_entity_schema(ctx, entity_type).await,
-            StoreType::Proxy(proxy) => proxy.get_entity_schema(ctx, entity_type).await,
             StoreType::SharedLocal(shared_local) => {
                 let local = shared_local.lock().await;
                 local.get_entity_schema(ctx, entity_type).await
@@ -80,8 +66,6 @@ impl StoreType {
         entity_type: &EntityType,
     ) -> Result<EntitySchema<Complete>> {
         match self {
-            StoreType::Local(local) => local.get_complete_entity_schema(ctx, entity_type).await,
-            StoreType::Proxy(proxy) => proxy.get_complete_entity_schema(ctx, entity_type).await,
             StoreType::SharedLocal(shared_local) => {
                 let local = shared_local.lock().await;
                 local.get_complete_entity_schema(ctx, entity_type).await
@@ -99,8 +83,6 @@ impl StoreType {
         entity_schema: &EntitySchema<Single>,
     ) -> Result<()> {
         match self {
-            StoreType::Local(local) => local.set_entity_schema(ctx, entity_schema).await,
-            StoreType::Proxy(proxy) => proxy.set_entity_schema(ctx, entity_schema).await,
             StoreType::SharedLocal(shared_local) => {
                 let mut local = shared_local.lock().await;
                 local.set_entity_schema(ctx, entity_schema).await
@@ -119,8 +101,6 @@ impl StoreType {
         field_type: &FieldType,
     ) -> Result<FieldSchema> {
         match self {
-            StoreType::Local(local) => local.get_field_schema(ctx, entity_type, field_type).await,
-            StoreType::Proxy(proxy) => proxy.get_field_schema(ctx, entity_type, field_type).await,
             StoreType::SharedLocal(shared_local) => {
                 let local = shared_local.lock().await;
                 local.get_field_schema(ctx, entity_type, field_type).await
@@ -140,8 +120,6 @@ impl StoreType {
         field_schema: FieldSchema,
     ) -> Result<()> {
         match self {
-            StoreType::Local(local) => local.set_field_schema(ctx, entity_type, field_type, field_schema).await,
-            StoreType::Proxy(proxy) => proxy.set_field_schema(ctx, entity_type, field_type, field_schema).await,
             StoreType::SharedLocal(shared_local) => {
                 let mut local = shared_local.lock().await;
                 local.set_field_schema(ctx, entity_type, field_type, field_schema).await
@@ -155,8 +133,6 @@ impl StoreType {
 
     pub async fn entity_exists(&self, ctx: &Context, entity_id: &EntityId) -> bool {
         match self {
-            StoreType::Local(local) => local.entity_exists(ctx, entity_id).await,
-            StoreType::Proxy(proxy) => proxy.entity_exists(ctx, entity_id).await,
             StoreType::SharedLocal(shared_local) => {
                 let local = shared_local.lock().await;
                 local.entity_exists(ctx, entity_id).await
@@ -175,8 +151,6 @@ impl StoreType {
         field_type: &FieldType,
     ) -> bool {
         match self {
-            StoreType::Local(local) => local.field_exists(ctx, entity_type, field_type).await,
-            StoreType::Proxy(proxy) => proxy.field_exists(ctx, entity_type, field_type).await,
             StoreType::SharedLocal(shared_local) => {
                 let local = shared_local.lock().await;
                 local.field_exists(ctx, entity_type, field_type).await
@@ -190,8 +164,6 @@ impl StoreType {
 
     pub async fn perform(&mut self, ctx: &Context, requests: &mut Vec<Request>) -> Result<()> {
         match self {
-            StoreType::Local(local) => local.perform(ctx, requests).await,
-            StoreType::Proxy(proxy) => proxy.perform(ctx, requests).await,
             StoreType::SharedLocal(shared_local) => {
                 let mut local = shared_local.lock().await;
                 local.perform(ctx, requests).await
@@ -205,8 +177,6 @@ impl StoreType {
 
     pub async fn delete_entity(&mut self, ctx: &Context, entity_id: &EntityId) -> Result<()> {
         match self {
-            StoreType::Local(local) => local.delete_entity(ctx, entity_id).await,
-            StoreType::Proxy(proxy) => proxy.delete_entity(ctx, entity_id).await,
             StoreType::SharedLocal(shared_local) => {
                 let mut local = shared_local.lock().await;
                 local.delete_entity(ctx, entity_id).await
@@ -225,8 +195,6 @@ impl StoreType {
         page_opts: Option<PageOpts>,
     ) -> Result<PageResult<EntityId>> {
         match self {
-            StoreType::Local(local) => local.find_entities_paginated(ctx, entity_type, page_opts).await,
-            StoreType::Proxy(proxy) => proxy.find_entities_paginated(ctx, entity_type, page_opts).await,
             StoreType::SharedLocal(shared_local) => {
                 let local = shared_local.lock().await;
                 local.find_entities_paginated(ctx, entity_type, page_opts).await
@@ -245,8 +213,6 @@ impl StoreType {
         page_opts: Option<PageOpts>,
     ) -> Result<PageResult<EntityId>> {
         match self {
-            StoreType::Local(local) => local.find_entities_exact(ctx, entity_type, page_opts).await,
-            StoreType::Proxy(proxy) => proxy.find_entities_exact(ctx, entity_type, page_opts).await,
             StoreType::SharedLocal(shared_local) => {
                 let local = shared_local.lock().await;
                 local.find_entities_exact(ctx, entity_type, page_opts).await
@@ -264,8 +230,6 @@ impl StoreType {
         entity_type: &EntityType
     ) -> Result<Vec<EntityId>> {
         match self {
-            StoreType::Local(local) => local.find_entities(ctx, entity_type).await,
-            StoreType::Proxy(proxy) => proxy.find_entities(ctx, entity_type).await,
             StoreType::SharedLocal(shared_local) => {
                 let local = shared_local.lock().await;
                 local.find_entities(ctx, entity_type).await
@@ -283,8 +247,6 @@ impl StoreType {
         page_opts: Option<PageOpts>,
     ) -> Result<PageResult<EntityType>> {
         match self {
-            StoreType::Local(local) => local.get_entity_types(ctx, page_opts).await,
-            StoreType::Proxy(proxy) => proxy.get_entity_types(ctx, page_opts).await,
             StoreType::SharedLocal(shared_local) => {
                 let local = shared_local.lock().await;
                 local.get_entity_types(ctx, page_opts).await
@@ -305,8 +267,6 @@ impl StoreType {
         sender: NotificationSender,
     ) -> Result<()> {
         match self {
-            StoreType::Local(local) => local.register_notification(ctx, config, sender).await,
-            StoreType::Proxy(proxy) => proxy.register_notification(ctx, config, sender).await,
             StoreType::SharedLocal(shared_local) => {
                 let mut local = shared_local.lock().await;
                 local.register_notification(ctx, config, sender).await
@@ -322,8 +282,6 @@ impl StoreType {
     /// Returns true if the sender was found and removed
     pub async fn unregister_notification(&mut self, target_config: &NotifyConfig, sender: &NotificationSender) -> bool {
         match self {
-            StoreType::Local(local) => local.unregister_notification(target_config, sender).await,
-            StoreType::Proxy(proxy) => proxy.unregister_notification(target_config, sender).await,
             StoreType::SharedLocal(shared_local) => {
                 let mut local = shared_local.lock().await;
                 local.unregister_notification(target_config, sender).await
