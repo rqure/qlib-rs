@@ -9,7 +9,7 @@ use crate::{
     }, sadd, sread, sref, sreflist, sstr, ssub, swrite, AdjustBehavior, BadIndirectionReason, Context, Entity, EntityId, EntitySchema, Error, Field, FieldSchema, PageOpts, PageResult, Request, Result, Single, Snapshot, Snowflake, Value
 };
 
-#[derive(Serialize, Deserialize, Default)]
+#[derive(Serialize, Deserialize, Default, Clone)]
 pub struct Store {
     schemas: HashMap<EntityType, EntitySchema<Single>>,
     entities: HashMap<EntityType, Vec<EntityId>>,

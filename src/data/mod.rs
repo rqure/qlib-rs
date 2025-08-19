@@ -16,6 +16,7 @@ mod store_proxy;
 mod store;
 mod store_type;
 mod value;
+mod cache;
 
 use std::{fmt, time::Duration};
 

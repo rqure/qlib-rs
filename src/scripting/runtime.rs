@@ -137,7 +137,7 @@ impl ScriptRuntime {
     /// Bind a store instance to the runtime, making it available as `store` in JavaScript
     pub fn bind_store(
         &mut self,
-        store: Arc<Mutex<StoreType>>,
+        store: &mut StoreType,
         context: Context,
     ) -> Result<()> {
         let store_wrapper = StoreWrapper::new(store, context);
@@ -145,7 +145,7 @@ impl ScriptRuntime {
         // Register store functions
         let store_clone = store_wrapper.clone();
         self.runtime.register_async_function("store_create_entity", move |args| {
-            let store = store_clone.clone();
+            let mut store = store_clone.clone();
             Box::pin(async move {
                 if args.len() != 3 {
                     return Err(rustyscript::Error::Runtime("createEntity requires 3 arguments: entityType, parentId, name".to_string()));
@@ -170,7 +170,7 @@ impl ScriptRuntime {
 
         let store_clone = store_wrapper.clone();
         self.runtime.register_async_function("store_delete_entity", move |args| {
-            let store = store_clone.clone();
+            let mut store = store_clone.clone();
             Box::pin(async move {
                 if args.len() != 1 {
                     return Err(rustyscript::Error::Runtime("deleteEntity requires 1 argument: entityId".to_string()));
@@ -224,7 +224,7 @@ impl ScriptRuntime {
 
         let store_clone = store_wrapper.clone();
         self.runtime.register_async_function("store_perform", move |args| {
-            let store = store_clone.clone();
+            let mut store = store_clone.clone();
             Box::pin(async move {
                 if args.len() != 1 {
                     return Err(rustyscript::Error::Runtime("perform requires 1 argument: requests".to_string()));

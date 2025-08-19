@@ -7,11 +7,8 @@
 mod runtime;
 mod store_wrapper;
 
-use std::sync::Arc;
-
 pub use runtime::{ScriptRuntime, ScriptRuntimeOptions, ScriptResult};
 pub use store_wrapper::StoreWrapper;
-use tokio::sync::Mutex;
 
 use crate::{Context, Error, Result, StoreType};
 use rustyscript::Module;
@@ -36,7 +33,7 @@ use serde_json::Value;
 /// ).await?;
 /// ```
 pub async fn execute_expression(
-    store: Arc<Mutex<StoreType>>,
+    store: &mut StoreType,
     context: Context,
     expression: &str,
 ) -> Result<ScriptResult> {
@@ -78,7 +75,7 @@ pub async fn execute_expression(
 /// ).await?;
 /// ```
 pub async fn execute_module(
-    store: Arc<Mutex<StoreType>>,
+    store: &mut StoreType,
     context: Context,
     module_name: &str,
     module_code: &str,
@@ -104,7 +101,7 @@ pub async fn execute_module(
 /// # Returns
 /// A `ScriptResult` containing the result value and execution metadata
 pub async fn execute_file(
-    store: Arc<Mutex<StoreType>>,
+    store: &mut StoreType,
     context: Context,
     file_path: &str,
     entrypoint: Option<&str>,
@@ -119,10 +116,9 @@ pub async fn execute_file(
 }
 
 pub async fn execute(
-    store: Arc<Mutex<StoreType>>,
+    store: &mut StoreType,
     context: Context,
     code: &str,
-    entrypoint: Option<&str>,
     args: Value,
 ) -> Result<ScriptResult> {
     let module_name = "inline_script";
@@ -131,5 +127,5 @@ pub async fn execute(
             {}
         }}
     "#, code);
-    execute_module(store, context, module_name, module_code.as_str(), entrypoint, args).await
+    execute_module(store, context, module_name, module_code.as_str(), Some("main"), args).await
 }

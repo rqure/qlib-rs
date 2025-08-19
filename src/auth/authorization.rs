@@ -1,4 +1,4 @@
-use crate::{Context, EntityId, FieldType, StoreType, ft, et, sread};
+use crate::{et, ft, scripting, sread, Context, EntityId, FieldType, StoreType};
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum AuthorizationScope {
@@ -10,6 +10,7 @@ pub enum AuthorizationScope {
 pub async fn get_scope(
     store: &mut StoreType,
     ctx: &Context,
+    subject_entity_id: &EntityId,
     resource_entity_id: &EntityId,
     resource_field: &FieldType,
 ) -> AuthorizationScope {
@@ -39,6 +40,7 @@ pub async fn get_scope(
                         Some(2) => AuthorizationScope::ReadWrite,
                         _ => continue, // Invalid scope
                     };
+
                     filtered_rules.push(scope);
                 }
             } else {

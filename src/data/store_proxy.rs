@@ -233,7 +233,7 @@ pub fn extract_message_id(message: &StoreMessage) -> Option<String> {
 type WsStream =
     tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct StoreProxy {
     sender: Arc<Mutex<futures_util::stream::SplitSink<WsStream, Message>>>,
     pending_requests: Arc<Mutex<HashMap<String, oneshot::Sender<serde_json::Value>>>>,

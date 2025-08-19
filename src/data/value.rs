@@ -1,3 +1,5 @@
+use std::hash::{Hash, Hasher};
+
 use crate::{data::{Timestamp}, EntityId};
 use serde::{Deserialize, Serialize};
 
@@ -162,3 +164,40 @@ impl Into<String> for Value {
         format!("{:?}", self)
     }
 }
+
+impl Hash for Value {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        std::mem::discriminant(self).hash(state);
+        match self {
+            Value::Blob(b) => {
+                b.hash(state);
+            }
+            Value::Bool(b) => {
+                b.hash(state);
+            }
+            Value::Choice(c) => {
+                c.hash(state);
+            }
+            Value::EntityList(e) => {
+                e.hash(state);
+            }
+            Value::EntityReference(e) => {
+                e.hash(state);
+            }
+            Value::Float(f) => {
+                f.to_bits().hash(state);
+            }
+            Value::Int(i) => {
+                i.hash(state);
+            }
+            Value::String(s) => {
+                s.hash(state);
+            }
+            Value::Timestamp(t) => {
+                t.hash(state);
+            }
+        }
+    }
+}
+
+impl Eq for Value {}
