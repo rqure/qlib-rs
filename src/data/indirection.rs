@@ -1,4 +1,4 @@
-use crate::{data::store, Context, EntityId, Error, FieldType, Request, Result, Store, StoreType, Value};
+use crate::{Context, EntityId, Error, FieldType, Request, Result, StoreInterface, Value};
 
 pub const INDIRECTION_DELIMITER: &str = "->";
 
@@ -39,7 +39,7 @@ impl std::fmt::Display for BadIndirectionReason {
 /// This function retrieves the store from the context and resolves indirection paths.
 pub async fn resolve_indirection(
     ctx: &Context,
-    mut store: StoreType,
+    mut store: StoreInterface,
     entity_id: &EntityId,
     field_type: &FieldType,
 ) -> Result<(EntityId, FieldType)> {

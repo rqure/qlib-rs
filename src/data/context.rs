@@ -1,9 +1,9 @@
-use crate::{EntityId, StoreType};
+use crate::{EntityId, StoreInterface};
 
 #[derive(Debug, Clone)]
 pub struct Context {
     // Reference to store
-    pub store_interface: StoreType,
+    pub store_interface: StoreInterface,
 
     /// Optional security context for JWT-based authorization
     pub security_context: Option<crate::auth::SecurityContext>,
@@ -11,7 +11,7 @@ pub struct Context {
 
 impl Context {
     /// Create a new context without security
-    pub fn new(store: StoreType) -> Self {
+    pub fn new(store: StoreInterface) -> Self {
         Self {
             store_interface: store,
             security_context: None,
@@ -19,7 +19,7 @@ impl Context {
     }
 
     /// Create a new context with a security context
-    pub fn with_security(store: StoreType, security_context: crate::auth::SecurityContext) -> Self {
+    pub fn with_security(store: StoreInterface, security_context: crate::auth::SecurityContext) -> Self {
         Self {
             store_interface: store,
             security_context: Some(security_context),

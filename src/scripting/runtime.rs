@@ -1,4 +1,4 @@
-use crate::{Context, Error, Result, StoreType};
+use crate::{Context, Error, Result, StoreInterface};
 use rustyscript::{Module, Runtime, RuntimeOptions};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -137,7 +137,7 @@ impl ScriptRuntime {
     /// Bind a store instance to the runtime, making it available as `store` in JavaScript
     pub fn bind_store(
         &mut self,
-        store: &mut StoreType,
+        store: &mut StoreInterface,
         context: Context,
     ) -> Result<()> {
         let store_wrapper = StoreWrapper::new(store, context);

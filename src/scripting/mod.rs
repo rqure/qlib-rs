@@ -10,7 +10,7 @@ mod store_wrapper;
 pub use runtime::{ScriptRuntime, ScriptRuntimeOptions, ScriptResult};
 pub use store_wrapper::StoreWrapper;
 
-use crate::{Context, Error, Result, StoreType};
+use crate::{Context, Error, Result, StoreInterface};
 use rustyscript::Module;
 use serde_json::Value;
 
@@ -33,7 +33,7 @@ use serde_json::Value;
 /// ).await?;
 /// ```
 pub async fn execute_expression(
-    store: &mut StoreType,
+    store: &mut StoreInterface,
     context: Context,
     expression: &str,
 ) -> Result<ScriptResult> {
@@ -75,7 +75,7 @@ pub async fn execute_expression(
 /// ).await?;
 /// ```
 pub async fn execute_module(
-    store: &mut StoreType,
+    store: &mut StoreInterface,
     context: Context,
     module_name: &str,
     module_code: &str,
@@ -101,7 +101,7 @@ pub async fn execute_module(
 /// # Returns
 /// A `ScriptResult` containing the result value and execution metadata
 pub async fn execute_file(
-    store: &mut StoreType,
+    store: &mut StoreInterface,
     context: Context,
     file_path: &str,
     entrypoint: Option<&str>,
@@ -116,7 +116,7 @@ pub async fn execute_file(
 }
 
 pub async fn execute(
-    store: &mut StoreType,
+    store: &mut StoreInterface,
     context: Context,
     code: &str,
     args: Value,

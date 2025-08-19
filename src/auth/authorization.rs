@@ -1,4 +1,4 @@
-use crate::{et, ft, scripting, sread, Context, EntityId, FieldType, StoreType};
+use crate::{et, ft, scripting, sread, Context, EntityId, FieldType, StoreInterface};
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum AuthorizationScope {
@@ -8,7 +8,7 @@ pub enum AuthorizationScope {
 }
 
 pub async fn get_scope(
-    store: &mut StoreType,
+    store: &mut StoreInterface,
     ctx: &Context,
     subject_entity_id: &EntityId,
     resource_entity_id: &EntityId,

@@ -1,9 +1,9 @@
-use crate::{Context, EntityId, EntityType, Error, FieldType, Request, Result, StoreType, Value};
+use crate::{Context, EntityId, EntityType, Error, FieldType, Request, Result, StoreInterface, Value};
 use serde_json::Value as JsonValue;
 
 /// Wrapper around StoreTrait that provides JavaScript-friendly methods
 pub struct StoreWrapper {
-    store: StoreType,
+    store: StoreInterface,
     context: Context,
 }
 
@@ -18,7 +18,7 @@ impl Clone for StoreWrapper {
 
 impl StoreWrapper {
     /// Create a new store wrapper
-    pub fn new(store: &mut StoreType, context: Context) -> Self {
+    pub fn new(store: &mut StoreInterface, context: Context) -> Self {
         Self { store: store.clone(), context }
     }
 

@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use crate::{
     notification_channel, sread, Context, EntityId, EntityType, FieldType, NotificationReceiver,
-    NotificationSender, NotifyConfig, Result, StoreType, Value,
+    NotificationSender, NotifyConfig, Result, StoreInterface, Value,
 };
 
 pub struct Cache {
@@ -26,7 +26,7 @@ pub struct Cache {
 impl Cache {
     pub async fn new(
         ctx: Context,
-        store: &mut StoreType,
+        store: &mut StoreInterface,
         entity_type: EntityType,
         index_fields: Vec<FieldType>,
         other_fields: Vec<FieldType>,
