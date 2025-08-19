@@ -41,7 +41,21 @@ pub async fn get_scope(
                         _ => continue, // Invalid scope
                     };
 
-                    filtered_rules.push(scope);
+                    let result = scripting::execute(store, Context::new(), permission_test_fn, serde_json::json!({
+                        "subject_id": subject_entity_id.to_string(),
+                        "resource_id": resource_entity_id.to_string(),
+                        "resource_field": resource_field.to_string(),
+                    })).await;
+
+                    if let Ok(result) = result {
+                        if result.success {
+                            if let Some(value) = result.value.as_bool() {
+                                if value {
+                                    filtered_rules.push(scope);
+                                }
+                            }
+                        }
+                    }
                 }
             } else {
                 return AuthorizationScope::None;

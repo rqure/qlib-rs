@@ -1,7 +1,7 @@
 //! JavaScript scripting support for qlib-rs using rustyscript
 //! 
 //! This module provides a JavaScript runtime that can execute scripts with access
-//! to the StoreTrait functionality. Scripts can perform async operations and return
+//! to the Store functionality. Scripts can perform async operations and return
 //! values to the Rust environment.
 
 mod runtime;
