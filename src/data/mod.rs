@@ -34,7 +34,7 @@ pub use pagination::{PageOpts, PageResult};
 pub use snapshots::Snapshot;
 pub use cache::Cache;
 
-pub use store_proxy::{StoreProxy, StoreMessage};
+pub use store_proxy::{StoreProxy, StoreMessage, extract_message_id};
 pub use value::Value;
 pub use notifications::{NotifyConfig, Notification, NotificationSender, NotificationReceiver, notification_channel, hash_notify_config};
 
