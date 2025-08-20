@@ -9,7 +9,7 @@ use crate::{
     }, sadd, sread, sref, sreflist, sstr, ssub, swrite, AdjustBehavior, BadIndirectionReason, Entity, EntityId, EntitySchema, Error, Field, FieldSchema, PageOpts, PageResult, Request, Result, Single, Snapshot, Snowflake, Value
 };
 
-#[derive(Serialize, Deserialize, Default)]
+#[derive(Serialize, Deserialize)]
 pub struct Store {
     schemas: HashMap<EntityType, EntitySchema<Single>>,
     entities: HashMap<EntityType, Vec<EntityId>>,
@@ -35,6 +35,9 @@ pub struct Store {
     #[serde(skip)]
     type_notifications:
         HashMap<EntityType, HashMap<FieldType, HashMap<NotifyConfig, Vec<NotificationSender>>>>,
+
+    #[serde(skip)]
+    pub write_channel: (tokio::sync::mpsc::UnboundedSender<Request>, tokio::sync::mpsc::UnboundedReceiver<Request>),
 }
 
 impl std::fmt::Debug for Store {
@@ -333,6 +336,8 @@ impl Store {
                         push_condition,
                         adjust_behavior,
                     )).await?;
+
+                    self.write_channel.0.send(request.clone());
                 }
             }
         }
@@ -780,6 +785,7 @@ impl Store {
             snowflake,
             id_notifications: HashMap::new(),
             type_notifications: HashMap::new(),
+            write_channel: tokio::sync::mpsc::unbounded_channel(),
         }
     }
 
