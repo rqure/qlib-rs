@@ -1,11 +1,12 @@
 
-use crate::scripting::{ScriptRuntime, ScriptRuntimeOptions};
+#[allow(unused_imports)] // False positive - used in test functions
+use crate::scripting::ScriptRuntimeOptions;
 use crate::data::Store;
-use crate::{Context, Snowflake};
+use crate::Snowflake;
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use serde_json;
 
+#[allow(dead_code)]
 async fn create_test_store() -> Arc<Mutex<Store>> {
     let store = Store::new(Arc::new(Snowflake::new()));
     Arc::new(Mutex::new(store))

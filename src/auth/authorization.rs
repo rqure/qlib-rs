@@ -5,12 +5,14 @@ use tokio::sync::Mutex;
 use crate::{ft, scripting::execute, sread, Cache, EntityId, Error, FieldType, Result, StoreProxy, Value};
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[allow(dead_code)]
 pub enum AuthorizationScope {
     None,
     ReadOnly,
     ReadWrite,
 }
 
+#[allow(dead_code)]
 pub async fn get_scope(
     store: Arc<Mutex<StoreProxy>>,
     auth_rule_cache: &Cache,

@@ -1,14 +1,13 @@
-use argon2::{
-    password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
-    Argon2,
-};
-use rand::rngs::OsRng;
+use argon2::Argon2;
 use std::time::Duration;
 
-use crate::{
-    et, ft, now, sint, sread, sstr, stimestamp, swrite, EntityId, Error, Request, Result,
-    Value,
-};
+// Note: Uncomment these imports when the macros are actually implemented
+// use argon2::password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString};
+// use rand::rngs::OsRng;
+// use crate::{
+//     et, ft, now, sint, sread, sstr, stimestamp, swrite, EntityId, Error, Request, Result,
+//     Value,
+// };
 
 /// Configuration for authentication behavior
 #[derive(Debug, Clone)]
