@@ -13,6 +13,16 @@ pub const RESOURCE_FIELD: &str = "ResourceField";
 pub const RESOURCE_TYPE: &str = "ResourceType";
 pub const SCOPE: &str = "Scope";
 pub const TEST_FN: &str = "TestFn";
+pub const CANDIDATE_LIST: &str = "CandidateList";
+pub const AVAILABLE_LIST: &str = "AvailableList";
+pub const SYNC_STATUS: &str = "SyncStatus";
+pub const CURRENT_LEADER: &str = "CurrentLeader";
+pub const STATUS: &str = "Status";
+pub const START_TIME: &str = "StartTime";
+pub const MAKE_ME_AVAILABLE: &str = "MakeMeAvailable";
+pub const MAKE_ME_UNAVAILABLE: &str = "MakeMeUnavailable";
+pub const HEARTBEAT: &str = "Heartbeat";
+pub const DEATH_DETECTION_TIMEOUT: &str = "DeathDetectionTimeout";
 
 pub fn children() -> FieldType {
     FieldType::from(CHILDREN)
@@ -64,4 +74,44 @@ pub fn resource_field() -> FieldType {
 
 pub fn permission() -> FieldType {
     FieldType::from(PERMISSION)
+}
+
+pub fn candidate_list() -> FieldType {
+    FieldType::from(CANDIDATE_LIST)
+}
+
+pub fn available_list() -> FieldType {
+    FieldType::from(AVAILABLE_LIST)
+}
+
+pub fn sync_status() -> FieldType {
+    FieldType::from(SYNC_STATUS)
+}
+
+pub fn current_leader() -> FieldType {
+    FieldType::from(CURRENT_LEADER)
+}
+
+pub fn status() -> FieldType {
+    FieldType::from(STATUS)
+}
+
+pub fn start_time() -> FieldType {
+    FieldType::from(START_TIME)
+}
+
+pub fn make_me_available() -> FieldType {
+    FieldType::from(MAKE_ME_AVAILABLE)
+}
+
+pub fn make_me_unavailable() -> FieldType {
+    FieldType::from(MAKE_ME_UNAVAILABLE)
+}
+
+pub fn heartbeat() -> FieldType {
+    FieldType::from(HEARTBEAT)
+}
+
+pub fn death_detection_timeout() -> FieldType {
+    FieldType::from(DEATH_DETECTION_TIMEOUT)
 }
