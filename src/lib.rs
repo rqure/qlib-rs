@@ -9,11 +9,11 @@ pub use data::{
     Field, FieldSchema, AdjustBehavior, PushCondition, Request, Snowflake, 
     StoreProxy, StoreMessage, Value, INDIRECTION_DELIMITER, NotifyConfig, Notification,
     EntityType, FieldType, Timestamp, now, epoch, nanos_to_timestamp, secs_to_timestamp, 
-    millis_to_timestamp, micros_to_timestamp, ft, et
+    millis_to_timestamp, micros_to_timestamp, ft, et, Cache
 };
 
 pub use auth::{
-    AuthenticationManager, AuthConfig,
+    AuthConfig,
     SecurityContext, JwtClaims, JwtManager
 };
 
@@ -26,10 +26,12 @@ pub enum Error {
     EntityAlreadyExists(EntityId),
     EntityNotFound(EntityId),
     EntityTypeNotFound(EntityType),
+    CacheFieldNotFound(FieldType),
     FieldNotFound(EntityId, FieldType),
     InvalidNotifyConfig(String),
     UnsupportedAdjustBehavior(EntityId, FieldType, AdjustBehavior),
     ValueTypeMismatch(EntityId, FieldType, Value, Value),
+    BadValueCast(Value, Value),
 
     // Auth related errors
     InvalidCredentials,
@@ -55,10 +57,12 @@ impl std::fmt::Display for Error {
             Error::EntityAlreadyExists(id) => write!(f, "Entity already exists: {}", id),
             Error::EntityNotFound(id) => write!(f, "Entity not found: {}", id),
             Error::EntityTypeNotFound(et) => write!(f, "Entity type not found: {}", et),
+            Error::CacheFieldNotFound(field) => write!(f, "Cache field not found: {}", field),
             Error::FieldNotFound(id, field) => write!(f, "Field not found for {}: {}", id, field),
             Error::InvalidNotifyConfig(msg) => write!(f, "Invalid notification config: {}", msg),
             Error::UnsupportedAdjustBehavior(id, field, behavior) => write!(f, "Unsupported adjust behavior {} for {}.{}", behavior, id, field),
-            Error::ValueTypeMismatch(id, field, current_value, previous_value) => write!(f, "Value type mismatch for {}.{}: current value {:?}, previous value {:?}", id, field, current_value, previous_value),
+            Error::ValueTypeMismatch(id, field, got, expected) => write!(f, "Value type mismatch for {}.{}: got value type {:?}, expected value type {:?}", id, field, got, expected),
+            Error::BadValueCast(got, expected) => write!(f, "Bad value cast: got value type {:?}, expected value type {:?}", got, expected),
             Error::InvalidCredentials => write!(f, "Invalid credentials"),
             Error::AccountDisabled => write!(f, "Account is disabled"),
             Error::AccountLocked => write!(f, "Account is locked due to too many failed attempts"),

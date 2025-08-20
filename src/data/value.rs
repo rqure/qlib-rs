@@ -1,6 +1,6 @@
 use std::hash::{Hash, Hasher};
 
-use crate::{data::{Timestamp}, EntityId};
+use crate::{data::Timestamp, epoch, EntityId, Result};
 use serde::{Deserialize, Serialize};
 
 
@@ -156,6 +156,84 @@ impl Value {
 
     pub fn from_timestamp(t: Timestamp) -> Self {
         Value::Timestamp(t)
+    }
+
+    pub fn expect_bool(&self) -> Result<bool> {
+        if let Value::Bool(b) = self {
+            Ok(*b)
+        } else {
+            Err(crate::Error::BadValueCast(self.clone(), Value::Bool(false)))
+        }
+    }
+
+    pub fn expect_float(&self) -> Result<f64> {
+        if let Value::Float(f) = self {
+            Ok(*f)
+        } else {
+            Err(crate::Error::BadValueCast(self.clone(), Value::Float(0.0)))
+        }
+    }
+
+    pub fn expect_entity_reference(&self) -> Result<&Option<EntityId>> {
+        if let Value::EntityReference(e) = self {
+            Ok(e)
+        } else {
+            Err(crate::Error::BadValueCast(self.clone(), Value::EntityReference(None)))
+        }
+    }
+
+    pub fn expect_entity_list(&self) -> Result<&Vec<EntityId>> {
+        if let Value::EntityList(e) = self {
+            Ok(e)
+        } else {
+            Err(crate::Error::BadValueCast(self.clone(), Value::EntityList(vec![])))
+        }
+    }
+
+    pub fn expect_int(&self) -> Result<i64> {
+        if let Value::Int(i) = self {
+            Ok(*i)
+        } else {
+            Err(crate::Error::BadValueCast(self.clone(), Value::Int(0)))
+        }
+    }
+
+    pub fn expect_string(&self) -> Result<&String> {
+        if let Value::String(s) = self {
+            Ok(s)
+        } else {
+            Err(crate::Error::BadValueCast(self.clone(), Value::String("".to_string())))
+        }
+    }
+
+    pub fn expect_blob(&self) -> Result<&Vec<u8>> {
+        if let Value::Blob(b) = self {
+            Ok(b)
+        } else {
+            Err(crate::Error::BadValueCast(self.clone(), Value::Blob(vec![])))
+        }
+    }
+
+    pub fn expect_choice(&self) -> Result<i64> {
+        if let Value::Choice(c) = self {
+            Ok(*c)
+        } else {
+            Err(crate::Error::BadValueCast(
+                self.clone(),
+                Value::Choice(0),
+            ))
+        }
+    }
+
+    pub fn expect_timestamp(&self) -> Result<Timestamp> {
+        if let Value::Timestamp(t) = self {
+            Ok(*t)
+        } else {
+            Err(crate::Error::BadValueCast(
+                self.clone(),
+                Value::Timestamp(epoch()),
+            ))
+        }
     }
 }
 

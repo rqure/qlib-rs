@@ -32,6 +32,7 @@ pub use context::Context;
 pub use indirection::{BadIndirectionReason, INDIRECTION_DELIMITER};
 pub use pagination::{PageOpts, PageResult};
 pub use snapshots::Snapshot;
+pub use cache::Cache;
 
 pub use store_proxy::{StoreProxy, StoreMessage};
 pub use value::Value;

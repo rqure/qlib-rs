@@ -6,7 +6,7 @@ use rand::rngs::OsRng;
 use std::time::Duration;
 
 use crate::{
-    et, ft, now, sint, sread, sstr, stimestamp, swrite, Context, EntityId, Error, Request, Result,
+    et, ft, now, sint, sread, sstr, stimestamp, swrite, EntityId, Error, Request, Result,
     Value,
 };
 
@@ -39,36 +39,34 @@ impl Default for AuthConfig {
 
 /// Authenticate a user with name and password
 #[macro_export]
-macro_rules! authenticate{
-    ($store:expr, $ctx:expr, $name:expr, $password:expr) => {{
+macro_rules! authenticate {
+    ($store:expr, $name:expr, $password:expr, $config:expr) => {{
         async {
-            let user_id = self
-                .find_user_by_name(store, ctx, name)
-                .await?
+            let user_id = find_user_by_name!($store, $name).await?
                 .ok_or(Error::UserNotFound)?;
 
             // Check if account is active
-            if !self.is_user_active(store, ctx, &user_id).await? {
+            if !is_user_active!($store, &user_id).await? {
                 return Err(Error::AccountDisabled);
             }
 
             // Check if account is locked
-            if self.is_user_locked(store, ctx, &user_id).await? {
+            if is_user_locked!($store, &user_id).await? {
                 return Err(Error::AccountLocked);
             }
 
             // Get stored password hash
-            let stored_hash = self.get_user_password_hash(store, ctx, &user_id).await?;
+            let stored_hash = get_user_password_hash!($store, &user_id).await?;
 
             // Verify password
-            if self.verify_password(password, &stored_hash)? {
+            if verify_password!($password, &stored_hash, $config)? {
                 // Reset failed attempts and update last login
-                self.reset_failed_attempts(store, ctx, &user_id).await?;
-                self.update_last_login(store, ctx, &user_id).await?;
+                reset_failed_attempts!($store, &user_id).await?;
+                update_last_login!($store, &user_id).await?;
                 Ok(user_id)
             } else {
                 // Increment failed attempts
-                self.increment_failed_attempts(store, ctx, &user_id).await?;
+                increment_failed_attempts!($store, &user_id, $config).await?;
                 Err(Error::InvalidCredentials)
             }
         }
@@ -76,246 +74,268 @@ macro_rules! authenticate{
 }
 
 /// Change a user's password
-pub async fn change_password(
-    &self,
-    store: &mut StoreInterface,
-    ctx: &Context,
-    user_id: &EntityId,
-    new_password: &str,
-) -> Result<()> {
-    // Validate new password
-    self.validate_password(new_password)?;
+#[macro_export]
+macro_rules! change_password {
+    ($store:expr, $user_id:expr, $new_password:expr, $config:expr) => {{
+        async {
+            // Validate new password
+            validate_password!($new_password, $config)?;
 
-    // Hash the new password
-    let password_hash = self.hash_password(new_password)?;
+            // Hash the new password
+            let password_hash = hash_password!($new_password, $config)?;
 
-    let mut requests = vec![swrite!(
-        user_id.clone(),
-        ft::password(),
-        sstr!(password_hash)
-    )];
+            let mut requests = vec![swrite!(
+                $user_id.clone(),
+                ft::password(),
+                sstr!(password_hash)
+            )];
 
-    store.perform(ctx, &mut requests).await?;
+            $store.perform(&mut requests).await?;
 
-    Ok(())
+            Ok(())
+        }
+    }}
 }
 
-// Private helper methods
-async fn find_user_by_name(
-    store: &mut StoreInterface,
-    ctx: &Context,
-    name: &str,
-) -> Result<Option<EntityId>> {
-    // Use the store's find_entities method to search for users with matching name
-    let entities = store.find_entities(ctx, &et::user()).await?;
+/// Find a user by name
+#[macro_export]
+macro_rules! find_user_by_name {
+    ($store:expr, $name:expr) => {{
+        async {
+            // Use the store's find_entities method to search for users with matching name
+            let entities = $store.find_entities(&et::user()).await?;
 
-    for entity_id in entities {
-        let mut requests = vec![sread!(entity_id.clone(), ft::name())];
+            for entity_id in entities {
+                let mut requests = vec![sread!(entity_id.clone(), ft::name())];
 
-        store.perform(ctx, &mut requests).await?;
+                $store.perform(&mut requests).await?;
 
-        if let Some(request) = requests.first() {
-            if let Request::Read {
-                value: Some(Value::String(stored_name)),
-                ..
-            } = request
-            {
-                if stored_name.eq_ignore_ascii_case(name) {
-                    return Ok(Some(entity_id));
+                if let Some(request) = requests.first() {
+                    if let Request::Read {
+                        value: Some(Value::String(stored_name)),
+                        ..
+                    } = request
+                    {
+                        if stored_name.eq_ignore_ascii_case($name) {
+                            return Ok(Some(entity_id));
+                        }
+                    }
                 }
             }
+
+            Ok(None)
         }
-    }
-
-    Ok(None)
+    }}
 }
 
-async fn is_user_active(
-    store: &mut StoreInterface,
-    ctx: &Context,
-    user_id: &EntityId,
-) -> Result<bool> {
-    let mut requests = vec![sread!(user_id.clone(), ft::active())];
+/// Check if a user is active
+#[macro_export]
+macro_rules! is_user_active {
+    ($store:expr, $user_id:expr) => {{
+        async {
+            let mut requests = vec![sread!($user_id.clone(), ft::active())];
 
-    store.perform(ctx, &mut requests).await?;
+            $store.perform(&mut requests).await?;
 
-    if let Some(request) = requests.first() {
-        if let Request::Read {
-            value: Some(Value::Bool(active)),
-            ..
-        } = request
-        {
-            Ok(*active)
-        } else {
-            Ok(false) // Default to inactive if field not found
+            if let Some(request) = requests.first() {
+                if let Request::Read {
+                    value: Some(Value::Bool(active)),
+                    ..
+                } = request
+                {
+                    Ok(*active)
+                } else {
+                    Ok(false) // Default to inactive if field not found
+                }
+            } else {
+                Ok(false)
+            }
         }
-    } else {
-        Ok(false)
-    }
+    }}
 }
 
-async fn is_user_locked(
-    store: &mut StoreInterface,
-    ctx: &Context,
-    user_id: &EntityId,
-) -> Result<bool> {
-    let mut requests = vec![sread!(user_id.clone(), ft::locked_until())];
+/// Check if a user is locked
+#[macro_export]
+macro_rules! is_user_locked {
+    ($store:expr, $user_id:expr) => {{
+        async {
+            let mut requests = vec![sread!($user_id.clone(), ft::locked_until())];
 
-    store.perform(ctx, &mut requests).await?;
+            $store.perform(&mut requests).await?;
 
-    if let Some(request) = requests.first() {
-        if let Request::Read {
-            value: Some(Value::Timestamp(locked_until)),
-            ..
-        } = request
-        {
-            return Ok(now() < *locked_until);
+            if let Some(request) = requests.first() {
+                if let Request::Read {
+                    value: Some(Value::Timestamp(locked_until)),
+                    ..
+                } = request
+                {
+                    return Ok(now() < *locked_until);
+                }
+            }
+
+            Ok(false)
         }
-    }
-
-    Ok(false)
+    }}
 }
 
-async fn get_user_password_hash(
-    store: &mut StoreInterface,
-    ctx: &Context,
-    user_id: &EntityId,
-) -> Result<String> {
-    let mut requests = vec![sread!(user_id.clone(), ft::password())];
+/// Get user password hash
+#[macro_export]
+macro_rules! get_user_password_hash {
+    ($store:expr, $user_id:expr) => {{
+        async {
+            let mut requests = vec![sread!($user_id.clone(), ft::password())];
 
-    store.perform(ctx, &mut requests).await?;
+            $store.perform(&mut requests).await?;
 
-    if let Some(request) = requests.first() {
-        if let Request::Read {
-            value: Some(Value::String(hash)),
-            ..
-        } = request
-        {
-            Ok(hash.clone())
-        } else {
-            Err(Error::UserNotFound)
+            if let Some(request) = requests.first() {
+                if let Request::Read {
+                    value: Some(Value::String(hash)),
+                    ..
+                } = request
+                {
+                    Ok(hash.clone())
+                } else {
+                    Err(Error::UserNotFound)
+                }
+            } else {
+                Err(Error::UserNotFound)
+            }
         }
-    } else {
-        Err(Error::UserNotFound)
-    }
+    }}
 }
 
-fn hash_password(password: &str) -> Result<String> {
-    let salt = SaltString::generate(&mut OsRng);
-    let password_hash = self
-        .argon2
-        .hash_password(password.as_bytes(), &salt)
-        .map_err(|e| Error::PasswordHashError(e.to_string()))?;
-    Ok(password_hash.to_string())
+/// Hash a password using Argon2
+#[macro_export]
+macro_rules! hash_password {
+    ($password:expr, $config:expr) => {{
+        let salt = SaltString::generate(&mut OsRng);
+        let password_hash = $config.argon2
+            .hash_password($password.as_bytes(), &salt)
+            .map_err(|e| Error::PasswordHashError(e.to_string()))?;
+        Ok(password_hash.to_string())
+    }}
 }
 
-fn verify_password(password: &str, hash: &str) -> Result<bool> {
-    let parsed_hash =
-        PasswordHash::new(hash).map_err(|e| Error::PasswordHashError(e.to_string()))?;
+/// Verify a password against a hash
+#[macro_export]
+macro_rules! verify_password {
+    ($password:expr, $hash:expr, $config:expr) => {{
+        let parsed_hash =
+            PasswordHash::new($hash).map_err(|e| Error::PasswordHashError(e.to_string()))?;
 
-    Ok(self
-        .argon2
-        .verify_password(password.as_bytes(), &parsed_hash)
-        .is_ok())
+        Ok($config.argon2
+            .verify_password($password.as_bytes(), &parsed_hash)
+            .is_ok())
+    }}
 }
 
-fn validate_password(password: &str) -> Result<()> {
-    if password.len() < self.config.min_password_length {
-        return Err(Error::InvalidPassword(format!(
-            "Password must be at least {} characters long",
-            self.config.min_password_length
-        )));
-    }
-
-    if self.config.require_password_complexity {
-        let has_upper = password.chars().any(|c| c.is_ascii_uppercase());
-        let has_lower = password.chars().any(|c| c.is_ascii_lowercase());
-        let has_digit = password.chars().any(|c| c.is_ascii_digit());
-        let has_symbol = password.chars().any(|c| !c.is_alphanumeric());
-
-        if !has_upper || !has_lower || !has_digit || !has_symbol {
-            return Err(Error::InvalidPassword(
-                "Password must contain uppercase, lowercase, digit, and symbol characters"
-                    .to_string(),
-            ));
+/// Validate password requirements
+#[macro_export]
+macro_rules! validate_password {
+    ($password:expr, $config:expr) => {{
+        if $password.len() < $config.min_password_length {
+            return Err(Error::InvalidPassword(format!(
+                "Password must be at least {} characters long",
+                $config.min_password_length
+            )));
         }
-    }
 
-    Ok(())
-}
+        if $config.require_password_complexity {
+            let has_upper = $password.chars().any(|c| c.is_ascii_uppercase());
+            let has_lower = $password.chars().any(|c| c.is_ascii_lowercase());
+            let has_digit = $password.chars().any(|c| c.is_ascii_digit());
+            let has_symbol = $password.chars().any(|c| !c.is_alphanumeric());
 
-async fn increment_failed_attempts(
-    store: &mut StoreInterface,
-    ctx: &Context,
-    user_id: &EntityId,
-) -> Result<()> {
-    // Get current failed attempts
-    let mut read_requests = vec![sread!(user_id.clone(), ft::failed_attempts())];
-
-    store.perform(ctx, &mut read_requests).await?;
-
-    let current_attempts = if let Some(request) = read_requests.first() {
-        if let Request::Read {
-            value: Some(Value::Int(attempts)),
-            ..
-        } = request
-        {
-            *attempts
-        } else {
-            0
+            if !has_upper || !has_lower || !has_digit || !has_symbol {
+                return Err(Error::InvalidPassword(
+                    "Password must contain uppercase, lowercase, digit, and symbol characters"
+                        .to_string(),
+                ));
+            }
         }
-    } else {
-        0
-    };
 
-    let new_attempts = current_attempts + 1;
-
-    // Update failed attempts
-    let mut write_requests = vec![swrite!(
-        user_id.clone(),
-        ft::failed_attempts(),
-        sint!(new_attempts)
-    )];
-
-    // Lock account if max attempts reached
-    if new_attempts >= self.config.max_failed_attempts {
-        let lock_until = now() + self.config.lockout_duration;
-        write_requests.push(swrite!(
-            user_id.clone(),
-            ft::locked_until(),
-            stimestamp!(lock_until)
-        ));
-    }
-
-    store.perform(ctx, &mut write_requests).await?;
-
-    Ok(())
+        Ok(())
+    }}
 }
 
-async fn reset_failed_attempts(
-    store: &mut StoreInterface,
-    ctx: &Context,
-    user_id: &EntityId,
-) -> Result<()> {
-    let mut requests = vec![swrite!(user_id.clone(), ft::failed_attempts(), sint!(0))];
+/// Increment failed login attempts and lock account if needed
+#[macro_export]
+macro_rules! increment_failed_attempts {
+    ($store:expr, $user_id:expr, $config:expr) => {{
+        async {
+            // Get current failed attempts
+            let mut read_requests = vec![sread!($user_id.clone(), ft::failed_attempts())];
 
-    store.perform(ctx, &mut requests).await?;
+            $store.perform(&mut read_requests).await?;
 
-    Ok(())
+            let current_attempts = if let Some(request) = read_requests.first() {
+                if let Request::Read {
+                    value: Some(Value::Int(attempts)),
+                    ..
+                } = request
+                {
+                    *attempts
+                } else {
+                    0
+                }
+            } else {
+                0
+            };
+
+            let new_attempts = current_attempts + 1;
+
+            // Update failed attempts
+            let mut write_requests = vec![swrite!(
+                $user_id.clone(),
+                ft::failed_attempts(),
+                sint!(new_attempts)
+            )];
+
+            // Lock account if max attempts reached
+            if new_attempts >= $config.max_failed_attempts {
+                let lock_until = now() + $config.lockout_duration;
+                write_requests.push(swrite!(
+                    $user_id.clone(),
+                    ft::locked_until(),
+                    stimestamp!(lock_until)
+                ));
+            }
+
+            $store.perform(&mut write_requests).await?;
+
+            Ok(())
+        }
+    }}
 }
 
-async fn update_last_login(
-    store: &mut StoreInterface,
-    ctx: &Context,
-    user_id: &EntityId,
-) -> Result<()> {
-    let mut requests = vec![swrite!(
-        user_id.clone(),
-        ft::last_login(),
-        stimestamp!(now())
-    )];
+/// Reset failed login attempts
+#[macro_export]
+macro_rules! reset_failed_attempts {
+    ($store:expr, $user_id:expr) => {{
+        async {
+            let mut requests = vec![swrite!($user_id.clone(), ft::failed_attempts(), sint!(0))];
 
-    store.perform(ctx, &mut requests).await?;
+            $store.perform(&mut requests).await?;
 
-    Ok(())
+            Ok(())
+        }
+    }}
+}
+
+/// Update last login timestamp
+#[macro_export]
+macro_rules! update_last_login {
+    ($store:expr, $user_id:expr) => {{
+        async {
+            let mut requests = vec![swrite!(
+                $user_id.clone(),
+                ft::last_login(),
+                stimestamp!(now())
+            )];
+
+            $store.perform(&mut requests).await?;
+
+            Ok(())
+        }
+    }}
 }
