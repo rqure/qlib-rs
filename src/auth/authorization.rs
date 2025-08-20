@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use tokio::sync::Mutex;
 
-use crate::{ft, scripting::execute, sread, sstr, Cache, EntityId, Error, FieldType, Result, StoreProxy};
+use crate::{ft, scripting::execute, sread, Cache, EntityId, Error, FieldType, Result, StoreProxy, Value};
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum AuthorizationScope {
@@ -19,8 +19,8 @@ pub async fn get_scope(
     resource_field: &FieldType,
 ) -> Result<AuthorizationScope> {
     let rules = auth_rule_cache.get(vec![
-        sstr!(resource_entity_id.get_type()),
-        sstr!(resource_field.0),
+        Value::String(resource_entity_id.get_type().to_string()),
+        Value::String(resource_field.to_string()),
     ]);
     let mut filtered_rules: Vec<AuthorizationScope> = Vec::new();
 
@@ -47,15 +47,13 @@ pub async fn get_scope(
                 .expect_entity_reference()?;
 
             if let Some(permission) = permission {
-                let test_fn = {
-                    let reqs = vec![
-                        sread!(permission.clone(), ft::test_fn()),
-                    ];
-                    store.lock().await.perform(&mut reqs).await?;
-                    reqs.first().unwrap().value().unwrap().expect_string()?
-                };
+                let mut reqs = vec![
+                    sread!(permission.clone(), ft::test_fn()),
+                ];
+                store.lock().await.perform(&mut reqs).await?;
+                let test_fn = reqs.first().unwrap().value().unwrap().expect_string()?.clone();
 
-                if *rule_resource_type == resource_entity_id.get_type().0
+                if *rule_resource_type == resource_entity_id.get_type().to_string()
                     && *rule_resource_field == resource_field.to_string()
                 {
                     let scope = match scope {
@@ -67,7 +65,7 @@ pub async fn get_scope(
 
                     let result = execute(
                         store.clone(),
-                        test_fn,
+                        &test_fn,
                         serde_json::json!({
                             "subject_id": subject_entity_id.to_string(),
                             "resource_id": resource_entity_id.to_string(),
