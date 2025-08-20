@@ -7,10 +7,13 @@
 mod runtime;
 mod store_wrapper;
 
+use std::sync::Arc;
+
 pub use runtime::{ScriptRuntime, ScriptRuntimeOptions, ScriptResult};
 pub use store_wrapper::StoreWrapper;
+use tokio::sync::Mutex;
 
-use crate::{Context, Error, Result, StoreInterface};
+use crate::{Error, Result, StoreProxy};
 use rustyscript::Module;
 use serde_json::Value;
 
@@ -33,12 +36,11 @@ use serde_json::Value;
 /// ).await?;
 /// ```
 pub async fn execute_expression(
-    store: &mut StoreInterface,
-    context: Context,
+    store: Arc<Mutex<StoreProxy>>,
     expression: &str,
 ) -> Result<ScriptResult> {
     let mut runtime = ScriptRuntime::new(ScriptRuntimeOptions::default())?;
-    runtime.bind_store(store, context)?;
+    runtime.bind_store(store)?;
     runtime.execute_expression(expression).await
 }
 
@@ -75,15 +77,14 @@ pub async fn execute_expression(
 /// ).await?;
 /// ```
 pub async fn execute_module(
-    store: &mut StoreInterface,
-    context: Context,
+    store: Arc<Mutex<StoreProxy>>,
     module_name: &str,
     module_code: &str,
     entrypoint: Option<&str>,
     args: Value,
 ) -> Result<ScriptResult> {
     let mut runtime = ScriptRuntime::new(ScriptRuntimeOptions::default())?;
-    runtime.bind_store(store, context)?;
+    runtime.bind_store(store)?;
     
     let module = Module::new(module_name, module_code);
     runtime.execute_module(module, entrypoint, args).await
@@ -101,14 +102,13 @@ pub async fn execute_module(
 /// # Returns
 /// A `ScriptResult` containing the result value and execution metadata
 pub async fn execute_file(
-    store: &mut StoreInterface,
-    context: Context,
+    store: Arc<Mutex<StoreProxy>>,
     file_path: &str,
     entrypoint: Option<&str>,
     args: Value,
 ) -> Result<ScriptResult> {
     let mut runtime = ScriptRuntime::new(ScriptRuntimeOptions::default())?;
-    runtime.bind_store(store, context)?;
+    runtime.bind_store(store)?;
     
     let module = Module::load(file_path)
         .map_err(|e| Error::Scripting(format!("Failed to load module: {}", e)))?;
@@ -116,8 +116,7 @@ pub async fn execute_file(
 }
 
 pub async fn execute(
-    store: &mut StoreInterface,
-    context: Context,
+    store: Arc<Mutex<StoreProxy>>,
     code: &str,
     args: Value,
 ) -> Result<ScriptResult> {
@@ -127,5 +126,5 @@ pub async fn execute(
             {}
         }}
     "#, code);
-    execute_module(store, context, module_name, module_code.as_str(), Some("main"), args).await
+    execute_module(store, module_name, module_code.as_str(), Some("main"), args).await
 }

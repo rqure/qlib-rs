@@ -7,7 +7,7 @@ use tokio_tungstenite::{connect_async, tungstenite::Message};
 use uuid::Uuid;
 
 use crate::{
-    Complete, Context, Entity, EntityId, EntitySchema, EntityType, Error, FieldSchema, FieldType, Notification, NotificationSender, NotifyConfig, hash_notify_config, PageOpts, PageResult, Request, Result, Single, Snapshot
+    Complete, Entity, EntityId, EntitySchema, EntityType, Error, FieldSchema, FieldType, Notification, NotificationSender, NotifyConfig, hash_notify_config, PageOpts, PageResult, Request, Result, Single, Snapshot
 };
 
 /// WebSocket message types for Store proxy communication
@@ -245,7 +245,6 @@ impl StoreProxy {
     /// Create a new entity
     pub async fn create_entity(
         &mut self,
-        _ctx: &Context,
         entity_type: &EntityType,
         parent_id: Option<EntityId>,
         name: &str,
@@ -267,7 +266,7 @@ impl StoreProxy {
     }
 
     /// Delete an entity
-    pub async fn delete_entity(&mut self, _ctx: &Context, entity_id: &EntityId) -> Result<()> {
+    pub async fn delete_entity(&mut self, entity_id: &EntityId) -> Result<()> {
         let request = StoreMessage::DeleteEntity {
             id: Uuid::new_v4().to_string(),
             entity_id: entity_id.clone(),
@@ -283,7 +282,7 @@ impl StoreProxy {
     }
 
     /// Set entity schema
-    pub async fn set_entity_schema(&mut self, _ctx: &Context, schema: &EntitySchema<Single>) -> Result<()> {
+    pub async fn set_entity_schema(&mut self, schema: &EntitySchema<Single>) -> Result<()> {
         let request = StoreMessage::SetEntitySchema {
             id: Uuid::new_v4().to_string(),
             schema: schema.clone(),
@@ -301,7 +300,6 @@ impl StoreProxy {
     /// Get entity schema
     pub async fn get_entity_schema(
         &self,
-        _ctx: &Context,
         entity_type: &EntityType,
     ) -> Result<EntitySchema<Single>> {
         let request = StoreMessage::GetEntitySchema {
@@ -329,7 +327,6 @@ impl StoreProxy {
     /// Get complete entity schema
     pub async fn get_complete_entity_schema(
         &self,
-        _ctx: &Context,
         entity_type: &EntityType,
     ) -> Result<EntitySchema<Complete>> {
         let request = StoreMessage::GetCompleteEntitySchema {
@@ -349,7 +346,6 @@ impl StoreProxy {
     /// Set field schema
     pub async fn set_field_schema(
         &mut self,
-        _ctx: &Context,
         entity_type: &EntityType,
         field_type: &FieldType,
         schema: FieldSchema,
@@ -373,7 +369,6 @@ impl StoreProxy {
     /// Get field schema
     pub async fn get_field_schema(
         &self,
-        _ctx: &Context,
         entity_type: &EntityType,
         field_type: &FieldType,
     ) -> Result<FieldSchema> {
@@ -401,7 +396,7 @@ impl StoreProxy {
     }
 
     /// Check if entity exists
-    pub async fn entity_exists(&self, _: &Context, entity_id: &EntityId) -> bool {
+    pub async fn entity_exists(&self, entity_id: &EntityId) -> bool {
         let request = StoreMessage::EntityExists {
             id: Uuid::new_v4().to_string(),
             entity_id: entity_id.clone(),
@@ -420,7 +415,6 @@ impl StoreProxy {
     /// Check if field exists
     pub async fn field_exists(
         &self,
-        _: &Context,
         entity_type: &EntityType,
         field_type: &FieldType,
     ) -> bool {
@@ -441,7 +435,7 @@ impl StoreProxy {
     }
 
     /// Perform requests
-    pub async fn perform(&mut self, _ctx: &Context, requests: &mut Vec<Request>) -> Result<()> {
+    pub async fn perform(&mut self, requests: &mut Vec<Request>) -> Result<()> {
         let request = StoreMessage::Perform {
             id: Uuid::new_v4().to_string(),
             requests: requests.clone(),
@@ -463,7 +457,6 @@ impl StoreProxy {
     /// Find entities
     pub async fn find_entities_paginated(
         &self,
-        _ctx: &Context,
         entity_type: &EntityType,
         page_opts: Option<PageOpts>,
     ) -> Result<PageResult<EntityId>> {
@@ -485,7 +478,6 @@ impl StoreProxy {
     /// Find entities exact
     pub async fn find_entities_exact(
         &self,
-        _ctx: &Context,
         entity_type: &EntityType,
         page_opts: Option<PageOpts>,
     ) -> Result<PageResult<EntityId>> {
@@ -506,7 +498,6 @@ impl StoreProxy {
 
     pub async fn find_entities(
         &self,
-        ctx: &Context,
         entity_type: &EntityType,
     ) -> Result<Vec<EntityId>> {
         let mut result = Vec::new();
@@ -514,7 +505,31 @@ impl StoreProxy {
 
         loop {
             let page_result = self
-                .find_entities_paginated(ctx, entity_type, page_opts.clone())
+                .find_entities_paginated(entity_type, page_opts.clone())
+                .await?;
+            if page_result.items.is_empty() {
+                break;
+            }
+
+            let length = page_result.items.len();
+            result.extend(page_result.items);
+            if page_result.next_cursor.is_none() {
+                break;
+            }
+
+            page_opts = Some(PageOpts::new(length, page_result.next_cursor));
+        }
+
+        Ok(result)
+    }
+
+    pub async fn get_entity_types(&self) -> Result<Vec<EntityType>> {
+        let mut result = Vec::new();
+        let mut page_opts: Option<PageOpts> = None;
+
+        loop {
+            let page_result = self
+                .get_entity_types_paginated(page_opts)
                 .await?;
             if page_result.items.is_empty() {
                 break;
@@ -533,9 +548,8 @@ impl StoreProxy {
     }
 
     /// Get entity types
-    pub async fn get_entity_types(
+    pub async fn get_entity_types_paginated(
         &self,
-        _ctx: &Context,
         page_opts: Option<PageOpts>,
     ) -> Result<PageResult<EntityType>> {
         let request = StoreMessage::GetEntityTypes {
@@ -557,7 +571,6 @@ impl StoreProxy {
     /// and stores the sender locally to forward notifications
     pub async fn register_notification(
         &mut self,
-        _ctx: &Context,
         config: NotifyConfig,
         sender: NotificationSender,
     ) -> Result<()> {
@@ -720,7 +733,7 @@ impl StoreProxy {
     }
 
     /// Take snapshot
-    pub async fn take_snapshot(&self, _ctx: &Context) -> Result<Snapshot> {
+    pub async fn take_snapshot(&self) -> Result<Snapshot> {
         let request = StoreMessage::TakeSnapshot {
             id: Uuid::new_v4().to_string(),
         };
@@ -733,7 +746,7 @@ impl StoreProxy {
     }
 
     /// Restore snapshot
-    pub async fn restore_snapshot(&self, _ctx: &Context, snapshot: Snapshot) -> Result<()> {
+    pub async fn restore_snapshot(&self, snapshot: Snapshot) -> Result<()> {
         let request = StoreMessage::RestoreSnapshot {
             id: Uuid::new_v4().to_string(),
             snapshot,

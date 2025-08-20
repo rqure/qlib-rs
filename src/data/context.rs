@@ -1,31 +1,22 @@
-use std::sync::Arc;
-
-use tokio::sync::Mutex;
-
-use crate::{EntityId, StoreInterface};
+use crate::{EntityId};
 
 #[derive(Debug, Clone)]
 pub struct Context {
-    // Reference to store
-    pub store_interface: Arc<Mutex<StoreInterface>>,
-
     /// Optional security context for JWT-based authorization
     pub security_context: Option<crate::auth::SecurityContext>,
 }
 
 impl Context {
     /// Create a new context without security
-    pub fn new(store_interface: Arc<Mutex<StoreInterface>>) -> Self {
+    pub fn new() -> Self {
         Self {
-            store_interface,
             security_context: None,
         }
     }
 
     /// Create a new context with a security context
-    pub fn with_security(store_interface: Arc<Mutex<StoreInterface>>, security_context: crate::auth::SecurityContext) -> Self {
+    pub fn with_security(security_context: crate::auth::SecurityContext) -> Self {
         Self {
-            store_interface,
             security_context: Some(security_context),
         }
     }

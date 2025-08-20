@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 
 use crate::{
-    notification_channel, sread, Context, EntityId, EntityType, FieldType, NotificationReceiver,
-    NotificationSender, NotifyConfig, Result, StoreInterface, Value,
+    EntityId, EntityType, FieldType, NotificationReceiver,
+    NotificationSender, Value,
 };
 
 pub struct Cache {
@@ -23,96 +23,95 @@ pub struct Cache {
     pub notify_channel: (NotificationSender, NotificationReceiver),
 }
 
+#[macro_export]
+macro_rules! scache {
+    ($ctx:expr, $store:expr, $entity_type:expr, $index_fields:expr, $other_fields:expr) => {{
+        async {
+            let (sender, receiver) = crate::notification_channel();
+
+            // Register notifications for all fields
+            for field in $index_fields.iter() {
+                $store
+                    .register_notification(
+                        &$ctx,
+                        crate::NotifyConfig::EntityType {
+                            entity_type: $entity_type.clone(),
+                            field_type: field.clone(),
+                            trigger_on_change: true,
+                            context: vec![],
+                        },
+                        sender.clone(),
+                    )
+                    .await?;
+            }
+
+            for field in $other_fields.iter() {
+                $store
+                    .register_notification(
+                        &$ctx,
+                        crate::NotifyConfig::EntityType {
+                            entity_type: $entity_type.clone(),
+                            field_type: field.clone(),
+                            trigger_on_change: true,
+                            context: vec![],
+                        },
+                        sender.clone(),
+                    )
+                    .await?;
+            }
+
+            // Read initial values from the store
+            let mut entity_ids_by_index_fields = HashMap::new();
+            let mut fields_by_entity_id = HashMap::new();
+
+            for entity_id in $store.find_entities(&$ctx, &$entity_type).await? {
+                let mut reqs = Vec::new();
+                for field in index_fields.iter() {
+                    reqs.push(crate::sread!(entity_id.clone(), field.clone()));
+                }
+                
+                for field in $other_fields.iter() {
+                    reqs.push(crate::sread!(entity_id.clone(), field.clone()));
+                }
+
+                $store.perform(&$ctx, &mut reqs).await?;
+
+                let index_key = reqs[..$index_fields.len()]
+                    .iter()
+                    .map(|req| req.value().unwrap().clone())
+                    .collect::<Vec<crate::Value>>();
+
+                let all_fields = reqs[$index_fields.len()..]
+                    .iter()
+                    .map(|req| (req.field_type().clone(), req.value().unwrap().clone()))
+                    .chain(
+                        reqs[..$index_fields.len()]
+                            .iter()
+                            .map(|req| (req.field_type().clone(), req.value().unwrap().clone())),
+                    )
+                    .collect::<HashMap<crate::FieldType, crate::Value>>();
+
+                entity_ids_by_index_fields
+                    .entry(index_key)
+                    .or_insert_with(Vec::new)
+                    .push(entity_id.clone());
+
+                fields_by_entity_id.insert(entity_id, all_fields);
+            }
+
+            Ok(Cache {
+                entity_type: $entity_type,
+                index_fields: $index_fields,
+                other_fields: $other_fields,
+                entity_ids_by_index_fields,
+                fields_by_entity_id,
+                notify_channel: (sender, receiver),
+            })
+        }
+    }};
+}
+
 impl Cache {
-    pub async fn new(
-        ctx: Context,
-        store: &mut StoreInterface,
-        entity_type: EntityType,
-        index_fields: Vec<FieldType>,
-        other_fields: Vec<FieldType>,
-    ) -> Result<Self> {
-        let (sender, receiver) = notification_channel();
-
-        // Register notifications for all fields
-        for field in index_fields.iter() {
-            store
-                .register_notification(
-                    &ctx,
-                    NotifyConfig::EntityType {
-                        entity_type: entity_type.clone(),
-                        field_type: field.clone(),
-                        trigger_on_change: true,
-                        context: vec![],
-                    },
-                    sender.clone(),
-                )
-                .await?;
-        }
-
-        for field in other_fields.iter() {
-            store
-                .register_notification(
-                    &ctx,
-                    NotifyConfig::EntityType {
-                        entity_type: entity_type.clone(),
-                        field_type: field.clone(),
-                        trigger_on_change: true,
-                        context: vec![],
-                    },
-                    sender.clone(),
-                )
-                .await?;
-        }
-
-        // Read initial values from the store
-        let mut entity_ids_by_index_fields = HashMap::new();
-        let mut fields_by_entity_id = HashMap::new();
-
-        for entity_id in store.find_entities(&ctx, &entity_type).await? {
-            let mut reqs = Vec::new();
-            for field in index_fields.iter() {
-                reqs.push(sread!(entity_id.clone(), field.clone()));
-            }
-
-            for field in other_fields.iter() {
-                reqs.push(sread!(entity_id.clone(), field.clone()));
-            }
-
-            store.perform(&ctx, &mut reqs).await?;
-
-            let index_key = reqs[..index_fields.len()]
-                .iter()
-                .map(|req| req.value().unwrap().clone())
-                .collect::<Vec<Value>>();
-
-            let all_fields = reqs[index_fields.len()..]
-                .iter()
-                .map(|req| (req.field_type().clone(), req.value().unwrap().clone()))
-                .chain(
-                    reqs[..index_fields.len()]
-                        .iter()
-                        .map(|req| (req.field_type().clone(), req.value().unwrap().clone())),
-                )
-                .collect::<HashMap<FieldType, Value>>();
-
-            entity_ids_by_index_fields
-                .entry(index_key)
-                .or_insert_with(Vec::new)
-                .push(entity_id.clone());
-
-            fields_by_entity_id.insert(entity_id, all_fields);
-        }
-
-        Ok(Self {
-            entity_type,
-            index_fields,
-            other_fields,
-            entity_ids_by_index_fields,
-            fields_by_entity_id,
-            notify_channel: (sender, receiver),
-        })
-    }
-
     pub async fn process_notifications(&mut self) {
         while let Some(notification) = self.notify_channel.1.recv().await {
             let entity_id = notification.entity_id;

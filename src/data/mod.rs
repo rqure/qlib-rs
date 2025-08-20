@@ -14,7 +14,6 @@ mod snapshots;
 mod snowflake;
 mod store_proxy;
 mod store;
-mod store_interface;
 mod value;
 mod cache;
 
@@ -29,7 +28,6 @@ pub use request::{AdjustBehavior, PushCondition, Request};
 use serde::{Deserialize, Serialize};
 pub use snowflake::Snowflake;
 pub use store::{Store};
-pub use store_interface::StoreInterface;
 pub use context::Context;
 pub use indirection::{BadIndirectionReason, INDIRECTION_DELIMITER};
 pub use pagination::{PageOpts, PageResult};

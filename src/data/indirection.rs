@@ -34,24 +34,10 @@ impl std::fmt::Display for BadIndirectionReason {
     }
 }
 
-/// Macro to resolve indirection for any store type (StoreType, Store, or StoreProxy)
-/// 
-/// This macro can be used with any store type that implements the required methods:
-/// - `perform(&mut self, ctx: &Context, requests: &mut Vec<Request>) -> Result<()>`
-/// - `entity_exists(&self, ctx: &Context, entity_id: &EntityId) -> bool`
-/// 
-/// # Example
-/// 
-/// ```no_run
-/// # use qlib_rs::*;
-/// # async fn example(ctx: &Context, store: &mut StoreType, entity_id: &EntityId, field_type: &FieldType) -> Result<()> {
-/// let (resolved_entity_id, resolved_field_type) = resolve_indirection!(ctx, store, entity_id, field_type).await?;
-/// # Ok(())
-/// # }
-/// ```
+/// Macro to resolve indirection for any store type (Store, or StoreProxy)
 #[macro_export]
-macro_rules! resolve_indirection {
-    ($ctx:expr, $store:expr, $entity_id:expr, $field_type:expr) => {{
+macro_rules! sresolve {
+    ($store:expr, $entity_id:expr, $field_type:expr) => {{
         async {
             let fields = $field_type.indirect_fields();
 
@@ -79,7 +65,7 @@ macro_rules! resolve_indirection {
                     let prev_field = &fields[i - 1];
 
                     let mut reqs = vec![$crate::sread!(current_entity_id.clone(), prev_field.clone())];
-                    $store.perform($ctx, &mut reqs).await?;
+                    $store.perform(&mut reqs).await?;
 
                     if let $crate::Request::Read { value, .. } = &reqs[0] {
                         if let Some($crate::Value::EntityList(entities)) = value {
@@ -114,7 +100,7 @@ macro_rules! resolve_indirection {
                 // Normal field resolution
                 let mut reqs = vec![$crate::sread!(current_entity_id.clone(), field.clone())];
 
-                if let Err(e) = $store.perform($ctx, &mut reqs).await {
+                if let Err(e) = $store.perform(&mut reqs).await {
                     return Err($crate::Error::BadIndirection(
                         current_entity_id.clone(),
                         $field_type.clone(),
@@ -127,7 +113,7 @@ macro_rules! resolve_indirection {
                         match reference {
                             Some(ref_id) => {
                                 // Check if the reference is valid
-                                if !$store.entity_exists($ctx, ref_id).await {
+                                if !$store.entity_exists(ref_id).await {
                                     return Err($crate::Error::BadIndirection(
                                         current_entity_id.clone(),
                                         $field_type.clone(),

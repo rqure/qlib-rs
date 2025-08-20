@@ -2,11 +2,11 @@ use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, mem::discriminant, sync::Arc};
 
 use crate::{
-    resolve_indirection,
+    sresolve,
     data::{
         entity_schema::Complete, now, request::PushCondition, EntityType, FieldType, Notification,
         NotifyConfig, NotificationSender, hash_notify_config, Timestamp, INDIRECTION_DELIMITER,
-    }, sadd, sread, sref, sreflist, sstr, ssub, swrite, AdjustBehavior, BadIndirectionReason, Context, Entity, EntityId, EntitySchema, Error, Field, FieldSchema, PageOpts, PageResult, Request, Result, Single, Snapshot, Snowflake, Value
+    }, sadd, sread, sref, sreflist, sstr, ssub, swrite, AdjustBehavior, BadIndirectionReason, Entity, EntityId, EntitySchema, Error, Field, FieldSchema, PageOpts, PageResult, Request, Result, Single, Snapshot, Snowflake, Value
 };
 
 #[derive(Serialize, Deserialize, Default)]
@@ -60,7 +60,6 @@ impl std::fmt::Debug for Store {
 impl Store {
     pub async fn create_entity(
         &mut self,
-        ctx: &Context,
         entity_type: &EntityType,
         parent_id: Option<EntityId>,
         name: &str,
@@ -70,7 +69,7 @@ impl Store {
         }
 
         if let Some(parent) = &parent_id {
-            if !self.entity_exists(ctx, &parent).await {
+            if !self.entity_exists(&parent).await {
                 return Err(Error::EntityNotFound(parent.clone()));
             }
         }
@@ -95,7 +94,7 @@ impl Store {
         }
 
         {
-            let complete_schema = self.get_complete_entity_schema(ctx, entity_type).await?;
+            let complete_schema = self.get_complete_entity_schema(entity_type).await?;
             let mut writes = complete_schema
                 .fields
                 .iter()
@@ -127,7 +126,7 @@ impl Store {
                 ));
             }
 
-            self.perform(ctx, &mut writes).await?;
+            self.perform(&mut writes).await?;
         }
 
         Ok(Entity::new(entity_id))
@@ -135,7 +134,6 @@ impl Store {
 
     pub async fn get_entity_schema(
         &self,
-        _: &Context,
         entity_type: &EntityType,
     ) -> Result<EntitySchema<Single>> {
         self.schemas
@@ -146,10 +144,9 @@ impl Store {
 
     pub async fn get_complete_entity_schema(
         &self,
-        ctx: &Context,
         entity_type: &EntityType,
     ) -> Result<EntitySchema<Complete>> {
-        let mut schema = EntitySchema::<Complete>::from(self.get_entity_schema(ctx, entity_type).await?);
+        let mut schema = EntitySchema::<Complete>::from(self.get_entity_schema(entity_type).await?);
         let mut visited_types = std::collections::HashSet::new();
         visited_types.insert(entity_type.clone());
 
@@ -188,13 +185,12 @@ impl Store {
     /// Set or update the schema for an entity type
     pub async fn set_entity_schema(
         &mut self,
-        ctx: &Context,
         entity_schema: &EntitySchema<Single>,
     ) -> Result<()> {
         // Get a copy of the existing schema if it exists
         // We'll use this to see if any fields have been added or removed
         let complete_old_schema = self
-            .get_complete_entity_schema(ctx, &entity_schema.entity_type)
+            .get_complete_entity_schema(&entity_schema.entity_type)
             .await
             .unwrap_or_else(|_| EntitySchema::<Complete>::new(entity_schema.entity_type.clone()));
 
@@ -212,7 +208,7 @@ impl Store {
 
         // Get the complete schema for the entity type
         let complete_new_schema =
-            self.get_complete_entity_schema(ctx, &entity_schema.entity_type)
+            self.get_complete_entity_schema(&entity_schema.entity_type)
             .await?;
 
         for removed_field in complete_old_schema.diff(&complete_new_schema) {
@@ -260,11 +256,10 @@ impl Store {
     /// Get the schema for a specific field
     pub async fn get_field_schema(
         &self,
-        ctx: &Context,
         entity_type: &EntityType,
         field_type: &FieldType,
     ) -> Result<FieldSchema> {
-        self.get_entity_schema(ctx, entity_type)
+        self.get_entity_schema(entity_type)
             .await?
             .fields
             .get(field_type)
@@ -277,27 +272,25 @@ impl Store {
     /// Set or update the schema for a specific field
     pub async fn set_field_schema(
         &mut self,
-        ctx: &Context,
         entity_type: &EntityType,
         field_type: &FieldType,
         field_schema: FieldSchema,
     ) -> Result<()> {
-        let mut entity_schema = self.get_entity_schema(ctx, entity_type).await?;
+        let mut entity_schema = self.get_entity_schema(entity_type).await?;
 
         entity_schema
             .fields
             .insert(field_type.clone(), field_schema);
 
-        self.set_entity_schema(ctx, &entity_schema).await
+        self.set_entity_schema(&entity_schema).await
     }
 
-    pub async fn entity_exists(&self, _: &Context, entity_id: &EntityId) -> bool {
+    pub async fn entity_exists(&self, entity_id: &EntityId) -> bool {
         self.fields.contains_key(entity_id)
     }
 
     pub async fn field_exists(
         &self,
-        _: &Context,
         entity_type: &EntityType,
         field_type: &FieldType,
     ) -> bool {
@@ -307,7 +300,7 @@ impl Store {
             .unwrap_or(false)
     }
 
-    pub async fn perform(&mut self, ctx: &Context, requests: &mut Vec<Request>) -> Result<()> {
+    pub async fn perform(&mut self, requests: &mut Vec<Request>) -> Result<()> {
         for request in requests.iter_mut() {
             match request {
                 Request::Read {
@@ -318,8 +311,8 @@ impl Store {
                     writer_id,
                 } => {
                     let indir: (EntityId, FieldType) =
-                        Box::pin(resolve_indirection!(ctx, self, entity_id, field_type)).await?;
-                    self.read(ctx, &indir.0, &indir.1, value, write_time, writer_id).await?;
+                        Box::pin(sresolve!(self, entity_id, field_type)).await?;
+                    self.read(&indir.0, &indir.1, value, write_time, writer_id).await?;
                 }
                 Request::Write {
                     entity_id,
@@ -330,9 +323,8 @@ impl Store {
                     push_condition,
                     adjust_behavior,
                 } => {
-                    let indir = Box::pin(resolve_indirection!(ctx, self, entity_id, field_type)).await?;
+                    let indir = Box::pin(sresolve!(self, entity_id, field_type)).await?;
                     Box::pin(self.write(
-                        ctx,
                         &indir.0,
                         &indir.1,
                         value,
@@ -349,7 +341,7 @@ impl Store {
 
     /// Deletes an entity and all its fields
     /// Returns an error if the entity doesn't exist
-    pub async fn delete_entity(&mut self, ctx: &Context, entity_id: &EntityId) -> Result<()> {
+    pub async fn delete_entity(&mut self, entity_id: &EntityId) -> Result<()> {
         // Check if the entity exists
         {
             if !self.fields.contains_key(entity_id) {
@@ -360,11 +352,11 @@ impl Store {
         // Remove all childrens
         {
             let mut reqs = vec![sread!(entity_id.clone(), "Children".into())];
-            self.perform(ctx, &mut reqs).await?;
+            self.perform(&mut reqs).await?;
             if let Request::Read { value, .. } = &reqs[0] {
                 if let Some(Value::EntityList(children)) = value {
                     for child in children {
-                        Box::pin(self.delete_entity(ctx, child)).await?;
+                        Box::pin(self.delete_entity(child)).await?;
                     }
                 } else {
                     return Err(Error::BadIndirection(
@@ -382,7 +374,6 @@ impl Store {
         // Remove from parent's children list
         {
             self.perform(
-                ctx,
                 &mut vec![ssub!(
                     entity_id.clone(),
                     "Parent->Children".into(),
@@ -427,7 +418,6 @@ impl Store {
     /// use `find_entities_exact` instead.
     pub async fn find_entities_paginated(
         &self,
-        _: &Context,
         entity_type: &EntityType,
         page_opts: Option<PageOpts>,
     ) -> Result<PageResult<EntityId>> {
@@ -511,7 +501,6 @@ impl Store {
     /// only return entities that were created with the "Animal" type, not Dog entities.
     pub async fn find_entities_exact(
         &self,
-        _: &Context,
         entity_type: &EntityType,
         page_opts: Option<PageOpts>,
     ) -> Result<PageResult<EntityId>> {
@@ -563,14 +552,37 @@ impl Store {
 
     pub async fn find_entities(
         &self,
-        ctx: &Context,
         entity_type: &EntityType
     ) -> Result<Vec<EntityId>> {
         let mut result = Vec::new();
         let mut page_opts: Option<PageOpts> = None;
 
         loop {
-            let page_result = self.find_entities_paginated(ctx, entity_type, page_opts.clone()).await?;
+            let page_result = self.find_entities_paginated(entity_type, page_opts.clone()).await?;
+            if page_result.items.is_empty() {
+                break;
+            }
+
+            let length = page_result.items.len();
+            result.extend(page_result.items);
+            if page_result.next_cursor.is_none() {
+                break;
+            }
+
+            page_opts = Some(PageOpts::new(length, page_result.next_cursor));
+        }
+
+        Ok(result)
+    }
+
+    pub async fn get_entity_types(&self) -> Result<Vec<EntityType>> {
+        let mut result = Vec::new();
+        let mut page_opts: Option<PageOpts> = None;
+
+        loop {
+            let page_result = self
+                .get_entity_types_paginated(page_opts)
+                .await?;
             if page_result.items.is_empty() {
                 break;
             }
@@ -588,9 +600,8 @@ impl Store {
     }
 
     /// Get all entity types with pagination
-    pub async fn get_entity_types(
+    pub async fn get_entity_types_paginated(
         &self,
-        _: &Context,
         page_opts: Option<PageOpts>,
     ) -> Result<PageResult<EntityType>> {
         let opts = page_opts.unwrap_or_default();
@@ -636,7 +647,6 @@ impl Store {
     /// Returns an error if the field_type contains indirection (context fields can be indirect)
     pub async fn register_notification(
         &mut self,
-        _ctx: &Context,
         config: NotifyConfig,
         sender: NotificationSender,
     ) -> Result<()> {
@@ -775,7 +785,6 @@ impl Store {
 
     async fn read(
         &mut self,
-        _ctx: &Context,
         entity_id: &EntityId,
         field_type: &FieldType,
         value: &mut Option<Value>,
@@ -800,7 +809,6 @@ impl Store {
 
     async fn write(
         &mut self,
-        ctx: &Context,
         entity_id: &EntityId,
         field_type: &FieldType,
         value: &Option<Value>,
@@ -809,7 +817,7 @@ impl Store {
         write_option: &PushCondition,
         adjust_behavior: &AdjustBehavior,
     ) -> Result<()> {
-        let entity_schema = self.get_complete_entity_schema(ctx, entity_id.get_type()).await?;
+        let entity_schema = self.get_complete_entity_schema( entity_id.get_type()).await?;
         let field_schema = entity_schema
             .fields
             .get(field_type)
@@ -954,7 +962,6 @@ impl Store {
 
         // Trigger notifications after a write operation
         self.trigger_notifications(
-            ctx,
             entity_id,
             field_type,
             &notification_new_value,
@@ -965,7 +972,7 @@ impl Store {
     }
 
     /// Take a snapshot of the current store state
-    pub fn take_snapshot(&self, _: &Context) -> Snapshot {
+    pub fn take_snapshot(&self) -> Snapshot {
         Snapshot {
             schemas: self.schemas.clone(),
             entities: self.entities.clone(),
@@ -975,7 +982,7 @@ impl Store {
     }
 
     /// Restore the store state from a snapshot
-    pub fn restore_snapshot(&mut self, _: &Context, snapshot: Snapshot) {
+    pub fn restore_snapshot(&mut self, snapshot: Snapshot) {
         self.schemas = snapshot.schemas;
         self.entities = snapshot.entities;
         self.types = snapshot.types;
@@ -1065,7 +1072,6 @@ impl Store {
     /// Build context fields using the perform method to handle indirection
     async fn build_context_fields(
         &mut self,
-        ctx: &Context,
         entity_id: &EntityId,
         context_fields: &[FieldType],
     ) -> std::collections::BTreeMap<FieldType, Option<Value>> {
@@ -1075,7 +1081,7 @@ impl Store {
             // Use perform to handle indirection properly
             let mut requests = vec![sread!(entity_id.clone(), context_field.clone())];
 
-            if let Ok(()) = self.perform(ctx, &mut requests).await {
+            if let Ok(()) = self.perform(&mut requests).await {
                 if let Request::Read { value, .. } = &requests[0] {
                     context_map.insert(context_field.clone(), value.clone());
                 }
@@ -1089,7 +1095,6 @@ impl Store {
     /// Trigger notifications for a write operation
     async fn trigger_notifications(
         &mut self,
-        ctx: &Context,
         entity_id: &EntityId,
         field_type: &FieldType,
         current_value: &Value,
@@ -1155,7 +1160,7 @@ impl Store {
 
         // Now trigger the collected notifications
         for (config, context) in notifications_to_trigger {
-            let context_fields = self.build_context_fields(ctx, entity_id, &context).await;
+            let context_fields = self.build_context_fields(entity_id, &context).await;
             let config_hash = hash_notify_config(&config);
 
             let notification = Notification {

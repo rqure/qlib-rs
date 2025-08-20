@@ -1,28 +1,26 @@
 use std::sync::Arc;
 
-use crate::{Context, EntityId, EntityType, Error, FieldType, Request, Result, StoreInterface, Value};
+use crate::{EntityId, EntityType, Error, FieldType, Request, Result, StoreProxy, Value};
 use serde_json::Value as JsonValue;
 use tokio::sync::Mutex;
 
 /// Wrapper around StoreTrait that provides JavaScript-friendly methods
 pub struct StoreWrapper {
-    store_interface: Arc<Mutex<StoreInterface>>,
-    context: Context,
+    store: Arc<Mutex<StoreProxy>>,
 }
 
 impl Clone for StoreWrapper {
     fn clone(&self) -> Self {
         Self {
-            store_interface: self.store_interface.clone(),
-            context: self.context.clone(),
+            store: self.store.clone(),
         }
     }
 }
 
 impl StoreWrapper {
     /// Create a new store wrapper
-    pub fn new(context: Context) -> Self {
-        Self { store_interface: context.store_interface.clone(), context }
+    pub fn new(store: Arc<Mutex<StoreProxy>>) -> Self {
+        Self { store }
     }
 
     /// Create a new entity
@@ -37,7 +35,7 @@ impl StoreWrapper {
             EntityId::try_from(id).map_err(|e| Error::Scripting(format!("Invalid parent ID: {}", e)))
         }).transpose()?;
 
-        let entity = self.store_interface.lock().create_entity(&self.context, &entity_type, parent_id, name).await?;
+        let entity = self.store.lock().await.create_entity(&entity_type, parent_id, name).await?;
         
         Ok(serde_json::to_value(entity)
             .map_err(|e| Error::Scripting(format!("Failed to serialize entity: {}", e)))?)
@@ -48,7 +46,7 @@ impl StoreWrapper {
         let entity_id = EntityId::try_from(entity_id)
             .map_err(|e| Error::Scripting(format!("Invalid entity ID: {}", e)))?;
 
-        self.store_interface.delete_entity(&self.context, &entity_id).await
+        self.store.lock().await.delete_entity(&entity_id).await
     }
 
     /// Check if an entity exists
@@ -56,14 +54,14 @@ impl StoreWrapper {
         let entity_id = EntityId::try_from(entity_id)
             .map_err(|e| Error::Scripting(format!("Invalid entity ID: {}", e)))?;
 
-        Ok(self.store_interface.entity_exists(&self.context, &entity_id).await)
+        Ok(self.store.lock().await.entity_exists(&entity_id).await)
     }
 
     /// Find entities by type
     pub async fn find_entities(&self, entity_type: &str) -> Result<JsonValue> {
         let entity_type = EntityType::from(entity_type);
-        let entities = self.store_interface.find_entities(&self.context, &entity_type).await?;
-        
+        let entities = self.store.lock().await.find_entities(&entity_type).await?;
+
         Ok(serde_json::to_value(entities)
             .map_err(|e| Error::Scripting(format!("Failed to serialize entities: {}", e)))?)
     }
@@ -74,7 +72,7 @@ impl StoreWrapper {
         let mut requests: Vec<Request> = serde_json::from_value(requests_json.clone())
             .map_err(|e| Error::Scripting(format!("Failed to parse requests: {}", e)))?;
 
-        self.store_interface.perform(&self.context, &mut requests).await?;
+        self.store.lock().await.perform(&mut requests).await?;
 
         // Serialize the results back to JSON
         Ok(serde_json::to_value(requests)
@@ -195,16 +193,16 @@ impl StoreWrapper {
 impl StoreWrapper {
     /// Get available entity types
     pub async fn get_entity_types(&self) -> Result<JsonValue> {
-        let page_result = self.store_interface.get_entity_types(&self.context, None).await?;
-        
-        Ok(serde_json::to_value(page_result.items)
+        let entity_types = self.store.lock().await.get_entity_types().await?;
+
+        Ok(serde_json::to_value(entity_types)
             .map_err(|e| Error::Scripting(format!("Failed to serialize entity types: {}", e)))?)
     }
 
     /// Get entity schema
     pub async fn get_entity_schema(&self, entity_type: &str) -> Result<JsonValue> {
         let entity_type = EntityType::from(entity_type);
-        let schema = self.store_interface.get_entity_schema(&self.context, &entity_type).await?;
+        let schema = self.store.lock().await.get_entity_schema(&entity_type).await?;
         
         Ok(serde_json::to_value(schema)
             .map_err(|e| Error::Scripting(format!("Failed to serialize schema: {}", e)))?)
@@ -213,7 +211,7 @@ impl StoreWrapper {
     /// Get complete entity schema with inheritance
     pub async fn get_complete_entity_schema(&self, entity_type: &str) -> Result<JsonValue> {
         let entity_type = EntityType::from(entity_type);
-        let schema = self.store_interface.get_complete_entity_schema(&self.context, &entity_type).await?;
+        let schema = self.store.lock().await.get_complete_entity_schema(&entity_type).await?;
         
         Ok(serde_json::to_value(schema)
             .map_err(|e| Error::Scripting(format!("Failed to serialize complete schema: {}", e)))?)
