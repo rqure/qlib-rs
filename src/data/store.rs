@@ -36,7 +36,7 @@ pub struct Store {
     type_notifications:
         HashMap<EntityType, HashMap<FieldType, HashMap<NotifyConfig, Vec<NotificationSender>>>>,
 
-    #[serde(skip)]
+    #[serde(skip, default = "Store::default_write_channel")]
     pub write_channel: (tokio::sync::mpsc::UnboundedSender<Request>, tokio::sync::mpsc::UnboundedReceiver<Request>),
 }
 
@@ -61,6 +61,10 @@ impl std::fmt::Debug for Store {
 }
 
 impl Store {
+    fn default_write_channel() -> (tokio::sync::mpsc::UnboundedSender<Request>, tokio::sync::mpsc::UnboundedReceiver<Request>) {
+        tokio::sync::mpsc::unbounded_channel()
+    }
+
     pub async fn create_entity(
         &mut self,
         entity_type: &EntityType,
@@ -337,7 +341,7 @@ impl Store {
                         adjust_behavior,
                     )).await?;
 
-                    self.write_channel.0.send(request.clone());
+                    let _ = self.write_channel.0.send(request.clone());
                 }
             }
         }
