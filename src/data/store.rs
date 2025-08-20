@@ -318,7 +318,7 @@ impl Store {
                     writer_id,
                 } => {
                     let indir: (EntityId, FieldType) =
-                        Box::pin(resolve_indirection(ctx, ctx.store_interface.clone(), entity_id, field_type)).await?;
+                        Box::pin(resolve_indirection!(ctx, self, entity_id, field_type)).await?;
                     self.read(ctx, &indir.0, &indir.1, value, write_time, writer_id).await?;
                 }
                 Request::Write {
@@ -330,7 +330,7 @@ impl Store {
                     push_condition,
                     adjust_behavior,
                 } => {
-                    let indir = Box::pin(resolve_indirection(ctx, ctx.store_interface.clone(), entity_id, field_type)).await?;
+                    let indir = Box::pin(resolve_indirection!(ctx, self, entity_id, field_type)).await?;
                     Box::pin(self.write(
                         ctx,
                         &indir.0,

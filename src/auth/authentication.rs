@@ -6,7 +6,7 @@ use rand::rngs::OsRng;
 use std::time::{Duration};
 
 use crate::{
-    et, ft, now, sint, sread, sstr, stimestamp, swrite, Context, EntityId, Error, Request, Result, StoreInterface, Value
+    et, ft, now, sint, sread, sstr, stimestamp, swrite, Context, EntityId, Error, Request, Result, Value
 };
 
 /// Configuration for authentication behavior

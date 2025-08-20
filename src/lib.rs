@@ -4,12 +4,12 @@ mod test;
 pub mod scripting;
 
 pub use data::{
-    BadIndirectionReason, Context, Store, StoreInterface, PageOpts,
+    BadIndirectionReason, Context, Store, PageOpts,
     PageResult, NotificationSender, NotificationReceiver, notification_channel, hash_notify_config, Snapshot, Entity, EntityId, EntitySchema, Single, Complete, 
     Field, FieldSchema, AdjustBehavior, PushCondition, Request, Snowflake, 
     StoreProxy, StoreMessage, Value, INDIRECTION_DELIMITER, NotifyConfig, Notification,
     EntityType, FieldType, Timestamp, now, epoch, nanos_to_timestamp, secs_to_timestamp, 
-    millis_to_timestamp, micros_to_timestamp, ft, et, resolve_indirection
+    millis_to_timestamp, micros_to_timestamp, ft, et
 };
 
 pub use auth::{

@@ -3,7 +3,7 @@ use crate::data::EntityType;
 use std::sync::Arc;
 
 // Helper to create an entity schema with basic fields
-async fn create_entity_schema(store: &mut Store, entity_type: &EntityType) -> Result<()> {
+async fn create_entity_schema(store_interface: &mut StoreInterface, ctx: &Context, entity_type: &EntityType) -> Result<()> {
     let mut schema = EntitySchema::<Single>::new(entity_type.clone(), None);
     let ft_name = FieldType::from("Name");
     let ft_parent = FieldType::from("Parent");
@@ -32,15 +32,16 @@ async fn create_entity_schema(store: &mut Store, entity_type: &EntityType) -> Re
     schema.fields.insert(ft_parent.clone(), parent_schema);
     schema.fields.insert(ft_children.clone(), children_schema);
 
-    store.set_entity_schema(&Context::new(), &schema).await?;
+    store_interface.set_entity_schema(ctx, &schema).await?;
     Ok(())
 }
 
 // Helper to set up a basic database structure for testing
 #[allow(dead_code)]
-async fn setup_test_database() -> Result<Store> {
-    let mut store = Store::new(Arc::new(Snowflake::new()));
-    let ctx = Context::new();
+async fn setup_test_database() -> Result<(StoreInterface, Context)> {
+    let store_interface = StoreInterface::new_shared_local(Store::new(Arc::new(Snowflake::new())));
+    let ctx = Context::new(store_interface.clone());
+    let mut store_interface_mut = store_interface.clone();
 
     let et_root = EntityType::from("Root");
     let et_folder = EntityType::from("Folder");
@@ -50,10 +51,10 @@ async fn setup_test_database() -> Result<Store> {
     let ft_email = FieldType::from("Email");
 
     // Create schemas for different entity types
-    create_entity_schema(&mut store, &et_root).await?;
-    create_entity_schema(&mut store, &et_folder).await?;
-    create_entity_schema(&mut store, &et_user).await?;
-    create_entity_schema(&mut store, &et_role).await?;
+    create_entity_schema(&mut store_interface_mut, &ctx, &et_root).await?;
+    create_entity_schema(&mut store_interface_mut, &ctx, &et_folder).await?;
+    create_entity_schema(&mut store_interface_mut, &ctx, &et_user).await?;
+    create_entity_schema(&mut store_interface_mut, &ctx, &et_role).await?;
 
     // Add custom fields to User schema
     let email_schema = FieldSchema::String {
@@ -62,18 +63,18 @@ async fn setup_test_database() -> Result<Store> {
         rank: 3,
     };
 
-    store.set_field_schema(&ctx, &et_user, &ft_email, email_schema).await?;
+    store_interface_mut.set_field_schema(&ctx, &et_user, &ft_email, email_schema).await?;
 
     // Create root entity
-    store.create_entity(&ctx, &et_root, None, "Root").await?;
+    store_interface_mut.create_entity(&ctx, &et_root, None, "Root").await?;
 
-    Ok(store)
+    Ok((store_interface, ctx))
 }
 
 #[tokio::test]
 async fn test_create_entity_hierarchy() -> Result<()> {
-    let mut store = setup_test_database().await?;
-    let ctx = Context::new();
+    let (store_interface, ctx) = setup_test_database().await?;
+    let mut store = store_interface;
 
     let et_root = EntityType::from("Root");
     let et_folder = EntityType::from("Folder");
@@ -146,8 +147,8 @@ async fn test_create_entity_hierarchy() -> Result<()> {
 
 #[tokio::test]
 async fn test_field_operations() -> Result<()> {
-    let mut store = setup_test_database().await?;
-    let ctx = Context::new();
+    let (store_interface, ctx) = setup_test_database().await?;
+    let mut store = store_interface;
 
     let et_root = EntityType::from("Root");
     let et_folder = EntityType::from("Folder");
@@ -203,8 +204,8 @@ async fn test_field_operations() -> Result<()> {
 
 #[tokio::test]
 async fn test_indirection_resolution() -> Result<()> {
-    let mut store = setup_test_database().await?;
-    let ctx = Context::new();
+    let (store_interface, ctx) = setup_test_database().await?;
+    let mut store = store_interface;
 
     let et_root = EntityType::from("Root");
     let et_folder = EntityType::from("Folder");
@@ -258,8 +259,8 @@ async fn test_indirection_resolution() -> Result<()> {
 
 #[tokio::test]
 async fn test_entity_deletion() -> Result<()> {
-    let mut store = setup_test_database().await?;
-    let ctx = Context::new();
+    let (store_interface, ctx) = setup_test_database().await?;
+    let mut store = store_interface;
 
     let et_root = EntityType::from("Root");
     let et_folder = EntityType::from("Folder");
@@ -307,8 +308,8 @@ async fn test_entity_deletion() -> Result<()> {
 
 #[tokio::test]
 async fn test_entity_listing_with_pagination() -> Result<()> {
-    let mut store = setup_test_database().await?;
-    let ctx = Context::new();
+    let (store_interface, ctx) = setup_test_database().await?;
+    let mut store = store_interface;
 
     // Create multiple entities of the same type
     let et_root = EntityType::from("Root");

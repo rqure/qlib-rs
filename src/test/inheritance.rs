@@ -5,8 +5,9 @@ use std::sync::Arc;
 
 #[tokio::test]
 async fn test_inheritance_in_find_entities() -> Result<()> {
-    let mut store = Store::new(Arc::new(Snowflake::new()));
-    let ctx = Context::new();
+    let store_interface = StoreInterface::new_shared_local(Store::new(Arc::new(Snowflake::new())));
+    let ctx = Context::new(store_interface.clone());
+    let mut store = store_interface;
 
     // Create base and derived entity types
     let et_animal = EntityType::from("Animal");
@@ -107,8 +108,9 @@ async fn test_inheritance_in_find_entities() -> Result<()> {
 
 #[tokio::test]
 async fn test_inheritance_with_direct_instances() -> Result<()> {
-    let mut store = Store::new(Arc::new(Snowflake::new()));
-    let ctx = Context::new();
+    let store_interface = StoreInterface::new_shared_local(Store::new(Arc::new(Snowflake::new())));
+    let ctx = Context::new(store_interface.clone());
+    let mut store = store_interface;
 
     // Test with a hierarchy where we create instances of base types too
     let et_vehicle = EntityType::from("Vehicle");
@@ -159,8 +161,9 @@ async fn test_inheritance_with_direct_instances() -> Result<()> {
 
 #[tokio::test]
 async fn test_circular_inheritance_protection() -> Result<()> {
-    let mut store = Store::new(Arc::new(Snowflake::new()));
-    let ctx = Context::new();
+    let store_interface = StoreInterface::new_shared_local(Store::new(Arc::new(Snowflake::new())));
+    let ctx = Context::new(store_interface.clone());
+    let mut store = store_interface;
 
     // Try to create circular inheritance: A -> B -> C -> A
     let et_a = EntityType::from("TypeA");

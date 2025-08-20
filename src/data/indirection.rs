@@ -1,4 +1,4 @@
-use crate::{Context, EntityId, Error, FieldType, Request, Result, StoreInterface, Value};
+use crate::{EntityId, FieldType};
 
 pub const INDIRECTION_DELIMITER: &str = "->";
 
@@ -34,155 +34,155 @@ impl std::fmt::Display for BadIndirectionReason {
     }
 }
 
-/// Resolves indirection using the store from the context
+/// Macro to resolve indirection for any store type (StoreType, Store, or StoreProxy)
 /// 
-/// This function retrieves the store from the context and resolves indirection paths.
-pub async fn resolve_indirection(
-    ctx: &Context,
-    mut store: StoreInterface,
-    entity_id: &EntityId,
-    field_type: &FieldType,
-) -> Result<(EntityId, FieldType)> {
-    let fields = field_type.indirect_fields();
+/// This macro can be used with any store type that implements the required methods:
+/// - `perform(&mut self, ctx: &Context, requests: &mut Vec<Request>) -> Result<()>`
+/// - `entity_exists(&self, ctx: &Context, entity_id: &EntityId) -> bool`
+/// 
+/// # Example
+/// 
+/// ```no_run
+/// # use qlib_rs::*;
+/// # async fn example(ctx: &Context, store: &mut StoreType, entity_id: &EntityId, field_type: &FieldType) -> Result<()> {
+/// let (resolved_entity_id, resolved_field_type) = resolve_indirection!(ctx, store, entity_id, field_type).await?;
+/// # Ok(())
+/// # }
+/// ```
+#[macro_export]
+macro_rules! resolve_indirection {
+    ($ctx:expr, $store:expr, $entity_id:expr, $field_type:expr) => {{
+        async {
+            let fields = $field_type.indirect_fields();
 
-    if fields.len() == 1 {
-        return Ok((entity_id.clone(), field_type.clone()));
-    }
-
-    let mut current_entity_id = entity_id.clone();
-
-    for i in 0..fields.len() - 1 {
-        let field = &fields[i];
-
-        // Handle array index navigation (for EntityList fields)
-        if i > 0 && field.0.parse::<i64>().is_ok() {
-            let index = field.0.parse::<i64>().unwrap();
-            if index < 0 {
-                return Err(Error::BadIndirection(
-                    current_entity_id.clone(),
-                    field_type.clone(),
-                    BadIndirectionReason::NegativeIndex(index),
-                ));
+            if fields.len() == 1 {
+                return Ok(($entity_id.clone(), $field_type.clone()));
             }
 
-            // The previous field should have been an EntityList
-            let prev_field = &fields[i - 1];
+            let mut current_entity_id = $entity_id.clone();
 
-            let mut reqs = vec![Request::Read {
-                entity_id: current_entity_id.clone(),
-                field_type: prev_field.clone(),
-                value: None,
-                write_time: None,
-                writer_id: None,
-            }];
-            store.perform(ctx, &mut reqs).await?;
+            for i in 0..fields.len() - 1 {
+                let field = &fields[i];
 
-            if let Request::Read { value, .. } = &reqs[0] {
-                if let Some(Value::EntityList(entities)) = value {
-                    let index_usize = index as usize;
-                    if index_usize >= entities.len() {
-                        return Err(Error::BadIndirection(
+                // Handle array index navigation (for EntityList fields)
+                if i > 0 && field.0.parse::<i64>().is_ok() {
+                    let index = field.0.parse::<i64>().unwrap();
+                    if index < 0 {
+                        return Err($crate::Error::BadIndirection(
                             current_entity_id.clone(),
-                            field_type.clone(),
-                            BadIndirectionReason::ArrayIndexOutOfBounds(
-                                index_usize,
-                                entities.len(),
-                            ),
+                            $field_type.clone(),
+                            $crate::BadIndirectionReason::NegativeIndex(index),
                         ));
                     }
 
-                    current_entity_id = entities[index_usize].clone();
-                } else {
-                    return Err(Error::BadIndirection(
-                        current_entity_id.clone(),
-                        field_type.clone(),
-                        BadIndirectionReason::UnexpectedValueType(
-                            prev_field.clone(),
-                            format!("{:?}", value),
-                        ),
-                    ));
-                }
-            }
+                    // The previous field should have been an EntityList
+                    let prev_field = &fields[i - 1];
 
-            continue;
-        }
+                    let mut reqs = vec![$crate::sread!(current_entity_id.clone(), prev_field.clone())];
+                    $store.perform($ctx, &mut reqs).await?;
 
-        // Normal field resolution
-        let mut reqs = vec![Request::Read {
-            entity_id: current_entity_id.clone(),
-            field_type: field.clone(),
-            value: None,
-            write_time: None,
-            writer_id: None,
-        }];
+                    if let $crate::Request::Read { value, .. } = &reqs[0] {
+                        if let Some($crate::Value::EntityList(entities)) = value {
+                            let index_usize = index as usize;
+                            if index_usize >= entities.len() {
+                                return Err($crate::Error::BadIndirection(
+                                    current_entity_id.clone(),
+                                    $field_type.clone(),
+                                    $crate::BadIndirectionReason::ArrayIndexOutOfBounds(
+                                        index_usize,
+                                        entities.len(),
+                                    ),
+                                ));
+                            }
 
-        if let Err(e) = store.perform(ctx, &mut reqs).await {
-            return Err(Error::BadIndirection(
-                current_entity_id.clone(),
-                field_type.clone(),
-                BadIndirectionReason::FailedToResolveField(field.clone(), e.to_string()),
-            ));
-        }
-
-        if let Request::Read { value, .. } = &reqs[0] {
-            if let Some(Value::EntityReference(reference)) = value {
-                match reference {
-                    Some(ref_id) => {
-                        // Check if the reference is valid
-                        if !store.entity_exists(ctx, ref_id).await {
-                            return Err(Error::BadIndirection(
+                            current_entity_id = entities[index_usize].clone();
+                        } else {
+                            return Err($crate::Error::BadIndirection(
                                 current_entity_id.clone(),
-                                field_type.clone(),
-                                BadIndirectionReason::InvalidEntityId(ref_id.clone()),
+                                $field_type.clone(),
+                                $crate::BadIndirectionReason::UnexpectedValueType(
+                                    prev_field.clone(),
+                                    format!("{:?}", value),
+                                ),
                             ));
                         }
-                        current_entity_id = ref_id.clone();
                     }
-                    None => {
-                        // If the reference is None, this is an error
-                        return Err(Error::BadIndirection(
-                            current_entity_id.clone(),
-                            field_type.clone(),
-                            BadIndirectionReason::EmptyEntityReference,
-                        ));
-                    }
+
+                    continue;
                 }
 
-                continue;
-            }
+                // Normal field resolution
+                let mut reqs = vec![$crate::sread!(current_entity_id.clone(), field.clone())];
 
-            if let Some(Value::EntityList(_)) = value {
-                // If next segment is not an index, this is an error
-                if i + 1 >= fields.len() - 1 || fields[i + 1].0.parse::<i64>().is_err() {
-                    return Err(Error::BadIndirection(
+                if let Err(e) = $store.perform($ctx, &mut reqs).await {
+                    return Err($crate::Error::BadIndirection(
                         current_entity_id.clone(),
-                        field_type.clone(),
-                        BadIndirectionReason::ExpectedIndexAfterEntityList(fields[i + 1].clone()),
+                        $field_type.clone(),
+                        $crate::BadIndirectionReason::FailedToResolveField(field.clone(), e.to_string()),
                     ));
                 }
-                // The index will be processed in the next iteration
-                continue;
+
+                if let $crate::Request::Read { value, .. } = &reqs[0] {
+                    if let Some($crate::Value::EntityReference(reference)) = value {
+                        match reference {
+                            Some(ref_id) => {
+                                // Check if the reference is valid
+                                if !$store.entity_exists($ctx, ref_id).await {
+                                    return Err($crate::Error::BadIndirection(
+                                        current_entity_id.clone(),
+                                        $field_type.clone(),
+                                        $crate::BadIndirectionReason::InvalidEntityId(ref_id.clone()),
+                                    ));
+                                }
+                                current_entity_id = ref_id.clone();
+                            }
+                            None => {
+                                // If the reference is None, this is an error
+                                return Err($crate::Error::BadIndirection(
+                                    current_entity_id.clone(),
+                                    $field_type.clone(),
+                                    $crate::BadIndirectionReason::EmptyEntityReference,
+                                ));
+                            }
+                        }
+
+                        continue;
+                    }
+
+                    if let Some($crate::Value::EntityList(_)) = value {
+                        // If next segment is not an index, this is an error
+                        if i + 1 >= fields.len() - 1 || fields[i + 1].0.parse::<i64>().is_err() {
+                            return Err($crate::Error::BadIndirection(
+                                current_entity_id.clone(),
+                                $field_type.clone(),
+                                $crate::BadIndirectionReason::ExpectedIndexAfterEntityList(fields[i + 1].clone()),
+                            ));
+                        }
+                        // The index will be processed in the next iteration
+                        continue;
+                    }
+
+                    return Err($crate::Error::BadIndirection(
+                        current_entity_id.clone(),
+                        $field_type.clone(),
+                        $crate::BadIndirectionReason::UnexpectedValueType(field.clone(), format!("{:?}", value)),
+                    ));
+                }
             }
 
-            return Err(Error::BadIndirection(
-                current_entity_id.clone(),
-                field_type.clone(),
-                BadIndirectionReason::UnexpectedValueType(field.clone(), format!("{:?}", value)),
-            ));
+            Ok((
+                current_entity_id,
+                fields.last().cloned().ok_or_else(|| {
+                    $crate::Error::BadIndirection(
+                        $entity_id.clone(),
+                        $field_type.clone(),
+                        $crate::BadIndirectionReason::UnexpectedValueType(
+                            "".into(),
+                            "Empty field path".to_string(),
+                        ),
+                    )
+                })?,
+            ))
         }
-    }
-
-    Ok((
-        current_entity_id,
-        fields.last().cloned().ok_or_else(|| {
-            Error::BadIndirection(
-                entity_id.clone(),
-                field_type.clone(),
-                BadIndirectionReason::FailedToResolveField(
-                    FieldType("".to_string()),
-                    "Empty field path".to_string(),
-                ),
-            )
-        })?,
-    ))
+    }};
 }
