@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use tokio::sync::Mutex;
 
-use crate::{ft, scripting::execute, sstr, Cache, EntityId, Error, FieldType, Result, StoreProxy};
+use crate::{ft, scripting::execute, sread, sstr, Cache, EntityId, Error, FieldType, Result, StoreProxy};
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum AuthorizationScope {
@@ -41,37 +41,47 @@ pub async fn get_scope(
                 .ok_or(Error::CacheFieldNotFound(ft::resource_field()))?
                 .expect_string()?;
 
-            let permission_test_fn = rule
-                .get(&ft::permission_test_fn())
+            let permission = rule
+                .get(&ft::permission())
                 .unwrap()
-                .expect_string()?;
+                .expect_entity_reference()?;
 
-            if *rule_resource_type == resource_entity_id.get_type().0
-                && *rule_resource_field == resource_field.to_string()
-            {
-                let scope = match scope {
-                    0 => AuthorizationScope::None,
-                    1 => AuthorizationScope::ReadOnly,
-                    2 => AuthorizationScope::ReadWrite,
-                    _ => continue, // Invalid scope
+            if let Some(permission) = permission {
+                let test_fn = {
+                    let reqs = vec![
+                        sread!(permission.clone(), ft::test_fn()),
+                    ];
+                    store.lock().await.perform(&mut reqs).await?;
+                    reqs.first().unwrap().value().unwrap().expect_string()?
                 };
 
-                let result = execute(
-                    store.clone(),
-                    permission_test_fn,
-                    serde_json::json!({
-                        "subject_id": subject_entity_id.to_string(),
-                        "resource_id": resource_entity_id.to_string(),
-                        "resource_field": resource_field.to_string(),
-                    }),
-                )
-                .await;
+                if *rule_resource_type == resource_entity_id.get_type().0
+                    && *rule_resource_field == resource_field.to_string()
+                {
+                    let scope = match scope {
+                        0 => AuthorizationScope::None,
+                        1 => AuthorizationScope::ReadOnly,
+                        2 => AuthorizationScope::ReadWrite,
+                        _ => continue, // Invalid scope
+                    };
 
-                if let Ok(result) = result {
-                    if result.success {
-                        if let Some(value) = result.value.as_bool() {
-                            if value {
-                                filtered_rules.push(scope);
+                    let result = execute(
+                        store.clone(),
+                        test_fn,
+                        serde_json::json!({
+                            "subject_id": subject_entity_id.to_string(),
+                            "resource_id": resource_entity_id.to_string(),
+                            "resource_field": resource_field.to_string(),
+                        }),
+                    )
+                    .await;
+
+                    if let Ok(result) = result {
+                        if result.success {
+                            if let Some(value) = result.value.as_bool() {
+                                if value {
+                                    filtered_rules.push(scope);
+                                }
                             }
                         }
                     }

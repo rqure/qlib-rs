@@ -8,7 +8,6 @@ pub const LOCKED_UNTIL: &str = "LockedUntil";
 pub const NAME: &str = "Name";
 pub const PARENT: &str = "Parent";
 pub const PASSWORD: &str = "Password";
-pub const PERMISSION_TEST_FN: &str = "Permission->TestFn";
 pub const PERMISSION: &str = "Permission";
 pub const RESOURCE_FIELD: &str = "ResourceField";
 pub const RESOURCE_TYPE: &str = "ResourceType";
@@ -65,8 +64,4 @@ pub fn resource_field() -> FieldType {
 
 pub fn permission() -> FieldType {
     FieldType::from(PERMISSION)
-}
-
-pub fn permission_test_fn() -> FieldType {
-    FieldType::from(PERMISSION_TEST_FN)
 }
