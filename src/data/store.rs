@@ -139,6 +139,86 @@ impl Store {
         Ok(Entity::new(entity_id))
     }
 
+    /// Internal entity creation that doesn't use perform to avoid recursion
+    async fn create_entity_internal(
+        &mut self,
+        entity_type: &EntityType,
+        parent_id: Option<EntityId>,
+        name: &str,
+    ) -> Result<Entity> {
+        if !self.schemas.contains_key(&entity_type) {
+            return Err(Error::EntityTypeNotFound(entity_type.clone()));
+        }
+
+        if let Some(parent) = &parent_id {
+            if !self.entity_exists(&parent).await {
+                return Err(Error::EntityNotFound(parent.clone()));
+            }
+        }
+
+        let entity_id = EntityId::new(entity_type.clone(), self.snowflake.generate());
+        if self.fields.contains_key(&entity_id) {
+            return Err(Error::EntityAlreadyExists(entity_id));
+        }
+
+        {
+            let entities = self
+                .entities
+                .entry(entity_type.clone())
+                .or_insert_with(Vec::new);
+            entities.push(entity_id.clone());
+        }
+
+        // Get the schema before accessing fields to avoid borrow issues
+        let complete_schema = self.get_complete_entity_schema(entity_type).await?;
+
+        {
+            let entity_fields = self.fields
+                .entry(entity_id.clone())
+                .or_insert_with(HashMap::new);
+            
+            // Directly set fields in the entity's field map
+            for (field_type, field_schema) in complete_schema.fields.iter() {
+                let value = match field_type.as_ref() {
+                    "Name" => Value::String(name.to_string()),
+                    "Parent" => match &parent_id {
+                        Some(parent) => Value::EntityReference(Some(parent.clone())),
+                        None => field_schema.default_value(),
+                    },
+                    _ => field_schema.default_value(),
+                };
+
+                entity_fields.insert(field_type.clone(), Field {
+                    field_type: field_type.clone(),
+                    value,
+                    write_time: now(),
+                    writer_id: None,
+                });
+            }
+        }
+
+        // If we have a parent, add it to the parent's children list
+        if let Some(parent) = &parent_id {
+            if let Some(parent_fields) = self.fields.get_mut(parent) {
+                let children_field = parent_fields
+                    .entry("Children".into())
+                    .or_insert_with(|| Field {
+                        field_type: "Children".into(),
+                        value: Value::EntityList(Vec::new()),
+                        write_time: now(),
+                        writer_id: None,
+                    });
+
+                if let Value::EntityList(children) = &mut children_field.value {
+                    children.push(entity_id.clone());
+                    children_field.write_time = now();
+                }
+            }
+        }
+
+        Ok(Entity::new(entity_id))
+    }
+
     pub async fn get_entity_schema(
         &self,
         entity_type: &EntityType,
@@ -344,6 +424,31 @@ impl Store {
 
                     let _ = self.write_channel.0.send(request.clone());
                 }
+                Request::Create {
+                    entity_type,
+                    parent_id,
+                    name,
+                    created_entity_id,
+                } => {
+                    let entity = self.create_entity_internal(entity_type, parent_id.clone(), name).await?;
+                    *created_entity_id = Some(entity.entity_id);
+
+                    let _ = self.write_channel.0.send(request.clone());
+                }
+                Request::Delete {
+                    entity_id,
+                } => {
+                    self.delete_entity_internal(entity_id).await?;
+
+                    let _ = self.write_channel.0.send(request.clone());
+                }
+                Request::SchemaUpdate {
+                    schema,
+                } => {
+                    self.set_entity_schema(schema).await?;
+
+                    let _ = self.write_channel.0.send(request.clone());
+                }
             }
         }
         Ok(())
@@ -402,6 +507,62 @@ impl Store {
             if let Some(entities) = self.entities.get_mut(entity_id.get_type()) {
                 entities.retain(|id| id != entity_id);
             }
+        }
+
+        Ok(())
+    }
+
+    /// Internal entity deletion that doesn't use perform to avoid recursion
+    async fn delete_entity_internal(&mut self, entity_id: &EntityId) -> Result<()> {
+        // Check if the entity exists
+        if !self.fields.contains_key(entity_id) {
+            return Err(Error::EntityNotFound(entity_id.clone()));
+        }
+
+        // Remove all children first (recursively)
+        if let Some(entity_fields) = self.fields.get(entity_id) {
+            if let Some(children_field) = entity_fields.get(&"Children".into()) {
+                if let Value::EntityList(children) = &children_field.value {
+                    let children_to_delete = children.clone(); // Clone to avoid borrow issues
+                    for child in children_to_delete {
+                        Box::pin(self.delete_entity_internal(&child)).await?;
+                    }
+                }
+            }
+        }
+
+        // Remove from parent's children list
+        let parent_id = if let Some(entity_fields) = self.fields.get(entity_id) {
+            if let Some(parent_field) = entity_fields.get(&"Parent".into()) {
+                if let Value::EntityReference(Some(parent_id)) = &parent_field.value {
+                    Some(parent_id.clone())
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        if let Some(parent_id) = parent_id {
+            if let Some(parent_fields) = self.fields.get_mut(&parent_id) {
+                if let Some(children_field) = parent_fields.get_mut(&"Children".into()) {
+                    if let Value::EntityList(children) = &mut children_field.value {
+                        children.retain(|id| id != entity_id);
+                        children_field.write_time = now();
+                    }
+                }
+            }
+        }
+
+        // Remove fields
+        self.fields.remove(entity_id);
+
+        // Remove from entity type list
+        if let Some(entities) = self.entities.get_mut(entity_id.get_type()) {
+            entities.retain(|id| id != entity_id);
         }
 
         Ok(())

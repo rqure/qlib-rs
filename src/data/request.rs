@@ -1,4 +1,4 @@
-use crate::{data::{EntityId, FieldType, Timestamp, Value}};
+use crate::{data::{EntityId, EntityType, FieldType, Timestamp, Value}, EntitySchema, Single};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -41,21 +41,39 @@ pub enum Request {
         write_time: Option<Timestamp>,
         writer_id: Option<EntityId>,
         originator: Option<String>,
-    }
+    },
+    Create {
+        entity_type: EntityType,
+        parent_id: Option<EntityId>,
+        name: String,
+        created_entity_id: Option<EntityId>, // Will be populated with the result
+    },
+    Delete {
+        entity_id: EntityId,
+    },
+    SchemaUpdate {
+        schema: EntitySchema<Single>,
+    },
 }
 
 impl Request {
-    pub fn entity_id(&self) -> &EntityId {
+    pub fn entity_id(&self) -> Option<&EntityId> {
         match self {
-            Request::Read { entity_id, .. } => entity_id,
-            Request::Write { entity_id, .. } => entity_id,
+            Request::Read { entity_id, .. } => Some(entity_id),
+            Request::Write { entity_id, .. } => Some(entity_id),
+            Request::Create { created_entity_id, .. } => created_entity_id.as_ref(),
+            Request::Delete { entity_id, .. } => Some(entity_id),
+            Request::SchemaUpdate { .. } => None,
         }
     }
 
-    pub fn field_type(&self) -> &FieldType {
+    pub fn field_type(&self) -> Option<&FieldType> {
         match self {
-            Request::Read { field_type, .. } => field_type,
-            Request::Write { field_type, .. } => field_type,
+            Request::Read { field_type, .. } => Some(field_type),
+            Request::Write { field_type, .. } => Some(field_type),
+            Request::Create { .. } => None,
+            Request::Delete { .. } => None,
+            Request::SchemaUpdate { .. } => None,
         }
     }
 
@@ -63,6 +81,9 @@ impl Request {
         match self {
             Request::Read { value, .. } => value.as_ref(),
             Request::Write { value, .. } => value.as_ref(),
+            Request::Create { .. } => None,
+            Request::Delete { .. } => None,
+            Request::SchemaUpdate { .. } => None,
         }
     }
 
@@ -70,6 +91,9 @@ impl Request {
         match self {
             Request::Read { write_time, .. } => *write_time,
             Request::Write { write_time, .. } => *write_time,
+            Request::Create { .. } => None,
+            Request::Delete { .. } => None,
+            Request::SchemaUpdate { .. } => None,
         }
     }
 
@@ -77,6 +101,9 @@ impl Request {
         match self {
             Request::Read { writer_id, .. } => writer_id.as_ref(),
             Request::Write { writer_id, .. } => writer_id.as_ref(),
+            Request::Create { .. } => None,
+            Request::Delete { .. } => None,
+            Request::SchemaUpdate { .. } => None,
         }
     }
 }
