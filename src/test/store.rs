@@ -32,7 +32,7 @@ async fn create_entity_schema(store: &mut Store, entity_type: &EntityType) -> Re
     schema.fields.insert(ft_parent.clone(), parent_schema);
     schema.fields.insert(ft_children.clone(), children_schema);
 
-    let mut requests = vec![Request::SchemaUpdate { schema }];
+    let mut requests = vec![sschemaupdate!(schema)];
     store.perform(&mut requests).await?;
     Ok(())
 }
@@ -68,12 +68,10 @@ async fn test_create_entity_hierarchy() -> Result<()> {
     assert_eq!(root_entities.len(), 0);
 
     // Create root entity
-    let mut create_requests = vec![Request::Create {
-        entity_type: et_folder.clone(),
-        parent_id: None,
-        name: "Security Models".to_string(),
-        created_entity_id: None,
-    }];
+    let mut create_requests = vec![screate!(
+        et_folder.clone(),
+        "Security Models".to_string()
+    )];
     store.perform(&mut create_requests).await?;
     let root_entity_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
         id.clone()
@@ -82,12 +80,11 @@ async fn test_create_entity_hierarchy() -> Result<()> {
     };
     let root_entity = Entity::new(root_entity_id);
 
-    let mut create_requests = vec![Request::Create {
-        entity_type: et_folder.clone(),
-        parent_id: Some(root_entity.entity_id.clone()),
-        name: "Users".to_string(),
-        created_entity_id: None,
-    }];
+    let mut create_requests = vec![screate!(
+        et_folder.clone(),
+        "Users".to_string(),
+        root_entity.entity_id.clone()
+    )];
     store.perform(&mut create_requests).await?;
     let users_folder_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
         id.clone()
@@ -96,12 +93,11 @@ async fn test_create_entity_hierarchy() -> Result<()> {
     };
     let users_folder = Entity::new(users_folder_id);
 
-    let mut create_requests = vec![Request::Create {
-        entity_type: et_folder.clone(),
-        parent_id: Some(root_entity.entity_id.clone()),
-        name: "Roles".to_string(),
-        created_entity_id: None,
-    }];
+    let mut create_requests = vec![screate!(
+        et_folder.clone(),
+        "Roles".to_string(),
+        root_entity.entity_id.clone()
+    )];
     store.perform(&mut create_requests).await?;
     let roles_folder_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
         id.clone()
@@ -110,12 +106,11 @@ async fn test_create_entity_hierarchy() -> Result<()> {
     };
     let roles_folder = Entity::new(roles_folder_id);
 
-    let mut create_requests = vec![Request::Create {
-        entity_type: et_user.clone(),
-        parent_id: Some(users_folder.entity_id.clone()),
-        name: "qei".to_string(),
-        created_entity_id: None,
-    }];
+    let mut create_requests = vec![screate!(
+        et_user.clone(),
+        "qei".to_string(),
+        users_folder.entity_id.clone()
+    )];
     store.perform(&mut create_requests).await?;
     let user_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
         id.clone()
@@ -124,12 +119,11 @@ async fn test_create_entity_hierarchy() -> Result<()> {
     };
     let user = Entity::new(user_id);
 
-    let mut create_requests = vec![Request::Create {
-        entity_type: et_user.clone(),
-        parent_id: Some(roles_folder.entity_id.clone()),
-        name: "admin".to_string(),
-        created_entity_id: None,
-    }];
+    let mut create_requests = vec![screate!(
+        et_user.clone(),
+        "admin".to_string(),
+        roles_folder.entity_id.clone()
+    )];
     store.perform(&mut create_requests).await?;
 
     // Test relationships
@@ -172,12 +166,10 @@ async fn test_field_operations() -> Result<()> {
     let et_folder = EntityType::from("Folder");
     let et_user = EntityType::from("User");
 
-    let mut create_requests = vec![Request::Create {
-        entity_type: et_folder.clone(),
-        parent_id: None,
-        name: "Users".to_string(),
-        created_entity_id: None,
-    }];
+    let mut create_requests = vec![screate!(
+        et_folder.clone(),
+        "Users".to_string()
+    )];
     store.perform(&mut create_requests).await?;
     let users_folder_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
         id.clone()
@@ -185,12 +177,11 @@ async fn test_field_operations() -> Result<()> {
         panic!("Expected created entity ID");
     };
 
-    let mut create_requests = vec![Request::Create {
-        entity_type: et_user.clone(),
-        parent_id: Some(users_folder_id),
-        name: "testuser".to_string(),
-        created_entity_id: None,
-    }];
+    let mut create_requests = vec![screate!(
+        et_user.clone(),
+        "testuser".to_string(),
+        users_folder_id
+    )];
     store.perform(&mut create_requests).await?;
     let user_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
         id.clone()
@@ -250,12 +241,10 @@ async fn test_indirection_resolution() -> Result<()> {
     let et_user = EntityType::from("User");
 
     // Create entities
-    let mut create_requests = vec![Request::Create {
-        entity_type: et_folder.clone(),
-        parent_id: None,
-        name: "Security".to_string(),
-        created_entity_id: None,
-    }];
+    let mut create_requests = vec![screate!(
+        et_folder.clone(),
+        "Security".to_string()
+    )];
     store.perform(&mut create_requests).await?;
     let security_folder_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
         id.clone()
@@ -264,12 +253,11 @@ async fn test_indirection_resolution() -> Result<()> {
     };
     let security_folder = Entity::new(security_folder_id);
 
-    let mut create_requests = vec![Request::Create {
-        entity_type: et_folder.clone(),
-        parent_id: Some(security_folder.entity_id.clone()),
-        name: "Users".to_string(),
-        created_entity_id: None,
-    }];
+    let mut create_requests = vec![screate!(
+        et_folder.clone(),
+        "Users".to_string(),
+        security_folder.entity_id.clone()
+    )];
     store.perform(&mut create_requests).await?;
     let users_folder_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
         id.clone()
@@ -278,12 +266,11 @@ async fn test_indirection_resolution() -> Result<()> {
     };
     let users_folder = Entity::new(users_folder_id);
 
-    let mut create_requests = vec![Request::Create {
-        entity_type: et_user.clone(),
-        parent_id: Some(users_folder.entity_id.clone()),
-        name: "admin".to_string(),
-        created_entity_id: None,
-    }];
+    let mut create_requests = vec![screate!(
+        et_user.clone(),
+        "admin".to_string(),
+        users_folder.entity_id.clone()
+    )];
     store.perform(&mut create_requests).await?;
     let admin_user_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
         id.clone()
@@ -324,12 +311,10 @@ async fn test_entity_deletion() -> Result<()> {
     let et_folder = EntityType::from("Folder");
     let et_user = EntityType::from("User");
 
-    let mut create_requests = vec![Request::Create {
-        entity_type: et_folder.clone(),
-        parent_id: None,
-        name: "Users".to_string(),
-        created_entity_id: None,
-    }];
+    let mut create_requests = vec![screate!(
+        et_folder.clone(),
+        "Users".to_string()
+    )];
     store.perform(&mut create_requests).await?;
     let users_folder_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
         id.clone()
@@ -337,12 +322,11 @@ async fn test_entity_deletion() -> Result<()> {
         panic!("Expected created entity ID");
     };
 
-    let mut create_requests = vec![Request::Create {
-        entity_type: et_user.clone(),
-        parent_id: Some(users_folder_id),
-        name: "testuser".to_string(),
-        created_entity_id: None,
-    }];
+    let mut create_requests = vec![screate!(
+        et_user.clone(),
+        "testuser".to_string(),
+        users_folder_id
+    )];
     store.perform(&mut create_requests).await?;
     let user_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
         id.clone()
@@ -355,9 +339,7 @@ async fn test_entity_deletion() -> Result<()> {
     assert!(store.entity_exists(&user.entity_id).await);
 
     // Delete the entity
-    let mut delete_requests = vec![Request::Delete {
-        entity_id: user.entity_id.clone(),
-    }];
+    let mut delete_requests = vec![sdelete!(user.entity_id.clone())];
     store.perform(&mut delete_requests).await?;
 
     // Verify entity is gone
@@ -393,12 +375,10 @@ async fn test_entity_listing_with_pagination() -> Result<()> {
     let et_folder = EntityType::from("Folder");
     let et_user = EntityType::from("User");
 
-    let mut create_requests = vec![Request::Create {
-        entity_type: et_folder.clone(),
-        parent_id: None,
-        name: "Users".to_string(),
-        created_entity_id: None,
-    }];
+    let mut create_requests = vec![screate!(
+        et_folder.clone(),
+        "Users".to_string()
+    )];
     store.perform(&mut create_requests).await?;
     let users_folder_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
         id.clone()
@@ -408,12 +388,11 @@ async fn test_entity_listing_with_pagination() -> Result<()> {
 
     // Create multiple users
     for i in 0..5 {
-        let mut create_requests = vec![Request::Create {
-            entity_type: et_user.clone(),
-            parent_id: Some(users_folder_id.clone()),
-            name: format!("user{}", i),
-            created_entity_id: None,
-        }];
+        let mut create_requests = vec![screate!(
+            et_user.clone(),
+            format!("user{}", i),
+            users_folder_id.clone()
+        )];
         store.perform(&mut create_requests).await?;
     }
 

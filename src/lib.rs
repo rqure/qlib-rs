@@ -514,3 +514,86 @@ macro_rules! sblob {
         Some($crate::Value::Blob($value))
     };
 }
+
+/// Create a Create request with minimal syntax
+///
+/// This macro creates a `Request::Create` for creating new entities.
+/// The originator is always set to None.
+///
+/// # Arguments
+///
+/// * `entity_type` - The entity type to create
+/// * `name` - The name of the new entity
+/// * `parent_id` - (optional) The parent entity ID
+/// * `created_entity_id` - (optional) The desired entity ID for the new entity
+#[macro_export]
+macro_rules! screate {
+    // Basic version with just entity type and name
+    ($entity_type:expr, $name:expr) => {
+        $crate::Request::Create {
+            entity_type: $entity_type,
+            parent_id: None,
+            name: $name,
+            created_entity_id: None,
+            originator: None,
+        }
+    };
+
+    // With parent ID
+    ($entity_type:expr, $name:expr, $parent_id:expr) => {
+        $crate::Request::Create {
+            entity_type: $entity_type,
+            parent_id: Some($parent_id),
+            name: $name,
+            created_entity_id: None,
+            originator: None,
+        }
+    };
+
+    // With parent ID and desired entity ID
+    ($entity_type:expr, $name:expr, $parent_id:expr, $created_entity_id:expr) => {
+        $crate::Request::Create {
+            entity_type: $entity_type,
+            parent_id: Some($parent_id),
+            name: $name,
+            created_entity_id: Some($created_entity_id),
+            originator: None,
+        }
+    };
+}
+
+/// Create a Delete request with minimal syntax
+///
+/// This macro creates a `Request::Delete` for deleting entities.
+/// The originator is always set to None.
+///
+/// # Arguments
+///
+/// * `entity_id` - The entity ID to delete
+#[macro_export]
+macro_rules! sdelete {
+    ($entity_id:expr) => {
+        $crate::Request::Delete {
+            entity_id: $entity_id,
+            originator: None,
+        }
+    };
+}
+
+/// Create a SchemaUpdate request with minimal syntax
+///
+/// This macro creates a `Request::SchemaUpdate` for updating entity schemas.
+/// The originator is always set to None.
+///
+/// # Arguments
+///
+/// * `schema` - The entity schema to update
+#[macro_export]
+macro_rules! sschemaupdate {
+    ($schema:expr) => {
+        $crate::Request::SchemaUpdate {
+            schema: $schema,
+            originator: None,
+        }
+    };
+}
