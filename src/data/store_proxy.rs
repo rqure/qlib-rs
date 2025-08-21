@@ -7,43 +7,13 @@ use tokio_tungstenite::{connect_async, tungstenite::Message};
 use uuid::Uuid;
 
 use crate::{
-    Complete, Entity, EntityId, EntitySchema, EntityType, Error, FieldSchema, FieldType, Notification, NotificationSender, NotifyConfig, hash_notify_config, PageOpts, PageResult, Request, Result, Single, Snapshot
+    Complete, EntityId, EntitySchema, EntityType, Error, FieldSchema, FieldType, Notification, NotificationSender, NotifyConfig, hash_notify_config, PageOpts, PageResult, Request, Result, Single, Snapshot
 };
 
 /// WebSocket message types for Store proxy communication
 /// These messages are compatible with the qcore-rs WebSocketMessage format
 #[derive(Debug, Serialize, Deserialize)]
 pub enum StoreMessage {
-    // Store operations
-    CreateEntity {
-        id: String,
-        entity_type: EntityType,
-        parent_id: Option<EntityId>,
-        name: String,
-    },
-    CreateEntityResponse {
-        id: String,
-        response: std::result::Result<Entity, String>,
-    },
-
-    DeleteEntity {
-        id: String,
-        entity_id: EntityId,
-    },
-    DeleteEntityResponse {
-        id: String,
-        response: std::result::Result<(), String>,
-    },
-
-    SetEntitySchema {
-        id: String,
-        schema: EntitySchema<Single>,
-    },
-    SetEntitySchemaResponse {
-        id: String,
-        response: std::result::Result<(), String>,
-    },
-
     GetEntitySchema {
         id: String,
         entity_type: EntityType,
@@ -191,12 +161,6 @@ pub enum StoreMessage {
 /// Extract the message ID from a StoreMessage
 pub fn extract_message_id(message: &StoreMessage) -> Option<String> {
     match message {
-        StoreMessage::CreateEntity { id, .. } => Some(id.clone()),
-        StoreMessage::CreateEntityResponse { id, .. } => Some(id.clone()),
-        StoreMessage::DeleteEntity { id, .. } => Some(id.clone()),
-        StoreMessage::DeleteEntityResponse { id, .. } => Some(id.clone()),
-        StoreMessage::SetEntitySchema { id, .. } => Some(id.clone()),
-        StoreMessage::SetEntitySchemaResponse { id, .. } => Some(id.clone()),
         StoreMessage::GetEntitySchema { id, .. } => Some(id.clone()),
         StoreMessage::GetEntitySchemaResponse { id, .. } => Some(id.clone()),
         StoreMessage::GetCompleteEntitySchema { id, .. } => Some(id.clone()),
