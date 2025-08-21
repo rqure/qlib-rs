@@ -37,7 +37,7 @@ pub struct Store {
         HashMap<EntityType, HashMap<FieldType, HashMap<NotifyConfig, Vec<NotificationSender>>>>,
 
     #[serde(skip, default = "Store::default_write_channel")]
-    pub write_channel: (tokio::sync::mpsc::UnboundedSender<Request>, tokio::sync::mpsc::UnboundedReceiver<Request>),
+    pub write_channel: (tokio::sync::mpsc::UnboundedSender<Request>, Arc<tokio::sync::Mutex<tokio::sync::mpsc::UnboundedReceiver<Request>>>),
 }
 
 impl std::fmt::Debug for Store {
@@ -61,8 +61,9 @@ impl std::fmt::Debug for Store {
 }
 
 impl Store {
-    fn default_write_channel() -> (tokio::sync::mpsc::UnboundedSender<Request>, tokio::sync::mpsc::UnboundedReceiver<Request>) {
-        tokio::sync::mpsc::unbounded_channel()
+    fn default_write_channel() -> (tokio::sync::mpsc::UnboundedSender<Request>, Arc<tokio::sync::Mutex<tokio::sync::mpsc::UnboundedReceiver<Request>>>) {
+        let (sender, receiver) = tokio::sync::mpsc::unbounded_channel();
+        (sender, Arc::new(tokio::sync::Mutex::new(receiver)))
     }
 
     /// Internal entity creation that doesn't use perform to avoid recursion
@@ -813,8 +814,16 @@ impl Store {
             snowflake,
             id_notifications: HashMap::new(),
             type_notifications: HashMap::new(),
-            write_channel: tokio::sync::mpsc::unbounded_channel(),
+            write_channel: {
+                let (sender, receiver) = tokio::sync::mpsc::unbounded_channel();
+                (sender, Arc::new(tokio::sync::Mutex::new(receiver)))
+            },
         }
+    }
+
+    /// Get a clone of the write channel receiver for external consumption
+    pub fn get_write_channel_receiver(&self) -> Arc<tokio::sync::Mutex<tokio::sync::mpsc::UnboundedReceiver<Request>>> {
+        self.write_channel.1.clone()
     }
 
     async fn read(
