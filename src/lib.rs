@@ -118,6 +118,7 @@ macro_rules! swrite {
             adjust_behavior: $crate::AdjustBehavior::Set,
             write_time: None,
             writer_id: None,
+            originator: None,
         }
     };
 
@@ -131,6 +132,7 @@ macro_rules! swrite {
             adjust_behavior: $crate::AdjustBehavior::Set,
             write_time: None,
             writer_id: None,
+            originator: None,
         }
     };
 
@@ -144,6 +146,7 @@ macro_rules! swrite {
             adjust_behavior: $crate::AdjustBehavior::Set,
             write_time: None,
             writer_id: None,
+            originator: None,
         }
     };
 
@@ -157,6 +160,7 @@ macro_rules! swrite {
             adjust_behavior: $crate::AdjustBehavior::Set,
             write_time: $write_time,
             writer_id: None,
+            originator: None,
         }
     };
 
@@ -170,6 +174,7 @@ macro_rules! swrite {
             adjust_behavior: $crate::AdjustBehavior::Set,
             write_time: $write_time,
             writer_id: $writer_id,
+            originator: None,
         }
     };
 }
@@ -199,6 +204,7 @@ macro_rules! sadd {
             adjust_behavior: $crate::AdjustBehavior::Add,
             write_time: None,
             writer_id: None,
+            originator: None,
         }
     };
 
@@ -212,6 +218,7 @@ macro_rules! sadd {
             adjust_behavior: $crate::AdjustBehavior::Add,
             write_time: None,
             writer_id: None,
+            originator: None,
         }
     };
 
@@ -225,6 +232,7 @@ macro_rules! sadd {
             adjust_behavior: $crate::AdjustBehavior::Add,
             write_time: $write_time,
             writer_id: None,
+            originator: None,
         }
     };
 
@@ -238,6 +246,7 @@ macro_rules! sadd {
             adjust_behavior: $crate::AdjustBehavior::Add,
             write_time: $write_time,
             writer_id: $writer_id,
+            originator: None,
         }
     };
 }
@@ -267,6 +276,7 @@ macro_rules! ssub {
             adjust_behavior: $crate::AdjustBehavior::Subtract,
             write_time: None,
             writer_id: None,
+            originator: None,
         }
     };
 
@@ -280,6 +290,7 @@ macro_rules! ssub {
             adjust_behavior: $crate::AdjustBehavior::Subtract,
             write_time: None,
             writer_id: None,
+            originator: None,
         }
     };
 
@@ -293,6 +304,7 @@ macro_rules! ssub {
             adjust_behavior: $crate::AdjustBehavior::Subtract,
             write_time: $write_time,
             writer_id: None,
+            originator: None,
         }
     };
 
@@ -306,6 +318,7 @@ macro_rules! ssub {
             adjust_behavior: $crate::AdjustBehavior::Subtract,
             write_time: $write_time,
             writer_id: $writer_id,
+            originator: None,
         }
     };
 }

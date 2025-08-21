@@ -209,6 +209,7 @@ fn test_swrite_macro() {
             adjust_behavior,
             write_time,
             writer_id,
+            ..
         } => {
             assert_eq!(req_entity_id, entity_id);
             assert_eq!(field_type, ft_username);
@@ -294,6 +295,7 @@ fn test_sadd_macro() {
             adjust_behavior,
             write_time,
             writer_id,
+            ..
         } => {
             assert_eq!(req_entity_id, entity_id);
             assert_eq!(field_type, ft_counter);
@@ -412,6 +414,7 @@ fn test_ssub_macro() {
             adjust_behavior,
             write_time,
             writer_id,
+            ..
         } => {
             assert_eq!(req_entity_id, entity_id);
             assert_eq!(field_type, ft_counter);

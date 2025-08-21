@@ -329,6 +329,7 @@ impl Store {
                     writer_id,
                     push_condition,
                     adjust_behavior,
+                    ..
                 } => {
                     let indir = Box::pin(sresolve!(self, entity_id, field_type)).await?;
                     Box::pin(self.write(

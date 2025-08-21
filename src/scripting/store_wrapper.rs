@@ -119,6 +119,7 @@ impl StoreWrapper {
             adjust_behavior: crate::data::AdjustBehavior::Set,
             write_time: None,
             writer_id: None,
+            originator: None,
         };
 
         Ok(serde_json::to_value(request)
