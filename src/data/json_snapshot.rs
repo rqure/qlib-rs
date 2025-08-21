@@ -42,7 +42,7 @@ pub struct JsonEntity {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct JsonSnapshot {
     pub schemas: Vec<JsonEntitySchema>,
-    pub entity: JsonEntity,
+    pub tree: JsonEntity,
 }
 
 impl JsonFieldSchema {
@@ -371,64 +371,141 @@ macro_rules! take_json_snapshot {
             let root_entity_id = root_entities.first()
                 .ok_or_else(|| crate::Error::EntityNotFound(crate::EntityId::new("Root", 0)))?;
 
-            // Build the entity tree starting from root using a helper macro
-            let root_entity = crate::build_json_entity_generic!($store, root_entity_id).await?;
+            // Build the entity tree starting from root using the helper function
+            let root_entity = crate::build_json_entity_tree(&mut $store, root_entity_id).await?;
 
             Ok::<crate::JsonSnapshot, crate::Error>(crate::JsonSnapshot {
                 schemas: json_schemas,
-                entity: root_entity,
+                tree: root_entity,
             })
         }
     }};
 }
 
-/// Helper macro to build a JSON entity with full field data
-/// This handles both Store and StoreProxy by using their common interface
-#[macro_export]
-macro_rules! build_json_entity_generic {
-    ($store:expr, $entity_id:expr) => {{
-        async {
-            if !$store.entity_exists($entity_id).await {
-                return Err(crate::Error::EntityNotFound($entity_id.clone()));
-            }
+/// Helper function to build a JSON entity tree with special handling for Children fields
+/// This function works with StoreProxy
+pub async fn build_json_entity_tree_proxy(
+    store: &mut crate::StoreProxy,
+    entity_id: &EntityId,
+) -> Result<JsonEntity> {
+    if !store.entity_exists(entity_id).await {
+        return Err(Error::EntityNotFound(entity_id.clone()));
+    }
 
-            let entity_type = $entity_id.get_type();
-            let complete_schema = $store.get_complete_entity_schema(entity_type).await?;
-            
-            let mut fields = std::collections::HashMap::new();
+    let entity_type = entity_id.get_type();
+    let complete_schema = store.get_complete_entity_schema(entity_type).await?;
+    
+    let mut fields = std::collections::HashMap::new();
 
-            // Read all field values for this entity using perform()
-            for (field_type, _field_schema) in &complete_schema.fields {
-                // Create a read request
-                let mut read_requests = vec![crate::Request::Read {
-                    entity_id: $entity_id.clone(),
-                    field_type: field_type.clone(),
-                    value: None,
-                    write_time: None,
-                    writer_id: None,
-                }];
+    // Read all field values for this entity using perform()
+    for (field_type, field_schema) in &complete_schema.fields {
+        // Create a read request
+        let mut read_requests = vec![crate::Request::Read {
+            entity_id: entity_id.clone(),
+            field_type: field_type.clone(),
+            value: None,
+            write_time: None,
+            writer_id: None,
+        }];
 
-                // Perform the read operation
-                if let Ok(()) = $store.perform(&mut read_requests).await {
-                    if let Some(crate::Request::Read { value: Some(ref value), .. }) = read_requests.first() {
-                        // Convert the value to JSON using the path-resolving helper macro
-                        let choices = if let crate::FieldSchema::Choice { choices, .. } = _field_schema {
-                            Some(choices)
-                        } else {
-                            None
-                        };
-                        let json_value = crate::value_to_json_value_with_paths!($store, value, choices).await;
-                        fields.insert(field_type.as_ref().to_string(), json_value);
+        // Perform the read operation
+        if let Ok(_) = store.perform(&mut read_requests).await {
+            if let Some(crate::Request::Read { value: Some(ref value), .. }) = read_requests.first() {
+                // Special handling for Children field - show nested entities instead of paths
+                if field_type.as_ref() == "Children" {
+                    if let crate::Value::EntityList(child_ids) = value {
+                        let mut children = Vec::new();
+                        for child_id in child_ids {
+                            // Recursively build each child entity
+                            if let Ok(child_entity) = Box::pin(build_json_entity_tree_proxy(store, child_id)).await {
+                                children.push(serde_json::to_value(child_entity).unwrap_or(serde_json::Value::Null));
+                            }
+                        }
+                        fields.insert("Children".to_string(), serde_json::Value::Array(children));
+                    } else {
+                        fields.insert("Children".to_string(), serde_json::Value::Array(vec![]));
                     }
+                } else {
+                    // For other fields, use normal value conversion
+                    let choices_ref = if let crate::FieldSchema::Choice { choices, .. } = field_schema {
+                        Some(choices)
+                    } else {
+                        None
+                    };
+                    let json_value = value_to_json_value(value, choices_ref);
+                    fields.insert(field_type.as_ref().to_string(), json_value);
                 }
             }
-
-            Ok::<crate::JsonEntity, crate::Error>(crate::JsonEntity {
-                entity_type: entity_type.as_ref().to_string(),
-                fields,
-            })
         }
-    }};
+    }
+
+    Ok(JsonEntity {
+        entity_type: entity_type.as_ref().to_string(),
+        fields,
+    })
+}
+
+/// Helper function to build a JSON entity tree with special handling for Children fields
+/// This function works with Store
+pub async fn build_json_entity_tree(
+    store: &mut crate::Store,
+    entity_id: &EntityId,
+) -> Result<JsonEntity> {
+    if !store.entity_exists(entity_id).await {
+        return Err(Error::EntityNotFound(entity_id.clone()));
+    }
+
+    let entity_type = entity_id.get_type();
+    let complete_schema = store.get_complete_entity_schema(entity_type).await?;
+    
+    let mut fields = std::collections::HashMap::new();
+
+    // Read all field values for this entity using perform()
+    for (field_type, field_schema) in &complete_schema.fields {
+        // Create a read request
+        let mut read_requests = vec![crate::Request::Read {
+            entity_id: entity_id.clone(),
+            field_type: field_type.clone(),
+            value: None,
+            write_time: None,
+            writer_id: None,
+        }];
+
+        // Perform the read operation
+        if let Ok(_) = store.perform(&mut read_requests).await {
+            if let Some(crate::Request::Read { value: Some(ref value), .. }) = read_requests.first() {
+                // Special handling for Children field - show nested entities instead of paths
+                if field_type.as_ref() == "Children" {
+                    if let crate::Value::EntityList(child_ids) = value {
+                        let mut children = Vec::new();
+                        for child_id in child_ids {
+                            // Recursively build each child entity
+                            if let Ok(child_entity) = Box::pin(build_json_entity_tree(store, child_id)).await {
+                                children.push(serde_json::to_value(child_entity).unwrap_or(serde_json::Value::Null));
+                            }
+                        }
+                        fields.insert("Children".to_string(), serde_json::Value::Array(children));
+                    } else {
+                        fields.insert("Children".to_string(), serde_json::Value::Array(vec![]));
+                    }
+                } else {
+                    // For other fields, use normal value conversion
+                    let choices_ref = if let crate::FieldSchema::Choice { choices, .. } = field_schema {
+                        Some(choices)
+                    } else {
+                        None
+                    };
+                    let json_value = value_to_json_value(value, choices_ref);
+                    fields.insert(field_type.as_ref().to_string(), json_value);
+                }
+            }
+        }
+    }
+
+    Ok(JsonEntity {
+        entity_type: entity_type.as_ref().to_string(),
+        fields,
+    })
 }
 
 /// Macro to restore the store state from a JSON snapshot
@@ -460,7 +537,7 @@ macro_rules! restore_json_snapshot {
                 let mut create_requests = vec![crate::Request::Create {
                     entity_type: crate::EntityType::from("Root"),
                     parent_id: None,
-                    name: $json_snapshot.entity.fields.get("Name")
+                    name: $json_snapshot.tree.fields.get("Name")
                         .and_then(|v| v.as_str())
                         .unwrap_or("Root")
                         .to_string(),

@@ -33,7 +33,7 @@ pub use context::Context;
 pub use indirection::{BadIndirectionReason, INDIRECTION_DELIMITER};
 pub use pagination::{PageOpts, PageResult};
 pub use snapshots::Snapshot;
-pub use json_snapshot::{JsonSnapshot, JsonEntitySchema, JsonEntity, value_to_json_value, json_value_to_value};
+pub use json_snapshot::{JsonSnapshot, JsonEntitySchema, JsonEntity, value_to_json_value, json_value_to_value, build_json_entity_tree, build_json_entity_tree_proxy};
 pub use cache::Cache;
 
 pub use store_proxy::{StoreProxy, StoreMessage, extract_message_id};
