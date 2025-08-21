@@ -821,6 +821,21 @@ impl Store {
         }
     }
 
+    /// Get a reference to the schemas map
+    pub fn get_schemas(&self) -> &HashMap<EntityType, EntitySchema<Single>> {
+        &self.schemas
+    }
+
+    /// Get a reference to the fields map
+    pub fn get_fields(&self) -> &HashMap<EntityId, HashMap<FieldType, Field>> {
+        &self.fields
+    }
+
+    /// Get a reference to the snowflake generator
+    pub fn get_snowflake(&self) -> &Arc<Snowflake> {
+        &self.snowflake
+    }
+
     /// Get a clone of the write channel receiver for external consumption
     pub fn get_write_channel_receiver(&self) -> Arc<tokio::sync::Mutex<tokio::sync::mpsc::UnboundedReceiver<Request>>> {
         self.write_channel.1.clone()
@@ -1030,6 +1045,8 @@ impl Store {
         self.entities = snapshot.entities;
         self.types = snapshot.types;
         self.fields = snapshot.fields;
+        // Rebuild inheritance map after restoring
+        self.rebuild_inheritance_map();
     }
 
     /// Rebuild the inheritance map for fast lookup of derived types

@@ -8,6 +8,7 @@ pub use data::{
     PageResult, NotificationSender, NotificationReceiver, notification_channel, hash_notify_config, Snapshot, Entity, EntityId, EntitySchema, Single, Complete, 
     Field, FieldSchema, AdjustBehavior, PushCondition, Request, Snowflake, 
     StoreProxy, StoreMessage, extract_message_id, Value, INDIRECTION_DELIMITER, NotifyConfig, Notification,
+    JsonSnapshot, JsonEntitySchema, JsonEntity, value_to_json_value, json_value_to_value,
     EntityType, FieldType, Timestamp, now, epoch, nanos_to_timestamp, secs_to_timestamp, 
     millis_to_timestamp, micros_to_timestamp, ft, et, Cache
 };
@@ -28,6 +29,8 @@ pub enum Error {
     EntityTypeNotFound(EntityType),
     CacheFieldNotFound(FieldType),
     FieldNotFound(EntityId, FieldType),
+    InvalidFieldType(String),
+    InvalidFieldValue(String),
     InvalidNotifyConfig(String),
     UnsupportedAdjustBehavior(EntityId, FieldType, AdjustBehavior),
     ValueTypeMismatch(EntityId, FieldType, Value, Value),
@@ -59,6 +62,8 @@ impl std::fmt::Display for Error {
             Error::EntityTypeNotFound(et) => write!(f, "Entity type not found: {}", et),
             Error::CacheFieldNotFound(field) => write!(f, "Cache field not found: {}", field),
             Error::FieldNotFound(id, field) => write!(f, "Field not found for {}: {}", id, field),
+            Error::InvalidFieldType(msg) => write!(f, "Invalid field type: {}", msg),
+            Error::InvalidFieldValue(msg) => write!(f, "Invalid field value: {}", msg),
             Error::InvalidNotifyConfig(msg) => write!(f, "Invalid notification config: {}", msg),
             Error::UnsupportedAdjustBehavior(id, field, behavior) => write!(f, "Unsupported adjust behavior {} for {}.{}", behavior, id, field),
             Error::ValueTypeMismatch(id, field, got, expected) => write!(f, "Value type mismatch for {}.{}: got value type {:?}, expected value type {:?}", id, field, got, expected),

@@ -7,6 +7,7 @@ mod field_schema;
 mod field;
 pub mod ft;
 mod indirection;
+mod json_snapshot;
 mod notifications;
 mod pagination;
 mod request;
@@ -32,6 +33,7 @@ pub use context::Context;
 pub use indirection::{BadIndirectionReason, INDIRECTION_DELIMITER};
 pub use pagination::{PageOpts, PageResult};
 pub use snapshots::Snapshot;
+pub use json_snapshot::{JsonSnapshot, JsonEntitySchema, JsonEntity, value_to_json_value, json_value_to_value, take_json_snapshot, restore_json_snapshot};
 pub use cache::Cache;
 
 pub use store_proxy::{StoreProxy, StoreMessage, extract_message_id};
@@ -40,6 +42,13 @@ pub use notifications::{NotifyConfig, Notification, NotificationSender, Notifica
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash)]
 pub struct EntityType(pub String);
+
+impl AsRef<str> for EntityType {
+    fn as_ref(&self) -> &str {
+        &self.0
+    }
+}
+
 impl From<String> for EntityType {
     fn from(s: String) -> Self {
         EntityType(s)
