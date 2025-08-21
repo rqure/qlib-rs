@@ -229,6 +229,57 @@ pub fn value_to_json_value(value: &Value, choices: Option<&Vec<String>>) -> Json
     }
 }
 
+/// Macro to convert Value to JsonValue with path resolution for entity references
+/// This works with both Store and StoreProxy since they have the same method signatures
+#[macro_export]
+macro_rules! value_to_json_value_with_paths {
+    ($store:expr, $value:expr, $choices:expr) => {{
+        async {
+            match $value {
+                $crate::Value::Blob(v) => serde_json::to_value(v).unwrap_or(serde_json::Value::Null),
+                $crate::Value::Bool(v) => serde_json::Value::Bool(*v),
+                $crate::Value::Choice(v) => {
+                    if let Some(choices) = $choices {
+                        if *v >= 0 && (*v as usize) < choices.len() {
+                            serde_json::Value::String(choices[*v as usize].clone())
+                        } else {
+                            serde_json::Value::Null
+                        }
+                    } else {
+                        serde_json::Value::Number(serde_json::Number::from(*v))
+                    }
+                },
+                $crate::Value::EntityList(v) => {
+                    let mut path_array = Vec::new();
+                    for entity_id in v {
+                        match crate::spath!($store, entity_id).await {
+                            Ok(path) => path_array.push(serde_json::Value::String(path)),
+                            Err(_) => path_array.push(serde_json::Value::String(entity_id.get_id())),
+                        }
+                    }
+                    serde_json::Value::Array(path_array)
+                },
+                $crate::Value::EntityReference(v) => {
+                    if let Some(entity_id) = v {
+                        match crate::spath!($store, entity_id).await {
+                            Ok(path) => serde_json::Value::String(path),
+                            Err(_) => serde_json::Value::String(entity_id.get_id()),
+                        }
+                    } else {
+                        serde_json::Value::Null
+                    }
+                },
+                $crate::Value::Float(v) => {
+                    serde_json::Value::Number(serde_json::Number::from_f64(*v).unwrap_or_else(|| serde_json::Number::from(0)))
+                },
+                $crate::Value::Int(v) => serde_json::Value::Number(serde_json::Number::from(*v)),
+                $crate::Value::String(v) => serde_json::Value::String(v.clone()),
+                $crate::Value::Timestamp(v) => serde_json::to_value(v).unwrap_or(serde_json::Value::Null),
+            }
+        }
+    }};
+}
+
 /// Helper function to convert JsonValue to Value for entity data
 pub fn json_value_to_value(json_value: &JsonValue, field_schema: &FieldSchema) -> Result<Value> {
     match field_schema {
@@ -302,7 +353,7 @@ pub fn json_value_to_value(json_value: &JsonValue, field_schema: &FieldSchema) -
 #[macro_export]
 macro_rules! take_json_snapshot {
     ($store:expr) => {{
-        async move {
+        async {
             // Collect all schemas by getting all entity types first
             let mut json_schemas = Vec::new();
             let entity_types = $store.get_entity_types().await?;
@@ -336,7 +387,7 @@ macro_rules! take_json_snapshot {
 #[macro_export]
 macro_rules! build_json_entity_generic {
     ($store:expr, $entity_id:expr) => {{
-        async move {
+        async {
             if !$store.entity_exists($entity_id).await {
                 return Err(crate::Error::EntityNotFound($entity_id.clone()));
             }
@@ -360,13 +411,14 @@ macro_rules! build_json_entity_generic {
                 // Perform the read operation
                 if let Ok(()) = $store.perform(&mut read_requests).await {
                     if let Some(crate::Request::Read { value: Some(ref value), .. }) = read_requests.first() {
-                        // Convert the value to JSON using the helper function
+                        // Convert the value to JSON using the path-resolving helper macro
                         let choices = if let crate::FieldSchema::Choice { choices, .. } = _field_schema {
                             Some(choices)
                         } else {
                             None
                         };
-                        fields.insert(field_type.as_ref().to_string(), crate::value_to_json_value(value, choices));
+                        let json_value = crate::value_to_json_value_with_paths!($store, value, choices).await;
+                        fields.insert(field_type.as_ref().to_string(), json_value);
                     }
                 }
             }

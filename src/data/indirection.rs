@@ -172,3 +172,67 @@ macro_rules! sresolve {
         }
     }};
 }
+
+/// Macro to resolve an entity ID to its path by traversing up the parent chain
+/// This works with both Store and StoreProxy since they have the same method signatures
+#[macro_export]
+macro_rules! spath {
+    ($store:expr, $entity_id:expr) => {{
+        async {
+            let mut path_parts = Vec::new();
+            let mut current_id = $entity_id.clone();
+            let mut visited = std::collections::HashSet::new();
+            
+            loop {
+                // Prevent infinite loops in case of circular references
+                if visited.contains(&current_id) {
+                    return Err($crate::Error::BadIndirection(
+                        current_id.clone(),
+                        $crate::FieldType::from("Parent"),
+                        $crate::BadIndirectionReason::UnexpectedValueType(
+                            $crate::FieldType::from("Parent"),
+                            "Circular reference detected in parent chain".to_string(),
+                        ),
+                    ));
+                }
+                visited.insert(current_id.clone());
+                
+                // Read the name of the current entity
+                let mut name_requests = vec![$crate::sread!(current_id.clone(), $crate::FieldType::from("Name"))];
+                
+                let entity_name = if $store.perform(&mut name_requests).await.is_ok() {
+                    if let $crate::Request::Read { value: Some($crate::Value::String(name)), .. } = &name_requests[0] {
+                        name.clone()
+                    } else {
+                        // Fallback to entity ID if no name field
+                        current_id.get_id()
+                    }
+                } else {
+                    // Fallback to entity ID if name read fails
+                    current_id.get_id()
+                };
+                
+                path_parts.push(entity_name);
+                
+                // Read the parent of the current entity
+                let mut parent_requests = vec![$crate::sread!(current_id.clone(), $crate::FieldType::from("Parent"))];
+                
+                if $store.perform(&mut parent_requests).await.is_ok() {
+                    if let $crate::Request::Read { value: Some($crate::Value::EntityReference(Some(parent_id))), .. } = &parent_requests[0] {
+                        current_id = parent_id.clone();
+                    } else {
+                        // No parent, we've reached the root
+                        break;
+                    }
+                } else {
+                    // Parent read failed, we've reached the root
+                    break;
+                }
+            }
+            
+            // Reverse to get path from root to entity
+            path_parts.reverse();
+            Ok::<String, $crate::Error>(path_parts.join("/"))
+        }
+    }};
+}
