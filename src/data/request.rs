@@ -46,13 +46,16 @@ pub enum Request {
         entity_type: EntityType,
         parent_id: Option<EntityId>,
         name: String,
-        created_entity_id: Option<EntityId>, // Will be populated with the result
+        created_entity_id: Option<EntityId>,
+        originator: Option<String>,
     },
     Delete {
         entity_id: EntityId,
+        originator: Option<String>,
     },
     SchemaUpdate {
         schema: EntitySchema<Single>,
+        originator: Option<String>,
     },
 }
 

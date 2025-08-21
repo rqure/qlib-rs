@@ -40,6 +40,7 @@ impl StoreWrapper {
             parent_id,
             name: name.to_string(),
             created_entity_id: None,
+            originator: None,
         }];
         self.store.lock().await.perform(&mut requests).await?;
         
@@ -59,7 +60,7 @@ impl StoreWrapper {
         let entity_id = EntityId::try_from(entity_id)
             .map_err(|e| Error::Scripting(format!("Invalid entity ID: {}", e)))?;
 
-        let mut requests = vec![Request::Delete { entity_id }];
+        let mut requests = vec![Request::Delete { entity_id, originator: None }];
         self.store.lock().await.perform(&mut requests).await
     }
 

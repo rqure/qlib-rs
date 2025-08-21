@@ -224,7 +224,7 @@ impl Store {
             .fields
             .insert(field_type.clone(), field_schema);
 
-        let mut requests = vec![Request::SchemaUpdate { schema: entity_schema }];
+        let mut requests = vec![Request::SchemaUpdate { schema: entity_schema, originator: None }];
         self.perform(&mut requests).await
     }
 
@@ -285,6 +285,7 @@ impl Store {
                     parent_id,
                     name,
                     created_entity_id,
+                    ..
                 } => {
                     let entity = self.create_entity_internal(entity_type, parent_id.clone(), name).await?;
                     *created_entity_id = Some(entity.entity_id);
@@ -293,6 +294,7 @@ impl Store {
                 }
                 Request::Delete {
                     entity_id,
+                    ..
                 } => {
                     self.delete_entity_internal(entity_id).await?;
 
@@ -300,6 +302,7 @@ impl Store {
                 }
                 Request::SchemaUpdate {
                     schema,
+                    ..
                 } => {
                     // Get a copy of the existing schema if it exists
                     // We'll use this to see if any fields have been added or removed
