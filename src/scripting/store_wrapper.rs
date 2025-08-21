@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use crate::{EntityId, EntityType, Error, FieldType, Request, Result, StoreProxy, Value};
+use crate::{Entity, EntityId, EntityType, Error, FieldType, Request, Result, StoreProxy, Value};
 use serde_json::Value as JsonValue;
 use tokio::sync::Mutex;
 
@@ -35,7 +35,20 @@ impl StoreWrapper {
             EntityId::try_from(id).map_err(|e| Error::Scripting(format!("Invalid parent ID: {}", e)))
         }).transpose()?;
 
-        let entity = self.store.lock().await.create_entity(&entity_type, parent_id, name).await?;
+        let mut requests = vec![Request::Create {
+            entity_type,
+            parent_id,
+            name: name.to_string(),
+            created_entity_id: None,
+        }];
+        self.store.lock().await.perform(&mut requests).await?;
+        
+        let entity_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = requests.get(0) {
+            id.clone()
+        } else {
+            return Err(Error::Scripting("Failed to create entity".to_string()));
+        };
+        let entity = Entity::new(entity_id);
         
         Ok(serde_json::to_value(entity)
             .map_err(|e| Error::Scripting(format!("Failed to serialize entity: {}", e)))?)
@@ -46,7 +59,8 @@ impl StoreWrapper {
         let entity_id = EntityId::try_from(entity_id)
             .map_err(|e| Error::Scripting(format!("Invalid entity ID: {}", e)))?;
 
-        self.store.lock().await.delete_entity(&entity_id).await
+        let mut requests = vec![Request::Delete { entity_id }];
+        self.store.lock().await.perform(&mut requests).await
     }
 
     /// Check if an entity exists

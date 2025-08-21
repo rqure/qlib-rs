@@ -6,7 +6,7 @@ use crate::{
     data::{
         entity_schema::Complete, now, request::PushCondition, EntityType, FieldType, Notification,
         NotifyConfig, NotificationSender, hash_notify_config, Timestamp, INDIRECTION_DELIMITER,
-    }, sadd, sread, sref, sreflist, sstr, ssub, swrite, AdjustBehavior, BadIndirectionReason, Entity, EntityId, EntitySchema, Error, Field, FieldSchema, PageOpts, PageResult, Request, Result, Single, Snapshot, Snowflake, Value
+    }, sread, AdjustBehavior, Entity, EntityId, EntitySchema, Error, Field, FieldSchema, PageOpts, PageResult, Request, Result, Single, Snapshot, Snowflake, Value
 };
 
 #[derive(Serialize, Deserialize)]
@@ -63,80 +63,6 @@ impl std::fmt::Debug for Store {
 impl Store {
     fn default_write_channel() -> (tokio::sync::mpsc::UnboundedSender<Request>, tokio::sync::mpsc::UnboundedReceiver<Request>) {
         tokio::sync::mpsc::unbounded_channel()
-    }
-
-    pub async fn create_entity(
-        &mut self,
-        entity_type: &EntityType,
-        parent_id: Option<EntityId>,
-        name: &str,
-    ) -> Result<Entity> {
-        if !self.schemas.contains_key(&entity_type) {
-            return Err(Error::EntityTypeNotFound(entity_type.clone()));
-        }
-
-        if let Some(parent) = &parent_id {
-            if !self.entity_exists(&parent).await {
-                return Err(Error::EntityNotFound(parent.clone()));
-            }
-        }
-
-        let entity_id = EntityId::new(entity_type.clone(), self.snowflake.generate());
-        if self.fields.contains_key(&entity_id) {
-            return Err(Error::EntityAlreadyExists(entity_id));
-        }
-
-        {
-            let entities = self
-                .entities
-                .entry(entity_type.clone())
-                .or_insert_with(Vec::new);
-            entities.push(entity_id.clone());
-        }
-
-        {
-            self.fields
-                .entry(entity_id.clone())
-                .or_insert_with(HashMap::new);
-        }
-
-        {
-            let complete_schema = self.get_complete_entity_schema(entity_type).await?;
-            let mut writes = complete_schema
-                .fields
-                .iter()
-                .map(|(field_type, _)| match field_type.as_ref() {
-                    "Name" => {
-                        swrite!(entity_id.clone(), field_type.clone(), sstr!(name))
-                    }
-                    "Parent" => match &parent_id {
-                        Some(parent) => swrite!(
-                            entity_id.clone(),
-                            field_type.clone(),
-                            sref!(Some(parent.clone()))
-                        ),
-                        None => swrite!(entity_id.clone(), field_type.clone()),
-                    },
-                    _ => {
-                        // Write the field with its default value
-                        swrite!(entity_id.clone(), field_type.clone())
-                    }
-                })
-                .collect::<Vec<Request>>();
-
-            // If we have a parent, add it to the parent's children list
-            if let Some(parent) = &parent_id {
-                writes.push(sadd!(
-                    parent.clone(),
-                    "Children".into(),
-                    sreflist![entity_id.clone()]
-                ));
-            }
-
-            self.perform(&mut writes).await?;
-        }
-
-        Ok(Entity::new(entity_id))
     }
 
     /// Internal entity creation that doesn't use perform to avoid recursion
@@ -269,77 +195,6 @@ impl Store {
         Ok(schema)
     }
 
-    /// Set or update the schema for an entity type
-    pub async fn set_entity_schema(
-        &mut self,
-        entity_schema: &EntitySchema<Single>,
-    ) -> Result<()> {
-        // Get a copy of the existing schema if it exists
-        // We'll use this to see if any fields have been added or removed
-        let complete_old_schema = self
-            .get_complete_entity_schema(&entity_schema.entity_type)
-            .await
-            .unwrap_or_else(|_| EntitySchema::<Complete>::new(entity_schema.entity_type.clone()));
-
-        self.schemas
-            .insert(entity_schema.entity_type.clone(), entity_schema.clone());
-
-        if !self.entities.contains_key(&entity_schema.entity_type) {
-            self.entities
-                .insert(entity_schema.entity_type.clone(), Vec::new());
-        }
-
-        if !self.types.contains(&entity_schema.entity_type) {
-            self.types.push(entity_schema.entity_type.clone());
-        }
-
-        // Get the complete schema for the entity type
-        let complete_new_schema =
-            self.get_complete_entity_schema(&entity_schema.entity_type)
-            .await?;
-
-        for removed_field in complete_old_schema.diff(&complete_new_schema) {
-            // If the field was removed, we need to remove it from all entities
-            for entity_id in self
-                .entities
-                .get(&entity_schema.entity_type)
-                .unwrap_or(&Vec::new())
-            {
-                if let Some(fields) = self.fields.get_mut(entity_id) {
-                    fields.remove(&removed_field.field_type());
-                }
-            }
-        }
-
-        for added_field in complete_new_schema.diff(&complete_old_schema) {
-            // If the field was added, we need to add it to all entities
-            for entity_id in self
-                .entities
-                .get(&entity_schema.entity_type)
-                .unwrap_or(&Vec::new())
-            {
-                let fields = self
-                    .fields
-                    .entry(entity_id.clone())
-                    .or_insert_with(HashMap::new);
-                fields.insert(
-                    added_field.field_type().clone(),
-                    Field {
-                        field_type: added_field.field_type().clone(),
-                        value: added_field.default_value(),
-                        write_time: now(),
-                        writer_id: None,
-                    },
-                );
-            }
-        }
-
-        // Rebuild inheritance map after schema changes
-        self.rebuild_inheritance_map();
-
-        Ok(())
-    }
-
     /// Get the schema for a specific field
     pub async fn get_field_schema(
         &self,
@@ -369,7 +224,8 @@ impl Store {
             .fields
             .insert(field_type.clone(), field_schema);
 
-        self.set_entity_schema(&entity_schema).await
+        let mut requests = vec![Request::SchemaUpdate { schema: entity_schema }];
+        self.perform(&mut requests).await
     }
 
     pub async fn entity_exists(&self, entity_id: &EntityId) -> bool {
@@ -445,70 +301,73 @@ impl Store {
                 Request::SchemaUpdate {
                     schema,
                 } => {
-                    self.set_entity_schema(schema).await?;
+                    // Get a copy of the existing schema if it exists
+                    // We'll use this to see if any fields have been added or removed
+                    let complete_old_schema = self
+                        .get_complete_entity_schema(&schema.entity_type)
+                        .await
+                        .unwrap_or_else(|_| EntitySchema::<Complete>::new(schema.entity_type.clone()));
+
+                    self.schemas
+                        .insert(schema.entity_type.clone(), schema.clone());
+
+                    if !self.entities.contains_key(&schema.entity_type) {
+                        self.entities
+                            .insert(schema.entity_type.clone(), Vec::new());
+                    }
+
+                    if !self.types.contains(&schema.entity_type) {
+                        self.types.push(schema.entity_type.clone());
+                    }
+
+                    // Get the complete schema for the entity type
+                    let complete_new_schema =
+                        self.get_complete_entity_schema(&schema.entity_type)
+                        .await?;
+
+                    for removed_field in complete_old_schema.diff(&complete_new_schema) {
+                        // If the field was removed, we need to remove it from all entities
+                        for entity_id in self
+                            .entities
+                            .get(&schema.entity_type)
+                            .unwrap_or(&Vec::new())
+                        {
+                            if let Some(fields) = self.fields.get_mut(entity_id) {
+                                fields.remove(&removed_field.field_type());
+                            }
+                        }
+                    }
+
+                    for added_field in complete_new_schema.diff(&complete_old_schema) {
+                        // If the field was added, we need to add it to all entities
+                        for entity_id in self
+                            .entities
+                            .get(&schema.entity_type)
+                            .unwrap_or(&Vec::new())
+                        {
+                            let fields = self
+                                .fields
+                                .entry(entity_id.clone())
+                                .or_insert_with(HashMap::new);
+                            fields.insert(
+                                added_field.field_type().clone(),
+                                Field {
+                                    field_type: added_field.field_type().clone(),
+                                    value: added_field.default_value(),
+                                    write_time: now(),
+                                    writer_id: None,
+                                },
+                            );
+                        }
+                    }
+
+                    // Rebuild inheritance map after schema changes
+                    self.rebuild_inheritance_map();
 
                     let _ = self.write_channel.0.send(request.clone());
                 }
             }
         }
-        Ok(())
-    }
-
-    /// Deletes an entity and all its fields
-    /// Returns an error if the entity doesn't exist
-    pub async fn delete_entity(&mut self, entity_id: &EntityId) -> Result<()> {
-        // Check if the entity exists
-        {
-            if !self.fields.contains_key(entity_id) {
-                return Err(Error::EntityNotFound(entity_id.clone()));
-            }
-        }
-
-        // Remove all childrens
-        {
-            let mut reqs = vec![sread!(entity_id.clone(), "Children".into())];
-            self.perform(&mut reqs).await?;
-            if let Request::Read { value, .. } = &reqs[0] {
-                if let Some(Value::EntityList(children)) = value {
-                    for child in children {
-                        Box::pin(self.delete_entity(child)).await?;
-                    }
-                } else {
-                    return Err(Error::BadIndirection(
-                        entity_id.clone(),
-                        "Children".into(),
-                        BadIndirectionReason::UnexpectedValueType(
-                            "Children".into(),
-                            format!("{:?}", value),
-                        ),
-                    ));
-                }
-            }
-        }
-
-        // Remove from parent's children list
-        {
-            self.perform(
-                &mut vec![ssub!(
-                    entity_id.clone(),
-                    "Parent->Children".into(),
-                    sreflist![entity_id.clone()]
-                )],
-            ).await?;
-        }
-
-        // Remove fields
-        {
-            self.fields.remove(entity_id);
-        }
-
-        // Remove from entity type list
-        {
-            if let Some(entities) = self.entities.get_mut(entity_id.get_type()) {
-                entities.retain(|id| id != entity_id);
-            }
-        }
-
         Ok(())
     }
 

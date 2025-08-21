@@ -242,62 +242,7 @@ pub struct StoreProxy {
 }
 
 impl StoreProxy {
-    /// Create a new entity
-    pub async fn create_entity(
-        &mut self,
-        entity_type: &EntityType,
-        parent_id: Option<EntityId>,
-        name: &str,
-    ) -> Result<Entity> {
-        let request = StoreMessage::CreateEntity {
-            id: Uuid::new_v4().to_string(),
-            entity_type: entity_type.clone(),
-            parent_id,
-            name: name.to_string(),
-        };
-
-        let response: StoreMessage = self.send_request(request).await?;
-        match response {
-            StoreMessage::CreateEntityResponse { response, .. } => {
-                response.map_err(|e| Error::StoreProxyError(e))
-            }
-            _ => Err(Error::StoreProxyError("Unexpected response type".to_string())),
-        }
-    }
-
-    /// Delete an entity
-    pub async fn delete_entity(&mut self, entity_id: &EntityId) -> Result<()> {
-        let request = StoreMessage::DeleteEntity {
-            id: Uuid::new_v4().to_string(),
-            entity_id: entity_id.clone(),
-        };
-
-        let response: StoreMessage = self.send_request(request).await?;
-        match response {
-            StoreMessage::DeleteEntityResponse { response, .. } => {
-                response.map_err(|e| Error::StoreProxyError(e))
-            }
-            _ => Err(Error::StoreProxyError("Unexpected response type".to_string())),
-        }
-    }
-
-    /// Set entity schema
-    pub async fn set_entity_schema(&mut self, schema: &EntitySchema<Single>) -> Result<()> {
-        let request = StoreMessage::SetEntitySchema {
-            id: Uuid::new_v4().to_string(),
-            schema: schema.clone(),
-        };
-
-        let response: StoreMessage = self.send_request(request).await?;
-        match response {
-            StoreMessage::SetEntitySchemaResponse { response, .. } => {
-                response.map_err(|e| Error::StoreProxyError(e))
-            }
-            _ => Err(Error::StoreProxyError("Unexpected response type".to_string())),
-        }
-    }
-
-    /// Get entity schema
+    /// Check if entity exists
     pub async fn get_entity_schema(
         &self,
         entity_type: &EntityType,
@@ -350,20 +295,13 @@ impl StoreProxy {
         field_type: &FieldType,
         schema: FieldSchema,
     ) -> Result<()> {
-        let request = StoreMessage::SetFieldSchema {
-            id: Uuid::new_v4().to_string(),
-            entity_type: entity_type.clone(),
-            field_type: field_type.clone(),
-            schema: schema.clone(),
-        };
+        let mut entity_schema = self.get_entity_schema(entity_type).await?;
+        entity_schema
+            .fields
+            .insert(field_type.clone(), schema);
 
-        let response: StoreMessage = self.send_request(request).await?;
-        match response {
-            StoreMessage::SetFieldSchemaResponse { response, .. } => {
-                response.map_err(|e| Error::StoreProxyError(e))
-            }
-            _ => Err(Error::StoreProxyError("Unexpected response type".to_string())),
-        }
+        let mut requests = vec![Request::SchemaUpdate { schema: entity_schema }];
+        self.perform(&mut requests).await
     }
 
     /// Get field schema
