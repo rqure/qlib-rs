@@ -32,17 +32,6 @@ pub enum StoreMessage {
         response: std::result::Result<EntitySchema<Complete>, String>,
     },
 
-    SetFieldSchema {
-        id: String,
-        entity_type: EntityType,
-        field_type: FieldType,
-        schema: FieldSchema,
-    },
-    SetFieldSchemaResponse {
-        id: String,
-        response: std::result::Result<(), String>,
-    },
-
     GetFieldSchema {
         id: String,
         entity_type: EntityType,
@@ -165,8 +154,6 @@ pub fn extract_message_id(message: &StoreMessage) -> Option<String> {
         StoreMessage::GetEntitySchemaResponse { id, .. } => Some(id.clone()),
         StoreMessage::GetCompleteEntitySchema { id, .. } => Some(id.clone()),
         StoreMessage::GetCompleteEntitySchemaResponse { id, .. } => Some(id.clone()),
-        StoreMessage::SetFieldSchema { id, .. } => Some(id.clone()),
-        StoreMessage::SetFieldSchemaResponse { id, .. } => Some(id.clone()),
         StoreMessage::GetFieldSchema { id, .. } => Some(id.clone()),
         StoreMessage::GetFieldSchemaResponse { id, .. } => Some(id.clone()),
         StoreMessage::EntityExists { id, .. } => Some(id.clone()),
