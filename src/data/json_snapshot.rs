@@ -426,13 +426,20 @@ pub async fn build_json_entity_tree_proxy(
                         fields.insert("Children".to_string(), serde_json::Value::Array(vec![]));
                     }
                 } else {
-                    // For other fields, use normal value conversion
+                    // For other fields, use path-aware value conversion for entity references
                     let choices_ref = if let crate::FieldSchema::Choice { choices, .. } = field_schema {
                         Some(choices)
                     } else {
                         None
                     };
-                    let json_value = value_to_json_value(value, choices_ref);
+                    
+                    // Use path resolution for EntityReference and EntityList fields (but not Children)
+                    let json_value = match value {
+                        crate::Value::EntityReference(_) | crate::Value::EntityList(_) => {
+                            value_to_json_value_with_paths!(store, value, choices_ref).await
+                        },
+                        _ => value_to_json_value(value, choices_ref)
+                    };
                     fields.insert(field_type.as_ref().to_string(), json_value);
                 }
             }
@@ -489,13 +496,20 @@ pub async fn build_json_entity_tree(
                         fields.insert("Children".to_string(), serde_json::Value::Array(vec![]));
                     }
                 } else {
-                    // For other fields, use normal value conversion
+                    // For other fields, use path-aware value conversion for entity references
                     let choices_ref = if let crate::FieldSchema::Choice { choices, .. } = field_schema {
                         Some(choices)
                     } else {
                         None
                     };
-                    let json_value = value_to_json_value(value, choices_ref);
+                    
+                    // Use path resolution for EntityReference and EntityList fields (but not Children)
+                    let json_value = match value {
+                        crate::Value::EntityReference(_) | crate::Value::EntityList(_) => {
+                            value_to_json_value_with_paths!(store, value, choices_ref).await
+                        },
+                        _ => value_to_json_value(value, choices_ref)
+                    };
                     fields.insert(field_type.as_ref().to_string(), json_value);
                 }
             }

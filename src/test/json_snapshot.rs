@@ -425,7 +425,15 @@ async fn test_json_snapshot_path_resolution() {
 
     let root_schema = EntitySchema::<Single>::new("Root", Some(EntityType::from("Object")));
 
-    let folder_schema = EntitySchema::<Single>::new("Folder", Some(EntityType::from("Object")));
+    let mut folder_schema = EntitySchema::<Single>::new("Folder", Some(EntityType::from("Object")));
+    folder_schema.fields.insert(
+        FieldType::from("Parent"),
+        FieldSchema::EntityReference {
+            field_type: FieldType::from("Parent"),
+            default_value: None,
+            rank: 5,
+        },
+    );
     
     let mut file_schema = EntitySchema::<Single>::new("File", Some(EntityType::from("Object")));
     file_schema.fields.insert(
@@ -434,6 +442,14 @@ async fn test_json_snapshot_path_resolution() {
             field_type: FieldType::from("ParentFolder"),
             default_value: None,
             rank: 10,
+        },
+    );
+    file_schema.fields.insert(
+        FieldType::from("Parent"),
+        FieldSchema::EntityReference {
+            field_type: FieldType::from("Parent"),
+            default_value: None,
+            rank: 11,
         },
     );
 
@@ -487,11 +503,18 @@ async fn test_json_snapshot_path_resolution() {
         
         // Set folder as parent of file (ParentFolder reference)
         swrite!(file_id.clone(), FieldType::from("ParentFolder"), Some(Value::EntityReference(Some(folder_id.clone())))),
+        
+        // Set up Parent chain for path resolution (used by spath! macro)
+        swrite!(folder_id.clone(), FieldType::from("Parent"), Some(Value::EntityReference(Some(root_id.clone())))),
+        swrite!(file_id.clone(), FieldType::from("Parent"), Some(Value::EntityReference(Some(folder_id.clone())))),
     ];
     store.perform(&mut setup_requests).await.unwrap();
 
     // Take snapshot
     let snapshot = take_json_snapshot!(store).await.unwrap();
+    
+    println!("Generated JSON snapshot with path resolution:");
+    println!("{}", serde_json::to_string_pretty(&snapshot).unwrap());
 
     // Verify that Children shows nested objects
     let root_children = snapshot.tree.fields.get("Children").unwrap().as_array().unwrap();
@@ -510,6 +533,11 @@ async fn test_json_snapshot_path_resolution() {
     // TODO: Verify that ParentFolder reference shows a path (not implemented yet in current version)
     // This would require extending the value_to_json_value_with_paths macro to handle
     // non-Children entity references differently
+    
+    // IMPLEMENTED: Now verify that ParentFolder shows paths instead of IDs
+    let parent_folder_value = nested_file.get("ParentFolder").unwrap();
+    assert_eq!(parent_folder_value.as_str().unwrap(), "Root/Documents", 
+        "ParentFolder should show path 'Root/Documents', got: {:?}", parent_folder_value);
 
     println!("Path resolution test completed successfully!");
 }
