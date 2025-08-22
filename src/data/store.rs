@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, mem::discriminant, sync::Arc};
+use log::debug;
 
 use crate::{
     sresolve,
@@ -987,33 +988,39 @@ impl Store {
 
         match write_option {
             PushCondition::Always => {
-                field.value = new_value;
-
-                if let Some(write_time) = write_time {
-                    field.write_time = *write_time;
-                } else {
-                    field.write_time = now();
-                }
-                if let Some(writer_id) = writer_id {
-                    field.writer_id = Some(writer_id.clone());
-                } else {
-                    field.writer_id = None;
-                }
-            }
-            PushCondition::Changes => {
-                // Changes write, only update if the value is different
-                if field.value != new_value {
+                // Only update if the incoming write is newer or if no write_time is specified (local write)
+                let incoming_time = write_time.unwrap_or_else(|| now());
+                if write_time.is_none() || incoming_time >= field.write_time {
                     field.value = new_value;
-                    if let Some(write_time) = write_time {
-                        field.write_time = *write_time;
-                    } else {
-                        field.write_time = now();
-                    }
+                    field.write_time = incoming_time;
                     if let Some(writer_id) = writer_id {
                         field.writer_id = Some(writer_id.clone());
                     } else {
                         field.writer_id = None;
                     }
+                } else {
+                    // Incoming write is older, ignore it
+                    debug!("Ignoring older write for entity {} field {}: incoming {:?} < current {:?}", 
+                           entity_id, field_type, incoming_time, field.write_time);
+                    return Ok(());
+                }
+            }
+            PushCondition::Changes => {
+                // Changes write, only update if the value is different AND the write is newer
+                let incoming_time = write_time.unwrap_or_else(|| now());
+                if (write_time.is_none() || incoming_time >= field.write_time) && field.value != new_value {
+                    field.value = new_value;
+                    field.write_time = incoming_time;
+                    if let Some(writer_id) = writer_id {
+                        field.writer_id = Some(writer_id.clone());
+                    } else {
+                        field.writer_id = None;
+                    }
+                } else if write_time.is_some() && incoming_time < field.write_time {
+                    // Incoming write is older, ignore it
+                    debug!("Ignoring older write for entity {} field {}: incoming {:?} < current {:?}", 
+                           entity_id, field_type, incoming_time, field.write_time);
+                    return Ok(());
                 }
             }
         }

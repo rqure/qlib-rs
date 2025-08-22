@@ -110,6 +110,16 @@ impl Request {
         }
     }
 
+    pub fn originator(&self) -> Option<&String> {
+        match self {
+            Request::Read { .. } => None,
+            Request::Write { originator, .. } => originator.as_ref(),
+            Request::Create { originator, .. } => originator.as_ref(),
+            Request::Delete { originator, .. } => originator.as_ref(),
+            Request::SchemaUpdate { originator, .. } => originator.as_ref(),
+        }
+    }
+
     pub fn try_set_originator(&mut self, originator: String) {
         match self {
             Request::Read { .. } => {}
