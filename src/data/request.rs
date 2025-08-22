@@ -109,4 +109,30 @@ impl Request {
             Request::SchemaUpdate { .. } => None,
         }
     }
+
+    pub fn try_set_originator(&mut self, originator: String) {
+        match self {
+            Request::Read { .. } => {}
+            Request::Write { originator: o, .. } => {
+                if o.is_none() {
+                    *o = Some(originator);
+                }
+            }
+            Request::Create { originator: o, .. } => {
+                if o.is_none() {
+                    *o = Some(originator);
+                }
+            }
+            Request::Delete { originator: o, .. } => {
+                if o.is_none() {
+                    *o = Some(originator);
+                }
+            }
+            Request::SchemaUpdate { originator: o, .. } => {
+                if o.is_none() {
+                    *o = Some(originator);
+                }
+            }
+        }
+    }
 }
