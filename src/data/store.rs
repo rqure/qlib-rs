@@ -373,6 +373,16 @@ impl Store {
 
                     write_requests.push(request.clone());
                 }
+                Request::Snapshot {
+                    snapshot_counter,
+                    ..
+                } => {
+                    // Snapshot requests are mainly for WAL marking purposes
+                    // The actual snapshot logic is handled elsewhere
+                    // We just log this event and include it in write requests for WAL persistence
+                    debug!("Snapshot marker: counter={}", snapshot_counter);
+                    write_requests.push(request.clone());
+                }
             }
         }
         

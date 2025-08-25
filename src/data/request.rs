@@ -57,6 +57,10 @@ pub enum Request {
         schema: EntitySchema<Single>,
         originator: Option<String>,
     },
+    Snapshot {
+        snapshot_counter: u64,
+        originator: Option<String>,
+    },
 }
 
 impl Request {
@@ -67,6 +71,7 @@ impl Request {
             Request::Create { created_entity_id, .. } => created_entity_id.as_ref(),
             Request::Delete { entity_id, .. } => Some(entity_id),
             Request::SchemaUpdate { .. } => None,
+            Request::Snapshot { .. } => None,
         }
     }
 
@@ -77,6 +82,7 @@ impl Request {
             Request::Create { .. } => None,
             Request::Delete { .. } => None,
             Request::SchemaUpdate { .. } => None,
+            Request::Snapshot { .. } => None,
         }
     }
 
@@ -87,6 +93,7 @@ impl Request {
             Request::Create { .. } => None,
             Request::Delete { .. } => None,
             Request::SchemaUpdate { .. } => None,
+            Request::Snapshot { .. } => None,
         }
     }
 
@@ -97,6 +104,7 @@ impl Request {
             Request::Create { .. } => None,
             Request::Delete { .. } => None,
             Request::SchemaUpdate { .. } => None,
+            Request::Snapshot { .. } => None,
         }
     }
 
@@ -107,6 +115,7 @@ impl Request {
             Request::Create { .. } => None,
             Request::Delete { .. } => None,
             Request::SchemaUpdate { .. } => None,
+            Request::Snapshot { .. } => None,
         }
     }
 
@@ -117,6 +126,7 @@ impl Request {
             Request::Create { originator, .. } => originator.as_ref(),
             Request::Delete { originator, .. } => originator.as_ref(),
             Request::SchemaUpdate { originator, .. } => originator.as_ref(),
+            Request::Snapshot { originator, .. } => originator.as_ref(),
         }
     }
 
@@ -139,6 +149,11 @@ impl Request {
                 }
             }
             Request::SchemaUpdate { originator: o, .. } => {
+                if o.is_none() {
+                    *o = Some(originator);
+                }
+            }
+            Request::Snapshot { originator: o, .. } => {
                 if o.is_none() {
                     *o = Some(originator);
                 }
