@@ -7,7 +7,7 @@ use tokio_tungstenite::{connect_async, tungstenite::Message};
 use uuid::Uuid;
 
 use crate::{
-    Complete, EntityId, EntitySchema, EntityType, Error, FieldSchema, FieldType, Notification, NotificationSender, NotifyConfig, hash_notify_config, PageOpts, PageResult, Request, Result, Single, Snapshot
+    Complete, EntityId, EntitySchema, EntityType, Error, FieldSchema, FieldType, Notification, NotificationSender, NotifyConfig, hash_notify_config, PageOpts, PageResult, Request, Result, Single
 };
 
 /// WebSocket message types for Store proxy communication
