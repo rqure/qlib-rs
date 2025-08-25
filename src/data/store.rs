@@ -39,6 +39,10 @@ pub struct Store {
 
     #[serde(skip, default = "Store::default_write_channel")]
     pub write_channel: (tokio::sync::mpsc::UnboundedSender<Vec<Request>>, Arc<tokio::sync::Mutex<tokio::sync::mpsc::UnboundedReceiver<Vec<Request>>>>),
+
+    /// Flag to temporarily disable notifications (e.g., during WAL replay)
+    #[serde(skip)]
+    notifications_disabled: bool,
 }
 
 impl std::fmt::Debug for Store {
@@ -837,6 +841,7 @@ impl Store {
                 let (sender, receiver) = tokio::sync::mpsc::unbounded_channel();
                 (sender, Arc::new(tokio::sync::Mutex::new(receiver)))
             },
+            notifications_disabled: false,
         }
     }
 
@@ -858,6 +863,21 @@ impl Store {
     /// Get a clone of the write channel receiver for external consumption
     pub fn get_write_channel_receiver(&self) -> Arc<tokio::sync::Mutex<tokio::sync::mpsc::UnboundedReceiver<Vec<Request>>>> {
         self.write_channel.1.clone()
+    }
+
+    /// Disable notifications temporarily (e.g., during WAL replay)
+    pub fn disable_notifications(&mut self) {
+        self.notifications_disabled = true;
+    }
+
+    /// Re-enable notifications
+    pub fn enable_notifications(&mut self) {
+        self.notifications_disabled = false;
+    }
+
+    /// Check if notifications are currently disabled
+    pub fn are_notifications_disabled(&self) -> bool {
+        self.notifications_disabled
     }
 
     async fn read(
@@ -1218,6 +1238,11 @@ impl Store {
         current_request: Request,
         previous_request: Request,
     ) {
+        // Skip notifications if they are disabled
+        if self.notifications_disabled {
+            return;
+        }
+
         // Collect notifications that need to be triggered to avoid borrowing conflicts
         let mut notifications_to_trigger = Vec::new();
 
