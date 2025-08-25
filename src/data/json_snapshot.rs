@@ -25,7 +25,7 @@ pub struct JsonEntitySchema {
     #[serde(rename = "_entityType")]
     pub entity_type: String,
     #[serde(skip_serializing_if = "Option::is_none", rename = "inheritsFrom")]
-    pub inherits_from: Option<Vec<String>>,
+    pub inherits_from: Option<String>,
     pub fields: Vec<JsonFieldSchema>,
 }
 
@@ -171,7 +171,7 @@ impl JsonEntitySchema {
             rank_a.cmp(&rank_b).then_with(|| a.name.cmp(&b.name))
         });
 
-        let inherits_from = schema.inherit.as_ref().map(|t| vec![t.as_ref().to_string()]);
+        let inherits_from = schema.inherit.as_ref().map(|t| t.as_ref().to_string());
 
         Self {
             entity_type: schema.entity_type.as_ref().to_string(),
@@ -185,7 +185,6 @@ impl JsonEntitySchema {
         let mut schema = EntitySchema::<Single>::new(
             self.entity_type.clone(),
             self.inherits_from.as_ref()
-                .and_then(|list| list.first())
                 .map(|s| EntityType::from(s.clone()))
         );
 
@@ -533,13 +532,13 @@ macro_rules! restore_json_snapshot {
             sorted_schemas.sort_by(|a, b| {
                 // If a inherits from b, b should come first
                 if let Some(ref inherits) = a.inherits_from {
-                    if inherits.contains(&b.entity_type) {
+                    if inherits == &b.entity_type {
                         return std::cmp::Ordering::Greater;
                     }
                 }
                 // If b inherits from a, a should come first  
                 if let Some(ref inherits) = b.inherits_from {
-                    if inherits.contains(&a.entity_type) {
+                    if inherits == &a.entity_type {
                         return std::cmp::Ordering::Less;
                     }
                 }
