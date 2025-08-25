@@ -1018,11 +1018,26 @@ impl Store {
                     }
 
                     // Trigger notifications after a write operation
+                    let current_request = Request::Read {
+                        entity_id: entity_id.clone(),
+                        field_type: field_type.clone(),
+                        value: Some(notification_new_value.clone()),
+                        write_time: Some(field.write_time),
+                        writer_id: field.writer_id.clone(),
+                    };
+                    let previous_request = Request::Read {
+                        entity_id: entity_id.clone(),
+                        field_type: field_type.clone(),
+                        value: Some(notification_old_value.clone()),
+                        write_time: Some(field.write_time), // Use the time before the write
+                        writer_id: field.writer_id.clone(),
+                    };
+                    
                     self.trigger_notifications(
                         entity_id,
                         field_type,
-                        &notification_new_value,
-                        &notification_old_value,
+                        current_request,
+                        previous_request,
                     ).await;
                 } else {
                     // Incoming write is older, ignore it
@@ -1044,11 +1059,26 @@ impl Store {
                     }
                     
                     // Trigger notifications after a write operation
+                    let current_request = Request::Read {
+                        entity_id: entity_id.clone(),
+                        field_type: field_type.clone(),
+                        value: Some(notification_new_value.clone()),
+                        write_time: Some(field.write_time),
+                        writer_id: field.writer_id.clone(),
+                    };
+                    let previous_request = Request::Read {
+                        entity_id: entity_id.clone(),
+                        field_type: field_type.clone(),
+                        value: Some(notification_old_value.clone()),
+                        write_time: Some(field.write_time), // Use the time before the write
+                        writer_id: field.writer_id.clone(),
+                    };
+                    
                     self.trigger_notifications(
                         entity_id,
                         field_type,
-                        &notification_new_value,
-                        &notification_old_value,
+                        current_request,
+                        previous_request,
                     ).await;
                 } else if write_time.is_some() && incoming_time < field.write_time {
                     // Incoming write is older, ignore it
@@ -1167,20 +1197,15 @@ impl Store {
         &mut self,
         entity_id: &EntityId,
         context_fields: &[FieldType],
-    ) -> std::collections::BTreeMap<FieldType, Option<Value>> {
+    ) -> std::collections::BTreeMap<FieldType, Request> {
         let mut context_map = std::collections::BTreeMap::new();
 
         for context_field in context_fields {
             // Use perform to handle indirection properly
             let mut requests = vec![sread!(entity_id.clone(), context_field.clone())];
 
-            if let Ok(()) = self.perform(&mut requests).await {
-                if let Request::Read { value, .. } = &requests[0] {
-                    context_map.insert(context_field.clone(), value.clone());
-                }
-            } else {
-                context_map.insert(context_field.clone(), None);
-            }
+            let _ = self.perform(&mut requests).await; // Include both successful and failed reads
+            context_map.insert(context_field.clone(), requests.into_iter().next().unwrap());
         }
 
         context_map
@@ -1190,8 +1215,8 @@ impl Store {
         &mut self,
         entity_id: &EntityId,
         field_type: &FieldType,
-        current_value: &Value,
-        previous_value: &Value,
+        current_request: Request,
+        previous_request: Request,
     ) {
         // Collect notifications that need to be triggered to avoid borrowing conflicts
         let mut notifications_to_trigger = Vec::new();
@@ -1207,7 +1232,12 @@ impl Store {
                     } = config
                     {
                         let should_notify = if *trigger_on_change {
-                            current_value != previous_value
+                            // Compare values from the requests
+                            if let (Request::Read { value: Some(current_val), .. }, Request::Read { value: Some(previous_val), .. }) = (&current_request, &previous_request) {
+                                current_val != previous_val
+                            } else {
+                                true // Always notify if we can't compare values
+                            }
                         } else {
                             true // Always trigger on write
                         };
@@ -1237,7 +1267,12 @@ impl Store {
                         } = config
                         {
                             let should_notify = if *trigger_on_change {
-                                current_value != previous_value
+                                // Compare values from the requests
+                                if let (Request::Read { value: Some(current_val), .. }, Request::Read { value: Some(previous_val), .. }) = (&current_request, &previous_request) {
+                                    current_val != previous_val
+                                } else {
+                                    true // Always notify if we can't compare values
+                                }
                             } else {
                                 true // Always trigger on write
                             };
@@ -1257,10 +1292,8 @@ impl Store {
             let config_hash = hash_notify_config(&config);
 
             let notification = Notification {
-                entity_id: entity_id.clone(),
-                field_type: field_type.clone(),
-                current_value: current_value.clone(),
-                previous_value: previous_value.clone(),
+                current: current_request.clone(),
+                previous: previous_request.clone(),
                 context: context_fields,
                 config_hash,
             };

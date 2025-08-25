@@ -4,7 +4,7 @@ use tokio::sync::mpsc;
 
 use serde::{Deserialize, Serialize};
 
-use crate::{EntityId, EntityType, FieldType, Value};
+use crate::{EntityId, EntityType, FieldType, Request};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash)]
 pub enum NotifyConfig {
@@ -22,14 +22,12 @@ pub enum NotifyConfig {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Notification {
-    pub entity_id: EntityId,
-    pub field_type: FieldType,
-    pub current_value: Value,
-    pub previous_value: Value,
-    pub context: BTreeMap<FieldType, Option<Value>>, // Option because the indirection may fail
-    pub config_hash: u64, // Hash of the NotifyConfig that triggered this notification
+    pub current: Request,   // Request::Read with current field value and metadata
+    pub previous: Request,  // Request::Read with previous field value and metadata
+    pub context: BTreeMap<FieldType, Request>, // Context fields as Request::Read (no Option since we'll include failed reads as well)
+    pub config_hash: u64,  // Hash of the NotifyConfig that triggered this notification
 }
 
 /// Notification sender type for sending notifications to a specific channel
