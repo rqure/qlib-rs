@@ -99,23 +99,6 @@ pub enum StoreMessage {
         response: std::result::Result<PageResult<EntityType>, String>,
     },
 
-    TakeSnapshot {
-        id: String,
-    },
-    TakeSnapshotResponse {
-        id: String,
-        response: Snapshot,
-    },
-
-    RestoreSnapshot {
-        id: String,
-        snapshot: Snapshot,
-    },
-    RestoreSnapshotResponse {
-        id: String,
-        response: std::result::Result<(), String>,
-    },
-
     // Notification support
     RegisterNotification {
         id: String,
@@ -168,10 +151,6 @@ pub fn extract_message_id(message: &StoreMessage) -> Option<String> {
         StoreMessage::FindEntitiesExactResponse { id, .. } => Some(id.clone()),
         StoreMessage::GetEntityTypes { id, .. } => Some(id.clone()),
         StoreMessage::GetEntityTypesResponse { id, .. } => Some(id.clone()),
-        StoreMessage::TakeSnapshot { id, .. } => Some(id.clone()),
-        StoreMessage::TakeSnapshotResponse { id, .. } => Some(id.clone()),
-        StoreMessage::RestoreSnapshot { id, .. } => Some(id.clone()),
-        StoreMessage::RestoreSnapshotResponse { id, .. } => Some(id.clone()),
         StoreMessage::RegisterNotification { id, .. } => Some(id.clone()),
         StoreMessage::RegisterNotificationResponse { id, .. } => Some(id.clone()),
         StoreMessage::UnregisterNotification { id, .. } => Some(id.clone()),
@@ -619,35 +598,6 @@ impl StoreProxy {
 
         serde_json::from_value(response)
             .map_err(|e| Error::StoreProxyError(format!("Failed to deserialize response: {}", e)))
-    }
-
-    /// Take snapshot
-    pub async fn take_snapshot(&self) -> Result<Snapshot> {
-        let request = StoreMessage::TakeSnapshot {
-            id: Uuid::new_v4().to_string(),
-        };
-
-        let response: StoreMessage = self.send_request(request).await?;
-        match response {
-            StoreMessage::TakeSnapshotResponse { response, .. } => Ok(response),
-            _ => Err(Error::StoreProxyError("Unexpected response type".to_string())),
-        }
-    }
-
-    /// Restore snapshot
-    pub async fn restore_snapshot(&self, snapshot: Snapshot) -> Result<()> {
-        let request = StoreMessage::RestoreSnapshot {
-            id: Uuid::new_v4().to_string(),
-            snapshot,
-        };
-
-        let response: StoreMessage = self.send_request(request).await?;
-        match response {
-            StoreMessage::RestoreSnapshotResponse { response, .. } => {
-                response.map_err(|e| Error::StoreProxyError(e))
-            }
-            _ => Err(Error::StoreProxyError("Unexpected response type".to_string())),
-        }
     }
 
 }
