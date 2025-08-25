@@ -38,7 +38,7 @@ pub struct Store {
         HashMap<EntityType, HashMap<FieldType, HashMap<NotifyConfig, Vec<NotificationSender>>>>,
 
     #[serde(skip, default = "Store::default_write_channel")]
-    pub write_channel: (tokio::sync::mpsc::UnboundedSender<Request>, Arc<tokio::sync::Mutex<tokio::sync::mpsc::UnboundedReceiver<Request>>>),
+    pub write_channel: (tokio::sync::mpsc::UnboundedSender<Vec<Request>>, Arc<tokio::sync::Mutex<tokio::sync::mpsc::UnboundedReceiver<Vec<Request>>>>),
 }
 
 impl std::fmt::Debug for Store {
@@ -62,7 +62,7 @@ impl std::fmt::Debug for Store {
 }
 
 impl Store {
-    fn default_write_channel() -> (tokio::sync::mpsc::UnboundedSender<Request>, Arc<tokio::sync::Mutex<tokio::sync::mpsc::UnboundedReceiver<Request>>>) {
+    fn default_write_channel() -> (tokio::sync::mpsc::UnboundedSender<Vec<Request>>, Arc<tokio::sync::Mutex<tokio::sync::mpsc::UnboundedReceiver<Vec<Request>>>>) {
         let (sender, receiver) = tokio::sync::mpsc::unbounded_channel();
         (sender, Arc::new(tokio::sync::Mutex::new(receiver)))
     }
@@ -246,6 +246,8 @@ impl Store {
     }
 
     pub async fn perform(&mut self, requests: &mut Vec<Request>) -> Result<()> {
+        let mut write_requests = Vec::new();
+        
         for request in requests.iter_mut() {
             match request {
                 Request::Read {
@@ -280,7 +282,7 @@ impl Store {
                         adjust_behavior,
                     )).await?;
 
-                    let _ = self.write_channel.0.send(request.clone());
+                    write_requests.push(request.clone());
                 }
                 Request::Create {
                     entity_type,
@@ -292,7 +294,7 @@ impl Store {
                     let entity = self.create_entity_internal(entity_type, parent_id.clone(), name).await?;
                     *created_entity_id = Some(entity.entity_id);
 
-                    let _ = self.write_channel.0.send(request.clone());
+                    write_requests.push(request.clone());
                 }
                 Request::Delete {
                     entity_id,
@@ -300,7 +302,7 @@ impl Store {
                 } => {
                     self.delete_entity_internal(entity_id).await?;
 
-                    let _ = self.write_channel.0.send(request.clone());
+                    write_requests.push(request.clone());
                 }
                 Request::SchemaUpdate {
                     schema,
@@ -369,10 +371,16 @@ impl Store {
                     // Rebuild inheritance map after schema changes
                     self.rebuild_inheritance_map();
 
-                    let _ = self.write_channel.0.send(request.clone());
+                    write_requests.push(request.clone());
                 }
             }
         }
+        
+        // Send all write requests as a batch to maintain atomicity
+        if !write_requests.is_empty() {
+            let _ = self.write_channel.0.send(write_requests);
+        }
+        
         Ok(())
     }
 
@@ -838,7 +846,7 @@ impl Store {
     }
 
     /// Get a clone of the write channel receiver for external consumption
-    pub fn get_write_channel_receiver(&self) -> Arc<tokio::sync::Mutex<tokio::sync::mpsc::UnboundedReceiver<Request>>> {
+    pub fn get_write_channel_receiver(&self) -> Arc<tokio::sync::Mutex<tokio::sync::mpsc::UnboundedReceiver<Vec<Request>>>> {
         self.write_channel.1.clone()
     }
 
