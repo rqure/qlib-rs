@@ -1016,6 +1016,14 @@ impl Store {
                     } else {
                         field.writer_id = None;
                     }
+
+                    // Trigger notifications after a write operation
+                    self.trigger_notifications(
+                        entity_id,
+                        field_type,
+                        &notification_new_value,
+                        &notification_old_value,
+                    ).await;
                 } else {
                     // Incoming write is older, ignore it
                     debug!("Ignoring older write for entity {} field {}: incoming {:?} < current {:?}", 
@@ -1034,6 +1042,14 @@ impl Store {
                     } else {
                         field.writer_id = None;
                     }
+                    
+                    // Trigger notifications after a write operation
+                    self.trigger_notifications(
+                        entity_id,
+                        field_type,
+                        &notification_new_value,
+                        &notification_old_value,
+                    ).await;
                 } else if write_time.is_some() && incoming_time < field.write_time {
                     // Incoming write is older, ignore it
                     debug!("Ignoring older write for entity {} field {}: incoming {:?} < current {:?}", 
@@ -1042,14 +1058,6 @@ impl Store {
                 }
             }
         }
-
-        // Trigger notifications after a write operation
-        self.trigger_notifications(
-            entity_id,
-            field_type,
-            &notification_new_value,
-            &notification_old_value,
-        ).await;
 
         Ok(())
     }
