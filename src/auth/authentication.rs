@@ -74,7 +74,7 @@ pub async fn authenticate(
     config: &AuthConfig,
 ) -> Result<EntityId> {
     let user_id = find_user_by_name(store, name).await?
-        .ok_or(Error::UserNotFound)?;
+        .ok_or(Error::SubjectNotFound)?;
 
     // Check if account is active
     if !is_user_active(store, &user_id).await? {
@@ -193,10 +193,10 @@ pub async fn get_user_secret(store: &mut Store, user_id: &EntityId) -> Result<St
         {
             Ok(secret.clone())
         } else {
-            Err(Error::UserNotFound)
+            Err(Error::SubjectNotFound)
         }
     } else {
-        Err(Error::UserNotFound)
+        Err(Error::SubjectNotFound)
     }
 }
 
@@ -420,7 +420,7 @@ pub async fn create_user(
 ) -> Result<EntityId> {
     // Check if user already exists
     if let Ok(Some(_)) = find_user_by_name(store, name).await {
-        return Err(Error::UserAlreadyExists);
+        return Err(Error::SubjectAlreadyExists);
     }
 
     // Create the user entity
@@ -500,43 +500,6 @@ pub async fn set_user_auth_method(
     Ok(())
 }
 
-/// Create a new service with secret key authentication
-pub async fn create_service(
-    store: &mut Store,
-    name: &str,
-    secret_key: &str,
-    parent_id: &EntityId,
-) -> Result<EntityId> {
-    // Check if service already exists
-    if let Ok(Some(_)) = find_service_by_name(store, name).await {
-        return Err(Error::UserAlreadyExists); // Reusing this error for services
-    }
-
-    // Create the service entity
-    let mut requests = vec![swrite!(
-        EntityId::try_from("service:new").map_err(|e| Error::InvalidName)?,
-        ft::name(),
-        Some(Value::String(name.to_string()))
-    )];
-    
-    // Note: We'll need to use the Store's create functionality properly
-    // For now, this is a placeholder that shows the intent
-    
-    // Create service ID (this would normally be done by Store::create)
-    let service_id = EntityId::try_from(format!("service:{}", name).as_str())
-        .map_err(|_| Error::InvalidName)?;
-    
-    // Set the secret key
-    let mut requests = vec![
-        swrite!(service_id.clone(), ft::secret(), Some(Value::String(secret_key.to_string()))),
-        swrite!(service_id.clone(), ft::active(), Some(Value::Bool(true))),
-    ];
-
-    store.perform(&mut requests).await?;
-
-    Ok(service_id)
-}
-
 /// Authenticate a service using its secret key
 pub async fn authenticate_service(
     store: &mut Store,
@@ -544,7 +507,7 @@ pub async fn authenticate_service(
     secret_key: &str,
 ) -> Result<EntityId> {
     let service_id = find_service_by_name(store, name).await?
-        .ok_or(Error::UserNotFound)?; // Reusing user error for services
+        .ok_or(Error::SubjectNotFound)?; // Reusing user error for services
 
     // Check if service is active
     if !is_service_active(store, &service_id).await? {
@@ -619,10 +582,10 @@ pub async fn get_service_secret(store: &mut Store, service_id: &EntityId) -> Res
         {
             Ok(secret.clone())
         } else {
-            Err(Error::UserNotFound)
+            Err(Error::SubjectNotFound)
         }
     } else {
-        Err(Error::UserNotFound)
+        Err(Error::SubjectNotFound)
     }
 }
 
