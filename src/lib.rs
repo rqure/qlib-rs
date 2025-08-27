@@ -4,7 +4,7 @@ mod test;
 pub mod scripting;
 
 pub use data::{
-    BadIndirectionReason, Context, Store, PageOpts,
+    BadIndirectionReason, Store, PageOpts,
     PageResult, NotificationSender, NotificationReceiver, notification_channel, hash_notify_config, Snapshot, Entity, EntityId, EntitySchema, Single, Complete, 
     Field, FieldSchema, AdjustBehavior, PushCondition, Request, Snowflake, 
     StoreProxy, StoreMessage, extract_message_id, Value, INDIRECTION_DELIMITER, NotifyConfig, Notification,
@@ -17,7 +17,6 @@ pub use data::{
 
 pub use auth::{
     AuthConfig, AuthMethod,
-    SecurityContext, JwtClaims, JwtManager,
     authenticate, find_user_by_name, create_user, set_user_password,
     change_password, validate_password, hash_password, verify_password,
 };

@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
-use tokio::sync::Mutex;
+use tokio::sync::RwLock;
 
-use crate::{ft, scripting::execute, sread, Cache, EntityId, Error, FieldType, Result, StoreProxy, Value};
+use crate::{ft, scripting::execute, sread, Cache, EntityId, Error, FieldType, Result, Store, Value};
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 #[allow(dead_code)]
@@ -14,7 +14,7 @@ pub enum AuthorizationScope {
 
 #[allow(dead_code)]
 pub async fn get_scope(
-    store: Arc<Mutex<StoreProxy>>,
+    store: Arc<RwLock<Store>>,
     auth_rule_cache: &Cache,
     subject_entity_id: &EntityId,
     resource_entity_id: &EntityId,
@@ -52,7 +52,7 @@ pub async fn get_scope(
                 let mut reqs = vec![
                     sread!(permission.clone(), ft::test_fn()),
                 ];
-                store.lock().await.perform(&mut reqs).await?;
+                store.write().await.perform(&mut reqs).await?;
                 let test_fn = reqs.first().unwrap().value().unwrap().expect_string()?.clone();
 
                 if *rule_resource_type == resource_entity_id.get_type().to_string()

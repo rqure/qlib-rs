@@ -1,12 +1,14 @@
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, mem::discriminant, sync::Arc};
 use log::debug;
+use async_trait::async_trait;
 
 use crate::{
     sresolve,
     data::{
         entity_schema::Complete, now, request::PushCondition, EntityType, FieldType, Notification,
         NotifyConfig, NotificationSender, hash_notify_config, Timestamp, INDIRECTION_DELIMITER,
+        StoreTrait,
     }, sread, AdjustBehavior, Entity, EntityId, EntitySchema, Error, Field, FieldSchema, PageOpts, PageResult, Request, Result, Single, Snapshot, Snowflake, Value
 };
 
@@ -1360,5 +1362,64 @@ impl Store {
                 }
             }
         }
+    }
+}
+
+#[async_trait]
+impl StoreTrait for Store {
+    async fn get_entity_schema(&self, entity_type: &EntityType) -> Result<EntitySchema<Single>> {
+        self.get_entity_schema(entity_type).await
+    }
+
+    async fn get_complete_entity_schema(&self, entity_type: &EntityType) -> Result<EntitySchema<Complete>> {
+        self.get_complete_entity_schema(entity_type).await
+    }
+
+    async fn get_field_schema(&self, entity_type: &EntityType, field_type: &FieldType) -> Result<FieldSchema> {
+        self.get_field_schema(entity_type, field_type).await
+    }
+
+    async fn set_field_schema(&mut self, entity_type: &EntityType, field_type: &FieldType, schema: FieldSchema) -> Result<()> {
+        self.set_field_schema(entity_type, field_type, schema).await
+    }
+
+    async fn entity_exists(&self, entity_id: &EntityId) -> bool {
+        self.entity_exists(entity_id).await
+    }
+
+    async fn field_exists(&self, entity_type: &EntityType, field_type: &FieldType) -> bool {
+        self.field_exists(entity_type, field_type).await
+    }
+
+    async fn perform(&mut self, requests: &mut Vec<Request>) -> Result<()> {
+        self.perform(requests).await
+    }
+
+    async fn find_entities_paginated(&self, entity_type: &EntityType, page_opts: Option<PageOpts>) -> Result<PageResult<EntityId>> {
+        self.find_entities_paginated(entity_type, page_opts).await
+    }
+
+    async fn find_entities_exact(&self, entity_type: &EntityType, page_opts: Option<PageOpts>) -> Result<PageResult<EntityId>> {
+        self.find_entities_exact(entity_type, page_opts).await
+    }
+
+    async fn find_entities(&self, entity_type: &EntityType) -> Result<Vec<EntityId>> {
+        self.find_entities(entity_type).await
+    }
+
+    async fn get_entity_types(&self) -> Result<Vec<EntityType>> {
+        self.get_entity_types().await
+    }
+
+    async fn get_entity_types_paginated(&self, page_opts: Option<PageOpts>) -> Result<PageResult<EntityType>> {
+        self.get_entity_types_paginated(page_opts).await
+    }
+
+    async fn register_notification(&mut self, config: NotifyConfig, sender: NotificationSender) -> Result<()> {
+        self.register_notification(config, sender).await
+    }
+
+    async fn unregister_notification(&mut self, config: &NotifyConfig, sender: &NotificationSender) -> bool {
+        self.unregister_notification(config, sender).await
     }
 }
