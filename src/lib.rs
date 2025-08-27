@@ -1,5 +1,5 @@
 mod data;
-mod auth;
+pub mod auth;
 mod test;
 pub mod scripting;
 
@@ -8,6 +8,7 @@ pub use data::{
     PageResult, NotificationSender, NotificationReceiver, notification_channel, hash_notify_config, Snapshot, Entity, EntityId, EntitySchema, Single, Complete, 
     Field, FieldSchema, AdjustBehavior, PushCondition, Request, Snowflake, 
     StoreProxy, StoreMessage, extract_message_id, Value, INDIRECTION_DELIMITER, NotifyConfig, Notification,
+    AuthenticationResult,
     JsonSnapshot, JsonEntitySchema, JsonEntity, value_to_json_value, json_value_to_value, build_json_entity_tree, build_json_entity_tree_proxy,
     restore_entity_recursive, restore_entity_recursive_proxy,
     EntityType, FieldType, Timestamp, now, epoch, nanos_to_timestamp, secs_to_timestamp, 
@@ -15,8 +16,10 @@ pub use data::{
 };
 
 pub use auth::{
-    AuthConfig,
-    SecurityContext, JwtClaims, JwtManager
+    AuthConfig, AuthMethod,
+    SecurityContext, JwtClaims, JwtManager,
+    authenticate, find_user_by_name, create_user, set_user_password,
+    change_password, validate_password, hash_password, verify_password,
 };
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -46,6 +49,8 @@ pub enum Error {
     InvalidName,
     InvalidPassword(String),
     UserAlreadyExists,
+    InvalidAuthenticationMethod,
+    AuthenticationMethodNotImplemented(String),
 
     // StoreProxy related errors
     StoreProxyError(String),
@@ -77,6 +82,8 @@ impl std::fmt::Display for Error {
             Error::InvalidName => write!(f, "Invalid name format"),
             Error::InvalidPassword(msg) => write!(f, "Invalid password: {}", msg),
             Error::UserAlreadyExists => write!(f, "User already exists"),
+            Error::InvalidAuthenticationMethod => write!(f, "Invalid authentication method for this operation"),
+            Error::AuthenticationMethodNotImplemented(method) => write!(f, "Authentication method '{}' is not implemented", method),
             Error::StoreProxyError(msg) => write!(f, "Store proxy error: {}", msg),
             Error::Scripting(msg) => write!(f, "Scripting error: {}", msg),
         }

@@ -36,7 +36,7 @@ pub use snapshots::Snapshot;
 pub use json_snapshot::{JsonSnapshot, JsonEntitySchema, JsonEntity, value_to_json_value, json_value_to_value, build_json_entity_tree, build_json_entity_tree_proxy, restore_entity_recursive, restore_entity_recursive_proxy};
 pub use cache::Cache;
 
-pub use store_proxy::{StoreProxy, StoreMessage, extract_message_id};
+pub use store_proxy::{StoreProxy, StoreMessage, extract_message_id, AuthenticationResult};
 pub use value::Value;
 pub use notifications::{NotifyConfig, Notification, NotificationSender, NotificationReceiver, notification_channel, hash_notify_config};
 

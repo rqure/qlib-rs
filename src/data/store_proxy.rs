@@ -10,10 +10,30 @@ use crate::{
     Complete, EntityId, EntitySchema, EntityType, Error, FieldSchema, FieldType, Notification, NotificationSender, NotifyConfig, hash_notify_config, PageOpts, PageResult, Request, Result, Single
 };
 
+/// Result of authentication attempt
+#[derive(Debug, Serialize, Deserialize)]
+pub struct AuthenticationResult {
+    /// The authenticated subject ID
+    pub subject_id: EntityId,
+    /// Subject type (User or Service)
+    pub subject_type: String,
+}
+
 /// WebSocket message types for Store proxy communication
 /// These messages are compatible with the qcore-rs WebSocketMessage format
 #[derive(Debug, Serialize, Deserialize)]
 pub enum StoreMessage {
+    // Authentication messages - MUST be first message from client
+    Authenticate {
+        id: String,
+        subject_name: String,
+        credential: String, // Password for users, secret key for services
+    },
+    AuthenticateResponse {
+        id: String,
+        response: std::result::Result<AuthenticationResult, String>,
+    },
+
     GetEntitySchema {
         id: String,
         entity_type: EntityType,
@@ -133,6 +153,8 @@ pub enum StoreMessage {
 /// Extract the message ID from a StoreMessage
 pub fn extract_message_id(message: &StoreMessage) -> Option<String> {
     match message {
+        StoreMessage::Authenticate { id, .. } => Some(id.clone()),
+        StoreMessage::AuthenticateResponse { id, .. } => Some(id.clone()),
         StoreMessage::GetEntitySchema { id, .. } => Some(id.clone()),
         StoreMessage::GetEntitySchemaResponse { id, .. } => Some(id.clone()),
         StoreMessage::GetCompleteEntitySchema { id, .. } => Some(id.clone()),
@@ -169,9 +191,151 @@ pub struct StoreProxy {
     pending_requests: Arc<Mutex<HashMap<String, oneshot::Sender<serde_json::Value>>>>,
     // Map from config hash to list of notification senders
     notification_configs: Arc<RwLock<HashMap<u64, Vec<NotificationSender>>>>,
+    // Authentication state - set once during connection
+    authenticated_subject: Option<EntityId>,
 }
 
 impl StoreProxy {
+    /// Connect to WebSocket server and authenticate immediately
+    /// If authentication fails, the connection will be closed by the server
+    pub async fn connect_and_authenticate(
+        url: &str,
+        subject_name: &str,
+        credential: &str,
+    ) -> Result<Self> {
+        // Connect to WebSocket
+        let (ws_stream, _) = connect_async(url).await
+            .map_err(|e| Error::StoreProxyError(format!("Failed to connect: {}", e)))?;
+
+        let (sender, mut receiver) = ws_stream.split();
+        let sender = Arc::new(Mutex::new(sender));
+        let pending_requests = Arc::new(Mutex::new(HashMap::new()));
+        let notification_configs = Arc::new(RwLock::new(HashMap::new()));
+
+        // Send authentication message immediately
+        let auth_request = StoreMessage::Authenticate {
+            id: Uuid::new_v4().to_string(),
+            subject_name: subject_name.to_string(),
+            credential: credential.to_string(),
+        };
+
+        let auth_message = serde_json::to_string(&auth_request)
+            .map_err(|e| Error::StoreProxyError(format!("Failed to serialize auth request: {}", e)))?;
+
+        sender.lock().await.send(Message::Text(auth_message)).await
+            .map_err(|e| Error::StoreProxyError(format!("Failed to send auth message: {}", e)))?;
+
+        // Wait for authentication response
+        let auth_response = receiver.next().await
+            .ok_or_else(|| Error::StoreProxyError("Connection closed during authentication".to_string()))?
+            .map_err(|e| Error::StoreProxyError(format!("WebSocket error during auth: {}", e)))?;
+
+        let auth_response_text = match auth_response {
+            Message::Text(text) => text,
+            Message::Close(_) => return Err(Error::StoreProxyError("Authentication failed - connection closed".to_string())),
+            _ => return Err(Error::StoreProxyError("Unexpected message type during authentication".to_string())),
+        };
+
+        let auth_result: StoreMessage = serde_json::from_str(&auth_response_text)
+            .map_err(|e| Error::StoreProxyError(format!("Failed to parse auth response: {}", e)))?;
+
+        let authenticated_subject = match auth_result {
+            StoreMessage::AuthenticateResponse { response, .. } => {
+                match response {
+                    Ok(auth_result) => auth_result.subject_id,
+                    Err(error) => return Err(Error::StoreProxyError(format!("Authentication failed: {}", error))),
+                }
+            }
+            _ => return Err(Error::StoreProxyError("Unexpected response to authentication".to_string())),
+        };
+
+        // Start background task to handle incoming messages
+        let pending_requests_clone = pending_requests.clone();
+        let notification_configs_clone = notification_configs.clone();
+        tokio::spawn(async move {
+            StoreProxy::handle_incoming_messages(receiver, pending_requests_clone, notification_configs_clone).await;
+        });
+
+        Ok(StoreProxy {
+            sender,
+            pending_requests,
+            notification_configs,
+            authenticated_subject: Some(authenticated_subject),
+        })
+    }
+
+    /// Handle incoming messages from the WebSocket
+    async fn handle_incoming_messages(
+        mut receiver: futures_util::stream::SplitStream<WsStream>,
+        pending_requests: Arc<Mutex<HashMap<String, oneshot::Sender<serde_json::Value>>>>,
+        notification_configs: Arc<RwLock<HashMap<u64, Vec<NotificationSender>>>>,
+    ) {
+        while let Some(message) = receiver.next().await {
+            match message {
+                Ok(Message::Text(text)) => {
+                    if let Ok(store_message) = serde_json::from_str::<StoreMessage>(&text) {
+                        match store_message {
+                            StoreMessage::Notification { notification } => {
+                                // Handle notification
+                                let config_hash = notification.config_hash;
+                                let configs = notification_configs.read().await;
+                                if let Some(senders) = configs.get(&config_hash) {
+                                    for sender in senders {
+                                        let _ = sender.send(notification.clone());
+                                    }
+                                }
+                            }
+                            _ => {
+                                // Handle response to pending request
+                                if let Some(id) = extract_message_id(&store_message) {
+                                    let mut pending = pending_requests.lock().await;
+                                    if let Some(sender) = pending.remove(&id) {
+                                        let response_json = serde_json::to_value(store_message).unwrap_or_default();
+                                        let _ = sender.send(response_json);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                Ok(Message::Close(_)) => {
+                    break;
+                }
+                Err(_) => {
+                    break;
+                }
+                _ => {} // Ignore other message types
+            }
+        }
+    }
+
+    /// Send a request and wait for response
+    async fn send_request(&self, request: StoreMessage) -> Result<StoreMessage> {
+        let id = extract_message_id(&request)
+            .ok_or_else(|| Error::StoreProxyError("Request missing ID".to_string()))?;
+
+        let (tx, rx) = oneshot::channel();
+        self.pending_requests.lock().await.insert(id.clone(), tx);
+
+        let message_text = serde_json::to_string(&request)
+            .map_err(|e| Error::StoreProxyError(format!("Failed to serialize request: {}", e)))?;
+
+        self.sender.lock().await.send(Message::Text(message_text)).await
+            .map_err(|e| Error::StoreProxyError(format!("Failed to send message: {}", e)))?;
+
+        let response_json = rx.await
+            .map_err(|_| Error::StoreProxyError("Request timeout or connection closed".to_string()))?;
+
+        let response: StoreMessage = serde_json::from_value(response_json)
+            .map_err(|e| Error::StoreProxyError(format!("Failed to parse response: {}", e)))?;
+
+        Ok(response)
+    }
+
+    /// Get the authenticated subject ID
+    pub fn get_authenticated_subject(&self) -> Option<&EntityId> {
+        self.authenticated_subject.as_ref()
+    }
     /// Check if entity exists
     pub async fn get_entity_schema(
         &self,
@@ -505,99 +669,6 @@ impl StoreProxy {
         } else {
             false
         }
-    }
-    
-    /// Connect to a qcore-rs WebSocket server
-    pub async fn connect(url: &str) -> Result<Self> {
-        let (ws_stream, _) = connect_async(url)
-            .await
-            .map_err(|e| Error::StoreProxyError(format!("Failed to connect to WebSocket: {}", e)))?;
-
-        let (sink, mut stream) = ws_stream.split();
-        let sender = Arc::new(Mutex::new(sink));
-        let pending_requests: Arc<Mutex<HashMap<String, oneshot::Sender<serde_json::Value>>>> =
-            Arc::new(Mutex::new(HashMap::new()));
-
-        // Clone for the spawn task
-        let pending_requests_clone = pending_requests.clone();
-        let notification_configs = Arc::new(RwLock::new(HashMap::new()));
-        let notification_configs_clone = notification_configs.clone();
-
-        tokio::spawn(async move {
-            while let Some(msg) = stream.next().await {
-                match msg {
-                    Ok(Message::Text(text)) => {
-                        if let Ok(store_msg) = serde_json::from_str::<StoreMessage>(&text) {
-                            match store_msg {
-                                StoreMessage::Notification { notification } => {
-                                    // Forward notification to registered senders based on config hash
-                                    let config_hash = notification.config_hash;
-                                    if let Some(senders) = notification_configs_clone.read().await.get(&config_hash) {
-                                        for sender in senders {
-                                            // Ignore send errors (receiver may have been dropped)
-                                            let _ = NotificationSender::send(sender, notification.clone());
-                                        }
-                                    }
-                                }
-                                _ => {
-                                    // Handle response messages
-                                    if let Some(id) = extract_message_id(&store_msg) {
-                                        if let Some(sender) =
-                                            pending_requests_clone.lock().await.remove(&id)
-                                        {
-                                            let response_json = serde_json::to_value(&store_msg)
-                                                .unwrap_or_else(|_| serde_json::Value::Null);
-                                            let _ = sender.send(response_json);
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    Ok(Message::Close(_)) => break,
-                    Err(e) => {
-                        log::error!("WebSocket error: {}", e);
-                        break;
-                    }
-                    _ => {} // Ignore other message types
-                }
-            }
-        });
-
-        Ok(StoreProxy {
-            sender,
-            pending_requests,
-            notification_configs,
-        })
-    }
-
-    /// Send a request and wait for response
-    async fn send_request<T>(&self, request: StoreMessage) -> Result<T>
-    where
-        T: serde::de::DeserializeOwned,
-    {
-        let id = extract_message_id(&request)
-            .ok_or_else(|| Error::StoreProxyError("Request missing ID".to_string()))?;
-
-        let (tx, rx) = oneshot::channel();
-        self.pending_requests.lock().await.insert(id.clone(), tx);
-
-        let message_text = serde_json::to_string(&request)
-            .map_err(|e| Error::StoreProxyError(format!("Failed to serialize request: {}", e)))?;
-
-        self.sender
-            .lock()
-            .await
-            .send(Message::Text(message_text))
-            .await
-            .map_err(|e| Error::StoreProxyError(format!("Failed to send message: {}", e)))?;
-
-        let response = rx
-            .await
-            .map_err(|_| Error::StoreProxyError("Request cancelled".to_string()))?;
-
-        serde_json::from_value(response)
-            .map_err(|e| Error::StoreProxyError(format!("Failed to deserialize response: {}", e)))
     }
 
 }

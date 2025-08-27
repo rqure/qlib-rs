@@ -1,7 +1,9 @@
 use crate::FieldType;
 
 pub const ACTIVE: &str = "Active";
+pub const AUTH_METHOD: &str = "AuthMethod";
 pub const CHILDREN: &str = "Children";
+pub const DESCRIPTION: &str = "Description";
 pub const FAILED_ATTEMPTS: &str = "FailedAttempts";
 pub const LAST_LOGIN: &str = "LastLogin";
 pub const LOCKED_UNTIL: &str = "LockedUntil";
@@ -12,6 +14,7 @@ pub const PERMISSION: &str = "Permission";
 pub const RESOURCE_FIELD: &str = "ResourceField";
 pub const RESOURCE_TYPE: &str = "ResourceType";
 pub const SCOPE: &str = "Scope";
+pub const SECRET: &str = "Secret";
 pub const TEST_FN: &str = "TestFn";
 pub const CANDIDATE_LIST: &str = "CandidateList";
 pub const AVAILABLE_LIST: &str = "AvailableList";
@@ -32,8 +35,20 @@ pub fn parent() -> FieldType {
     FieldType::from(PARENT)
 }
 
+pub fn description() -> FieldType {
+    FieldType::from(DESCRIPTION)
+}
+
 pub fn password() -> FieldType {
     FieldType::from(PASSWORD)
+}
+
+pub fn secret() -> FieldType {
+    FieldType::from(SECRET)
+}
+
+pub fn auth_method() -> FieldType {
+    FieldType::from(AUTH_METHOD)
 }
 
 pub fn name() -> FieldType {
