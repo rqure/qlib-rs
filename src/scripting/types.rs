@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use crate::{EntityId, FieldType, Value, Request, AdjustBehavior, PushCondition, millis_to_timestamp, epoch};
+use crate::{EntityId, EntityType, FieldType, FieldSchema, EntitySchema, Value, Request, AdjustBehavior, PushCondition, millis_to_timestamp, epoch, Single, Complete};
 
 /// JSON-serializable version of EntityId for WASM interop
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -256,6 +256,80 @@ impl<T: crate::data::StoreTrait> Clone for PluginContext<T> {
     fn clone(&self) -> Self {
         Self {
             store: self.store.clone(),
+        }
+    }
+}
+
+/// JSON-serializable version of EntityType for WASM interop
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct JsonEntityType(pub String);
+
+impl From<&EntityType> for JsonEntityType {
+    fn from(entity_type: &EntityType) -> Self {
+        Self(entity_type.as_ref().to_string())
+    }
+}
+
+impl From<JsonEntityType> for EntityType {
+    fn from(json_type: JsonEntityType) -> Self {
+        EntityType::from(json_type.0)
+    }
+}
+
+/// JSON-serializable version of FieldSchema for WASM interop
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct JsonFieldSchema {
+    pub field_type: JsonFieldType,
+    pub schema_type: String,
+    pub rank: i64,
+}
+
+impl From<&FieldSchema> for JsonFieldSchema {
+    fn from(schema: &FieldSchema) -> Self {
+        let (schema_type, rank) = match schema {
+            FieldSchema::Blob { rank, .. } => ("Blob".to_string(), *rank),
+            FieldSchema::Bool { rank, .. } => ("Bool".to_string(), *rank),
+            FieldSchema::Choice { rank, .. } => ("Choice".to_string(), *rank),
+            FieldSchema::EntityList { rank, .. } => ("EntityList".to_string(), *rank),
+            FieldSchema::EntityReference { rank, .. } => ("EntityReference".to_string(), *rank),
+            FieldSchema::Float { rank, .. } => ("Float".to_string(), *rank),
+            FieldSchema::Int { rank, .. } => ("Int".to_string(), *rank),
+            FieldSchema::String { rank, .. } => ("String".to_string(), *rank),
+            FieldSchema::Timestamp { rank, .. } => ("Timestamp".to_string(), *rank),
+        };
+
+        Self {
+            field_type: JsonFieldType::from(schema.field_type()),
+            schema_type,
+            rank,
+        }
+    }
+}
+
+/// JSON-serializable version of EntitySchema for WASM interop
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct JsonEntitySchema {
+    pub entity_type: JsonEntityType,
+    pub inherit: Option<JsonEntityType>,
+    pub fields: Vec<JsonFieldSchema>,
+}
+
+impl From<&EntitySchema<Single>> for JsonEntitySchema {
+    fn from(schema: &EntitySchema<Single>) -> Self {
+        Self {
+            entity_type: JsonEntityType::from(&schema.entity_type),
+            inherit: schema.inherit.as_ref().map(JsonEntityType::from),
+            fields: schema.fields.values().map(JsonFieldSchema::from).collect(),
+        }
+    }
+}
+
+impl From<&EntitySchema<Complete>> for JsonEntitySchema {
+    fn from(schema: &EntitySchema<Complete>) -> Self {
+        Self {
+            entity_type: JsonEntityType::from(&schema.entity_type),
+            inherit: schema.inherit.as_ref().map(JsonEntityType::from),
+            fields: schema.fields.values().map(JsonFieldSchema::from).collect(),
         }
     }
 }
