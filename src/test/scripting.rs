@@ -1,6 +1,6 @@
 
 #[allow(unused_imports)] // False positive - used in test functions
-use crate::scripting::ScriptRuntimeOptions;
+use crate::scripting::WasmRuntimeOptions;
 use crate::data::Store;
 use crate::Snowflake;
 use std::sync::Arc;
@@ -13,31 +13,35 @@ async fn create_test_store() -> Arc<Mutex<Store>> {
 }
 
 #[test]
-fn test_script_runtime_creation() {
-    // Test that we can create a ScriptRuntime with default options
-    let options = ScriptRuntimeOptions::default();
+fn test_wasm_runtime_creation() {
+    // Test that we can create a WasmRuntime with default options
+    let options = WasmRuntimeOptions::default();
     assert_eq!(options.timeout.as_secs(), 30);
     assert_eq!(options.memory_limit, Some(50 * 1024 * 1024));
-    assert!(options.enable_console);
-    assert!(options.default_entrypoint.is_none());
+    assert!(!options.enable_wasi); // Updated to false
+    assert!(options.enable_fuel);
 }
 
 #[test]
-fn test_script_runtime_options() {
-    // Test that we can create custom ScriptRuntimeOptions
+fn test_wasm_runtime_options() {
+    // Test that we can create custom WasmRuntimeOptions
     use std::time::Duration;
     
-    let options = ScriptRuntimeOptions {
+    let options = WasmRuntimeOptions {
         timeout: Duration::from_secs(10),
         memory_limit: Some(10 * 1024 * 1024),
-        enable_console: false,
-        default_entrypoint: Some("main".to_string()),
+        enable_wasi: false,
+        stack_limit: Some(512 * 1024),
+        enable_fuel: false,
+        fuel_limit: Some(500_000),
     };
     
     assert_eq!(options.timeout.as_secs(), 10);
     assert_eq!(options.memory_limit, Some(10 * 1024 * 1024));
-    assert!(!options.enable_console);
-    assert_eq!(options.default_entrypoint, Some("main".to_string()));
+    assert!(!options.enable_wasi);
+    assert_eq!(options.stack_limit, Some(512 * 1024));
+    assert!(!options.enable_fuel);
+    assert_eq!(options.fuel_limit, Some(500_000));
 }
 
 // Note: Actual JavaScript execution tests are disabled due to runtime conflicts

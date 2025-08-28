@@ -1,131 +1,113 @@
-//! JavaScript scripting support for qlib-rs using rustyscript
+//! WebAssembly scripting support for qlib-rs using wasmtime
 //! 
-//! This module provides a JavaScript runtime that can execute scripts with access
-//! to the Store functionality. Scripts can perform async operations and return
-//! values to the Rust environment.
+//! This module provides a WebAssembly runtime that can execute compiled scripts 
+//! with access to the Store functionality. Scripts can perform async operations 
+//! and return values to the Rust environment.
 
-mod runtime;
 mod store_wrapper;
+mod wasm_runtime;
 
 use std::sync::Arc;
 
-pub use runtime::{ScriptRuntime, ScriptRuntimeOptions, ScriptResult};
 pub use store_wrapper::StoreWrapper;
+pub use wasm_runtime::{WasmRuntime, WasmRuntimeOptions, WasmResult};
 use tokio::sync::RwLock;
 
-use crate::{Error, Result};
+use crate::Result;
 use crate::data::StoreTrait;
-use rustyscript::{Module};
 use serde_json::Value;
 
-/// Execute a JavaScript expression with access to store operations
+/// Execute a WebAssembly expression/module with access to store operations
 /// 
 /// # Arguments
 /// * `store` - The store implementation to make available to the script
-/// * `context` - The security context for store operations
-/// * `expression` - The JavaScript expression to evaluate
+/// * `wasm_bytes` - The compiled WebAssembly bytecode
+/// * `entrypoint` - Optional function name to call as entrypoint (default: "main")
+/// * `args` - Arguments to pass to the entrypoint function
 /// 
 /// # Returns
-/// A `ScriptResult` containing the result value and execution metadata
+/// A `WasmResult` containing the result value and execution metadata
 /// 
 /// # Example
 /// ```rust,ignore
-/// let result = execute_expression(
+/// let wasm_bytes = std::fs::read("script.wasm")?;
+/// let result = execute(
 ///     store,
-///     &context,
-///     "await store.createEntity('User', null, 'testuser')"
+///     &wasm_bytes,
+///     Some("create_user"),
+///     json!("alice")
 /// ).await?;
 /// ```
-pub async fn execute_expression<T: StoreTrait + 'static>(
+pub async fn execute<T: StoreTrait + 'static>(
     store: Arc<RwLock<T>>,
-    expression: &str,
-) -> Result<ScriptResult> {
-    let mut runtime = ScriptRuntime::new(ScriptRuntimeOptions::default())?;
+    wasm_bytes: &[u8],
+    entrypoint: Option<&str>,
+    args: Value,
+) -> Result<WasmResult> {
+    let mut runtime = WasmRuntime::new(WasmRuntimeOptions::default())?;
     runtime.bind_store(store)?;
-    runtime.execute_expression(expression).await
+    runtime.execute_wasm_bytes(wasm_bytes, entrypoint, args).await
 }
 
-/// Execute a JavaScript module with access to store operations
+/// Execute a WebAssembly module with access to store operations
 /// 
 /// # Arguments
 /// * `store` - The store implementation to make available to the script
-/// * `context` - The security context for store operations
 /// * `module_name` - Name for the module (used in error messages)
-/// * `module_code` - The JavaScript/TypeScript module code
+/// * `wasm_bytes` - The compiled WebAssembly bytecode
 /// * `entrypoint` - Optional function name to call as entrypoint
 /// * `args` - Arguments to pass to the entrypoint function
 /// 
 /// # Returns
-/// A `ScriptResult` containing the result value and execution metadata
+/// A `WasmResult` containing the result value and execution metadata
 /// 
 /// # Example
 /// ```rust,ignore
-/// let module_code = r#"
-///     export async function createUser(name) {
-///         const user = await store.createEntity('User', null, name);
-///         console.log('Created user:', user.entity_id);
-///         return user;
+/// let wasm_bytes = compile_rust_to_wasm(r#"
+///     #[no_mangle]
+///     pub extern "C" fn create_user(name_ptr: *const u8, name_len: usize) -> i32 {
+///         // ... implementation
+///         0 // success
 ///     }
-/// "#;
+/// "#);
 /// 
 /// let result = execute_module(
 ///     store,
-///     &context,
 ///     "user_module",
-///     module_code,
-///     Some("createUser"),
-///     json_args!("alice")
+///     &wasm_bytes,
+///     Some("create_user"),
+///     json!("alice")
 /// ).await?;
 /// ```
 pub async fn execute_module<T: StoreTrait + 'static>(
     store: Arc<RwLock<T>>,
-    module_name: &str,
-    module_code: &str,
+    _module_name: &str,
+    wasm_bytes: &[u8],
     entrypoint: Option<&str>,
     args: Value,
-) -> Result<ScriptResult> {
-    let mut runtime = ScriptRuntime::new(ScriptRuntimeOptions::default())?;
+) -> Result<WasmResult> {
+    let mut runtime = WasmRuntime::new(WasmRuntimeOptions::default())?;
     runtime.bind_store(store)?;
-    
-    let module = Module::new(module_name, module_code);
-    runtime.execute_module(module, entrypoint, args).await
+    runtime.execute_wasm_bytes(wasm_bytes, entrypoint, args).await
 }
 
-/// Load and execute a JavaScript file with access to store operations
+/// Load and execute a WebAssembly file with access to store operations
 /// 
 /// # Arguments
 /// * `store` - The store implementation to make available to the script
-/// * `context` - The security context for store operations
-/// * `file_path` - Path to the JavaScript/TypeScript file
+/// * `file_path` - Path to the WebAssembly (.wasm) file
 /// * `entrypoint` - Optional function name to call as entrypoint
 /// * `args` - Arguments to pass to the entrypoint function
 /// 
 /// # Returns
-/// A `ScriptResult` containing the result value and execution metadata
+/// A `WasmResult` containing the result value and execution metadata
 pub async fn execute_file<T: StoreTrait + 'static>(
     store: Arc<RwLock<T>>,
     file_path: &str,
     entrypoint: Option<&str>,
     args: Value,
-) -> Result<ScriptResult> {
-    let mut runtime = ScriptRuntime::new(ScriptRuntimeOptions::default())?;
+) -> Result<WasmResult> {
+    let mut runtime = WasmRuntime::new(WasmRuntimeOptions::default())?;
     runtime.bind_store(store)?;
-    
-    let module = Module::load(file_path)
-        .map_err(|e| Error::Scripting(format!("Failed to load module: {}", e)))?;
-    runtime.execute_module(module, entrypoint, args).await
-}
-
-pub async fn execute<T: StoreTrait + 'static>(
-    store: Arc<RwLock<T>>,
-    code: &str,
-    args: Value,
-) -> Result<ScriptResult> {
-    let module_name = "inline_script";
-    let module_code = format!(r#"
-        export async function main(args) {{
-            {}
-        }}
-    "#, code);
-    execute_module(store, module_name, module_code.as_str(), Some("main"), args).await
+    runtime.execute_wasm_file(file_path, entrypoint, args).await
 }

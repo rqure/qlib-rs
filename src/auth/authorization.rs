@@ -65,16 +65,33 @@ pub async fn get_scope(
                         _ => continue, // Invalid scope
                     };
 
-                    let result = execute(
-                        store.clone(),
-                        &test_fn,
-                        serde_json::json!({
-                            "subject_id": subject_entity_id.to_string(),
-                            "resource_id": resource_entity_id.to_string(),
-                            "resource_field": resource_field.to_string(),
-                        }),
-                    )
-                    .await;
+                    // TODO: Update to compile JavaScript to WebAssembly or use a different approach
+                    // For now, assume test functions are WebAssembly bytecode or skip execution
+                    let result = if test_fn.starts_with("(module") {
+                        // WAT format - convert to WASM and execute
+                        match wat::parse_str(&test_fn) {
+                            Ok(wasm_bytes) => {
+                                execute(
+                                    store.clone(),
+                                    &wasm_bytes,
+                                    Some("main"),
+                                    serde_json::json!({
+                                        "subject_id": subject_entity_id.to_string(),
+                                        "resource_id": resource_entity_id.to_string(),
+                                        "resource_field": resource_field.to_string(),
+                                    }),
+                                )
+                                .await
+                            }
+                            Err(_) => {
+                                // Not WAT format, assume deny for safety
+                                continue;
+                            }
+                        }
+                    } else {
+                        // Not WASM format, assume deny for safety
+                        continue;
+                    };
 
                     if let Ok(result) = result {
                         if result.success {

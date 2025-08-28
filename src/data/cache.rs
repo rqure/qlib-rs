@@ -5,6 +5,7 @@ use crate::{
     NotificationSender, Request, Value,
 };
 
+#[derive(Debug)]
 pub struct Cache {
     pub entity_type: EntityType,
     pub index_fields: Vec<FieldType>,
@@ -25,7 +26,7 @@ pub struct Cache {
 
 #[macro_export]
 macro_rules! scache {
-    ($ctx:expr, $store:expr, $entity_type:expr, $index_fields:expr, $other_fields:expr) => {{
+    ($store:expr, $entity_type:expr, $index_fields:expr, $other_fields:expr) => {{
         async {
             let (sender, receiver) = crate::notification_channel();
 
@@ -33,7 +34,6 @@ macro_rules! scache {
             for field in $index_fields.iter() {
                 $store
                     .register_notification(
-                        &$ctx,
                         crate::NotifyConfig::EntityType {
                             entity_type: $entity_type.clone(),
                             field_type: field.clone(),
@@ -48,7 +48,6 @@ macro_rules! scache {
             for field in $other_fields.iter() {
                 $store
                     .register_notification(
-                        &$ctx,
                         crate::NotifyConfig::EntityType {
                             entity_type: $entity_type.clone(),
                             field_type: field.clone(),
@@ -64,7 +63,7 @@ macro_rules! scache {
             let mut entity_ids_by_index_fields = HashMap::new();
             let mut fields_by_entity_id = HashMap::new();
 
-            for entity_id in $store.find_entities(&$ctx, &$entity_type).await? {
+            for entity_id in $store.find_entities(&$entity_type).await? {
                 let mut reqs = Vec::new();
                 for field in index_fields.iter() {
                     reqs.push(crate::sread!(entity_id.clone(), field.clone()));
@@ -74,7 +73,7 @@ macro_rules! scache {
                     reqs.push(crate::sread!(entity_id.clone(), field.clone()));
                 }
 
-                $store.perform(&$ctx, &mut reqs).await?;
+                $store.perform(&mut reqs).await?;
 
                 let index_key = reqs[..$index_fields.len()]
                     .iter()
