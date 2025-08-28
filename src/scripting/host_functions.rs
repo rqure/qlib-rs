@@ -14,16 +14,6 @@ pub struct StoreContext<T: StoreTrait + Send + Sync + 'static> {
 pub fn define_functions<T: StoreTrait + Send + Sync + 'static>(
     linker: &mut Linker<StoreContext<T>>,
 ) -> Result<(), anyhow::Error> {
-    // Host function for logging from WASM
-    linker.func_wrap("env", "host_log", |_caller: Caller<'_, StoreContext<T>>, value: i32| {
-        println!("WASM log: {}", value);
-    })?;
-
-    // Simple test function that always returns true (1)
-    linker.func_wrap("env", "always_true", |_caller: Caller<'_, StoreContext<T>>| -> i32 {
-        1
-    })?;
-
     // Check if an entity exists (async)
     linker.func_wrap_async(
         "env",
