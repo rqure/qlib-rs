@@ -43,17 +43,17 @@ pub async fn get_scope(
                 .ok_or(Error::CacheFieldNotFound(ft::resource_field()))?
                 .expect_string()?;
 
-            let permission = rule
-                .get(&ft::permission())
+            let program = rule
+                .get(&ft::program())
                 .unwrap()
                 .expect_entity_reference()?;
 
-            if let Some(permission) = permission {
+            if let Some(program) = program {
                 let mut reqs = vec![
-                    sread!(permission.clone(), ft::test_fn()),
+                    sread!(program.clone(), ft::wasm_binary()),
                 ];
                 store.write().await.perform(&mut reqs).await?;
-                let test_fn = reqs.first().unwrap().value().unwrap().expect_string()?.clone();
+                let binary = reqs.first().unwrap().value().unwrap().expect_blob()?.clone();
 
                 if *rule_resource_type == resource_entity_id.get_type().to_string()
                     && *rule_resource_field == resource_field.to_string()
@@ -65,15 +65,9 @@ pub async fn get_scope(
                         _ => continue, // Invalid scope
                     };
 
-                    // TODO: Update to compile JavaScript to WebAssembly or use a different approach
-                    // For now, assume test functions are WebAssembly bytecode or skip execution
-                    let result = if test_fn.starts_with("(module") {
-                        // WAT format - convert to WASM and execute
-                        match wat::parse_str(&test_fn) {
-                            Ok(wasm_bytes) => {
-                                execute(
+                    let result = execute(
                                     store.clone(),
-                                    &wasm_bytes,
+                                    &binary,
                                     Some("main"),
                                     serde_json::json!({
                                         "subject_id": subject_entity_id.to_string(),
@@ -81,17 +75,7 @@ pub async fn get_scope(
                                         "resource_field": resource_field.to_string(),
                                     }),
                                 )
-                                .await
-                            }
-                            Err(_) => {
-                                // Not WAT format, assume deny for safety
-                                continue;
-                            }
-                        }
-                    } else {
-                        // Not WASM format, assume deny for safety
-                        continue;
-                    };
+                                .await;
 
                     if let Ok(result) = result {
                         if result.success {

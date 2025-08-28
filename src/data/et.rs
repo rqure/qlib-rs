@@ -1,6 +1,5 @@
 use crate::EntityType;
 
-pub const AUTHORIZATION_RULE: &str = "AuthorizationRule";
 pub const FAULT_TOLERANCE: &str = "FaultTolerance";
 pub const FOLDER: &str = "Folder";
 pub const MACHINE: &str = "Machine";
@@ -10,10 +9,7 @@ pub const ROOT: &str = "Root";
 pub const SERVICE: &str = "Service";
 pub const SUBJECT: &str = "Subject";
 pub const USER: &str = "User";
-
-pub fn authorization_rule() -> EntityType {
-    EntityType::from(AUTHORIZATION_RULE)
-}
+pub const PROGRAM: &str = "Program";
 
 pub fn fault_tolerance() -> EntityType {
     EntityType::from(FAULT_TOLERANCE)
@@ -49,4 +45,8 @@ pub fn subject() -> EntityType {
 
 pub fn user() -> EntityType {
     EntityType::from(USER)
+}
+
+pub fn program() -> EntityType {
+    EntityType::from(PROGRAM)
 }
