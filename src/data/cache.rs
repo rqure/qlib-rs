@@ -211,3 +211,42 @@ impl<T: StoreTrait + Send + Sync + 'static> Cache<T> {
         });
     }
 }
+
+impl<T: StoreTrait + Send + Sync + 'static> Drop for Cache<T> {
+    fn drop(&mut self) {
+        // Clone the necessary data for the cleanup task
+        let store = self.store.clone();
+        let entity_type = self.entity_type.clone();
+        let index_fields = self.index_fields.clone();
+        let other_fields = self.other_fields.clone();
+        let sender = self.notify_channel.0.clone();
+
+        // Spawn a task to handle async cleanup
+        // This is a best-effort cleanup - if the runtime is shutting down, this may not complete
+        tokio::spawn(async move {
+            let mut store_guard = store.write().await;
+
+            // Unregister notifications for index fields
+            for field in index_fields.iter() {
+                let config = crate::NotifyConfig::EntityType {
+                    entity_type: entity_type.clone(),
+                    field_type: field.clone(),
+                    trigger_on_change: true,
+                    context: vec![],
+                };
+                store_guard.unregister_notification(&config, &sender).await;
+            }
+
+            // Unregister notifications for other fields
+            for field in other_fields.iter() {
+                let config = crate::NotifyConfig::EntityType {
+                    entity_type: entity_type.clone(),
+                    field_type: field.clone(),
+                    trigger_on_change: true,
+                    context: vec![],
+                };
+                store_guard.unregister_notification(&config, &sender).await;
+            }
+        });
+    }
+}
