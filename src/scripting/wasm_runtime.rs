@@ -4,11 +4,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tokio::sync::{Mutex, RwLock};
+use tokio::sync::RwLock;
 use wasmtime::*;
-use wasmtime_wasi::{WasiCtx, WasiCtxBuilder};
-
-use super::StoreWrapper;
 
 /// Configuration options for the WebAssembly runtime
 #[derive(Debug, Clone)]
@@ -17,9 +14,7 @@ pub struct WasmRuntimeOptions {
     pub timeout: Duration,
     /// Maximum memory usage in bytes (default: 50MB)
     pub memory_limit: Option<usize>,
-    /// Whether to enable WASI (WebAssembly System Interface) support
-    pub enable_wasi: bool,
-    /// Stack size limit in bytes (default: 1MB)
+    /// Stack size limit in bytes (default: 1MB)  
     pub stack_limit: Option<usize>,
     /// Whether to enable fuel-based execution limits
     pub enable_fuel: bool,
@@ -32,7 +27,6 @@ impl Default for WasmRuntimeOptions {
         Self {
             timeout: Duration::from_secs(30),
             memory_limit: Some(50 * 1024 * 1024), // 50MB
-            enable_wasi: false, // Disabled for now
             stack_limit: Some(1024 * 1024), // 1MB
             enable_fuel: true,
             fuel_limit: Some(1_000_000), // 1M instructions
@@ -63,22 +57,17 @@ pub struct WasmResult {
 pub struct WasmRuntime {
     engine: Engine,
     store: Store<WasmContext>,
-    console_output: Arc<Mutex<Vec<String>>>,
     options: WasmRuntimeOptions,
 }
 
 /// Context that gets passed to WebAssembly modules
 pub struct WasmContext {
-    pub store_wrapper: Option<Box<dyn std::any::Any + Send + Sync>>,
-    pub console_output: Arc<Mutex<Vec<String>>>,
-    pub wasi: Option<WasiCtx>,
+    pub store_instance: Option<Arc<RwLock<dyn StoreTrait + Send + Sync>>>,
 }
 
 impl WasmRuntime {
     /// Create a new WebAssembly runtime with the given options
     pub fn new(options: WasmRuntimeOptions) -> Result<Self> {
-        let console_output = Arc::new(Mutex::new(Vec::new()));
-        
         // Configure the engine
         let mut config = Config::new();
         config.wasm_memory64(false);
@@ -93,29 +82,12 @@ impl WasmRuntime {
         let engine = Engine::new(&config)
             .map_err(|e| Error::Scripting(format!("Failed to create WASM engine: {}", e)))?;
 
-        // Set up WASI context if enabled
-        let wasi = if options.enable_wasi {
-            Some(
-                WasiCtxBuilder::new()
-                    .inherit_stdio()
-                    .inherit_args()
-                    .build(),
-            )
-        } else {
-            None
-        };
-
         let context = WasmContext {
-            store_wrapper: None,
-            console_output: console_output.clone(),
-            wasi,
+            store_instance: None,
         };
 
         let mut store = Store::new(&engine, context);
-
-        // Configure memory limits - simplified for now
-        // TODO: Implement proper resource limiting
-
+        
         // Set fuel limit
         if options.enable_fuel {
             if let Some(fuel_limit) = options.fuel_limit {
@@ -127,18 +99,16 @@ impl WasmRuntime {
         Ok(Self {
             engine,
             store,
-            console_output,
             options,
         })
     }
 
     /// Bind a store instance to the runtime, making it available to WebAssembly modules
-    pub fn bind_store<T: StoreTrait + 'static>(
+    pub fn bind_store<T: StoreTrait + Send + Sync + 'static>(
         &mut self,
         store: Arc<RwLock<T>>,
     ) -> Result<()> {
-        let store_wrapper = StoreWrapper::new(store);
-        self.store.data_mut().store_wrapper = Some(Box::new(store_wrapper));
+        self.store.data_mut().store_instance = Some(store);
         Ok(())
     }
 
@@ -150,13 +120,6 @@ impl WasmRuntime {
         args: Value,
     ) -> Result<WasmResult> {
         let start_time = Instant::now();
-        let mut console_output = Vec::new();
-        
-        // Clear previous console output
-        {
-            let mut output = self.console_output.lock().await;
-            output.clear();
-        }
 
         let initial_fuel = if self.options.enable_fuel {
             self.store.get_fuel().ok()
@@ -166,12 +129,6 @@ impl WasmRuntime {
 
         let result = match self.execute_wasm_internal(wasm_bytes, entrypoint, args).await {
             Ok(value) => {
-                // Get console output
-                {
-                    let output = self.console_output.lock().await;
-                    console_output = output.clone();
-                }
-
                 let fuel_consumed = if let (Some(initial), Some(remaining)) = 
                     (initial_fuel, self.store.get_fuel().ok()) {
                     Some(initial - remaining)
@@ -184,7 +141,7 @@ impl WasmRuntime {
                     execution_time_ms: start_time.elapsed().as_millis() as u64,
                     memory_used: self.get_memory_usage(),
                     fuel_consumed,
-                    console_output,
+                    console_output: Vec::new(), // No console output capture for now
                     success: true,
                     error: None,
                 }
@@ -196,7 +153,7 @@ impl WasmRuntime {
                 fuel_consumed: initial_fuel.and_then(|initial| 
                     self.store.get_fuel().ok().map(|remaining| initial - remaining)
                 ),
-                console_output,
+                console_output: Vec::new(), // No console output capture for now
                 success: false,
                 error: Some(format!("{}", e)),
             }
@@ -232,15 +189,6 @@ impl WasmRuntime {
         // Create linker for host functions
         let mut linker = Linker::new(&self.engine);
         
-        // Add WASI imports if enabled - disabled for now due to compatibility issues
-        // TODO: Fix WASI linker integration
-        /*
-        if self.options.enable_wasi {
-            wasmtime_wasi::add_to_linker_sync(&mut linker)
-                .map_err(|e| Error::Scripting(format!("Failed to add WASI to linker: {}", e)))?;
-        }
-        */
-
         // Add store functions
         self.add_store_functions(&mut linker)?;
         self.add_console_functions(&mut linker)?;
@@ -282,12 +230,9 @@ impl WasmRuntime {
 
     /// Add console-related host functions to the linker
     fn add_console_functions(&self, linker: &mut Linker<WasmContext>) -> Result<()> {
-        let _console_output = self.console_output.clone();
-        
         linker.func_wrap("env", "console_log", 
             move |_caller: Caller<'_, WasmContext>, msg_ptr: i32, msg_len: i32| -> () {
-                // For now, just log a simple message
-                // TODO: Implement proper memory reading and async console output
+                // Simple console output for debugging
                 println!("WASM console.log called with ptr={}, len={}", msg_ptr, msg_len);
             }).map_err(|e| Error::Scripting(format!("Failed to add console_log: {}", e)))?;
 
@@ -299,44 +244,5 @@ impl WasmRuntime {
         // This is a simplified implementation
         // In practice, you'd track memory usage more accurately
         None
-    }
-}
-
-/// Helper function to read a string from WebAssembly memory
-fn read_string_from_memory(
-    caller: &Caller<'_, WasmContext>,
-    memory: &Memory,
-    ptr: i32,
-    len: i32,
-) -> wasmtime::Result<String> {
-    if len <= 0 {
-        return Ok(String::new());
-    }
-
-    let mut buffer = vec![0u8; len as usize];
-    memory.read(&caller, ptr as usize, &mut buffer)?;
-    
-    String::from_utf8(buffer)
-        .map_err(|e| wasmtime::Error::msg(format!("Invalid UTF-8: {}", e)))
-}
-
-/// Resource limiter for WebAssembly execution
-struct ResourceLimiter {
-    memory_limit: usize,
-}
-
-impl ResourceLimiter {
-    fn new(memory_limit: usize) -> Self {
-        Self { memory_limit }
-    }
-}
-
-impl wasmtime::ResourceLimiter for ResourceLimiter {
-    fn memory_growing(&mut self, _current: usize, desired: usize, _maximum: Option<usize>) -> anyhow::Result<bool> {
-        Ok(desired <= self.memory_limit)
-    }
-
-    fn table_growing(&mut self, _current: u32, _desired: u32, _maximum: Option<u32>) -> anyhow::Result<bool> {
-        Ok(true)
     }
 }

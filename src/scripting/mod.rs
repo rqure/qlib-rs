@@ -4,12 +4,10 @@
 //! with access to the Store functionality. Scripts can perform async operations 
 //! and return values to the Rust environment.
 
-mod store_wrapper;
 mod wasm_runtime;
 
 use std::sync::Arc;
 
-pub use store_wrapper::StoreWrapper;
 pub use wasm_runtime::{WasmRuntime, WasmRuntimeOptions, WasmResult};
 use tokio::sync::RwLock;
 

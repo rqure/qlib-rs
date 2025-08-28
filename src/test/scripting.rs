@@ -18,7 +18,6 @@ fn test_wasm_runtime_creation() {
     let options = WasmRuntimeOptions::default();
     assert_eq!(options.timeout.as_secs(), 30);
     assert_eq!(options.memory_limit, Some(50 * 1024 * 1024));
-    assert!(!options.enable_wasi); // Updated to false
     assert!(options.enable_fuel);
 }
 
@@ -30,7 +29,6 @@ fn test_wasm_runtime_options() {
     let options = WasmRuntimeOptions {
         timeout: Duration::from_secs(10),
         memory_limit: Some(10 * 1024 * 1024),
-        enable_wasi: false,
         stack_limit: Some(512 * 1024),
         enable_fuel: false,
         fuel_limit: Some(500_000),
@@ -38,7 +36,6 @@ fn test_wasm_runtime_options() {
     
     assert_eq!(options.timeout.as_secs(), 10);
     assert_eq!(options.memory_limit, Some(10 * 1024 * 1024));
-    assert!(!options.enable_wasi);
     assert_eq!(options.stack_limit, Some(512 * 1024));
     assert!(!options.enable_fuel);
     assert_eq!(options.fuel_limit, Some(500_000));

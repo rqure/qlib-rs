@@ -6,7 +6,7 @@ use crate::{
 };
 
 /// Async trait defining the common interface for store implementations
-/// This allows StoreWrapper to work with both Store and StoreProxy
+/// This allows different store implementations to be used interchangeably
 #[async_trait]
 pub trait StoreTrait: Send + Sync {
     /// Get the schema for a specific entity type
