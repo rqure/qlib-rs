@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod tests {
-    use crate::scripting::{compile_wat, execute_wasm, compile_wat_to_wasm};
+    use crate::scripting::{execute_wasm, compile_wat_to_wasm, WasmRuntime};
     use crate::data::{EntityId, EntityType, FieldType, Entity, FieldSchema};
     use crate::{Result, Error};
     use std::collections::HashMap;
@@ -13,14 +13,52 @@ mod tests {
         let wat_code = r#"
             (module
                 (memory (export "memory") 1)
+                (func (export "alloc") (param i32) (result i32)
+                    i32.const 0)
                 (func (export "main") (result i32)
-                    i32.const 42
-                )
+                    i32.const 1)
             )
         "#;
 
-        let result = compile_wat(wat_code);
-        assert!(result.is_ok(), "Failed to compile WAT: {:?}", result.err());
+        let bytecode = compile_wat_to_wasm(wat_code).expect("Failed to compile WAT");
+        let store = Arc::new(RwLock::new(create_mock_store().await));
+        
+        let mut runtime = WasmRuntime::new(store).await.expect("Failed to create runtime");
+        
+        // Initially, cache should be empty
+        assert_eq!(runtime.cached_module_count(), 0);
+        
+        // Execute WASM - this should cache the module
+        let result = runtime.execute(&bytecode, "main", serde_json::json!({})).await;
+        assert!(result.is_ok(), "Failed to execute WASM: {:?}", result.err());
+        
+        // Now cache should contain one module
+        assert_eq!(runtime.cached_module_count(), 1);
+        
+        // Execute again - should use cached module
+        let result2 = runtime.execute(&bytecode, "main", serde_json::json!({})).await;
+        assert!(result2.is_ok(), "Failed to execute WASM second time: {:?}", result2.err());
+        
+        // Cache should still contain one module
+        assert_eq!(runtime.cached_module_count(), 1);
+        
+        // Remove the cached module
+        let removed = runtime.remove_cached_module(&bytecode);
+        assert!(removed, "Module should have been found and removed");
+        assert_eq!(runtime.cached_module_count(), 0);
+        
+        // Try to remove again - should return false
+        let removed_again = runtime.remove_cached_module(&bytecode);
+        assert!(!removed_again, "Module should not be found the second time");
+        
+        // Execute again - should recompile and cache
+        let result3 = runtime.execute(&bytecode, "main", serde_json::json!({})).await;
+        assert!(result3.is_ok(), "Failed to execute WASM after cache removal: {:?}", result3.err());
+        assert_eq!(runtime.cached_module_count(), 1);
+        
+        // Clear all cache
+        runtime.clear_module_cache();
+        assert_eq!(runtime.cached_module_count(), 0);
     }
 
     #[tokio::test]
@@ -152,6 +190,59 @@ mod tests {
         
         let result = execute_wasm(&bytecode, store, serde_json::json!({}), None).await;
         assert!(result.is_ok(), "Failed to execute WASM with get_field_schema: {:?}", result.err());
+    }
+
+    #[tokio::test]
+    async fn test_cache_management() {
+        let wat_code = r#"
+            (module
+                (memory (export "memory") 1)
+                (func (export "alloc") (param i32) (result i32)
+                    i32.const 0)
+                (func (export "main") (result i32)
+                    i32.const 1)
+            )
+        "#;
+
+        let bytecode = compile_wat_to_wasm(wat_code).expect("Failed to compile WAT");
+        let store = Arc::new(RwLock::new(create_mock_store().await));
+        
+        let mut runtime = WasmRuntime::new(store).await.expect("Failed to create runtime");
+        
+        // Initially, cache should be empty
+        assert_eq!(runtime.cached_module_count(), 0);
+        
+        // Execute WASM - this should cache the module
+        let result = runtime.execute(&bytecode, "main", serde_json::json!({})).await;
+        assert!(result.is_ok(), "Failed to execute WASM: {:?}", result.err());
+        
+        // Now cache should contain one module
+        assert_eq!(runtime.cached_module_count(), 1);
+        
+        // Execute again - should use cached module
+        let result2 = runtime.execute(&bytecode, "main", serde_json::json!({})).await;
+        assert!(result2.is_ok(), "Failed to execute WASM second time: {:?}", result2.err());
+        
+        // Cache should still contain one module
+        assert_eq!(runtime.cached_module_count(), 1);
+        
+        // Remove the cached module
+        let removed = runtime.remove_cached_module(&bytecode);
+        assert!(removed, "Module should have been found and removed");
+        assert_eq!(runtime.cached_module_count(), 0);
+        
+        // Try to remove again - should return false
+        let removed_again = runtime.remove_cached_module(&bytecode);
+        assert!(!removed_again, "Module should not be found the second time");
+        
+        // Execute again - should recompile and cache
+        let result3 = runtime.execute(&bytecode, "main", serde_json::json!({})).await;
+        assert!(result3.is_ok(), "Failed to execute WASM after cache removal: {:?}", result3.err());
+        assert_eq!(runtime.cached_module_count(), 1);
+        
+        // Clear all cache
+        runtime.clear_module_cache();
+        assert_eq!(runtime.cached_module_count(), 0);
     }
 
     // Helper function to create a mock store for testing
