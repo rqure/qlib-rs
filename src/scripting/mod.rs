@@ -6,9 +6,6 @@ mod types;
 #[cfg(test)]
 mod tests;
 
-#[cfg(test)]
-mod example_test;
-
 pub use plugin::{execute_wasm, execute_wasm_test, compile_wat_to_wasm, validate_wasm_bytes};
 pub use runtime::{WasmRuntime, ExecutionResult, compile_wat, validate_wasm};
 pub use types::{
