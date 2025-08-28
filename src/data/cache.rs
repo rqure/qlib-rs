@@ -3,12 +3,13 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 
 use crate::{
-    EntityId, EntityType, FieldType, NotificationReceiver,
-    NotificationSender, Request, Value, Store,
+    data::StoreTrait, EntityId, EntityType, FieldType, NotificationReceiver, NotificationSender, Request, Value
 };
 
 #[derive(Debug)]
-pub struct Cache {
+pub struct Cache<T: StoreTrait + Send + Sync + 'static> {
+    pub store: Arc<RwLock<T>>,
+
     pub entity_type: EntityType,
     pub index_fields: Vec<FieldType>,
     pub other_fields: Vec<FieldType>,
@@ -26,13 +27,13 @@ pub struct Cache {
     pub notify_channel: (NotificationSender, NotificationReceiver),
 }
 
-impl Cache {
+impl<T: StoreTrait + Send + Sync + 'static> Cache<T> {
     pub async fn new(
-        store: Arc<RwLock<Store>>,
+        store: Arc<RwLock<T>>,
         entity_type: EntityType,
         index_fields: Vec<FieldType>,
         other_fields: Vec<FieldType>,
-    ) -> crate::Result<Cache> {
+    ) -> crate::Result<Self> {
         let (sender, receiver) = crate::notification_channel();
 
         // Register notifications for all fields
@@ -125,11 +126,12 @@ impl Cache {
             entity_ids_by_index_fields,
             fields_by_entity_id,
             notify_channel: (sender, receiver),
+            store,
         })
     }
 }
 
-impl Cache {
+impl<T: StoreTrait + Send + Sync + 'static> Cache<T> {
     pub async fn process_notifications(&mut self) {
         while let Some(notification) = self.notify_channel.1.recv().await {
             // Extract entity_id and field_type from the current request

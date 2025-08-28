@@ -15,7 +15,7 @@ pub enum AuthorizationScope {
 #[allow(dead_code)]
 pub async fn get_scope(
     store: Arc<RwLock<Store>>,
-    auth_rule_cache: &Cache,
+    auth_rule_cache: &Cache<Store>,
     subject_entity_id: &EntityId,
     resource_entity_id: &EntityId,
     resource_field: &FieldType,
