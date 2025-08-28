@@ -27,6 +27,7 @@ pub const HEARTBEAT: &str = "Heartbeat";
 pub const DEATH_DETECTION_TIMEOUT: &str = "DeathDetectionTimeout";
 pub const WASM_BINARY: &str = "WasmBinary";
 pub const EXECUTE: &str = "Execute";
+pub const LAST_OUTPUT: &str = "LastOutput";
 
 pub fn children() -> FieldType {
     FieldType::from(CHILDREN)
