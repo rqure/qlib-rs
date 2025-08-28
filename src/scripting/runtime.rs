@@ -196,9 +196,7 @@ impl<T: StoreTrait + Send + Sync + 'static> WasmRuntime<T> {
                 crate::Error::Scripting(format!("Failed to instantiate WASM module: {}", e))
             })?;
 
-        // Try different function signatures based on what's available
-
-        // First try the full signature with JSON input/output: (input_ptr, input_len, output_ptr, output_max_len) -> output_len
+        // Try the full signature with JSON input/output: (input_ptr, input_len, output_ptr, output_max_len) -> output_len
         if let Some(func) = instance.get_func(&mut store, function_name) {
             if let Ok(full_func) = func.typed::<(i32, i32, i32, i32), i32>(&store) {
                 // Serialize input to JSON
@@ -261,19 +259,6 @@ impl<T: StoreTrait + Send + Sync + 'static> WasmRuntime<T> {
                         output_len, output_size
                     )));
                 }
-            }
-        }
-
-        // Fallback to simple boolean function: () -> i32
-        if let Some(func) = instance.get_func(&mut store, function_name) {
-            if let Ok(simple_func) = func.typed::<(), i32>(&store) {
-                let result = simple_func.call_async(&mut store, ()).await.map_err(|e| {
-                    crate::Error::Scripting(format!("WASM function execution failed: {}", e))
-                })?;
-
-                return Ok(ExecutionResult::success(serde_json::Value::Bool(
-                    result != 0,
-                )));
             }
         }
 
