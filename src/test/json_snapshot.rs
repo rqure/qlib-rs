@@ -221,7 +221,7 @@ async fn test_json_snapshot_functionality() {
     assert_eq!(children.len(), 1);
     
     let machine = &children[0];
-    assert_eq!(machine.get("_entityType").unwrap().as_str().unwrap(), "Machine");
+    assert_eq!(machine.get("entityType").unwrap().as_str().unwrap(), "Machine");
     assert_eq!(machine.get("Name").unwrap().as_str().unwrap(), "Server1");
     assert_eq!(machine.get("Status").unwrap().as_str().unwrap(), "Online");
     
@@ -229,7 +229,7 @@ async fn test_json_snapshot_functionality() {
     assert_eq!(machine_children.len(), 1);
     
     let sensor = &machine_children[0];
-    assert_eq!(sensor.get("_entityType").unwrap().as_str().unwrap(), "TemperatureSensor");
+    assert_eq!(sensor.get("entityType").unwrap().as_str().unwrap(), "TemperatureSensor");
     assert_eq!(sensor.get("Name").unwrap().as_str().unwrap(), "IntakeTemp");
     assert_eq!(sensor.get("CurrentValue").unwrap().as_f64().unwrap(), 72.5);
     assert_eq!(sensor.get("Unit").unwrap().as_str().unwrap(), "C");
@@ -549,14 +549,14 @@ async fn test_json_snapshot_path_resolution() {
     let root_children = snapshot.tree.fields.get("Children").unwrap().as_array().unwrap();
     assert_eq!(root_children.len(), 1);
     let nested_folder = &root_children[0];
-    assert_eq!(nested_folder.get("_entityType").unwrap().as_str().unwrap(), "Folder");
+    assert_eq!(nested_folder.get("entityType").unwrap().as_str().unwrap(), "Folder");
     assert_eq!(nested_folder.get("Name").unwrap().as_str().unwrap(), "Documents");
 
     // Find the file in the nested structure  
     let folder_children = nested_folder.get("Children").unwrap().as_array().unwrap();
     assert_eq!(folder_children.len(), 1);
     let nested_file = &folder_children[0];
-    assert_eq!(nested_file.get("_entityType").unwrap().as_str().unwrap(), "File");
+    assert_eq!(nested_file.get("entityType").unwrap().as_str().unwrap(), "File");
     assert_eq!(nested_file.get("Name").unwrap().as_str().unwrap(), "test.txt");
 
     // TODO: Verify that ParentFolder reference shows a path (not implemented yet in current version)

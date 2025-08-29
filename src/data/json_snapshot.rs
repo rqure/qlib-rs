@@ -25,7 +25,7 @@ pub struct JsonFieldSchema {
 /// JSON-friendly representation of an entity schema
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct JsonEntitySchema {
-    #[serde(rename = "_entityType")]
+    #[serde(rename = "entityType")]
     pub entity_type: String,
     #[serde(skip_serializing_if = "Option::is_none", rename = "inheritsFrom")]
     pub inherits_from: Option<String>,
@@ -35,7 +35,7 @@ pub struct JsonEntitySchema {
 /// JSON-friendly representation of an entity with its data
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct JsonEntity {
-    #[serde(rename = "_entityType")]
+    #[serde(rename = "entityType")]
     pub entity_type: String,
     #[serde(flatten)]
     pub fields: HashMap<String, JsonValue>,
