@@ -40,19 +40,23 @@ pub async fn get_scope(
         ]);
 
         if let Some(permissions) = permissions {
-            for rule in permissions {
-                let scope = rule
+            // If there are any permissions, default to None scope
+            if !permissions.is_empty() {
+                filtered_rules.push(AuthorizationScope::None);
+            }
+
+            for permission in permissions {
+                let scope = permission
                     .get(&ft::scope())
                     .ok_or(Error::CacheFieldNotFound(ft::scope()))?
                     .expect_choice()?;
 
-                let condition = rule.get(&ft::condition()).unwrap().expect_string()?;
+                let condition = permission.get(&ft::condition()).unwrap().expect_string()?;
 
                 let scope = match scope {
-                    0 => AuthorizationScope::None,
-                    1 => AuthorizationScope::ReadOnly,
-                    2 => AuthorizationScope::ReadWrite,
-                    _ => continue, // Invalid scope
+                    0 => AuthorizationScope::ReadOnly,
+                    1 => AuthorizationScope::ReadWrite,
+                    _ => AuthorizationScope::None,
                 };
 
                 let result = executor.execute(
