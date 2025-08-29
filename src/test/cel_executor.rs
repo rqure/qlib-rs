@@ -512,34 +512,34 @@ fn test_cel_executor_execute_with_indirection() -> Result<()> {
     ];
     store.perform(&mut field_requests)?;
 
-    // Test indirection: Department_Name should resolve to "Engineering"
+    // Test indirection: Department->Name should resolve to "Engineering"
     // The CEL executor should read the field "Department->Name" via the store's indirection system
     let result = executor.execute(
-        "Department_Name == 'Engineering'",
+        "Department->Name == 'Engineering'",
         &user_id,
         &mut store
     )?;
     
     match result {
         cel::Value::Bool(value) => assert_eq!(value, true),
-        _ => panic!("Expected bool result for Department_Name"),
+        _ => panic!("Expected bool result for Department->Name"),
     }
 
     // Test indirection with integer field
     let result = executor.execute(
-        "Department_Budget > 50000",
+        "Department->Budget > 50000",
         &user_id,
         &mut store
     )?;
     
     match result {
         cel::Value::Bool(value) => assert_eq!(value, true),
-        _ => panic!("Expected bool result for Department_Budget"),
+        _ => panic!("Expected bool result for Department->Budget"),
     }
 
     // Test complex expression with indirection
     let result = executor.execute(
-        "Name == 'Alice' && Department_Name == 'Engineering' && Department_Budget == 100000",
+        "Name == 'Alice' && Department->Name == 'Engineering' && Department->Budget == 100000",
         &user_id,
         &mut store
     )?;
@@ -662,9 +662,9 @@ fn test_cel_executor_execute_with_deep_indirection() -> Result<()> {
     ];
     store.perform(&mut field_requests)?;
 
-    // Test deep indirection: Department_Company_Name should resolve to "TechCorp"
+    // Test deep indirection: Department->Company->Name should resolve to "TechCorp"
     let result = executor.execute(
-        "Department_Company_Name == 'TechCorp'",
+        "Department->Company->Name == 'TechCorp'",
         &employee_id,
         &mut store
     )?;
@@ -676,7 +676,7 @@ fn test_cel_executor_execute_with_deep_indirection() -> Result<()> {
 
     // Test deep indirection with integer field
     let result = executor.execute(
-        "Department_Company_Founded == 2010",
+        "Department->Company->Founded == 2010",
         &employee_id,
         &mut store
     )?;
@@ -688,7 +688,7 @@ fn test_cel_executor_execute_with_deep_indirection() -> Result<()> {
 
     // Test mixed indirection levels in one expression
     let result = executor.execute(
-        "Name == 'Bob' && Department_Name == 'Engineering' && Department_Company_Name == 'TechCorp'",
+        "Name == 'Bob' && Department->Name == 'Engineering' && Department->Company->Name == 'TechCorp'",
         &employee_id,
         &mut store
     )?;
@@ -1006,9 +1006,9 @@ fn test_cel_executor_execute_with_mixed_field_access() -> Result<()> {
     ];
     store.perform(&mut field_requests)?;
 
-    // Test mixed access: direct fields (Name, Age) and indirect field (Department_Name) in one expression
+    // Test mixed access: direct fields (Name, Age) and indirect field (Department->Name) in one expression
     let result = executor.execute(
-        "Name == 'John' && Age == 30 && Department_Name == 'Sales'",
+        "Name == 'John' && Age == 30 && Department->Name == 'Sales'",
         &user_id,
         &mut store
     )?;
