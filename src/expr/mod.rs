@@ -3,6 +3,7 @@ use cel::{Context, Program};
 
 use crate::{sread, to_base64, EntityId, FieldType, Result, Store, Value, INDIRECTION_DELIMITER};
 
+#[derive(Debug)]
 pub struct CelExecutor {
     cache: HashMap<String, Program>
 }

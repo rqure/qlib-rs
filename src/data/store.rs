@@ -35,6 +35,7 @@ pub struct Store {
     notifications_disabled: bool,
 }
 
+#[derive(Debug)]
 pub struct AsyncStore {
     inner: Store,
 }
