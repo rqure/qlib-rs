@@ -1,5 +1,4 @@
-use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, mem::discriminant, sync::Arc};
+use std::{collections::HashMap, mem::discriminant, sync::{Arc}};
 use async_trait::async_trait;
 
 use crate::{
@@ -8,7 +7,6 @@ use crate::{
     }, sread, AdjustBehavior, Entity, EntityId, EntitySchema, Error, Field, FieldSchema, PageOpts, PageResult, Request, Result, Single, Snapshot, Snowflake, Value
 };
 
-#[derive(Serialize, Deserialize)]
 pub struct Store {
     schemas: HashMap<EntityType, EntitySchema<Single>>,
     entities: HashMap<EntityType, Vec<EntityId>>,
@@ -17,35 +15,28 @@ pub struct Store {
 
     /// Maps parent types to all their derived types (including direct and indirect children)
     /// This allows fast lookup of all entity types that inherit from a given parent type
-    #[serde(skip)]
     inheritance_map: HashMap<EntityType, Vec<EntityType>>,
 
-    #[serde(skip)]
     snowflake: Arc<Snowflake>,
 
     /// Notification senders indexed by entity ID and field type
     /// Each config can have multiple senders
-    #[serde(skip)]
     id_notifications:
         HashMap<EntityId, HashMap<FieldType, HashMap<NotifyConfig, Vec<NotificationSender>>>>,
 
     /// Notification senders indexed by entity type and field type
     /// Each config can have multiple senders
-    #[serde(skip)]
     type_notifications:
         HashMap<EntityType, HashMap<FieldType, HashMap<NotifyConfig, Vec<NotificationSender>>>>,
 
-    #[serde(skip, default = "Store::default_write_channel")]
     pub write_channel: (tokio::sync::mpsc::UnboundedSender<Vec<Request>>, Arc<tokio::sync::Mutex<tokio::sync::mpsc::UnboundedReceiver<Vec<Request>>>>),
 
     /// Flag to temporarily disable notifications (e.g., during WAL replay)
-    #[serde(skip)]
     notifications_disabled: bool,
 }
 
-#[derive(Serialize, Deserialize)]
 pub struct AsyncStore {
-    inner: Store
+    inner: Store,
 }
 
 impl std::fmt::Debug for Store {
@@ -1417,17 +1408,13 @@ impl StoreTrait for AsyncStore {
 }
 
 impl AsyncStore {
-    pub async fn new(store: Store) -> Self {
+    pub async fn new(snowflake: Arc<Snowflake>) -> Self {
         Self {
-            inner: store,
+            inner: Store::new(snowflake),
         }
     }
 
     pub async fn inner(&self) -> &Store {
         &self.inner
-    }
-
-    pub async fn inner_mut(&mut self) -> &mut Store {
-        &mut self.inner
     }
 }
