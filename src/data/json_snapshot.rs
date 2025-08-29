@@ -251,7 +251,7 @@ macro_rules! value_to_json_value_with_paths {
                 $crate::Value::EntityList(v) => {
                     let mut path_array = Vec::new();
                     for entity_id in v {
-                        match crate::spath!($store, entity_id).await {
+                        match crate::path_async($store, entity_id).await {
                             Ok(path) => path_array.push(serde_json::Value::String(path)),
                             Err(_) => path_array.push(serde_json::Value::String(entity_id.get_id())),
                         }
@@ -260,7 +260,7 @@ macro_rules! value_to_json_value_with_paths {
                 },
                 $crate::Value::EntityReference(v) => {
                     if let Some(entity_id) = v {
-                        match crate::spath!($store, entity_id).await {
+                        match crate::path_async($store, entity_id).await {
                             Ok(path) => serde_json::Value::String(path),
                             Err(_) => serde_json::Value::String(entity_id.get_id()),
                         }

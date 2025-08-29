@@ -323,7 +323,7 @@ pub fn resolve_indirection(
 
 /// Resolve an entity ID to its path by traversing up the parent chain
 /// This works with both AsyncStore and StoreProxy since they have the same method signatures
-pub async fn path_async<T: StoreTrait>(store: &mut T, entity_id: EntityId) -> Result<String> {
+pub async fn path_async<T: StoreTrait>(store: &mut T, entity_id: &EntityId) -> Result<String> {
     let mut path_parts = Vec::new();
     let mut current_id = entity_id.clone();
     let mut visited = std::collections::HashSet::new();

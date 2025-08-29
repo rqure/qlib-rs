@@ -12,7 +12,7 @@ pub use data::{
     JsonSnapshot, JsonEntitySchema, JsonEntity, value_to_json_value, json_value_to_value, build_json_entity_tree, build_json_entity_tree_proxy,
     restore_entity_recursive, restore_entity_recursive_proxy,
     EntityType, FieldType, Timestamp, now, epoch, nanos_to_timestamp, secs_to_timestamp, 
-    millis_to_timestamp, micros_to_timestamp, ft, et, Cache
+    millis_to_timestamp, micros_to_timestamp, ft, et, Cache, resolve_indirection, resolve_indirection_async, path_async,
 };
 
 pub use auth::{
