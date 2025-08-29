@@ -1,10 +1,13 @@
 #[allow(unused_imports)]
 use crate::*;
+
+#[allow(unused_imports)]
 use crate::expr::CelExecutor;
 
 #[allow(unused_imports)]
 use std::sync::Arc;
 
+#[allow(dead_code)]
 fn setup_test_store_with_entity() -> Result<(Store, EntityId)> {
     let mut store = Store::new(Arc::new(Snowflake::new()));
 
@@ -425,19 +428,389 @@ fn test_cel_executor_execute_complex_expression() -> Result<()> {
 
 #[test]
 fn test_cel_executor_execute_with_indirection() -> Result<()> {
-    // For now, skip this complex test since indirection in CEL is complex
-    // TODO: Implement proper indirection testing once we understand CEL syntax better
     let mut executor = CelExecutor::new();
-    let (mut store, entity_id) = setup_test_store_with_entity()?;
+    let mut store = Store::new(Arc::new(Snowflake::new()));
+
+    // Create entities for indirection test
+    let et_user = EntityType::from("User");
+    let et_department = EntityType::from("Department");
     
-    // Just test that we can reference a basic field
-    let result = executor.execute("Name == 'John Doe'", &entity_id, &mut store)?;
+    // Create Department schema
+    let mut dept_schema = EntitySchema::<Single>::new(et_department.clone(), None);
+    dept_schema.fields.insert(
+        FieldType::from("Name"),
+        FieldSchema::String {
+            field_type: FieldType::from("Name"),
+            default_value: String::new(),
+            rank: 0,
+        }
+    );
+    dept_schema.fields.insert(
+        FieldType::from("Budget"),
+        FieldSchema::Int {
+            field_type: FieldType::from("Budget"),
+            default_value: 0,
+            rank: 1,
+        }
+    );
+    
+    // Create User schema with department reference
+    let mut user_schema = EntitySchema::<Single>::new(et_user.clone(), None);
+    user_schema.fields.insert(
+        FieldType::from("Name"),
+        FieldSchema::String {
+            field_type: FieldType::from("Name"),
+            default_value: String::new(),
+            rank: 0,
+        }
+    );
+    user_schema.fields.insert(
+        FieldType::from("Department"),
+        FieldSchema::EntityReference {
+            field_type: FieldType::from("Department"),
+            default_value: None,
+            rank: 1,
+        }
+    );
+    
+    let mut requests = vec![
+        sschemaupdate!(dept_schema),
+        sschemaupdate!(user_schema)
+    ];
+    store.perform(&mut requests)?;
+
+    // Create department entity
+    let mut create_requests = vec![screate!(
+        et_department.clone(),
+        "Engineering".to_string()
+    )];
+    store.perform(&mut create_requests)?;
+    let dept_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
+        id.clone()
+    } else {
+        panic!("Expected created entity ID");
+    };
+
+    // Create user entity
+    let mut create_requests = vec![screate!(
+        et_user.clone(),
+        "Alice".to_string()
+    )];
+    store.perform(&mut create_requests)?;
+    let user_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
+        id.clone()
+    } else {
+        panic!("Expected created entity ID");
+    };
+
+    // Set field values
+    let mut field_requests = vec![
+        swrite!(dept_id.clone(), FieldType::from("Name"), sstr!("Engineering")),
+        swrite!(dept_id.clone(), FieldType::from("Budget"), sint!(100000)),
+        swrite!(user_id.clone(), FieldType::from("Name"), sstr!("Alice")),
+        swrite!(user_id.clone(), FieldType::from("Department"), sref!(Some(dept_id))),
+    ];
+    store.perform(&mut field_requests)?;
+
+    // Test indirection: Department_Name should resolve to "Engineering"
+    // The CEL executor should read the field "Department->Name" via the store's indirection system
+    let result = executor.execute(
+        "Department_Name == 'Engineering'",
+        &user_id,
+        &mut store
+    )?;
     
     match result {
         cel::Value::Bool(value) => assert_eq!(value, true),
-        _ => panic!("Expected bool result"),
+        _ => panic!("Expected bool result for Department_Name"),
     }
+
+    // Test indirection with integer field
+    let result = executor.execute(
+        "Department_Budget > 50000",
+        &user_id,
+        &mut store
+    )?;
     
+    match result {
+        cel::Value::Bool(value) => assert_eq!(value, true),
+        _ => panic!("Expected bool result for Department_Budget"),
+    }
+
+    // Test complex expression with indirection
+    let result = executor.execute(
+        "Name == 'Alice' && Department_Name == 'Engineering' && Department_Budget == 100000",
+        &user_id,
+        &mut store
+    )?;
+    
+    match result {
+        cel::Value::Bool(value) => assert_eq!(value, true),
+        _ => panic!("Expected bool result for complex indirection expression"),
+    }
+
+    Ok(())
+}
+
+#[test]
+fn test_cel_executor_execute_with_deep_indirection() -> Result<()> {
+    let mut executor = CelExecutor::new();
+    let mut store = Store::new(Arc::new(Snowflake::new()));
+
+    // Create a deeper indirection chain: Employee -> Department -> Company
+    let et_company = EntityType::from("Company");
+    let et_department = EntityType::from("Department");
+    let et_employee = EntityType::from("Employee");
+    
+    // Create Company schema
+    let mut company_schema = EntitySchema::<Single>::new(et_company.clone(), None);
+    company_schema.fields.insert(
+        FieldType::from("Name"),
+        FieldSchema::String {
+            field_type: FieldType::from("Name"),
+            default_value: String::new(),
+            rank: 0,
+        }
+    );
+    company_schema.fields.insert(
+        FieldType::from("Founded"),
+        FieldSchema::Int {
+            field_type: FieldType::from("Founded"),
+            default_value: 0,
+            rank: 1,
+        }
+    );
+    
+    // Create Department schema with company reference
+    let mut dept_schema = EntitySchema::<Single>::new(et_department.clone(), None);
+    dept_schema.fields.insert(
+        FieldType::from("Name"),
+        FieldSchema::String {
+            field_type: FieldType::from("Name"),
+            default_value: String::new(),
+            rank: 0,
+        }
+    );
+    dept_schema.fields.insert(
+        FieldType::from("Company"),
+        FieldSchema::EntityReference {
+            field_type: FieldType::from("Company"),
+            default_value: None,
+            rank: 1,
+        }
+    );
+    
+    // Create Employee schema with department reference
+    let mut employee_schema = EntitySchema::<Single>::new(et_employee.clone(), None);
+    employee_schema.fields.insert(
+        FieldType::from("Name"),
+        FieldSchema::String {
+            field_type: FieldType::from("Name"),
+            default_value: String::new(),
+            rank: 0,
+        }
+    );
+    employee_schema.fields.insert(
+        FieldType::from("Department"),
+        FieldSchema::EntityReference {
+            field_type: FieldType::from("Department"),
+            default_value: None,
+            rank: 1,
+        }
+    );
+    
+    let mut requests = vec![
+        sschemaupdate!(company_schema),
+        sschemaupdate!(dept_schema),
+        sschemaupdate!(employee_schema)
+    ];
+    store.perform(&mut requests)?;
+
+    // Create entities
+    let mut create_requests = vec![screate!(et_company.clone(), "TechCorp".to_string())];
+    store.perform(&mut create_requests)?;
+    let company_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
+        id.clone()
+    } else {
+        panic!("Expected created company ID");
+    };
+
+    let mut create_requests = vec![screate!(et_department.clone(), "Engineering".to_string())];
+    store.perform(&mut create_requests)?;
+    let dept_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
+        id.clone()
+    } else {
+        panic!("Expected created department ID");
+    };
+
+    let mut create_requests = vec![screate!(et_employee.clone(), "Bob".to_string())];
+    store.perform(&mut create_requests)?;
+    let employee_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
+        id.clone()
+    } else {
+        panic!("Expected created employee ID");
+    };
+
+    // Set up the entity relationships and data
+    let mut field_requests = vec![
+        swrite!(company_id.clone(), FieldType::from("Name"), sstr!("TechCorp")),
+        swrite!(company_id.clone(), FieldType::from("Founded"), sint!(2010)),
+        swrite!(dept_id.clone(), FieldType::from("Name"), sstr!("Engineering")),
+        swrite!(dept_id.clone(), FieldType::from("Company"), sref!(Some(company_id))),
+        swrite!(employee_id.clone(), FieldType::from("Name"), sstr!("Bob")),
+        swrite!(employee_id.clone(), FieldType::from("Department"), sref!(Some(dept_id))),
+    ];
+    store.perform(&mut field_requests)?;
+
+    // Test deep indirection: Department_Company_Name should resolve to "TechCorp"
+    let result = executor.execute(
+        "Department_Company_Name == 'TechCorp'",
+        &employee_id,
+        &mut store
+    )?;
+    
+    match result {
+        cel::Value::Bool(value) => assert_eq!(value, true),
+        _ => panic!("Expected bool result for deep indirection"),
+    }
+
+    // Test deep indirection with integer field
+    let result = executor.execute(
+        "Department_Company_Founded == 2010",
+        &employee_id,
+        &mut store
+    )?;
+    
+    match result {
+        cel::Value::Bool(value) => assert_eq!(value, true),
+        _ => panic!("Expected bool result for deep indirection with int"),
+    }
+
+    // Test mixed indirection levels in one expression
+    let result = executor.execute(
+        "Name == 'Bob' && Department_Name == 'Engineering' && Department_Company_Name == 'TechCorp'",
+        &employee_id,
+        &mut store
+    )?;
+    
+    match result {
+        cel::Value::Bool(value) => assert_eq!(value, true),
+        _ => panic!("Expected bool result for mixed indirection"),
+    }
+
+    Ok(())
+}
+
+#[test]
+fn test_cel_executor_execute_with_indirection_and_entity_lists() -> Result<()> {
+    let mut executor = CelExecutor::new();
+    let mut store = Store::new(Arc::new(Snowflake::new()));
+
+    // Create schema for testing indirection with entity lists
+    let et_team = EntityType::from("Team");
+    let et_project = EntityType::from("Project");
+    
+    // Create Project schema
+    let mut project_schema = EntitySchema::<Single>::new(et_project.clone(), None);
+    project_schema.fields.insert(
+        FieldType::from("Name"),
+        FieldSchema::String {
+            field_type: FieldType::from("Name"),
+            default_value: String::new(),
+            rank: 0,
+        }
+    );
+    project_schema.fields.insert(
+        FieldType::from("Priority"),
+        FieldSchema::Int {
+            field_type: FieldType::from("Priority"),
+            default_value: 0,
+            rank: 1,
+        }
+    );
+    
+    // Create Team schema with projects list
+    let mut team_schema = EntitySchema::<Single>::new(et_team.clone(), None);
+    team_schema.fields.insert(
+        FieldType::from("Name"),
+        FieldSchema::String {
+            field_type: FieldType::from("Name"),
+            default_value: String::new(),
+            rank: 0,
+        }
+    );
+    team_schema.fields.insert(
+        FieldType::from("Projects"),
+        FieldSchema::EntityList {
+            field_type: FieldType::from("Projects"),
+            default_value: vec![],
+            rank: 1,
+        }
+    );
+    
+    let mut requests = vec![
+        sschemaupdate!(project_schema),
+        sschemaupdate!(team_schema)
+    ];
+    store.perform(&mut requests)?;
+
+    // Create project entities
+    let mut create_requests = vec![screate!(et_project.clone(), "WebApp".to_string())];
+    store.perform(&mut create_requests)?;
+    let project1_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
+        id.clone()
+    } else {
+        panic!("Expected created project ID");
+    };
+
+    let mut create_requests = vec![screate!(et_project.clone(), "MobileApp".to_string())];
+    store.perform(&mut create_requests)?;
+    let project2_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
+        id.clone()
+    } else {
+        panic!("Expected created project ID");
+    };
+
+    // Create team entity
+    let mut create_requests = vec![screate!(et_team.clone(), "DevTeam".to_string())];
+    store.perform(&mut create_requests)?;
+    let team_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
+        id.clone()
+    } else {
+        panic!("Expected created team ID");
+    };
+
+    // Set up the data
+    let mut field_requests = vec![
+        swrite!(project1_id.clone(), FieldType::from("Name"), sstr!("WebApp")),
+        swrite!(project1_id.clone(), FieldType::from("Priority"), sint!(1)),
+        swrite!(project2_id.clone(), FieldType::from("Name"), sstr!("MobileApp")),
+        swrite!(project2_id.clone(), FieldType::from("Priority"), sint!(2)),
+        swrite!(team_id.clone(), FieldType::from("Name"), sstr!("DevTeam")),
+        swrite!(team_id.clone(), FieldType::from("Projects"), sreflist![project1_id.clone(), project2_id.clone()]),
+    ];
+    store.perform(&mut field_requests)?;
+
+    // Test that we can access the entity list field
+    let result = executor.execute("size(Projects) == 2", &team_id, &mut store)?;
+    
+    match result {
+        cel::Value::Bool(value) => assert_eq!(value, true),
+        _ => panic!("Expected bool result for entity list size"),
+    }
+
+    // Test that entity list is properly converted to list of strings
+    let result = executor.execute(
+        &format!("Projects[0] == '{}'", project1_id.to_string()),
+        &team_id,
+        &mut store
+    )?;
+    
+    match result {
+        cel::Value::Bool(value) => assert_eq!(value, true),
+        _ => panic!("Expected bool result for entity list access"),
+    }
+
     Ok(())
 }
 
@@ -544,5 +917,118 @@ fn test_cel_executor_execute_with_missing_field() -> Result<()> {
     // This should fail because the field doesn't exist
     assert!(result.is_err());
     
+    Ok(())
+}
+
+#[test]
+fn test_cel_executor_execute_with_mixed_field_access() -> Result<()> {
+    let mut executor = CelExecutor::new();
+    let mut store = Store::new(Arc::new(Snowflake::new()));
+
+    // Create entities for mixed field access test
+    let et_user = EntityType::from("User");
+    let et_department = EntityType::from("Department");
+    
+    // Create Department schema
+    let mut dept_schema = EntitySchema::<Single>::new(et_department.clone(), None);
+    dept_schema.fields.insert(
+        FieldType::from("Name"),
+        FieldSchema::String {
+            field_type: FieldType::from("Name"),
+            default_value: String::new(),
+            rank: 0,
+        }
+    );
+    
+    // Create User schema with department reference
+    let mut user_schema = EntitySchema::<Single>::new(et_user.clone(), None);
+    user_schema.fields.insert(
+        FieldType::from("Name"),
+        FieldSchema::String {
+            field_type: FieldType::from("Name"),
+            default_value: String::new(),
+            rank: 0,
+        }
+    );
+    user_schema.fields.insert(
+        FieldType::from("Age"),
+        FieldSchema::Int {
+            field_type: FieldType::from("Age"),
+            default_value: 0,
+            rank: 1,
+        }
+    );
+    user_schema.fields.insert(
+        FieldType::from("Department"),
+        FieldSchema::EntityReference {
+            field_type: FieldType::from("Department"),
+            default_value: None,
+            rank: 2,
+        }
+    );
+    
+    let mut requests = vec![
+        sschemaupdate!(dept_schema),
+        sschemaupdate!(user_schema)
+    ];
+    store.perform(&mut requests)?;
+
+    // Create department entity
+    let mut create_requests = vec![screate!(
+        et_department.clone(),
+        "Sales".to_string()
+    )];
+    store.perform(&mut create_requests)?;
+    let dept_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
+        id.clone()
+    } else {
+        panic!("Expected created entity ID");
+    };
+
+    // Create user entity
+    let mut create_requests = vec![screate!(
+        et_user.clone(),
+        "John".to_string()
+    )];
+    store.perform(&mut create_requests)?;
+    let user_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
+        id.clone()
+    } else {
+        panic!("Expected created entity ID");
+    };
+
+    // Set field values
+    let mut field_requests = vec![
+        swrite!(dept_id.clone(), FieldType::from("Name"), sstr!("Sales")),
+        swrite!(user_id.clone(), FieldType::from("Name"), sstr!("John")),
+        swrite!(user_id.clone(), FieldType::from("Age"), sint!(30)),
+        swrite!(user_id.clone(), FieldType::from("Department"), sref!(Some(dept_id))),
+    ];
+    store.perform(&mut field_requests)?;
+
+    // Test mixed access: direct fields (Name, Age) and indirect field (Department_Name) in one expression
+    let result = executor.execute(
+        "Name == 'John' && Age == 30 && Department_Name == 'Sales'",
+        &user_id,
+        &mut store
+    )?;
+    
+    match result {
+        cel::Value::Bool(value) => assert_eq!(value, true),
+        _ => panic!("Expected bool result for mixed field access"),
+    }
+
+    // Test that direct field access still works when indirection is available
+    let result = executor.execute(
+        "Name == 'John'",
+        &user_id,
+        &mut store
+    )?;
+    
+    match result {
+        cel::Value::Bool(value) => assert_eq!(value, true),
+        _ => panic!("Expected bool result for direct field access"),
+    }
+
     Ok(())
 }

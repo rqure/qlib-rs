@@ -30,48 +30,51 @@ impl CelExecutor {
     }
 
     pub fn execute(&mut self, source: &str, relative_id: &EntityId, store: &mut Store) -> Result<cel::Value> {
-        let program = self.get_or_compile(source)?;
+        let program = self.get_or_compile(source.replace(INDIRECTION_DELIMITER, "_").as_str())?;
         let mut context = Context::default();
         let references = program.references();
         let fields = references.variables();
 
         for field in fields {
+            // Convert underscore to indirection delimiter for store reading
+            let store_field = field.to_string().replace("_", INDIRECTION_DELIMITER);
             let mut reqs = vec![
-                sread!(relative_id.clone(), FieldType::from(field.to_string()))
+                sread!(relative_id.clone(), FieldType::from(store_field))
             ];
             store.perform(&mut reqs)?;
             let value = reqs.first().unwrap().value().unwrap().clone();
-            let field = field.to_string().replace(INDIRECTION_DELIMITER, ".");
+            // Use the original field name for CEL context (keep underscores)
+            let cel_field = field.to_string();
 
             match value {
                 Value::Blob(v) => {
-                    context.add_variable_from_value(field, to_base64(v.clone()));
+                    context.add_variable_from_value(cel_field, to_base64(v.clone()));
                 },
                 Value::Bool(v) => {
-                    context.add_variable_from_value(field, v);
+                    context.add_variable_from_value(cel_field, v);
                 },
                 Value::Choice(v) => {
-                    context.add_variable_from_value(field, v);
+                    context.add_variable_from_value(cel_field, v);
                 },
                 Value::EntityReference(v) => {
                     match v {
                         Some(e) => {
-                            context.add_variable_from_value(field, e.to_string());
+                            context.add_variable_from_value(cel_field.clone(), e.to_string());
                         },
                         None => {
-                            context.add_variable_from_value(field, "");
+                            context.add_variable_from_value(cel_field.clone(), "");
                         }
                     }
                 },
                 Value::EntityList(v) => {
                     let list: Vec<String> = v.iter().map(|e| e.to_string()).collect();
-                    context.add_variable_from_value(field, list);
+                    context.add_variable_from_value(cel_field.clone(), list);
                 },
                 Value::Float(v) => {
-                    context.add_variable_from_value(field, v);
+                    context.add_variable_from_value(cel_field.clone(), v);
                 },
                 Value::String(v) => {
-                    context.add_variable_from_value(field, v.as_str());
+                    context.add_variable_from_value(cel_field.clone(), v.as_str());
                 },
                 Value::Timestamp(v) => {
                     // Convert SystemTime to chrono::DateTime<chrono::FixedOffset>
@@ -82,10 +85,10 @@ impl CelExecutor {
                         duration_since_epoch.subsec_nanos()
                     ).ok_or_else(|| crate::Error::ExecutionError("Failed to convert timestamp".to_string()))?
                         .with_timezone(&chrono::FixedOffset::east_opt(0).unwrap());
-                    context.add_variable_from_value(field, datetime);
+                    context.add_variable_from_value(cel_field.clone(), datetime);
                 },
                 Value::Int(v) => {
-                    context.add_variable_from_value(field, v);
+                    context.add_variable_from_value(cel_field.clone(), v);
                 },
             }
         }
