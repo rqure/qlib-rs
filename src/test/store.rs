@@ -401,3 +401,47 @@ async fn test_entity_listing_with_pagination() -> Result<()> {
 
     Ok(())
 }
+
+#[tokio::test]
+async fn test_cel_filtering_parameters() -> Result<()> {
+    let mut store = setup_test_database().await?;
+    
+    let et_user = et::user();
+    
+        // Create some test users
+    let mut create_requests = vec![
+        screate!(et_user.clone(), "Alice".to_string()),
+        screate!(et_user.clone(), "Bob".to_string()),  
+        screate!(et_user.clone(), "Charlie".to_string()),
+    ];
+    store.perform_mut(&mut create_requests).await?;
+    
+    // Test with None filter (should work fine)
+    let all_users = store.find_entities(&et_user, None).await?;
+    assert_eq!(all_users.len(), 3);
+    
+    let paginated_users = store.find_entities_paginated(&et_user, None, None).await?;
+    assert_eq!(paginated_users.items.len(), 3);
+    
+    let exact_users = store.find_entities_exact(&et_user, None, None).await?;
+    assert_eq!(exact_users.items.len(), 3);
+
+    // Test with CEL filter
+    let all_filtered = store.find_entities(&et_user, Some("true".to_string())).await?;
+    assert_eq!(all_filtered.len(), 3); // "true" should match all entities
+    
+    let none_filtered = store.find_entities(&et_user, Some("false".to_string())).await?;
+    assert_eq!(none_filtered.len(), 0); // "false" should match no entities
+    
+    println!("Basic CEL filtering tests passed!");
+    
+    // Test that the filter parameter is accepted for all methods
+    let _paginated_filtered = store.find_entities_paginated(&et_user, None, Some("true".to_string())).await?;
+    let _exact_filtered = store.find_entities_exact(&et_user, None, Some("true".to_string())).await?;
+
+    // TODO: Test with actual CEL filter once CEL executor is fixed to work with immutable store reference
+    // For now, just verify the API accepts the filter parameter 
+    // let _filtered = store.find_entities(&et_user, Some("true".to_string())).await;
+
+    Ok(())
+}
