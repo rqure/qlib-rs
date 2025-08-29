@@ -91,7 +91,7 @@ impl CelExecutor {
 
         context.add_variable_from_value("EntityId", relative_id.to_string());
 
-        context.add_variable("EntityType", relative_id.get_type().to_string());
+        context.add_variable_from_value("EntityType", relative_id.get_type().to_string());
 
         match program.execute(&context) {
             Ok(v) => Ok(v),
