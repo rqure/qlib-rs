@@ -570,3 +570,98 @@ async fn test_json_snapshot_path_resolution() {
 
     println!("Path resolution test completed successfully!");
 }
+
+#[tokio::test]
+async fn test_json_snapshot_storage_scope() {
+    // Test that storage scope is properly preserved in JSON snapshots
+    
+    let snowflake = Arc::new(Snowflake::new());
+    let mut store = AsyncStore::new(snowflake.clone());
+
+    // Define schemas with different storage scopes
+    let mut object_schema = EntitySchema::<Single>::new("Object", None);
+    object_schema.fields.insert(
+        FieldType::from("Name"),
+        FieldSchema::String {
+            field_type: FieldType::from("Name"),
+            default_value: "".to_string(),
+            rank: 1,
+            storage_scope: StorageScope::Runtime,
+        },
+    );
+
+    let mut root_schema = EntitySchema::<Single>::new("Root", Some(EntityType::from("Object")));
+    root_schema.fields.insert(
+        FieldType::from("ConfigField"),
+        FieldSchema::String {
+            field_type: FieldType::from("ConfigField"),
+            default_value: "config_default".to_string(),
+            rank: 1,
+            storage_scope: StorageScope::Configuration,
+        },
+    );
+    root_schema.fields.insert(
+        FieldType::from("RuntimeField"),
+        FieldSchema::String {
+            field_type: FieldType::from("RuntimeField"),
+            default_value: "runtime_default".to_string(),
+            rank: 2,
+            storage_scope: StorageScope::Runtime,
+        },
+    );
+
+    // Add schemas to the store
+    let mut schema_requests = vec![
+        sschemaupdate!(object_schema),
+        sschemaupdate!(root_schema),
+    ];
+    store.perform_mut(&mut schema_requests).await.unwrap();
+
+    // Create a root entity
+    let mut create_requests = vec![
+        screate!(EntityType::from("Root"), "TestRoot".to_string()),
+    ];
+    store.perform_mut(&mut create_requests).await.unwrap();
+
+    // Take JSON snapshot
+    let snapshot = take_json_snapshot(&mut store).await.unwrap();
+    
+    // Verify the schema in the snapshot has the correct storage scopes
+    let root_schema = snapshot.schemas.iter()
+        .find(|s| s.entity_type == "Root")
+        .expect("Root schema should be in snapshot");
+    
+    // Check ConfigField has Configuration storage scope
+    let config_field = root_schema.fields.iter()
+        .find(|f| f.name == "ConfigField")
+        .expect("ConfigField should be in schema");
+    assert_eq!(config_field.storage_scope, Some("Configuration".to_string()));
+    
+    // Check RuntimeField has Runtime storage scope  
+    let runtime_field = root_schema.fields.iter()
+        .find(|f| f.name == "RuntimeField")
+        .expect("RuntimeField should be in schema");
+    assert_eq!(runtime_field.storage_scope, Some("Runtime".to_string()));
+
+    // Also check the Object schema has Runtime storage scope
+    let object_schema = snapshot.schemas.iter()
+        .find(|s| s.entity_type == "Object")
+        .expect("Object schema should be in snapshot");
+    
+    let name_field = object_schema.fields.iter()
+        .find(|f| f.name == "Name")
+        .expect("Name field should be in schema");
+    assert_eq!(name_field.storage_scope, Some("Runtime".to_string()));
+
+    // Test round-trip: convert schema to JSON and back
+    let recreated_schema = root_schema.to_entity_schema().unwrap();
+    
+    // Verify storage scopes are preserved
+    let config_field_schema = recreated_schema.fields.get(&FieldType::from("ConfigField")).unwrap();
+    assert_eq!(*config_field_schema.storage_scope(), StorageScope::Configuration);
+    
+    let runtime_field_schema = recreated_schema.fields.get(&FieldType::from("RuntimeField")).unwrap();
+    assert_eq!(*runtime_field_schema.storage_scope(), StorageScope::Runtime);
+
+    println!("Storage scope test completed successfully!");
+}

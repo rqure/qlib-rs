@@ -18,6 +18,8 @@ pub struct JsonFieldSchema {
     pub choices: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rank: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "storageScope")]
+    pub storage_scope: Option<String>,
 }
 
 /// JSON-friendly representation of an entity schema
@@ -92,6 +94,10 @@ impl JsonFieldSchema {
             default,
             choices,
             rank: Some(field_schema.rank()),
+            storage_scope: Some(match field_schema.storage_scope() {
+                StorageScope::Runtime => "Runtime".to_string(),
+                StorageScope::Configuration => "Configuration".to_string(),
+            }),
         }
     }
 
@@ -99,16 +105,20 @@ impl JsonFieldSchema {
     pub fn to_field_schema(&self) -> Result<FieldSchema> {
         let field_type = FieldType::from(self.name.clone());
         let rank = self.rank.unwrap_or(0);
+        let storage_scope = match self.storage_scope.as_deref() {
+            Some("Configuration") => StorageScope::Configuration,
+            _ => StorageScope::Runtime, // Default to Runtime if not specified or invalid
+        };
 
         match self.data_type.as_str() {
             "Blob" => {
                 let default_value: Vec<u8> = serde_json::from_value(self.default.clone())
                     .unwrap_or_default();
-                Ok(FieldSchema::Blob { field_type, default_value, rank, storage_scope: StorageScope::Runtime })
+                Ok(FieldSchema::Blob { field_type, default_value, rank, storage_scope })
             },
             "Bool" => {
                 let default_value = self.default.as_bool().unwrap_or(false);
-                Ok(FieldSchema::Bool { field_type, default_value, rank, storage_scope: StorageScope::Runtime })
+                Ok(FieldSchema::Bool { field_type, default_value, rank, storage_scope })
             },
             "Choice" => {
                 let choices = self.choices.clone().unwrap_or_default();
@@ -117,7 +127,7 @@ impl JsonFieldSchema {
                 } else {
                     0
                 };
-                Ok(FieldSchema::Choice { field_type, default_value, rank, choices, storage_scope: StorageScope::Runtime })
+                Ok(FieldSchema::Choice { field_type, default_value, rank, choices, storage_scope })
             },
             "EntityList" => {
                 let default_value = if let Some(array) = self.default.as_array() {
@@ -128,29 +138,29 @@ impl JsonFieldSchema {
                 } else {
                     Vec::new()
                 };
-                Ok(FieldSchema::EntityList { field_type, default_value, rank, storage_scope: StorageScope::Runtime })
+                Ok(FieldSchema::EntityList { field_type, default_value, rank, storage_scope })
             },
             "EntityReference" => {
                 let default_value = self.default.as_str()
                     .and_then(|s| EntityId::try_from(s).ok());
-                Ok(FieldSchema::EntityReference { field_type, default_value, rank, storage_scope: StorageScope::Runtime })
+                Ok(FieldSchema::EntityReference { field_type, default_value, rank, storage_scope })
             },
             "Float" => {
                 let default_value = self.default.as_f64().unwrap_or(0.0);
-                Ok(FieldSchema::Float { field_type, default_value, rank, storage_scope: StorageScope::Runtime })
+                Ok(FieldSchema::Float { field_type, default_value, rank, storage_scope })
             },
             "Int" => {
                 let default_value = self.default.as_i64().unwrap_or(0);
-                Ok(FieldSchema::Int { field_type, default_value, rank, storage_scope: StorageScope::Runtime })
+                Ok(FieldSchema::Int { field_type, default_value, rank, storage_scope })
             },
             "String" => {
                 let default_value = self.default.as_str().unwrap_or("").to_string();
-                Ok(FieldSchema::String { field_type, default_value, rank, storage_scope: StorageScope::Runtime })
+                Ok(FieldSchema::String { field_type, default_value, rank, storage_scope })
             },
             "Timestamp" => {
                 let default_value = serde_json::from_value(self.default.clone())
                     .unwrap_or_else(|_| super::epoch());
-                Ok(FieldSchema::Timestamp { field_type, default_value, rank, storage_scope: StorageScope::Runtime })
+                Ok(FieldSchema::Timestamp { field_type, default_value, rank, storage_scope })
             },
             _ => Err(Error::InvalidFieldType(format!("Unknown data type: {}", self.data_type))),
         }
