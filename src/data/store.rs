@@ -1,14 +1,10 @@
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, mem::discriminant, sync::Arc};
-use log::debug;
 use async_trait::async_trait;
 
 use crate::{
-    sresolve,
     data::{
-        entity_schema::Complete, now, request::PushCondition, EntityType, FieldType, Notification,
-        NotifyConfig, NotificationSender, hash_notify_config, Timestamp, INDIRECTION_DELIMITER,
-        StoreTrait,
+        entity_schema::Complete, hash_notify_config, indirection::resolve_indirection, now, request::PushCondition, EntityType, FieldType, Notification, NotificationSender, NotifyConfig, StoreTrait, Timestamp, INDIRECTION_DELIMITER
     }, sread, AdjustBehavior, Entity, EntityId, EntitySchema, Error, Field, FieldSchema, PageOpts, PageResult, Request, Result, Single, Snapshot, Snowflake, Value
 };
 
@@ -47,6 +43,11 @@ pub struct Store {
     notifications_disabled: bool,
 }
 
+#[derive(Serialize, Deserialize)]
+pub struct AsyncStore {
+    inner: Store
+}
+
 impl std::fmt::Debug for Store {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Store")
@@ -74,7 +75,7 @@ impl Store {
     }
 
     /// Internal entity creation that doesn't use perform to avoid recursion
-    async fn create_entity_internal(
+    pub fn create_entity_internal(
         &mut self,
         entity_type: &EntityType,
         parent_id: Option<EntityId>,
@@ -85,7 +86,7 @@ impl Store {
         }
 
         if let Some(parent) = &parent_id {
-            if !self.entity_exists(&parent).await {
+            if !self.entity_exists(&parent) {
                 return Err(Error::EntityNotFound(parent.clone()));
             }
         }
@@ -104,7 +105,7 @@ impl Store {
         }
 
         // Get the schema before accessing fields to avoid borrow issues
-        let complete_schema = self.get_complete_entity_schema(entity_type).await?;
+        let complete_schema = self.get_complete_entity_schema(entity_type)?;
 
         {
             let entity_fields = self.fields
@@ -153,7 +154,7 @@ impl Store {
         Ok(Entity::new(entity_id))
     }
 
-    pub async fn get_entity_schema(
+    pub fn get_entity_schema(
         &self,
         entity_type: &EntityType,
     ) -> Result<EntitySchema<Single>> {
@@ -163,11 +164,11 @@ impl Store {
             .ok_or_else(|| Error::EntityTypeNotFound(entity_type.clone()))
     }
 
-    pub async fn get_complete_entity_schema(
+    pub fn get_complete_entity_schema(
         &self,
         entity_type: &EntityType,
     ) -> Result<EntitySchema<Complete>> {
-        let mut schema = EntitySchema::<Complete>::from(self.get_entity_schema(entity_type).await?);
+        let mut schema = EntitySchema::<Complete>::from(self.get_entity_schema(entity_type)?);
         let mut visited_types = std::collections::HashSet::new();
         visited_types.insert(entity_type.clone());
 
@@ -204,13 +205,12 @@ impl Store {
     }
 
     /// Get the schema for a specific field
-    pub async fn get_field_schema(
+    pub fn get_field_schema(
         &self,
         entity_type: &EntityType,
         field_type: &FieldType,
     ) -> Result<FieldSchema> {
-        self.get_entity_schema(entity_type)
-            .await?
+        self.get_entity_schema(entity_type)?
             .fields
             .get(field_type)
             .cloned()
@@ -220,27 +220,27 @@ impl Store {
     }
 
     /// Set or update the schema for a specific field
-    pub async fn set_field_schema(
+    pub fn set_field_schema(
         &mut self,
         entity_type: &EntityType,
         field_type: &FieldType,
         field_schema: FieldSchema,
     ) -> Result<()> {
-        let mut entity_schema = self.get_entity_schema(entity_type).await?;
+        let mut entity_schema = self.get_entity_schema(entity_type)?;
 
         entity_schema
             .fields
             .insert(field_type.clone(), field_schema);
 
         let mut requests = vec![Request::SchemaUpdate { schema: entity_schema, originator: None }];
-        self.perform(&mut requests).await
+        self.perform(&mut requests)
     }
 
-    pub async fn entity_exists(&self, entity_id: &EntityId) -> bool {
+    pub fn entity_exists(&self, entity_id: &EntityId) -> bool {
         self.fields.contains_key(entity_id)
     }
 
-    pub async fn field_exists(
+    pub fn field_exists(
         &self,
         entity_type: &EntityType,
         field_type: &FieldType,
@@ -251,7 +251,7 @@ impl Store {
             .unwrap_or(false)
     }
 
-    pub async fn perform(&mut self, requests: &mut Vec<Request>) -> Result<()> {
+    pub fn perform(&mut self, requests: &mut Vec<Request>) -> Result<()> {
         let mut write_requests = Vec::new();
         
         for request in requests.iter_mut() {
@@ -264,8 +264,8 @@ impl Store {
                     writer_id,
                 } => {
                     let indir: (EntityId, FieldType) =
-                        Box::pin(sresolve!(self, entity_id, field_type)).await?;
-                    self.read(&indir.0, &indir.1, value, write_time, writer_id).await?;
+                        resolve_indirection(self, entity_id, field_type)?;
+                    self.read(&indir.0, &indir.1, value, write_time, writer_id)?;
                 }
                 Request::Write {
                     entity_id,
@@ -277,8 +277,8 @@ impl Store {
                     adjust_behavior,
                     ..
                 } => {
-                    let indir = Box::pin(sresolve!(self, entity_id, field_type)).await?;
-                    Box::pin(self.write(
+                    let indir = resolve_indirection(self, entity_id, field_type)?;
+                    self.write(
                         &indir.0,
                         &indir.1,
                         value,
@@ -286,7 +286,7 @@ impl Store {
                         writer_id,
                         push_condition,
                         adjust_behavior,
-                    )).await?;
+                    )?;
 
                     write_requests.push(request.clone());
                 }
@@ -297,7 +297,7 @@ impl Store {
                     created_entity_id,
                     ..
                 } => {
-                    let entity = self.create_entity_internal(entity_type, parent_id.clone(), name).await?;
+                    let entity = self.create_entity_internal(entity_type, parent_id.clone(), name)?;
                     *created_entity_id = Some(entity.entity_id);
 
                     write_requests.push(request.clone());
@@ -306,7 +306,7 @@ impl Store {
                     entity_id,
                     ..
                 } => {
-                    self.delete_entity_internal(entity_id).await?;
+                    self.delete_entity_internal(entity_id)?;
 
                     write_requests.push(request.clone());
                 }
@@ -318,7 +318,6 @@ impl Store {
                     // We'll use this to see if any fields have been added or removed
                     let complete_old_schema = self
                         .get_complete_entity_schema(&schema.entity_type)
-                        .await
                         .unwrap_or_else(|_| EntitySchema::<Complete>::new(schema.entity_type.clone()));
 
                     self.schemas
@@ -335,8 +334,7 @@ impl Store {
 
                     // Get the complete schema for the entity type
                     let complete_new_schema =
-                        self.get_complete_entity_schema(&schema.entity_type)
-                        .await?;
+                        self.get_complete_entity_schema(&schema.entity_type)?;
 
                     for removed_field in complete_old_schema.diff(&complete_new_schema) {
                         // If the field was removed, we need to remove it from all entities
@@ -380,13 +378,11 @@ impl Store {
                     write_requests.push(request.clone());
                 }
                 Request::Snapshot {
-                    snapshot_counter,
                     ..
                 } => {
                     // Snapshot requests are mainly for WAL marking purposes
                     // The actual snapshot logic is handled elsewhere
                     // We just log this event and include it in write requests for WAL persistence
-                    debug!("Snapshot marker: counter={}", snapshot_counter);
                     write_requests.push(request.clone());
                 }
             }
@@ -401,7 +397,7 @@ impl Store {
     }
 
     /// Internal entity deletion that doesn't use perform to avoid recursion
-    async fn delete_entity_internal(&mut self, entity_id: &EntityId) -> Result<()> {
+    fn delete_entity_internal(&mut self, entity_id: &EntityId) -> Result<()> {
         // Check if the entity exists
         if !self.fields.contains_key(entity_id) {
             return Err(Error::EntityNotFound(entity_id.clone()));
@@ -413,7 +409,7 @@ impl Store {
                 if let Value::EntityList(children) = &children_field.value {
                     let children_to_delete = children.clone(); // Clone to avoid borrow issues
                     for child in children_to_delete {
-                        Box::pin(self.delete_entity_internal(&child)).await?;
+                        self.delete_entity_internal(&child)?;
                     }
                 }
             }
@@ -475,7 +471,7 @@ impl Store {
     ///
     /// If you need to find entities of an exact type without inheritance,
     /// use `find_entities_exact` instead.
-    pub async fn find_entities_paginated(
+    pub fn find_entities_paginated(
         &self,
         entity_type: &EntityType,
         page_opts: Option<PageOpts>,
@@ -558,7 +554,7 @@ impl Store {
     ///
     /// Then calling `find_entities_exact` with `EntityType::from("Animal")` will
     /// only return entities that were created with the "Animal" type, not Dog entities.
-    pub async fn find_entities_exact(
+    pub fn find_entities_exact(
         &self,
         entity_type: &EntityType,
         page_opts: Option<PageOpts>,
@@ -609,7 +605,7 @@ impl Store {
         })
     }
 
-    pub async fn find_entities(
+    pub fn find_entities(
         &self,
         entity_type: &EntityType
     ) -> Result<Vec<EntityId>> {
@@ -617,7 +613,7 @@ impl Store {
         let mut page_opts: Option<PageOpts> = None;
 
         loop {
-            let page_result = self.find_entities_paginated(entity_type, page_opts.clone()).await?;
+            let page_result = self.find_entities_paginated(entity_type, page_opts.clone())?;
             if page_result.items.is_empty() {
                 break;
             }
@@ -634,14 +630,13 @@ impl Store {
         Ok(result)
     }
 
-    pub async fn get_entity_types(&self) -> Result<Vec<EntityType>> {
+    pub fn get_entity_types(&self) -> Result<Vec<EntityType>> {
         let mut result = Vec::new();
         let mut page_opts: Option<PageOpts> = None;
 
         loop {
             let page_result = self
-                .get_entity_types_paginated(page_opts)
-                .await?;
+                .get_entity_types_paginated(page_opts)?;
             if page_result.items.is_empty() {
                 break;
             }
@@ -659,7 +654,7 @@ impl Store {
     }
 
     /// Get all entity types with pagination
-    pub async fn get_entity_types_paginated(
+    pub fn get_entity_types_paginated(
         &self,
         page_opts: Option<PageOpts>,
     ) -> Result<PageResult<EntityType>> {
@@ -704,7 +699,7 @@ impl Store {
     /// Register a notification configuration with a provided sender
     /// The sender will be added to the list of senders for this notification config
     /// Returns an error if the field_type contains indirection (context fields can be indirect)
-    pub async fn register_notification(
+    pub fn register_notification(
         &mut self,
         config: NotifyConfig,
         sender: NotificationSender,
@@ -760,7 +755,7 @@ impl Store {
 
     /// Unregister a notification by removing a specific sender
     /// Returns true if the sender was found and removed
-    pub async fn unregister_notification(&mut self, target_config: &NotifyConfig, target_sender: &NotificationSender) -> bool {
+    pub fn unregister_notification(&mut self, target_config: &NotifyConfig, target_sender: &NotificationSender) -> bool {
         let mut removed_any = false;
         
         match target_config {
@@ -882,7 +877,7 @@ impl Store {
         self.notifications_disabled
     }
 
-    async fn read(
+    fn read(
         &mut self,
         entity_id: &EntityId,
         field_type: &FieldType,
@@ -906,7 +901,7 @@ impl Store {
         Ok(())
     }
 
-    async fn write(
+    fn write(
         &mut self,
         entity_id: &EntityId,
         field_type: &FieldType,
@@ -916,7 +911,7 @@ impl Store {
         write_option: &PushCondition,
         adjust_behavior: &AdjustBehavior,
     ) -> Result<()> {
-        let entity_schema = self.get_complete_entity_schema( entity_id.get_type()).await?;
+        let entity_schema = self.get_complete_entity_schema( entity_id.get_type())?;
         let field_schema = entity_schema
             .fields
             .get(field_type)
@@ -1060,11 +1055,9 @@ impl Store {
                         field_type,
                         current_request,
                         previous_request,
-                    ).await;
+                    );
                 } else {
                     // Incoming write is older, ignore it
-                    debug!("Ignoring older write for entity {} field {}: incoming {:?} < current {:?}", 
-                           entity_id, field_type, incoming_time, field.write_time);
                     return Ok(());
                 }
             }
@@ -1101,11 +1094,9 @@ impl Store {
                         field_type,
                         current_request,
                         previous_request,
-                    ).await;
+                    );
                 } else if write_time.is_some() && incoming_time < field.write_time {
                     // Incoming write is older, ignore it
-                    debug!("Ignoring older write for entity {} field {}: incoming {:?} < current {:?}", 
-                           entity_id, field_type, incoming_time, field.write_time);
                     return Ok(());
                 }
             }
@@ -1215,7 +1206,7 @@ impl Store {
     }
 
     /// Build context fields using the perform method to handle indirection
-    async fn build_context_fields(
+    fn build_context_fields(
         &mut self,
         entity_id: &EntityId,
         context_fields: &[FieldType],
@@ -1226,14 +1217,15 @@ impl Store {
             // Use perform to handle indirection properly
             let mut requests = vec![sread!(entity_id.clone(), context_field.clone())];
 
-            let _ = self.perform(&mut requests).await; // Include both successful and failed reads
+            let _ = self.perform(&mut requests); // Include both successful and failed reads
             context_map.insert(context_field.clone(), requests.into_iter().next().unwrap());
         }
 
         context_map
     }
+    
     /// Trigger notifications for a write operation
-    async fn trigger_notifications(
+    fn trigger_notifications(
         &mut self,
         entity_id: &EntityId,
         field_type: &FieldType,
@@ -1315,7 +1307,7 @@ impl Store {
 
         // Now trigger the collected notifications
         for (config, context) in notifications_to_trigger {
-            let context_fields = self.build_context_fields(entity_id, &context).await;
+            let context_fields = self.build_context_fields(entity_id, &context);
             let config_hash = hash_notify_config(&config);
 
             let notification = Notification {
@@ -1366,60 +1358,76 @@ impl Store {
 }
 
 #[async_trait]
-impl StoreTrait for Store {
+impl StoreTrait for AsyncStore {
     async fn get_entity_schema(&self, entity_type: &EntityType) -> Result<EntitySchema<Single>> {
-        self.get_entity_schema(entity_type).await
+        self.inner.get_entity_schema(entity_type)
     }
 
     async fn get_complete_entity_schema(&self, entity_type: &EntityType) -> Result<EntitySchema<Complete>> {
-        self.get_complete_entity_schema(entity_type).await
+        self.inner.get_complete_entity_schema(entity_type)
     }
 
     async fn get_field_schema(&self, entity_type: &EntityType, field_type: &FieldType) -> Result<FieldSchema> {
-        self.get_field_schema(entity_type, field_type).await
+        self.inner.get_field_schema(entity_type, field_type)
     }
 
     async fn set_field_schema(&mut self, entity_type: &EntityType, field_type: &FieldType, schema: FieldSchema) -> Result<()> {
-        self.set_field_schema(entity_type, field_type, schema).await
+        self.inner.set_field_schema(entity_type, field_type, schema)
     }
 
     async fn entity_exists(&self, entity_id: &EntityId) -> bool {
-        self.entity_exists(entity_id).await
+        self.inner.entity_exists(entity_id)
     }
 
     async fn field_exists(&self, entity_type: &EntityType, field_type: &FieldType) -> bool {
-        self.field_exists(entity_type, field_type).await
+        self.inner.field_exists(entity_type, field_type)
     }
 
     async fn perform(&mut self, requests: &mut Vec<Request>) -> Result<()> {
-        self.perform(requests).await
+        self.inner.perform(requests)
     }
 
     async fn find_entities_paginated(&self, entity_type: &EntityType, page_opts: Option<PageOpts>) -> Result<PageResult<EntityId>> {
-        self.find_entities_paginated(entity_type, page_opts).await
+        self.inner.find_entities_paginated(entity_type, page_opts)
     }
 
     async fn find_entities_exact(&self, entity_type: &EntityType, page_opts: Option<PageOpts>) -> Result<PageResult<EntityId>> {
-        self.find_entities_exact(entity_type, page_opts).await
+        self.inner.find_entities_exact(entity_type, page_opts)
     }
 
     async fn find_entities(&self, entity_type: &EntityType) -> Result<Vec<EntityId>> {
-        self.find_entities(entity_type).await
+        self.inner.find_entities(entity_type)
     }
 
     async fn get_entity_types(&self) -> Result<Vec<EntityType>> {
-        self.get_entity_types().await
+        self.inner.get_entity_types()
     }
 
     async fn get_entity_types_paginated(&self, page_opts: Option<PageOpts>) -> Result<PageResult<EntityType>> {
-        self.get_entity_types_paginated(page_opts).await
+        self.inner.get_entity_types_paginated(page_opts)
     }
 
     async fn register_notification(&mut self, config: NotifyConfig, sender: NotificationSender) -> Result<()> {
-        self.register_notification(config, sender).await
+        self.inner.register_notification(config, sender)
     }
 
     async fn unregister_notification(&mut self, config: &NotifyConfig, sender: &NotificationSender) -> bool {
-        self.unregister_notification(config, sender).await
+        self.inner.unregister_notification(config, sender)
+    }
+}
+
+impl AsyncStore {
+    pub async fn new(store: Store) -> Self {
+        Self {
+            inner: store,
+        }
+    }
+
+    pub async fn inner(&self) -> &Store {
+        &self.inner
+    }
+
+    pub async fn inner_mut(&mut self) -> &mut Store {
+        &mut self.inner
     }
 }

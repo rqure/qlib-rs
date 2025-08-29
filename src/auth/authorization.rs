@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use tokio::sync::RwLock;
 
-use crate::{ft, scripting::execute, sread, Cache, EntityId, Error, FieldType, Result, Store, Value};
+use crate::{ft, scripting::execute, sread, Cache, EntityId, Error, FieldType, Result, AsyncStore, Value};
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 #[allow(dead_code)]
@@ -14,8 +14,8 @@ pub enum AuthorizationScope {
 
 #[allow(dead_code)]
 pub async fn get_scope(
-    store: Arc<RwLock<Store>>,
-    auth_rule_cache: &Cache<Store>,
+    store: Arc<RwLock<AsyncStore>>,
+    auth_rule_cache: &Cache<AsyncStore>,
     subject_entity_id: &EntityId,
     resource_entity_id: &EntityId,
     resource_field: &FieldType,

@@ -1,10 +1,10 @@
-mod data;
+pub mod data;
 pub mod auth;
 mod test;
-pub mod scripting;
+pub mod cel;
 
 pub use data::{
-    BadIndirectionReason, Store, PageOpts,
+    BadIndirectionReason, AsyncStore, PageOpts,
     PageResult, NotificationSender, NotificationReceiver, notification_channel, hash_notify_config, Snapshot, Entity, EntityId, EntitySchema, Single, Complete, 
     Field, FieldSchema, AdjustBehavior, PushCondition, Request, Snowflake, 
     StoreProxy, StoreMessage, extract_message_id, Value, INDIRECTION_DELIMITER, NotifyConfig, Notification,

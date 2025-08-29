@@ -3,7 +3,7 @@ use crate::data::EntityType;
 use std::sync::Arc;
 
 // Helper to create an entity schema with basic fields
-async fn create_entity_schema(store: &mut Store, entity_type: &EntityType) -> Result<()> {
+async fn create_entity_schema(store: &mut AsyncStore, entity_type: &EntityType) -> Result<()> {
     let mut schema = EntitySchema::<Single>::new(entity_type.clone(), None);
     let ft_name = FieldType::from("Name");
     let ft_parent = FieldType::from("Parent");
@@ -39,8 +39,8 @@ async fn create_entity_schema(store: &mut Store, entity_type: &EntityType) -> Re
 
 // Helper to set up a basic database structure for testing
 #[allow(dead_code)]
-async fn setup_test_database() -> Result<Store> {
-    let mut store = Store::new(Arc::new(Snowflake::new()));
+async fn setup_test_database() -> Result<AsyncStore> {
+    let mut store = AsyncStore::new(Arc::new(Snowflake::new()));
 
     let et_root = EntityType::from("Root");
     let et_folder = EntityType::from("Folder");

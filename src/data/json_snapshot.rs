@@ -454,7 +454,7 @@ pub async fn build_json_entity_tree_proxy(
 /// Helper function to build a JSON entity tree with special handling for Children fields
 /// This function works with Store
 pub async fn build_json_entity_tree(
-    store: &mut crate::Store,
+    store: &mut crate::AsyncStore,
     entity_id: &EntityId,
 ) -> Result<JsonEntity> {
     if !store.entity_exists(entity_id).await {
@@ -596,7 +596,7 @@ macro_rules! restore_json_snapshot_proxy {
 
 /// Helper function to recursively restore entities from JSON
 pub async fn restore_entity_recursive(
-    store: &mut crate::Store,
+    store: &mut crate::AsyncStore,
     json_entity: &JsonEntity,
     parent_id: Option<crate::EntityId>,
 ) -> Result<crate::EntityId> {

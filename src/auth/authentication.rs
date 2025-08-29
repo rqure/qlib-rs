@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     et, ft, now, sread, swrite, EntityId, Error, Request, Result,
-    Value, Store,
+    Value, AsyncStore,
 };
 
 /// Authentication methods supported by the system
@@ -68,7 +68,7 @@ impl Default for AuthConfig {
 /// This function determines the authentication method from the user's AuthMethod field
 /// and delegates to the appropriate authentication mechanism
 pub async fn authenticate(
-    store: &mut Store,
+    store: &mut AsyncStore,
     name: &str,
     password: &str,
     config: &AuthConfig,
@@ -112,7 +112,7 @@ pub async fn authenticate(
 
 /// Authenticate a user using native (password hash) authentication
 pub async fn authenticate_native(
-    store: &mut Store,
+    store: &mut AsyncStore,
     user_id: &EntityId,
     password: &str,
     config: &AuthConfig,
@@ -133,7 +133,7 @@ pub async fn authenticate_native(
 /// Authenticate a user using LDAP
 /// Note: This is a placeholder - actual LDAP implementation would require LDAP client
 pub async fn authenticate_ldap(
-    _store: &mut Store,
+    _store: &mut AsyncStore,
     _user_id: &EntityId,
     _name: &str,
     _password: &str,
@@ -146,7 +146,7 @@ pub async fn authenticate_ldap(
 
 /// Authenticate a user using OpenID Connect token validation
 pub async fn authenticate_openid_connect(
-    _store: &mut Store,
+    _store: &mut AsyncStore,
     _user_id: &EntityId,
     _id_token: &str,
     _config: &AuthConfig,
@@ -157,7 +157,7 @@ pub async fn authenticate_openid_connect(
 }
 
 /// Get user authentication method
-pub async fn get_user_auth_method(store: &mut Store, user_id: &EntityId) -> Result<AuthMethod> {
+pub async fn get_user_auth_method(store: &mut AsyncStore, user_id: &EntityId) -> Result<AuthMethod> {
     let mut requests = vec![sread!(user_id.clone(), ft::auth_method())];
 
     store.perform(&mut requests).await?;
@@ -180,7 +180,7 @@ pub async fn get_user_auth_method(store: &mut Store, user_id: &EntityId) -> Resu
 }
 
 /// Get user secret (password hash for native auth, or other secret data)
-pub async fn get_user_secret(store: &mut Store, user_id: &EntityId) -> Result<String> {
+pub async fn get_user_secret(store: &mut AsyncStore, user_id: &EntityId) -> Result<String> {
     let mut requests = vec![sread!(user_id.clone(), ft::secret())];
 
     store.perform(&mut requests).await?;
@@ -202,7 +202,7 @@ pub async fn get_user_secret(store: &mut Store, user_id: &EntityId) -> Result<St
 
 /// Change a user's password (only for Native authentication)
 pub async fn change_password(
-    store: &mut Store,
+    store: &mut AsyncStore,
     user_id: &EntityId,
     new_password: &str,
     config: &AuthConfig,
@@ -231,7 +231,7 @@ pub async fn change_password(
 }
 
 /// Find a user by name
-pub async fn find_user_by_name(store: &mut Store, name: &str) -> Result<Option<EntityId>> {
+pub async fn find_user_by_name(store: &mut AsyncStore, name: &str) -> Result<Option<EntityId>> {
     // Use the store's find_entities method to search for users with matching name
     let entities = store.find_entities(&et::user()).await?;
 
@@ -257,7 +257,7 @@ pub async fn find_user_by_name(store: &mut Store, name: &str) -> Result<Option<E
 }
 
 /// Check if a user is active
-pub async fn is_user_active(store: &mut Store, user_id: &EntityId) -> Result<bool> {
+pub async fn is_user_active(store: &mut AsyncStore, user_id: &EntityId) -> Result<bool> {
     let mut requests = vec![sread!(user_id.clone(), ft::active())];
 
     store.perform(&mut requests).await?;
@@ -278,7 +278,7 @@ pub async fn is_user_active(store: &mut Store, user_id: &EntityId) -> Result<boo
 }
 
 /// Check if a user is locked
-pub async fn is_user_locked(store: &mut Store, user_id: &EntityId) -> Result<bool> {
+pub async fn is_user_locked(store: &mut AsyncStore, user_id: &EntityId) -> Result<bool> {
     let mut requests = vec![sread!(user_id.clone(), ft::locked_until())];
 
     store.perform(&mut requests).await?;
@@ -342,7 +342,7 @@ pub fn validate_password(password: &str, config: &AuthConfig) -> Result<()> {
 
 /// Increment failed login attempts and lock account if needed
 pub async fn increment_failed_attempts(
-    store: &mut Store,
+    store: &mut AsyncStore,
     user_id: &EntityId,
     config: &AuthConfig,
 ) -> Result<()> {
@@ -390,7 +390,7 @@ pub async fn increment_failed_attempts(
 }
 
 /// Reset failed login attempts
-pub async fn reset_failed_attempts(store: &mut Store, user_id: &EntityId) -> Result<()> {
+pub async fn reset_failed_attempts(store: &mut AsyncStore, user_id: &EntityId) -> Result<()> {
     let mut requests = vec![swrite!(user_id.clone(), ft::failed_attempts(), Some(Value::Int(0)))];
 
     store.perform(&mut requests).await?;
@@ -399,7 +399,7 @@ pub async fn reset_failed_attempts(store: &mut Store, user_id: &EntityId) -> Res
 }
 
 /// Update last login timestamp
-pub async fn update_last_login(store: &mut Store, user_id: &EntityId) -> Result<()> {
+pub async fn update_last_login(store: &mut AsyncStore, user_id: &EntityId) -> Result<()> {
     let mut requests = vec![swrite!(
         user_id.clone(),
         ft::last_login(),
@@ -413,7 +413,7 @@ pub async fn update_last_login(store: &mut Store, user_id: &EntityId) -> Result<
 
 /// Create a new user with specified authentication method
 pub async fn create_user(
-    store: &mut Store,
+    store: &mut AsyncStore,
     name: &str,
     auth_method: AuthMethod,
     parent_id: &EntityId,
@@ -454,7 +454,7 @@ pub async fn create_user(
 
 /// Set user password (only for Native authentication method)
 pub async fn set_user_password(
-    store: &mut Store,
+    store: &mut AsyncStore,
     user_id: &EntityId,
     password: &str,
     config: &AuthConfig,
@@ -485,7 +485,7 @@ pub async fn set_user_password(
 
 /// Set user authentication method
 pub async fn set_user_auth_method(
-    store: &mut Store,
+    store: &mut AsyncStore,
     user_id: &EntityId,
     auth_method: AuthMethod,
 ) -> Result<()> {
@@ -502,7 +502,7 @@ pub async fn set_user_auth_method(
 
 /// Authenticate a service using its secret key
 pub async fn authenticate_service(
-    store: &mut Store,
+    store: &mut AsyncStore,
     name: &str,
     secret_key: &str,
 ) -> Result<EntityId> {
@@ -526,7 +526,7 @@ pub async fn authenticate_service(
 }
 
 /// Find a service by name
-pub async fn find_service_by_name(store: &mut Store, name: &str) -> Result<Option<EntityId>> {
+pub async fn find_service_by_name(store: &mut AsyncStore, name: &str) -> Result<Option<EntityId>> {
     let entities = store.find_entities(&et::service()).await?;
 
     for entity_id in entities {
@@ -550,7 +550,7 @@ pub async fn find_service_by_name(store: &mut Store, name: &str) -> Result<Optio
 }
 
 /// Check if a service is active
-pub async fn is_service_active(store: &mut Store, service_id: &EntityId) -> Result<bool> {
+pub async fn is_service_active(store: &mut AsyncStore, service_id: &EntityId) -> Result<bool> {
     let mut requests = vec![sread!(service_id.clone(), ft::active())];
     store.perform(&mut requests).await?;
 
@@ -570,7 +570,7 @@ pub async fn is_service_active(store: &mut Store, service_id: &EntityId) -> Resu
 }
 
 /// Get service secret key
-pub async fn get_service_secret(store: &mut Store, service_id: &EntityId) -> Result<String> {
+pub async fn get_service_secret(store: &mut AsyncStore, service_id: &EntityId) -> Result<String> {
     let mut requests = vec![sread!(service_id.clone(), ft::secret())];
     store.perform(&mut requests).await?;
 
@@ -591,7 +591,7 @@ pub async fn get_service_secret(store: &mut Store, service_id: &EntityId) -> Res
 
 /// Set service secret key
 pub async fn set_service_secret(
-    store: &mut Store,
+    store: &mut AsyncStore,
     service_id: &EntityId,
     secret_key: &str,
 ) -> Result<()> {
@@ -607,7 +607,7 @@ pub async fn set_service_secret(
 
 /// Generic subject authentication - determines if it's a user or service and authenticates accordingly
 pub async fn authenticate_subject(
-    store: &mut Store,
+    store: &mut AsyncStore,
     name: &str,
     credential: &str,
     config: &AuthConfig,

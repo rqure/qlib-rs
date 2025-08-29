@@ -3,14 +3,14 @@
 use std::sync::Arc;
 
 #[allow(unused_imports)]
-use crate::{restore_json_snapshot, screate, sschemaupdate, swrite, take_json_snapshot, EntitySchema, EntityType, FieldSchema, FieldType, Request, Single, Snowflake, Store, Value};
+use crate::{restore_json_snapshot, screate, sschemaupdate, swrite, take_json_snapshot, EntitySchema, EntityType, FieldSchema, FieldType, Request, Single, Snowflake, AsyncStore, Value};
 
 
 #[tokio::test]
 async fn test_json_snapshot_functionality() {
     // Create a new store
     let snowflake = Arc::new(Snowflake::new());
-    let mut store = Store::new(snowflake.clone());
+    let mut store = AsyncStore::new(snowflake.clone());
 
     // Define schemas as per the example
     let mut object_schema = EntitySchema::<Single>::new("Object", None);
@@ -227,7 +227,7 @@ async fn test_json_snapshot_functionality() {
 async fn test_json_snapshot_restore() {
     // Create and populate the first store
     let snowflake1 = Arc::new(Snowflake::new());
-    let mut store1 = Store::new(snowflake1.clone());
+    let mut store1 = AsyncStore::new(snowflake1.clone());
 
     // Define schemas
     let mut object_schema = EntitySchema::<Single>::new("Object", None);
@@ -331,7 +331,7 @@ async fn test_json_snapshot_restore() {
 
     // Create a new empty store
     let snowflake2 = Arc::new(Snowflake::new());
-    let mut store2 = Store::new(snowflake2.clone());
+    let mut store2 = AsyncStore::new(snowflake2.clone());
 
     // Restore the snapshot to store2
     restore_json_snapshot!(&mut store2, snapshot).await.unwrap();
@@ -404,7 +404,7 @@ async fn test_json_snapshot_path_resolution() {
     // while Children fields show nested entity objects
     
     let snowflake = Arc::new(Snowflake::new());
-    let mut store = Store::new(snowflake.clone());
+    let mut store = AsyncStore::new(snowflake.clone());
 
     // Define schemas
     let mut object_schema = EntitySchema::<Single>::new("Object", None);

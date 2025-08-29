@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 #[tokio::test]
 async fn test_inheritance_in_find_entities() -> Result<()> {
-    let mut store = Store::new(Arc::new(Snowflake::new()));
+    let mut store = AsyncStore::new(Arc::new(Snowflake::new()));
 
     // Create base and derived entity types
     let et_animal = EntityType::from("Animal");
@@ -125,7 +125,7 @@ async fn test_inheritance_in_find_entities() -> Result<()> {
 
 #[tokio::test]
 async fn test_inheritance_with_direct_instances() -> Result<()> {
-    let mut store = Store::new(Arc::new(Snowflake::new()));
+    let mut store = AsyncStore::new(Arc::new(Snowflake::new()));
 
     let et_animal = EntityType::from("Animal");
     let et_mammal = EntityType::from("Mammal");
@@ -181,7 +181,7 @@ async fn test_inheritance_with_direct_instances() -> Result<()> {
 
 #[tokio::test]
 async fn test_circular_inheritance_protection() -> Result<()> {
-    let mut store = Store::new(Arc::new(Snowflake::new()));
+    let mut store = AsyncStore::new(Arc::new(Snowflake::new()));
 
     let et_a = EntityType::from("TypeA");
     let et_b = EntityType::from("TypeB");

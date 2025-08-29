@@ -28,7 +28,7 @@ pub use field_schema::FieldSchema;
 pub use request::{AdjustBehavior, PushCondition, Request};
 use serde::{Deserialize, Serialize};
 pub use snowflake::Snowflake;
-pub use store::{Store};
+pub use store::{AsyncStore};
 pub use store_trait::StoreTrait;
 pub use indirection::{BadIndirectionReason, INDIRECTION_DELIMITER};
 pub use pagination::{PageOpts, PageResult};
