@@ -2,6 +2,9 @@
 use crate::*;
 
 #[allow(unused_imports)]
+use crate::data::StorageScope;
+
+#[allow(unused_imports)]
 use std::sync::Arc;
 
 #[tokio::test]
@@ -28,6 +31,7 @@ async fn test_inheritance_in_find_entities() -> Result<()> {
             field_type: FieldType::from("Name"),
             default_value: String::new(),
             rank: 0,
+            storage_scope: StorageScope::Runtime,
         }
     );
     let mut requests = vec![sschemaupdate!(animal_schema)];
@@ -41,6 +45,7 @@ async fn test_inheritance_in_find_entities() -> Result<()> {
             field_type: FieldType::from("FurColor"),
             default_value: String::new(),
             rank: 1,
+            storage_scope: StorageScope::Runtime,
         }
     );
     let mut requests = vec![sschemaupdate!(mammal_schema)];
@@ -54,6 +59,7 @@ async fn test_inheritance_in_find_entities() -> Result<()> {
             field_type: FieldType::from("Breed"),
             default_value: String::new(),
             rank: 2,
+            storage_scope: StorageScope::Runtime,
         }
     );
     let mut requests = vec![sschemaupdate!(dog_schema)];

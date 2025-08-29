@@ -1,5 +1,5 @@
 use crate::*;
-use crate::data::{EntityType, StoreTrait};
+use crate::data::{EntityType, StoreTrait, StorageScope};
 use std::sync::Arc;
 
 // Helper to create an entity schema with basic fields
@@ -14,18 +14,21 @@ async fn create_entity_schema(store: &mut AsyncStore, entity_type: &EntityType) 
         field_type: ft_name.clone(),
         default_value: String::new(),
         rank: 0,
+        storage_scope: StorageScope::Runtime,
     };
 
     let parent_schema = FieldSchema::EntityReference {
         field_type: ft_parent.clone(),
         default_value: None,
         rank: 1,
+        storage_scope: StorageScope::Runtime,
     };
 
     let children_schema = FieldSchema::EntityList {
         field_type: ft_children.clone(),
         default_value: Vec::new(),
         rank: 2,
+        storage_scope: StorageScope::Runtime,
     };
 
     schema.fields.insert(ft_name.clone(), name_schema);
@@ -451,6 +454,7 @@ async fn test_find_entities_comprehensive() -> Result<()> {
             field_type: FieldType::from("Name"),
             default_value: String::new(),
             rank: 0,
+            storage_scope: StorageScope::Runtime,
         }
     );
     let mut requests = vec![sschemaupdate!(user_schema)];
@@ -527,6 +531,7 @@ async fn test_find_entities_pagination() -> Result<()> {
             field_type: FieldType::from("Name"),
             default_value: String::new(),
             rank: 0,
+            storage_scope: StorageScope::Runtime,
         }
     );
     let mut requests = vec![sschemaupdate!(user_schema)];
@@ -609,6 +614,7 @@ async fn test_find_entities_inheritance() -> Result<()> {
             field_type: FieldType::from("Name"),
             default_value: String::new(),
             rank: 0,
+            storage_scope: StorageScope::Runtime,
         }
     );
     let mut requests = vec![sschemaupdate!(animal_schema)];
@@ -622,6 +628,7 @@ async fn test_find_entities_inheritance() -> Result<()> {
             field_type: FieldType::from("FurColor"),
             default_value: String::new(),
             rank: 1,
+            storage_scope: StorageScope::Runtime,
         }
     );
     let mut requests = vec![sschemaupdate!(mammal_schema)];
@@ -635,6 +642,7 @@ async fn test_find_entities_inheritance() -> Result<()> {
             field_type: FieldType::from("Breed"),
             default_value: String::new(),
             rank: 2,
+            storage_scope: StorageScope::Runtime,
         }
     );
     let mut requests = vec![sschemaupdate!(dog_schema)];
@@ -648,6 +656,7 @@ async fn test_find_entities_inheritance() -> Result<()> {
             field_type: FieldType::from("IndoorOutdoor"),
             default_value: String::new(),
             rank: 2,
+            storage_scope: StorageScope::Runtime,
         }
     );
     let mut requests = vec![sschemaupdate!(cat_schema)];
@@ -661,6 +670,7 @@ async fn test_find_entities_inheritance() -> Result<()> {
             field_type: FieldType::from("CanFly"),
             default_value: true,
             rank: 1,
+            storage_scope: StorageScope::Runtime,
         }
     );
     let mut requests = vec![sschemaupdate!(bird_schema)];
@@ -757,6 +767,7 @@ async fn test_find_entities_cel_edge_cases() -> Result<()> {
             field_type: FieldType::from("Name"),
             default_value: String::new(),
             rank: 0,
+            storage_scope: StorageScope::Runtime,
         }
     );
     let mut requests = vec![sschemaupdate!(user_schema)];

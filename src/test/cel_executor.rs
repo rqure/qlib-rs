@@ -1,5 +1,6 @@
 #[allow(unused_imports)]
 use crate::*;
+use crate::data::StorageScope;
 
 #[allow(unused_imports)]
 use crate::expr::CelExecutor;
@@ -21,6 +22,7 @@ fn setup_test_store_with_entity() -> Result<(Store, EntityId)> {
             field_type: FieldType::from("Name"),
             default_value: String::new(),
             rank: 0,
+            storage_scope: StorageScope::Runtime,
         }
     );
     
@@ -30,6 +32,7 @@ fn setup_test_store_with_entity() -> Result<(Store, EntityId)> {
             field_type: FieldType::from("Age"),
             default_value: 0,
             rank: 1,
+            storage_scope: StorageScope::Runtime,
         }
     );
     
@@ -39,6 +42,7 @@ fn setup_test_store_with_entity() -> Result<(Store, EntityId)> {
             field_type: FieldType::from("Score"),
             default_value: 0.0,
             rank: 2,
+            storage_scope: StorageScope::Runtime,
         }
     );
     
@@ -48,6 +52,7 @@ fn setup_test_store_with_entity() -> Result<(Store, EntityId)> {
             field_type: FieldType::from("IsActive"),
             default_value: false,
             rank: 3,
+            storage_scope: StorageScope::Runtime,
         }
     );
     
@@ -58,6 +63,7 @@ fn setup_test_store_with_entity() -> Result<(Store, EntityId)> {
             default_value: 0,
             choices: vec!["Inactive".to_string(), "Active".to_string(), "Pending".to_string()],
             rank: 4,
+            storage_scope: StorageScope::Runtime,
         }
     );
     
@@ -67,6 +73,7 @@ fn setup_test_store_with_entity() -> Result<(Store, EntityId)> {
             field_type: FieldType::from("Manager"),
             default_value: None,
             rank: 5,
+            storage_scope: StorageScope::Runtime,
         }
     );
     
@@ -76,6 +83,7 @@ fn setup_test_store_with_entity() -> Result<(Store, EntityId)> {
             field_type: FieldType::from("Tags"),
             default_value: vec![],
             rank: 6,
+            storage_scope: StorageScope::Runtime,
         }
     );
     
@@ -85,6 +93,7 @@ fn setup_test_store_with_entity() -> Result<(Store, EntityId)> {
             field_type: FieldType::from("CreatedAt"),
             default_value: epoch(),
             rank: 7,
+            storage_scope: StorageScope::Runtime,
         }
     );
     
@@ -94,6 +103,7 @@ fn setup_test_store_with_entity() -> Result<(Store, EntityId)> {
             field_type: FieldType::from("Data"),
             default_value: vec![],
             rank: 8,
+            storage_scope: StorageScope::Runtime,
         }
     );
 
@@ -443,6 +453,7 @@ fn test_cel_executor_execute_with_indirection() -> Result<()> {
             field_type: FieldType::from("Name"),
             default_value: String::new(),
             rank: 0,
+            storage_scope: StorageScope::Runtime,
         }
     );
     dept_schema.fields.insert(
@@ -451,6 +462,7 @@ fn test_cel_executor_execute_with_indirection() -> Result<()> {
             field_type: FieldType::from("Budget"),
             default_value: 0,
             rank: 1,
+            storage_scope: StorageScope::Runtime,
         }
     );
     
@@ -462,6 +474,7 @@ fn test_cel_executor_execute_with_indirection() -> Result<()> {
             field_type: FieldType::from("Name"),
             default_value: String::new(),
             rank: 0,
+            storage_scope: StorageScope::Runtime,
         }
     );
     user_schema.fields.insert(
@@ -470,6 +483,7 @@ fn test_cel_executor_execute_with_indirection() -> Result<()> {
             field_type: FieldType::from("Department"),
             default_value: None,
             rank: 1,
+            storage_scope: StorageScope::Runtime,
         }
     );
     
@@ -570,6 +584,7 @@ fn test_cel_executor_execute_with_deep_indirection() -> Result<()> {
             field_type: FieldType::from("Name"),
             default_value: String::new(),
             rank: 0,
+            storage_scope: StorageScope::Runtime,
         }
     );
     company_schema.fields.insert(
@@ -578,6 +593,7 @@ fn test_cel_executor_execute_with_deep_indirection() -> Result<()> {
             field_type: FieldType::from("Founded"),
             default_value: 0,
             rank: 1,
+            storage_scope: StorageScope::Runtime,
         }
     );
     
@@ -589,6 +605,7 @@ fn test_cel_executor_execute_with_deep_indirection() -> Result<()> {
             field_type: FieldType::from("Name"),
             default_value: String::new(),
             rank: 0,
+            storage_scope: StorageScope::Runtime,
         }
     );
     dept_schema.fields.insert(
@@ -597,6 +614,7 @@ fn test_cel_executor_execute_with_deep_indirection() -> Result<()> {
             field_type: FieldType::from("Company"),
             default_value: None,
             rank: 1,
+            storage_scope: StorageScope::Runtime,
         }
     );
     
@@ -608,6 +626,7 @@ fn test_cel_executor_execute_with_deep_indirection() -> Result<()> {
             field_type: FieldType::from("Name"),
             default_value: String::new(),
             rank: 0,
+            storage_scope: StorageScope::Runtime,
         }
     );
     employee_schema.fields.insert(
@@ -616,6 +635,7 @@ fn test_cel_executor_execute_with_deep_indirection() -> Result<()> {
             field_type: FieldType::from("Department"),
             default_value: None,
             rank: 1,
+            storage_scope: StorageScope::Runtime,
         }
     );
     
@@ -718,6 +738,7 @@ fn test_cel_executor_execute_with_indirection_and_entity_lists() -> Result<()> {
             field_type: FieldType::from("Name"),
             default_value: String::new(),
             rank: 0,
+            storage_scope: StorageScope::Runtime,
         }
     );
     project_schema.fields.insert(
@@ -726,6 +747,7 @@ fn test_cel_executor_execute_with_indirection_and_entity_lists() -> Result<()> {
             field_type: FieldType::from("Priority"),
             default_value: 0,
             rank: 1,
+            storage_scope: StorageScope::Runtime,
         }
     );
     
@@ -737,6 +759,7 @@ fn test_cel_executor_execute_with_indirection_and_entity_lists() -> Result<()> {
             field_type: FieldType::from("Name"),
             default_value: String::new(),
             rank: 0,
+            storage_scope: StorageScope::Runtime,
         }
     );
     team_schema.fields.insert(
@@ -745,6 +768,7 @@ fn test_cel_executor_execute_with_indirection_and_entity_lists() -> Result<()> {
             field_type: FieldType::from("Projects"),
             default_value: vec![],
             rank: 1,
+            storage_scope: StorageScope::Runtime,
         }
     );
     
@@ -828,6 +852,7 @@ fn test_cel_executor_execute_with_null_entity_reference() -> Result<()> {
             field_type: FieldType::from("Manager"),
             default_value: None,
             rank: 0,
+            storage_scope: StorageScope::Runtime,
         }
     );
     
@@ -937,6 +962,7 @@ fn test_cel_executor_execute_with_mixed_field_access() -> Result<()> {
             field_type: FieldType::from("Name"),
             default_value: String::new(),
             rank: 0,
+            storage_scope: StorageScope::Runtime,
         }
     );
     
@@ -948,6 +974,7 @@ fn test_cel_executor_execute_with_mixed_field_access() -> Result<()> {
             field_type: FieldType::from("Name"),
             default_value: String::new(),
             rank: 0,
+            storage_scope: StorageScope::Runtime,
         }
     );
     user_schema.fields.insert(
@@ -956,6 +983,7 @@ fn test_cel_executor_execute_with_mixed_field_access() -> Result<()> {
             field_type: FieldType::from("Age"),
             default_value: 0,
             rank: 1,
+            storage_scope: StorageScope::Runtime,
         }
     );
     user_schema.fields.insert(
@@ -964,6 +992,7 @@ fn test_cel_executor_execute_with_mixed_field_access() -> Result<()> {
             field_type: FieldType::from("Department"),
             default_value: None,
             rank: 2,
+            storage_scope: StorageScope::Runtime,
         }
     );
     

@@ -5,7 +5,7 @@ use serde_json::Value as JsonValue;
 use crate::{
     EntityId, EntitySchema, EntityType, FieldSchema, FieldType, Single, Value, Error, Result
 };
-use crate::data::StoreTrait;
+use crate::data::{StoreTrait, StorageScope};
 
 /// JSON-friendly representation of a field schema
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -104,11 +104,11 @@ impl JsonFieldSchema {
             "Blob" => {
                 let default_value: Vec<u8> = serde_json::from_value(self.default.clone())
                     .unwrap_or_default();
-                Ok(FieldSchema::Blob { field_type, default_value, rank })
+                Ok(FieldSchema::Blob { field_type, default_value, rank, storage_scope: StorageScope::Runtime })
             },
             "Bool" => {
                 let default_value = self.default.as_bool().unwrap_or(false);
-                Ok(FieldSchema::Bool { field_type, default_value, rank })
+                Ok(FieldSchema::Bool { field_type, default_value, rank, storage_scope: StorageScope::Runtime })
             },
             "Choice" => {
                 let choices = self.choices.clone().unwrap_or_default();
@@ -117,7 +117,7 @@ impl JsonFieldSchema {
                 } else {
                     0
                 };
-                Ok(FieldSchema::Choice { field_type, default_value, rank, choices })
+                Ok(FieldSchema::Choice { field_type, default_value, rank, choices, storage_scope: StorageScope::Runtime })
             },
             "EntityList" => {
                 let default_value = if let Some(array) = self.default.as_array() {
@@ -128,29 +128,29 @@ impl JsonFieldSchema {
                 } else {
                     Vec::new()
                 };
-                Ok(FieldSchema::EntityList { field_type, default_value, rank })
+                Ok(FieldSchema::EntityList { field_type, default_value, rank, storage_scope: StorageScope::Runtime })
             },
             "EntityReference" => {
                 let default_value = self.default.as_str()
                     .and_then(|s| EntityId::try_from(s).ok());
-                Ok(FieldSchema::EntityReference { field_type, default_value, rank })
+                Ok(FieldSchema::EntityReference { field_type, default_value, rank, storage_scope: StorageScope::Runtime })
             },
             "Float" => {
                 let default_value = self.default.as_f64().unwrap_or(0.0);
-                Ok(FieldSchema::Float { field_type, default_value, rank })
+                Ok(FieldSchema::Float { field_type, default_value, rank, storage_scope: StorageScope::Runtime })
             },
             "Int" => {
                 let default_value = self.default.as_i64().unwrap_or(0);
-                Ok(FieldSchema::Int { field_type, default_value, rank })
+                Ok(FieldSchema::Int { field_type, default_value, rank, storage_scope: StorageScope::Runtime })
             },
             "String" => {
                 let default_value = self.default.as_str().unwrap_or("").to_string();
-                Ok(FieldSchema::String { field_type, default_value, rank })
+                Ok(FieldSchema::String { field_type, default_value, rank, storage_scope: StorageScope::Runtime })
             },
             "Timestamp" => {
                 let default_value = serde_json::from_value(self.default.clone())
                     .unwrap_or_else(|_| super::epoch());
-                Ok(FieldSchema::Timestamp { field_type, default_value, rank })
+                Ok(FieldSchema::Timestamp { field_type, default_value, rank, storage_scope: StorageScope::Runtime })
             },
             _ => Err(Error::InvalidFieldType(format!("Unknown data type: {}", self.data_type))),
         }

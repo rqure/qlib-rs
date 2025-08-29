@@ -23,7 +23,7 @@ use std::{fmt, time::Duration};
 pub use entity_id::EntityId;
 pub use entity_schema::{EntitySchema, Single, Complete};
 pub use field::Field;
-pub use field_schema::FieldSchema;
+pub use field_schema::{FieldSchema, StorageScope};
 pub use request::{AdjustBehavior, PushCondition, Request};
 use serde::{Deserialize, Serialize};
 pub use snowflake::Snowflake;
