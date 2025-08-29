@@ -31,7 +31,7 @@ async fn test_inheritance_in_find_entities() -> Result<()> {
         }
     );
     let mut requests = vec![sschemaupdate!(animal_schema)];
-    store.perform(&mut requests).await?;
+    store.perform_mut(&mut requests).await?;
 
     // Mammal schema (inherits from Animal)
     let mut mammal_schema = EntitySchema::<Single>::new(et_mammal.clone(), Some(et_animal.clone()));
@@ -44,7 +44,7 @@ async fn test_inheritance_in_find_entities() -> Result<()> {
         }
     );
     let mut requests = vec![sschemaupdate!(mammal_schema)];
-    store.perform(&mut requests).await?;
+    store.perform_mut(&mut requests).await?;
 
     // Dog schema (inherits from Mammal)
     let mut dog_schema = EntitySchema::<Single>::new(et_dog.clone(), Some(et_mammal.clone()));
@@ -57,19 +57,19 @@ async fn test_inheritance_in_find_entities() -> Result<()> {
         }
     );
     let mut requests = vec![sschemaupdate!(dog_schema)];
-    store.perform(&mut requests).await?;
+    store.perform_mut(&mut requests).await?;
 
     // Cat schema (inherits from Mammal)
     let cat_schema = EntitySchema::<Single>::new(et_cat.clone(), Some(et_mammal.clone()));
     let mut requests = vec![sschemaupdate!(cat_schema)];
-    store.perform(&mut requests).await?;
+    store.perform_mut(&mut requests).await?;
 
     // Create some entities
     let mut create_requests = vec![screate!(
         et_dog.clone(),
         "Buddy".to_string()
     )];
-    store.perform(&mut create_requests).await?;
+    store.perform_mut(&mut create_requests).await?;
     let dog1_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
         id.clone()
     } else {
@@ -81,7 +81,7 @@ async fn test_inheritance_in_find_entities() -> Result<()> {
         et_dog.clone(),
         "Rex".to_string()
     )];
-    store.perform(&mut create_requests).await?;
+    store.perform_mut(&mut create_requests).await?;
     let dog2_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
         id.clone()
     } else {
@@ -93,7 +93,7 @@ async fn test_inheritance_in_find_entities() -> Result<()> {
         et_cat.clone(),
         "Whiskers".to_string()
     )];
-    store.perform(&mut create_requests).await?;
+    store.perform_mut(&mut create_requests).await?;
     let cat1_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
         id.clone()
     } else {
@@ -102,20 +102,20 @@ async fn test_inheritance_in_find_entities() -> Result<()> {
     let cat1 = Entity::new(cat1_id);
 
     // Test: Finding Dog entities should return only dogs
-    let dogs = store.find_entities(&et_dog).await?;
+    let dogs = store.find_entities(&et_dog, None).await?;
     assert_eq!(dogs.len(), 2);
     assert!(dogs.contains(&dog1.entity_id));
     assert!(dogs.contains(&dog2.entity_id));
 
     // Test: Finding Mammal entities should return dogs and cats (inheritance)
-    let mammals = store.find_entities(&et_mammal).await?;
+    let mammals = store.find_entities(&et_mammal, None).await?;
     assert_eq!(mammals.len(), 3);
     assert!(mammals.contains(&dog1.entity_id));
     assert!(mammals.contains(&dog2.entity_id));
     assert!(mammals.contains(&cat1.entity_id));
 
     // Test: Finding Animal entities should return all (full inheritance chain)
-    let animals = store.find_entities(&et_animal).await?;
+    let animals = store.find_entities(&et_animal, None).await?;
     assert_eq!(animals.len(), 3);
     assert!(animals.contains(&dog1.entity_id));
     assert!(animals.contains(&dog2.entity_id));
@@ -134,19 +134,19 @@ async fn test_inheritance_with_direct_instances() -> Result<()> {
     // Create base Animal schema
     let animal_schema = EntitySchema::<Single>::new(et_animal.clone(), None);
     let mut requests = vec![sschemaupdate!(animal_schema)];
-    store.perform(&mut requests).await?;
+    store.perform_mut(&mut requests).await?;
 
     // Create Mammal schema that inherits from Animal
     let mammal_schema = EntitySchema::<Single>::new(et_mammal.clone(), Some(et_animal.clone()));
     let mut requests = vec![sschemaupdate!(mammal_schema)];
-    store.perform(&mut requests).await?;
+    store.perform_mut(&mut requests).await?;
 
     // Create direct instances of both types
     let mut create_requests = vec![screate!(
         et_animal.clone(),
         "Generic Animal".to_string()
     )];
-    store.perform(&mut create_requests).await?;
+    store.perform_mut(&mut create_requests).await?;
     let animal1_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
         id.clone()
     } else {
@@ -158,7 +158,7 @@ async fn test_inheritance_with_direct_instances() -> Result<()> {
         et_mammal.clone(),
         "Generic Mammal".to_string()
     )];
-    store.perform(&mut create_requests).await?;
+    store.perform_mut(&mut create_requests).await?;
     let mammal1_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
         id.clone()
     } else {
@@ -167,13 +167,13 @@ async fn test_inheritance_with_direct_instances() -> Result<()> {
     let mammal1 = Entity::new(mammal1_id);
 
     // Test: Finding Animal entities should return both (mammal inherits from animal)
-    let animals = store.find_entities(&et_animal).await?;
+    let animals = store.find_entities(&et_animal, None).await?;
     assert_eq!(animals.len(), 2);
     assert!(animals.contains(&animal1.entity_id));
     assert!(animals.contains(&mammal1.entity_id));
 
     // Test: Finding Mammal entities should return only the mammal
-    let mammals = store.find_entities(&et_mammal).await?;
+    let mammals = store.find_entities(&et_mammal, None).await?;
     assert_eq!(mammals.len(), 1);
     assert!(mammals.contains(&mammal1.entity_id));
 
@@ -190,19 +190,19 @@ async fn test_circular_inheritance_protection() -> Result<()> {
     // Create TypeA
     let schema_a = EntitySchema::<Single>::new(et_a.clone(), None);
     let mut requests = vec![sschemaupdate!(schema_a)];
-    store.perform(&mut requests).await?;
+    store.perform_mut(&mut requests).await?;
 
     // Create TypeB that inherits from TypeA
     let schema_b = EntitySchema::<Single>::new(et_b.clone(), Some(et_a.clone()));
     let mut requests = vec![sschemaupdate!(schema_b)];
-    store.perform(&mut requests).await?;
+    store.perform_mut(&mut requests).await?;
 
     // Try to make TypeA inherit from TypeB (should fail or be ignored)
     let circular_schema_a = EntitySchema::<Single>::new(et_a.clone(), Some(et_b.clone()));
     
     // This should either fail or the system should handle it gracefully
     let mut requests = vec![sschemaupdate!(circular_schema_a)];
-    let result = store.perform(&mut requests).await;
+    let result = store.perform_mut(&mut requests).await;
     
     // The test passes if either:
     // 1. The operation fails (returns an error)
@@ -215,8 +215,8 @@ async fn test_circular_inheritance_protection() -> Result<()> {
                 et_b.clone(),
                 "Test B".to_string()
             )];
-            store.perform(&mut create_requests).await?;
-            let entities_a = store.find_entities(&et_a).await?;
+            store.perform_mut(&mut create_requests).await?;
+            let entities_a = store.find_entities(&et_a, None).await?;
             
             // Should not crash or loop infinitely
             assert!(entities_a.len() >= 1);

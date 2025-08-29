@@ -98,14 +98,14 @@ fn setup_test_store_with_entity() -> Result<(Store, EntityId)> {
     );
 
     let mut requests = vec![sschemaupdate!(schema)];
-    store.perform(&mut requests)?;
+    store.perform_mut(&mut requests)?;
 
     // Create a test entity
     let mut create_requests = vec![screate!(
         et_test.clone(),
         "TestEntity".to_string()
     )];
-    store.perform(&mut create_requests)?;
+    store.perform_mut(&mut create_requests)?;
     
     let entity_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
         id.clone()
@@ -131,7 +131,7 @@ fn setup_test_store_with_entity() -> Result<(Store, EntityId)> {
         swrite!(entity_id.clone(), FieldType::from("CreatedAt"), stimestamp!(now)),
         swrite!(entity_id.clone(), FieldType::from("Data"), sblob!(test_data)),
     ];
-    store.perform(&mut field_requests)?;
+    store.perform_mut(&mut field_requests)?;
 
     Ok((store, entity_id))
 }
@@ -477,14 +477,14 @@ fn test_cel_executor_execute_with_indirection() -> Result<()> {
         sschemaupdate!(dept_schema),
         sschemaupdate!(user_schema)
     ];
-    store.perform(&mut requests)?;
+    store.perform_mut(&mut requests)?;
 
     // Create department entity
     let mut create_requests = vec![screate!(
         et_department.clone(),
         "Engineering".to_string()
     )];
-    store.perform(&mut create_requests)?;
+    store.perform_mut(&mut create_requests)?;
     let dept_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
         id.clone()
     } else {
@@ -496,7 +496,7 @@ fn test_cel_executor_execute_with_indirection() -> Result<()> {
         et_user.clone(),
         "Alice".to_string()
     )];
-    store.perform(&mut create_requests)?;
+    store.perform_mut(&mut create_requests)?;
     let user_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
         id.clone()
     } else {
@@ -510,7 +510,7 @@ fn test_cel_executor_execute_with_indirection() -> Result<()> {
         swrite!(user_id.clone(), FieldType::from("Name"), sstr!("Alice")),
         swrite!(user_id.clone(), FieldType::from("Department"), sref!(Some(dept_id))),
     ];
-    store.perform(&mut field_requests)?;
+    store.perform_mut(&mut field_requests)?;
 
     // Test indirection: Department->Name should resolve to "Engineering"
     // The CEL executor should read the field "Department->Name" via the store's indirection system
@@ -624,11 +624,11 @@ fn test_cel_executor_execute_with_deep_indirection() -> Result<()> {
         sschemaupdate!(dept_schema),
         sschemaupdate!(employee_schema)
     ];
-    store.perform(&mut requests)?;
+    store.perform_mut(&mut requests)?;
 
     // Create entities
     let mut create_requests = vec![screate!(et_company.clone(), "TechCorp".to_string())];
-    store.perform(&mut create_requests)?;
+    store.perform_mut(&mut create_requests)?;
     let company_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
         id.clone()
     } else {
@@ -636,7 +636,7 @@ fn test_cel_executor_execute_with_deep_indirection() -> Result<()> {
     };
 
     let mut create_requests = vec![screate!(et_department.clone(), "Engineering".to_string())];
-    store.perform(&mut create_requests)?;
+    store.perform_mut(&mut create_requests)?;
     let dept_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
         id.clone()
     } else {
@@ -644,7 +644,7 @@ fn test_cel_executor_execute_with_deep_indirection() -> Result<()> {
     };
 
     let mut create_requests = vec![screate!(et_employee.clone(), "Bob".to_string())];
-    store.perform(&mut create_requests)?;
+    store.perform_mut(&mut create_requests)?;
     let employee_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
         id.clone()
     } else {
@@ -660,7 +660,7 @@ fn test_cel_executor_execute_with_deep_indirection() -> Result<()> {
         swrite!(employee_id.clone(), FieldType::from("Name"), sstr!("Bob")),
         swrite!(employee_id.clone(), FieldType::from("Department"), sref!(Some(dept_id))),
     ];
-    store.perform(&mut field_requests)?;
+    store.perform_mut(&mut field_requests)?;
 
     // Test deep indirection: Department->Company->Name should resolve to "TechCorp"
     let result = executor.execute(
@@ -752,11 +752,11 @@ fn test_cel_executor_execute_with_indirection_and_entity_lists() -> Result<()> {
         sschemaupdate!(project_schema),
         sschemaupdate!(team_schema)
     ];
-    store.perform(&mut requests)?;
+    store.perform_mut(&mut requests)?;
 
     // Create project entities
     let mut create_requests = vec![screate!(et_project.clone(), "WebApp".to_string())];
-    store.perform(&mut create_requests)?;
+    store.perform_mut(&mut create_requests)?;
     let project1_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
         id.clone()
     } else {
@@ -764,7 +764,7 @@ fn test_cel_executor_execute_with_indirection_and_entity_lists() -> Result<()> {
     };
 
     let mut create_requests = vec![screate!(et_project.clone(), "MobileApp".to_string())];
-    store.perform(&mut create_requests)?;
+    store.perform_mut(&mut create_requests)?;
     let project2_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
         id.clone()
     } else {
@@ -773,7 +773,7 @@ fn test_cel_executor_execute_with_indirection_and_entity_lists() -> Result<()> {
 
     // Create team entity
     let mut create_requests = vec![screate!(et_team.clone(), "DevTeam".to_string())];
-    store.perform(&mut create_requests)?;
+    store.perform_mut(&mut create_requests)?;
     let team_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
         id.clone()
     } else {
@@ -789,7 +789,7 @@ fn test_cel_executor_execute_with_indirection_and_entity_lists() -> Result<()> {
         swrite!(team_id.clone(), FieldType::from("Name"), sstr!("DevTeam")),
         swrite!(team_id.clone(), FieldType::from("Projects"), sreflist![project1_id.clone(), project2_id.clone()]),
     ];
-    store.perform(&mut field_requests)?;
+    store.perform_mut(&mut field_requests)?;
 
     // Test that we can access the entity list field
     let result = executor.execute("size(Projects) == 2", &team_id, &mut store)?;
@@ -832,13 +832,13 @@ fn test_cel_executor_execute_with_null_entity_reference() -> Result<()> {
     );
     
     let mut requests = vec![sschemaupdate!(user_schema)];
-    store.perform(&mut requests)?;
+    store.perform_mut(&mut requests)?;
 
     let mut create_requests = vec![screate!(
         et_user.clone(),
         "User".to_string()
     )];
-    store.perform(&mut create_requests)?;
+    store.perform_mut(&mut create_requests)?;
     let user_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
         id.clone()
     } else {
@@ -971,14 +971,14 @@ fn test_cel_executor_execute_with_mixed_field_access() -> Result<()> {
         sschemaupdate!(dept_schema),
         sschemaupdate!(user_schema)
     ];
-    store.perform(&mut requests)?;
+    store.perform_mut(&mut requests)?;
 
     // Create department entity
     let mut create_requests = vec![screate!(
         et_department.clone(),
         "Sales".to_string()
     )];
-    store.perform(&mut create_requests)?;
+    store.perform_mut(&mut create_requests)?;
     let dept_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
         id.clone()
     } else {
@@ -990,7 +990,7 @@ fn test_cel_executor_execute_with_mixed_field_access() -> Result<()> {
         et_user.clone(),
         "John".to_string()
     )];
-    store.perform(&mut create_requests)?;
+    store.perform_mut(&mut create_requests)?;
     let user_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
         id.clone()
     } else {
@@ -1004,7 +1004,7 @@ fn test_cel_executor_execute_with_mixed_field_access() -> Result<()> {
         swrite!(user_id.clone(), FieldType::from("Age"), sint!(30)),
         swrite!(user_id.clone(), FieldType::from("Department"), sref!(Some(dept_id))),
     ];
-    store.perform(&mut field_requests)?;
+    store.perform_mut(&mut field_requests)?;
 
     // Test mixed access: direct fields (Name, Age) and indirect field (Department->Name) in one expression
     let result = executor.execute(

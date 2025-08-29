@@ -363,7 +363,7 @@ pub async fn take_json_snapshot<T: StoreTrait>(store: &mut T) -> Result<JsonSnap
     json_schemas.sort_by(|a, b| a.entity_type.cmp(&b.entity_type));
 
     // Find the Root entity
-    let root_entities = store.find_entities(&EntityType::from("Root")).await?;
+    let root_entities = store.find_entities(&EntityType::from("Root"), None).await?;
     let root_entity_id = root_entities.first()
         .ok_or_else(|| Error::EntityNotFound(EntityId::new("Root", 0)))?;
 
@@ -403,7 +403,7 @@ pub async fn build_json_entity_tree<T: StoreTrait>(
         }];
 
         // Perform the read operation
-        if let Ok(_) = store.perform(&mut read_requests).await {
+        if let Ok(_) = store.perform_mut(&mut read_requests).await {
             if let Some(crate::Request::Read { value: Some(ref value), .. }) = read_requests.first() {
                 // Special handling for Children field - show nested entities instead of paths
                 if field_type.as_ref() == "Children" {
@@ -480,7 +480,7 @@ pub async fn restore_json_snapshot<T: StoreTrait>(store: &mut T, json_snapshot: 
     }
 
     // Perform schema updates first
-    store.perform(&mut schema_requests).await?;
+    store.perform_mut(&mut schema_requests).await?;
 
     // Restore the entity tree starting from the root
     restore_entity_recursive(store, &json_snapshot.tree, None).await?;
@@ -508,7 +508,7 @@ pub async fn restore_entity_recursive<T: StoreTrait>(
         created_entity_id: None,
         originator: None,
     }];
-    store.perform(&mut create_requests).await?;
+    store.perform_mut(&mut create_requests).await?;
 
     // Get the created entity ID
     let entity_id = if let Some(crate::Request::Create { created_entity_id: Some(ref id), .. }) = create_requests.first() {
@@ -550,7 +550,7 @@ pub async fn restore_entity_recursive<T: StoreTrait>(
     }
 
     if !write_requests.is_empty() {
-        store.perform(&mut write_requests).await?;
+        store.perform_mut(&mut write_requests).await?;
     }
 
     // Handle Children - recursively create child entities
@@ -576,7 +576,7 @@ pub async fn restore_entity_recursive<T: StoreTrait>(
                     writer_id: None,
                     originator: None,
                 }];
-                store.perform(&mut children_write_requests).await?;
+                store.perform_mut(&mut children_write_requests).await?;
             }
         }
     }

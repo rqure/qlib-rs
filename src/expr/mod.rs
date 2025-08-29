@@ -29,7 +29,7 @@ impl CelExecutor {
         Ok(self.cache.get(source).unwrap())
     }
 
-    pub fn execute(&mut self, source: &str, relative_id: &EntityId, store: &mut Store) -> Result<cel::Value> {
+    pub fn execute(&mut self, source: &str, relative_id: &EntityId, store: &Store) -> Result<cel::Value> {
         let program = self.get_or_compile(source.replace(INDIRECTION_DELIMITER, "_").as_str())?;
         let mut context = Context::default();
         let references = program.references();

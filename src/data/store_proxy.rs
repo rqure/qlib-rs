@@ -96,6 +96,7 @@ pub enum StoreMessage {
         id: String,
         entity_type: EntityType,
         page_opts: Option<PageOpts>,
+        filter: Option<String>,
     },
     FindEntitiesResponse {
         id: String,
@@ -106,6 +107,7 @@ pub enum StoreMessage {
         id: String,
         entity_type: EntityType,
         page_opts: Option<PageOpts>,
+        filter: Option<String>,
     },
     FindEntitiesExactResponse {
         id: String,
@@ -469,7 +471,7 @@ impl StoreProxy {
     }
 
     /// Perform requests
-    pub async fn perform(&mut self, requests: &mut Vec<Request>) -> Result<()> {
+    pub async fn perform(&self, requests: &mut Vec<Request>) -> Result<()> {
         let request = StoreMessage::Perform {
             id: Uuid::new_v4().to_string(),
             requests: requests.clone(),
@@ -493,11 +495,13 @@ impl StoreProxy {
         &self,
         entity_type: &EntityType,
         page_opts: Option<PageOpts>,
+        filter: Option<String>,
     ) -> Result<PageResult<EntityId>> {
         let request = StoreMessage::FindEntities {
             id: Uuid::new_v4().to_string(),
             entity_type: entity_type.clone(),
             page_opts,
+            filter,
         };
 
         let response: StoreMessage = self.send_request(request).await?;
@@ -514,11 +518,13 @@ impl StoreProxy {
         &self,
         entity_type: &EntityType,
         page_opts: Option<PageOpts>,
+        filter: Option<String>,
     ) -> Result<PageResult<EntityId>> {
         let request = StoreMessage::FindEntitiesExact {
             id: Uuid::new_v4().to_string(),
             entity_type: entity_type.clone(),
             page_opts,
+            filter,
         };
 
         let response: StoreMessage = self.send_request(request).await?;
@@ -533,13 +539,14 @@ impl StoreProxy {
     pub async fn find_entities(
         &self,
         entity_type: &EntityType,
+        filter: Option<String>,
     ) -> Result<Vec<EntityId>> {
         let mut result = Vec::new();
         let mut page_opts: Option<PageOpts> = None;
 
         loop {
             let page_result = self
-                .find_entities_paginated(entity_type, page_opts.clone())
+                .find_entities_paginated(entity_type, page_opts.clone(), filter.clone())
                 .await?;
             if page_result.items.is_empty() {
                 break;
@@ -701,20 +708,24 @@ impl StoreTrait for StoreProxy {
         self.field_exists(entity_type, field_type).await
     }
 
-    async fn perform(&mut self, requests: &mut Vec<Request>) -> Result<()> {
+    async fn perform(&self, requests: &mut Vec<Request>) -> Result<()> {
         self.perform(requests).await
     }
 
-    async fn find_entities_paginated(&self, entity_type: &EntityType, page_opts: Option<PageOpts>) -> Result<PageResult<EntityId>> {
-        self.find_entities_paginated(entity_type, page_opts).await
+    async fn perform_mut(&mut self, requests: &mut Vec<Request>) -> Result<()> {
+        self.perform(requests).await
     }
 
-    async fn find_entities_exact(&self, entity_type: &EntityType, page_opts: Option<PageOpts>) -> Result<PageResult<EntityId>> {
-        self.find_entities_exact(entity_type, page_opts).await
+    async fn find_entities_paginated(&self, entity_type: &EntityType, page_opts: Option<PageOpts>, filter: Option<String>) -> Result<PageResult<EntityId>> {
+        self.find_entities_paginated(entity_type, page_opts, filter).await
     }
 
-    async fn find_entities(&self, entity_type: &EntityType) -> Result<Vec<EntityId>> {
-        self.find_entities(entity_type).await
+    async fn find_entities_exact(&self, entity_type: &EntityType, page_opts: Option<PageOpts>, filter: Option<String>) -> Result<PageResult<EntityId>> {
+        self.find_entities_exact(entity_type, page_opts, filter).await
+    }
+
+    async fn find_entities(&self, entity_type: &EntityType, filter: Option<String>) -> Result<Vec<EntityId>> {
+        self.find_entities(entity_type, filter).await
     }
 
     async fn get_entity_types(&self) -> Result<Vec<EntityType>> {

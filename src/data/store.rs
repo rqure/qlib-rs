@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use crate::{
     data::{
         entity_schema::Complete, hash_notify_config, indirection::resolve_indirection, now, request::PushCondition, EntityType, FieldType, Notification, NotificationSender, NotifyConfig, StoreTrait, Timestamp, INDIRECTION_DELIMITER
-    }, sread, AdjustBehavior, Entity, EntityId, EntitySchema, Error, Field, FieldSchema, PageOpts, PageResult, Request, Result, Single, Snapshot, Snowflake, Value
+    }, expr::CelExecutor, sread, AdjustBehavior, Entity, EntityId, EntitySchema, Error, Field, FieldSchema, PageOpts, PageResult, Request, Result, Single, Snapshot, Snowflake, Value
 };
 
 pub struct Store {
@@ -220,7 +220,7 @@ impl Store {
             .insert(field_type.clone(), field_schema);
 
         let mut requests = vec![Request::SchemaUpdate { schema: entity_schema, originator: None }];
-        self.perform(&mut requests)
+        self.perform_mut(&mut requests)
     }
 
     pub fn entity_exists(&self, entity_id: &EntityId) -> bool {
@@ -238,7 +238,30 @@ impl Store {
             .unwrap_or(false)
     }
 
-    pub fn perform(&mut self, requests: &mut Vec<Request>) -> Result<()> {
+    pub fn perform(&self, requests: &mut Vec<Request>) -> Result<()> {
+        for request in requests.iter_mut() {
+            match request {
+                Request::Read {
+                    entity_id,
+                    field_type,
+                    value,
+                    write_time,
+                    writer_id,
+                } => {
+                    let indir: (EntityId, FieldType) =
+                        resolve_indirection(self, entity_id, field_type)?;
+                    self.read(&indir.0, &indir.1, value, write_time, writer_id)?;
+                }
+                _ => {
+                    return Err(Error::InvalidRequest("Perform without mutable access can only handle Read requests".to_string()));
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    pub fn perform_mut(&mut self, requests: &mut Vec<Request>) -> Result<()> {
         let mut write_requests = Vec::new();
         
         for request in requests.iter_mut() {
@@ -462,6 +485,7 @@ impl Store {
         &self,
         entity_type: &EntityType,
         page_opts: Option<PageOpts>,
+        filter: Option<String>,
     ) -> Result<PageResult<EntityId>> {
         let opts = page_opts.unwrap_or_default();
 
@@ -485,6 +509,22 @@ impl Store {
             if let Some(entities) = self.entities.get(et) {
                 all_entities.extend(entities.iter().cloned());
             }
+        }
+
+        // Apply CEL filter if provided
+        if let Some(filter_expr) = filter {
+            let mut filtered_entities = Vec::new();
+            let mut cel_executor = CelExecutor::new();
+            
+            for entity_id in all_entities {                
+                match cel_executor.execute(&filter_expr, &entity_id, self) {
+                    Ok(cel::Value::Bool(true)) => filtered_entities.push(entity_id),
+                    Ok(cel::Value::Bool(false)) => {}, // Skip this entity
+                    Ok(_) => {}, // Non-boolean result, skip
+                    Err(_) => {}, // Error in evaluation, skip
+                }
+            }
+            all_entities = filtered_entities;
         }
 
         let total = all_entities.len();
@@ -545,6 +585,7 @@ impl Store {
         &self,
         entity_type: &EntityType,
         page_opts: Option<PageOpts>,
+        filter: Option<String>,
     ) -> Result<PageResult<EntityId>> {
         let opts = page_opts.unwrap_or_default();
 
@@ -557,7 +598,24 @@ impl Store {
             });
         }
 
-        let all_entities = self.entities.get(entity_type).unwrap();
+        let mut all_entities = self.entities.get(entity_type).unwrap().clone();
+
+        // Apply CEL filter if provided
+        if let Some(filter_expr) = filter {
+            let mut filtered_entities = Vec::new();
+            let mut cel_executor = CelExecutor::new();
+            
+            for entity_id in all_entities {
+                match cel_executor.execute(&filter_expr, &entity_id, self) {
+                    Ok(cel::Value::Bool(true)) => filtered_entities.push(entity_id),
+                    Ok(cel::Value::Bool(false)) => {}, // Skip this entity
+                    Ok(_) => {}, // Non-boolean result, skip
+                    Err(_) => {}, // Error in evaluation, skip
+                }
+            }
+            all_entities = filtered_entities;
+        }
+
         let total = all_entities.len();
 
         // Find the starting index based on cursor
@@ -594,13 +652,14 @@ impl Store {
 
     pub fn find_entities(
         &self,
-        entity_type: &EntityType
+        entity_type: &EntityType,
+        filter: Option<String>,
     ) -> Result<Vec<EntityId>> {
         let mut result = Vec::new();
         let mut page_opts: Option<PageOpts> = None;
 
         loop {
-            let page_result = self.find_entities_paginated(entity_type, page_opts.clone())?;
+            let page_result = self.find_entities_paginated(entity_type, page_opts.clone(), filter.clone())?;
             if page_result.items.is_empty() {
                 break;
             }
@@ -865,7 +924,7 @@ impl Store {
     }
 
     fn read(
-        &mut self,
+        &self,
         entity_id: &EntityId,
         field_type: &FieldType,
         value: &mut Option<Value>,
@@ -1204,7 +1263,7 @@ impl Store {
             // Use perform to handle indirection properly
             let mut requests = vec![sread!(entity_id.clone(), context_field.clone())];
 
-            let _ = self.perform(&mut requests); // Include both successful and failed reads
+            let _ = self.perform_mut(&mut requests); // Include both successful and failed reads
             context_map.insert(context_field.clone(), requests.into_iter().next().unwrap());
         }
 
@@ -1370,20 +1429,24 @@ impl StoreTrait for AsyncStore {
         self.inner.field_exists(entity_type, field_type)
     }
 
-    async fn perform(&mut self, requests: &mut Vec<Request>) -> Result<()> {
+    async fn perform(&self, requests: &mut Vec<Request>) -> Result<()> {
         self.inner.perform(requests)
     }
 
-    async fn find_entities_paginated(&self, entity_type: &EntityType, page_opts: Option<PageOpts>) -> Result<PageResult<EntityId>> {
-        self.inner.find_entities_paginated(entity_type, page_opts)
+    async fn perform_mut(&mut self, requests: &mut Vec<Request>) -> Result<()> {
+        self.inner.perform_mut(requests)
     }
 
-    async fn find_entities_exact(&self, entity_type: &EntityType, page_opts: Option<PageOpts>) -> Result<PageResult<EntityId>> {
-        self.inner.find_entities_exact(entity_type, page_opts)
+    async fn find_entities_paginated(&self, entity_type: &EntityType, page_opts: Option<PageOpts>, filter: Option<String>) -> Result<PageResult<EntityId>> {
+        self.inner.find_entities_paginated(entity_type, page_opts, filter)
     }
 
-    async fn find_entities(&self, entity_type: &EntityType) -> Result<Vec<EntityId>> {
-        self.inner.find_entities(entity_type)
+    async fn find_entities_exact(&self, entity_type: &EntityType, page_opts: Option<PageOpts>, filter: Option<String>) -> Result<PageResult<EntityId>> {
+        self.inner.find_entities_exact(entity_type, page_opts, filter)
+    }
+
+    async fn find_entities(&self, entity_type: &EntityType, filter: Option<String>) -> Result<Vec<EntityId>> {
+        self.inner.find_entities(entity_type, filter)
     }
 
     async fn get_entity_types(&self) -> Result<Vec<EntityType>> {

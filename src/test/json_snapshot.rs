@@ -123,7 +123,7 @@ async fn test_json_snapshot_functionality() {
         sschemaupdate!(sensor_schema),
         sschemaupdate!(temp_sensor_schema),
     ];
-    store.perform(&mut schema_requests).await.unwrap();
+    store.perform_mut(&mut schema_requests).await.unwrap();
 
     // Create entities - let the store generate IDs
     let mut create_requests = vec![
@@ -135,7 +135,7 @@ async fn test_json_snapshot_functionality() {
             originator: None,
         },
     ];
-    store.perform(&mut create_requests).await.unwrap();
+    store.perform_mut(&mut create_requests).await.unwrap();
     
     // Get the actual created root ID
     let root_id = if let Some(Request::Create { created_entity_id: Some(ref id), .. }) = create_requests.first() {
@@ -147,7 +147,7 @@ async fn test_json_snapshot_functionality() {
     let mut machine_create_requests = vec![
         screate!(EntityType::from("Machine"), "Server1".to_string(), root_id.clone()),
     ];
-    store.perform(&mut machine_create_requests).await.unwrap();
+    store.perform_mut(&mut machine_create_requests).await.unwrap();
     
     // Get the actual created machine ID
     let machine_id = if let Some(Request::Create { created_entity_id: Some(ref id), .. }) = machine_create_requests.first() {
@@ -159,7 +159,7 @@ async fn test_json_snapshot_functionality() {
     let mut sensor_create_requests = vec![
         screate!(EntityType::from("TemperatureSensor"), "IntakeTemp".to_string(), machine_id.clone()),
     ];
-    store.perform(&mut sensor_create_requests).await.unwrap();
+    store.perform_mut(&mut sensor_create_requests).await.unwrap();
     
     // Get the actual created sensor ID
     let sensor_id = if let Some(Request::Create { created_entity_id: Some(ref id), .. }) = sensor_create_requests.first() {
@@ -183,7 +183,7 @@ async fn test_json_snapshot_functionality() {
         swrite!(sensor_id.clone(), FieldType::from("Unit"), Some(Value::String("C".to_string()))),
         swrite!(sensor_id.clone(), FieldType::from("CalibrationOffset"), Some(Value::Float(0.5))),
     ];
-    store.perform(&mut field_requests).await.unwrap();
+    store.perform_mut(&mut field_requests).await.unwrap();
 
     // Take JSON snapshot
     let snapshot = take_json_snapshot(&mut store).await.unwrap();
@@ -285,7 +285,7 @@ async fn test_json_snapshot_restore() {
         sschemaupdate!(root_schema),
         sschemaupdate!(document_schema),
     ];
-    store1.perform(&mut schema_requests).await.unwrap();
+    store1.perform_mut(&mut schema_requests).await.unwrap();
 
     // Create entities in store1
     let mut create_requests = vec![
@@ -297,7 +297,7 @@ async fn test_json_snapshot_restore() {
             originator: None,
         },
     ];
-    store1.perform(&mut create_requests).await.unwrap();
+    store1.perform_mut(&mut create_requests).await.unwrap();
     
     let root_id = if let Some(Request::Create { created_entity_id: Some(ref id), .. }) = create_requests.first() {
         id.clone()
@@ -308,7 +308,7 @@ async fn test_json_snapshot_restore() {
     let mut doc_create_requests = vec![
         screate!(EntityType::from("Document"), "TestDoc".to_string(), root_id.clone()),
     ];
-    store1.perform(&mut doc_create_requests).await.unwrap();
+    store1.perform_mut(&mut doc_create_requests).await.unwrap();
     
     let doc_id = if let Some(Request::Create { created_entity_id: Some(ref id), .. }) = doc_create_requests.first() {
         id.clone()
@@ -327,7 +327,7 @@ async fn test_json_snapshot_restore() {
         swrite!(doc_id.clone(), FieldType::from("Description"), Some(Value::String("Test document".to_string()))),
         swrite!(doc_id.clone(), FieldType::from("Content"), Some(Value::String("Hello, World!".to_string()))),
     ];
-    store1.perform(&mut field_requests).await.unwrap();
+    store1.perform_mut(&mut field_requests).await.unwrap();
 
     // Take JSON snapshot from store1
     let snapshot = take_json_snapshot(&mut store1).await.unwrap();
@@ -340,7 +340,7 @@ async fn test_json_snapshot_restore() {
     restore_json_snapshot(&mut store2, &snapshot).await.unwrap();
 
     // Verify that store2 now contains the same data
-    let entities = store2.find_entities(&EntityType::from("Root")).await.unwrap();
+    let entities = store2.find_entities(&EntityType::from("Root"), None).await.unwrap();
     assert_eq!(entities.len(), 1);
     
     let root_id_restored = &entities[0];
@@ -352,7 +352,7 @@ async fn test_json_snapshot_restore() {
         crate::sread!(root_id_restored.clone(), FieldType::from("Status")),
         crate::sread!(root_id_restored.clone(), FieldType::from("Children")),
     ];
-    store2.perform(&mut read_requests).await.unwrap();
+    store2.perform_mut(&mut read_requests).await.unwrap();
     
     if let Some(Request::Read { value: Some(Value::String(name)), .. }) = read_requests.get(0) {
         assert_eq!(name, "TestRoot");
@@ -381,7 +381,7 @@ async fn test_json_snapshot_restore() {
             crate::sread!(doc_id_restored.clone(), FieldType::from("Name")),
             crate::sread!(doc_id_restored.clone(), FieldType::from("Content")),
         ];
-        store2.perform(&mut doc_read_requests).await.unwrap();
+        store2.perform_mut(&mut doc_read_requests).await.unwrap();
         
         if let Some(Request::Read { value: Some(Value::String(doc_name)), .. }) = doc_read_requests.get(0) {
             assert_eq!(doc_name, "TestDoc");
@@ -465,13 +465,13 @@ async fn test_json_snapshot_path_resolution() {
         sschemaupdate!(folder_schema),
         sschemaupdate!(file_schema),
     ];
-    store.perform(&mut schema_requests).await.unwrap();
+    store.perform_mut(&mut schema_requests).await.unwrap();
 
     // Create entities - start with a Root entity
     let mut root_create = vec![
         screate!(EntityType::from("Root"), "Root".to_string()),
     ];
-    store.perform(&mut root_create).await.unwrap();
+    store.perform_mut(&mut root_create).await.unwrap();
     let root_id = if let Some(Request::Create { created_entity_id: Some(ref id), .. }) = root_create.first() {
         id.clone()
     } else {
@@ -481,7 +481,7 @@ async fn test_json_snapshot_path_resolution() {
     let mut folder_create = vec![
         screate!(EntityType::from("Folder"), "Documents".to_string(), root_id.clone()),
     ];
-    store.perform(&mut folder_create).await.unwrap();
+    store.perform_mut(&mut folder_create).await.unwrap();
     let folder_id = if let Some(Request::Create { created_entity_id: Some(ref id), .. }) = folder_create.first() {
         id.clone()
     } else {
@@ -491,7 +491,7 @@ async fn test_json_snapshot_path_resolution() {
     let mut file_create = vec![
         screate!(EntityType::from("File"), "test.txt".to_string(), folder_id.clone()),
     ];
-    store.perform(&mut file_create).await.unwrap();
+    store.perform_mut(&mut file_create).await.unwrap();
     let file_id = if let Some(Request::Create { created_entity_id: Some(ref id), .. }) = file_create.first() {
         id.clone()
     } else {
@@ -513,7 +513,7 @@ async fn test_json_snapshot_path_resolution() {
         swrite!(folder_id.clone(), FieldType::from("Parent"), Some(Value::EntityReference(Some(root_id.clone())))),
         swrite!(file_id.clone(), FieldType::from("Parent"), Some(Value::EntityReference(Some(folder_id.clone())))),
     ];
-    store.perform(&mut setup_requests).await.unwrap();
+    store.perform_mut(&mut setup_requests).await.unwrap();
 
     // Take snapshot
     let snapshot = take_json_snapshot(&mut store).await.unwrap();

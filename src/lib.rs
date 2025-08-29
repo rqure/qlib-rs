@@ -41,6 +41,7 @@ pub enum Error {
     UnsupportedAdjustBehavior(EntityId, FieldType, AdjustBehavior),
     ValueTypeMismatch(EntityId, FieldType, Value, Value),
     BadValueCast(Value, Value),
+    InvalidRequest(String),
 
     // Auth related errors
     InvalidCredentials,
@@ -74,6 +75,7 @@ impl std::fmt::Display for Error {
             Error::InvalidFieldValue(msg) => write!(f, "Invalid field value: {}", msg),
             Error::InvalidNotifyConfig(msg) => write!(f, "Invalid notification config: {}", msg),
             Error::UnsupportedAdjustBehavior(id, field, behavior) => write!(f, "Unsupported adjust behavior {} for {}.{}", behavior, id, field),
+            Error::InvalidRequest(msg) => write!(f, "Invalid request: {}", msg),
             Error::ValueTypeMismatch(id, field, got, expected) => write!(f, "Value type mismatch for {}.{}: got value type {:?}, expected value type {:?}", id, field, got, expected),
             Error::BadValueCast(got, expected) => write!(f, "Bad value cast: got value type {:?}, expected value type {:?}", got, expected),
             Error::InvalidCredentials => write!(f, "Invalid credentials"),

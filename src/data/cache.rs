@@ -71,7 +71,7 @@ impl<T: StoreTrait + Send + Sync + 'static> Cache<T> {
         let mut entity_ids_by_index_fields = HashMap::new();
         let mut fields_by_entity_id = HashMap::new();
 
-        let entity_ids = store.read().await.find_entities(&entity_type).await?;
+        let entity_ids = store.read().await.find_entities(&entity_type, None).await?;
         for entity_id in entity_ids {
             let mut reqs = Vec::new();
             for field in index_fields.iter() {
@@ -82,7 +82,7 @@ impl<T: StoreTrait + Send + Sync + 'static> Cache<T> {
                 reqs.push(crate::sread!(entity_id.clone(), field.clone()));
             }
 
-            store.write().await.perform(&mut reqs).await?;
+            store.write().await.perform_mut(&mut reqs).await?;
 
             let index_key = reqs[..index_fields.len()]
                 .iter()

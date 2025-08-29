@@ -68,7 +68,7 @@ pub async fn resolve_indirection_async<T: StoreTrait>(
             let prev_field = &fields[i - 1];
 
             let mut reqs = vec![crate::sread!(current_entity_id.clone(), prev_field.clone())];
-            store.perform(&mut reqs).await?;
+            store.perform_mut(&mut reqs).await?;
 
             if let crate::Request::Read { value, .. } = &reqs[0] {
                 if let Some(crate::Value::EntityList(entities)) = value {
@@ -103,7 +103,7 @@ pub async fn resolve_indirection_async<T: StoreTrait>(
         // Normal field resolution
         let mut reqs = vec![crate::sread!(current_entity_id.clone(), field.clone())];
 
-        if let Err(e) = store.perform(&mut reqs).await {
+        if let Err(e) = store.perform_mut(&mut reqs).await {
             return Err(crate::Error::BadIndirection(
                 current_entity_id.clone(),
                 field_type.clone(),
@@ -180,7 +180,7 @@ pub async fn resolve_indirection_async<T: StoreTrait>(
 }
 
 pub fn resolve_indirection(
-    store: &mut Store,
+    store: &Store,
     entity_id: &EntityId,
     field_type: &FieldType,
 ) -> Result<(EntityId, FieldType)> {
@@ -348,7 +348,7 @@ pub async fn path_async<T: StoreTrait>(store: &mut T, entity_id: &EntityId) -> R
             crate::FieldType::from("Name")
         )];
 
-        let entity_name = if store.perform(&mut name_requests).await.is_ok() {
+        let entity_name = if store.perform_mut(&mut name_requests).await.is_ok() {
             if let crate::Request::Read {
                 value: Some(crate::Value::String(name)),
                 ..
@@ -372,7 +372,7 @@ pub async fn path_async<T: StoreTrait>(store: &mut T, entity_id: &EntityId) -> R
             crate::FieldType::from("Parent")
         )];
 
-        if store.perform(&mut parent_requests).await.is_ok() {
+        if store.perform_mut(&mut parent_requests).await.is_ok() {
             if let crate::Request::Read {
                 value: Some(crate::Value::EntityReference(Some(parent_id))),
                 ..

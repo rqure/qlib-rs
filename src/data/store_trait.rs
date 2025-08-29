@@ -28,16 +28,17 @@ pub trait StoreTrait: Send + Sync {
     async fn field_exists(&self, entity_type: &EntityType, field_type: &FieldType) -> bool;
 
     /// Perform a batch of requests
-    async fn perform(&mut self, requests: &mut Vec<Request>) -> Result<()>;
+    async fn perform(&self, requests: &mut Vec<Request>) -> Result<()>;
+    async fn perform_mut(&mut self, requests: &mut Vec<Request>) -> Result<()>;
 
     /// Find entities of a specific type with pagination (includes inherited types)
-    async fn find_entities_paginated(&self, entity_type: &EntityType, page_opts: Option<PageOpts>) -> Result<PageResult<EntityId>>;
+    async fn find_entities_paginated(&self, entity_type: &EntityType, page_opts: Option<PageOpts>, filter: Option<String>) -> Result<PageResult<EntityId>>;
 
     /// Find entities of exactly the specified type (no inheritance) with pagination
-    async fn find_entities_exact(&self, entity_type: &EntityType, page_opts: Option<PageOpts>) -> Result<PageResult<EntityId>>;
+    async fn find_entities_exact(&self, entity_type: &EntityType, page_opts: Option<PageOpts>, filter: Option<String>) -> Result<PageResult<EntityId>>;
 
     /// Find all entities of a specific type (includes inherited types)
-    async fn find_entities(&self, entity_type: &EntityType) -> Result<Vec<EntityId>>;
+    async fn find_entities(&self, entity_type: &EntityType, filter: Option<String>) -> Result<Vec<EntityId>>;
 
     /// Get all entity types
     async fn get_entity_types(&self) -> Result<Vec<EntityType>>;
