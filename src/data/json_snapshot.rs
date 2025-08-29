@@ -402,7 +402,13 @@ pub async fn build_json_entity_tree<T: StoreTrait>(
     let mut fields = std::collections::HashMap::new();
 
     // Read all field values for this entity using perform()
+    // Only include configuration fields in snapshots, excluding runtime fields
     for (field_type, field_schema) in &complete_schema.fields {
+        // Skip runtime fields when taking snapshots
+        if matches!(field_schema.storage_scope(), crate::data::StorageScope::Runtime) {
+            continue;
+        }
+        
         // Create a read request
         let mut read_requests = vec![crate::Request::Read {
             entity_id: entity_id.clone(),
@@ -592,4 +598,391 @@ pub async fn restore_entity_recursive<T: StoreTrait>(
     }
 
     Ok(entity_id)
+}
+
+/// Factory restore: Create snapshot and WAL files in a target data directory
+/// This is useful for creating a fresh QCore data directory from a JSON snapshot
+pub async fn factory_restore_json_snapshot(
+    json_snapshot: &JsonSnapshot,
+    data_dir: std::path::PathBuf,
+    machine_id: String,
+) -> Result<()> {
+    use crate::Snapshot;
+    use std::collections::HashMap;
+
+    // Create the directory structure
+    let machine_data_dir = data_dir.join(&machine_id);
+    let snapshots_dir = machine_data_dir.join("snapshots");
+    let wal_dir = machine_data_dir.join("wal");
+
+    tokio::fs::create_dir_all(&snapshots_dir).await
+        .map_err(|e| crate::Error::StoreProxyError(format!("Failed to create snapshots directory: {}", e)))?;
+    tokio::fs::create_dir_all(&wal_dir).await
+        .map_err(|e| crate::Error::StoreProxyError(format!("Failed to create WAL directory: {}", e)))?;
+
+    // Convert JsonSnapshot to internal Snapshot format
+    let mut snapshot = Snapshot::default();
+    
+    // Convert schemas
+    for json_schema in &json_snapshot.schemas {
+        let entity_type = crate::EntityType::from(json_schema.entity_type.clone());
+        let schema = json_schema.to_entity_schema()?;
+        
+        snapshot.schemas.insert(entity_type.clone(), schema);
+        if !snapshot.types.contains(&entity_type) {
+            snapshot.types.push(entity_type);
+        }
+    }
+    
+    // Convert the entity tree to individual entities and fields
+    let mut entity_counters: HashMap<String, u64> = HashMap::new();
+    let mut total_entities = 0;
+    
+    convert_json_entity_to_snapshot(&json_snapshot.tree, None, &mut snapshot, &mut entity_counters, &mut total_entities)?;
+
+    // Write snapshot binary file - using serde_json for now instead of bincode
+    let snapshot_filename = "snapshot_0000000000.bin";
+    let snapshot_path = snapshots_dir.join(snapshot_filename);
+    
+    let serialized_snapshot = serde_json::to_vec(&snapshot)
+        .map_err(|e| crate::Error::StoreProxyError(format!("Failed to serialize snapshot: {}", e)))?;
+    
+    tokio::fs::write(&snapshot_path, &serialized_snapshot).await
+        .map_err(|e| crate::Error::StoreProxyError(format!("Failed to write snapshot file: {}", e)))?;
+
+    // Write WAL file with snapshot marker
+    let wal_filename = "wal_0000000000.log";
+    let wal_path = wal_dir.join(wal_filename);
+    
+    let snapshot_request = crate::Request::Snapshot {
+        snapshot_counter: 0,
+        originator: Some("factory-restore".to_string()),
+    };
+    
+    let serialized_request = serde_json::to_vec(&snapshot_request)
+        .map_err(|e| crate::Error::StoreProxyError(format!("Failed to serialize snapshot request: {}", e)))?;
+    
+    // Write to WAL file with length prefix (matching QCore format)
+    use tokio::io::AsyncWriteExt;
+    let mut wal_file = tokio::fs::OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(true)
+        .open(&wal_path)
+        .await
+        .map_err(|e| crate::Error::StoreProxyError(format!("Failed to open WAL file: {}", e)))?;
+    
+    // Write length prefix (4 bytes little-endian) followed by the serialized data
+    let len_bytes = (serialized_request.len() as u32).to_le_bytes();
+    wal_file.write_all(&len_bytes).await.map_err(|e| crate::Error::StoreProxyError(format!("Failed to write WAL length: {}", e)))?;
+    wal_file.write_all(&serialized_request).await.map_err(|e| crate::Error::StoreProxyError(format!("Failed to write WAL data: {}", e)))?;
+    wal_file.flush().await.map_err(|e| crate::Error::StoreProxyError(format!("Failed to flush WAL file: {}", e)))?;
+
+    Ok(())
+}
+
+/// Normal restore via StoreProxy: Take a diff and apply changes
+/// This connects to a running QCore service and applies the differences between current state and snapshot
+pub async fn restore_json_snapshot_via_proxy(
+    store_proxy: &mut crate::StoreProxy,
+    json_snapshot: &JsonSnapshot,
+) -> Result<()> {
+    // Take current snapshot to compute diff
+    let current_snapshot = take_json_snapshot(store_proxy).await?;
+    
+    // Compute and apply schema differences first
+    apply_schema_diff(store_proxy, &current_snapshot.schemas, &json_snapshot.schemas).await?;
+    
+    // Compute and apply entity differences
+    apply_entity_diff(store_proxy, &current_snapshot.tree, &json_snapshot.tree).await?;
+
+    Ok(())
+}
+
+/// Helper function to convert JSON entity tree to internal snapshot format (for factory restore)
+fn convert_json_entity_to_snapshot(
+    json_entity: &JsonEntity,
+    parent_id: Option<crate::EntityId>,
+    snapshot: &mut crate::Snapshot,
+    entity_counters: &mut HashMap<String, u64>,
+    total_entities: &mut usize,
+) -> Result<crate::EntityId> {
+    let entity_type = crate::EntityType::from(json_entity.entity_type.clone());
+    
+    // Generate a unique entity ID using a counter per type
+    let counter = entity_counters.entry(entity_type.as_ref().to_string()).or_insert(0);
+    let entity_id = crate::EntityId::new(entity_type.as_ref(), *counter);
+    *counter += 1;
+    *total_entities += 1;
+    
+    // Add entity to the snapshot
+    snapshot.entities.entry(entity_type.clone()).or_insert_with(Vec::new).push(entity_id.clone());
+    
+    // Get the schema for this entity type
+    let schema = snapshot.schemas.get(&entity_type)
+        .ok_or_else(|| crate::Error::EntityNotFound(entity_id.clone()))?;
+    
+    // Convert field values (only configuration fields)
+    let mut entity_fields = HashMap::new();
+    for (field_name, json_value) in &json_entity.fields {
+        if field_name == "Children" {
+            // Handle children separately
+            continue;
+        }
+        
+        let field_type = crate::FieldType::from(field_name.clone());
+        if let Some(field_schema) = schema.fields.get(&field_type) {
+            // Only include configuration fields in factory restore
+            if matches!(field_schema.storage_scope(), crate::data::StorageScope::Configuration) {
+                if let Ok(value) = json_value_to_value(json_value, field_schema) {
+                    let field = crate::Field {
+                        field_type: field_type.clone(),
+                        value,
+                        write_time: crate::Timestamp::now(),
+                        writer_id: parent_id.clone(),
+                    };
+                    entity_fields.insert(field_type, field);
+                }
+            }
+        }
+    }
+    
+    snapshot.fields.insert(entity_id.clone(), entity_fields);
+    
+    // Handle children recursively
+    if let Some(children_json) = json_entity.fields.get("Children") {
+        if let Some(children_array) = children_json.as_array() {
+            for child_json_value in children_array {
+                if let Ok(child_json_entity) = serde_json::from_value::<JsonEntity>(child_json_value.clone()) {
+                    convert_json_entity_to_snapshot(&child_json_entity, Some(entity_id.clone()), snapshot, entity_counters, total_entities)?;
+                }
+            }
+        }
+    }
+    
+    Ok(entity_id)
+}
+
+/// Apply schema differences between current and target snapshots
+async fn apply_schema_diff(
+    store: &mut crate::StoreProxy,
+    current_schemas: &[JsonEntitySchema],
+    target_schemas: &[JsonEntitySchema],
+) -> Result<()> {
+    let mut current_map: HashMap<String, &JsonEntitySchema> = current_schemas.iter()
+        .map(|s| (s.entity_type.clone(), s))
+        .collect();
+    
+    let mut schema_requests = Vec::new();
+    
+    // Add or update schemas that are different
+    for target_schema in target_schemas {
+        let needs_update = match current_map.get(&target_schema.entity_type) {
+            Some(current_schema) => {
+                // Compare schemas (simplified comparison)
+                serde_json::to_string(current_schema).unwrap_or_default() != 
+                serde_json::to_string(target_schema).unwrap_or_default()
+            },
+            None => true, // Schema doesn't exist, needs to be added
+        };
+        
+        if needs_update {
+            let schema = target_schema.to_entity_schema()?;
+            schema_requests.push(crate::Request::SchemaUpdate { 
+                schema, 
+                originator: Some("restore-via-proxy".to_string()) 
+            });
+        }
+        
+        current_map.remove(&target_schema.entity_type);
+    }
+    
+    // Note: We don't remove schemas that exist in current but not in target
+    // as this could be destructive. Only add/update schemas.
+    
+    if !schema_requests.is_empty() {
+        store.perform_mut(&mut schema_requests).await?;
+    }
+    
+    Ok(())
+}
+
+/// Apply entity differences between current and target entity trees
+async fn apply_entity_diff(
+    store: &mut crate::StoreProxy,
+    current_tree: &JsonEntity,
+    target_tree: &JsonEntity,
+) -> Result<()> {
+    // This is a simplified diff implementation
+    // In a full implementation, this would compute a more sophisticated diff
+    // For now, we'll do a simple recursive comparison and update approach
+    
+    apply_entity_diff_recursive(store, Some(current_tree), target_tree, None).await?;
+    Ok(())
+}
+
+/// Recursively apply entity differences
+fn apply_entity_diff_recursive<'a>(
+    store: &'a mut crate::StoreProxy,
+    current_entity: Option<&'a JsonEntity>,
+    target_entity: &'a JsonEntity,
+    parent_id: Option<crate::EntityId>,
+) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<crate::EntityId>> + 'a>> {
+    Box::pin(async move {
+    // Find if this entity already exists by name and type
+    let entity_id = if let Some(current) = current_entity {
+        if current.entity_type == target_entity.entity_type {
+            // Entity exists, find its ID by searching
+            let entity_type = crate::EntityType::from(target_entity.entity_type.clone());
+            let entities = store.find_entities(&entity_type, None).await?;
+            
+            // Try to find by name
+            let target_name = target_entity.fields.get("Name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("Unknown");
+                
+            let mut found_entity_id = None;
+            for entity_id in &entities {
+                let mut read_requests = vec![crate::Request::Read {
+                    entity_id: entity_id.clone(),
+                    field_type: crate::FieldType::from("Name".to_string()),
+                    value: None,
+                    write_time: None,
+                    writer_id: None,
+                }];
+                
+                if store.perform_mut(&mut read_requests).await.is_ok() {
+                    if let Some(crate::Request::Read { value: Some(crate::Value::String(name)), .. }) = read_requests.first() {
+                        if name == target_name {
+                            found_entity_id = Some(entity_id.clone());
+                            break;
+                        }
+                    }
+                }
+            }
+            
+            found_entity_id.unwrap_or_else(|| {
+                // If not found, we'll create it (fall through to creation logic)
+                entities.first().cloned().unwrap_or_else(|| crate::EntityId::new(target_entity.entity_type.clone(), 0))
+            })
+        } else {
+            // Different type, create new entity
+            create_entity_from_json(store, target_entity, parent_id.clone()).await?
+        }
+    } else {
+        // Entity doesn't exist, create it
+        create_entity_from_json(store, target_entity, parent_id.clone()).await?
+    };
+    
+    // Update entity fields (only configuration fields)
+    let entity_type = crate::EntityType::from(target_entity.entity_type.clone());
+    let complete_schema = store.get_complete_entity_schema(&entity_type).await?;
+    
+    let mut write_requests = Vec::new();
+    for (field_name, json_value) in &target_entity.fields {
+        if field_name == "Children" {
+            continue; // Handle children separately
+        }
+        
+        let field_type = crate::FieldType::from(field_name.clone());
+        if let Some(field_schema) = complete_schema.fields.get(&field_type) {
+            // Only update configuration fields
+            if matches!(field_schema.storage_scope(), crate::data::StorageScope::Configuration) {
+                if let Ok(value) = json_value_to_value(json_value, field_schema) {
+                    write_requests.push(crate::Request::Write {
+                        entity_id: entity_id.clone(),
+                        field_type,
+                        value: Some(value),
+                        push_condition: crate::PushCondition::Always,
+                        adjust_behavior: crate::AdjustBehavior::Set,
+                        write_time: None,
+                        writer_id: None,
+                        originator: Some("restore-via-proxy".to_string()),
+                    });
+                }
+            }
+        }
+    }
+    
+    if !write_requests.is_empty() {
+        store.perform_mut(&mut write_requests).await?;
+    }
+    
+    // Handle children recursively
+    if let Some(target_children_json) = target_entity.fields.get("Children") {
+        if let Some(target_children_array) = target_children_json.as_array() {
+            let mut child_ids = Vec::new();
+            
+            // Get current children for comparison
+            let current_children = if let Some(current) = current_entity {
+                current.fields.get("Children")
+                    .and_then(|v| v.as_array())
+                    .map(|arr| arr.iter().collect::<Vec<_>>())
+                    .unwrap_or_default()
+            } else {
+                Vec::new()
+            };
+            
+            for (i, child_json) in target_children_array.iter().enumerate() {
+                if let Ok(child_entity) = serde_json::from_value::<JsonEntity>(child_json.clone()) {
+                    let current_child_entity = current_children.get(i)
+                        .and_then(|v| serde_json::from_value::<JsonEntity>((*v).clone()).ok());
+                    
+                    let child_id = apply_entity_diff_recursive(
+                        store, 
+                        current_child_entity.as_ref(), 
+                        &child_entity, 
+                        Some(entity_id.clone())
+                    ).await?;
+                    child_ids.push(child_id);
+                }
+            }
+            
+            // Update the Children field
+            if !child_ids.is_empty() {
+                let mut children_write_requests = vec![crate::Request::Write {
+                    entity_id: entity_id.clone(),
+                    field_type: crate::FieldType::from("Children".to_string()),
+                    value: Some(crate::Value::EntityList(child_ids)),
+                    push_condition: crate::PushCondition::Always,
+                    adjust_behavior: crate::AdjustBehavior::Set,
+                    write_time: None,
+                    writer_id: None,
+                    originator: Some("restore-via-proxy".to_string()),
+                }];
+                store.perform_mut(&mut children_write_requests).await?;
+            }
+        }
+    }
+    
+    Ok(entity_id)
+    })
+}
+
+/// Helper function to create a new entity from JSON data
+async fn create_entity_from_json(
+    store: &mut crate::StoreProxy,
+    json_entity: &JsonEntity,
+    parent_id: Option<crate::EntityId>,
+) -> Result<crate::EntityId> {
+    let name = json_entity.fields.get("Name")
+        .and_then(|v| v.as_str())
+        .unwrap_or("Unknown")
+        .to_string();
+
+    let mut create_requests = vec![crate::Request::Create {
+        entity_type: crate::EntityType::from(json_entity.entity_type.clone()),
+        parent_id,
+        name,
+        created_entity_id: None,
+        originator: Some("restore-via-proxy".to_string()),
+    }];
+    
+    store.perform_mut(&mut create_requests).await?;
+
+    if let Some(crate::Request::Create { created_entity_id: Some(ref id), .. }) = create_requests.first() {
+        Ok(id.clone())
+    } else {
+        Err(crate::Error::EntityNotFound(crate::EntityId::new(json_entity.entity_type.clone(), 0)))
+    }
 }

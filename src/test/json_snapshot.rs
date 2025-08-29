@@ -26,7 +26,7 @@ async fn test_json_snapshot_functionality() {
             field_type: FieldType::from("Name"),
             default_value: "".to_string(),
             rank: 0,
-            storage_scope: StorageScope::Runtime,
+            storage_scope: StorageScope::Configuration,
         },
     );
     object_schema.fields.insert(
@@ -35,7 +35,7 @@ async fn test_json_snapshot_functionality() {
             field_type: FieldType::from("Description"),
             default_value: "".to_string(),
             rank: 1,
-            storage_scope: StorageScope::Runtime,
+            storage_scope: StorageScope::Configuration,
         },
     );
     object_schema.fields.insert(
@@ -44,7 +44,7 @@ async fn test_json_snapshot_functionality() {
             field_type: FieldType::from("Children"),
             default_value: vec![],
             rank: 2,
-            storage_scope: StorageScope::Runtime,
+            storage_scope: StorageScope::Configuration,
         },
     );
 
@@ -84,7 +84,7 @@ async fn test_json_snapshot_functionality() {
             field_type: FieldType::from("Status"),
             default_value: 1, // "Offline"
             rank: 10,
-            storage_scope: StorageScope::Runtime,
+            storage_scope: StorageScope::Configuration,
             choices: vec!["Online".to_string(), "Offline".to_string()],
         },
     );
@@ -105,7 +105,7 @@ async fn test_json_snapshot_functionality() {
             field_type: FieldType::from("Unit"),
             default_value: "".to_string(),
             rank: 11,
-            storage_scope: StorageScope::Runtime,
+            storage_scope: StorageScope::Configuration,
         },
     );
     sensor_schema.fields.insert(
@@ -125,7 +125,7 @@ async fn test_json_snapshot_functionality() {
             field_type: FieldType::from("CalibrationOffset"),
             default_value: 0.0,
             rank: 13,
-            storage_scope: StorageScope::Runtime,
+            storage_scope: StorageScope::Configuration,
         },
     );
 
@@ -231,7 +231,7 @@ async fn test_json_snapshot_functionality() {
     let sensor = &machine_children[0];
     assert_eq!(sensor.get("entityType").unwrap().as_str().unwrap(), "TemperatureSensor");
     assert_eq!(sensor.get("Name").unwrap().as_str().unwrap(), "IntakeTemp");
-    assert_eq!(sensor.get("CurrentValue").unwrap().as_f64().unwrap(), 72.5);
+    // CurrentValue is a Runtime field and not included in snapshots
     assert_eq!(sensor.get("Unit").unwrap().as_str().unwrap(), "C");
     assert_eq!(sensor.get("CalibrationOffset").unwrap().as_f64().unwrap(), 0.5);
 
@@ -254,7 +254,7 @@ async fn test_json_snapshot_restore() {
             field_type: FieldType::from("Name"),
             default_value: "".to_string(),
             rank: 0,
-            storage_scope: StorageScope::Runtime,
+            storage_scope: StorageScope::Configuration,
         },
     );
     object_schema.fields.insert(
@@ -263,7 +263,7 @@ async fn test_json_snapshot_restore() {
             field_type: FieldType::from("Description"),
             default_value: "".to_string(),
             rank: 1,
-            storage_scope: StorageScope::Runtime,
+            storage_scope: StorageScope::Configuration,
         },
     );
     object_schema.fields.insert(
@@ -272,7 +272,7 @@ async fn test_json_snapshot_restore() {
             field_type: FieldType::from("Children"),
             default_value: vec![],
             rank: 2,
-            storage_scope: StorageScope::Runtime,
+            storage_scope: StorageScope::Configuration,
         },
     );
 
@@ -283,7 +283,7 @@ async fn test_json_snapshot_restore() {
             field_type: FieldType::from("Status"),
             default_value: "Active".to_string(),
             rank: 10,
-            storage_scope: StorageScope::Runtime,
+            storage_scope: StorageScope::Configuration,
         },
     );
 
@@ -294,7 +294,7 @@ async fn test_json_snapshot_restore() {
             field_type: FieldType::from("Content"),
             default_value: "".to_string(),
             rank: 10,
-            storage_scope: StorageScope::Runtime,
+            storage_scope: StorageScope::Configuration,
         },
     );
 
@@ -436,7 +436,7 @@ async fn test_json_snapshot_path_resolution() {
             field_type: FieldType::from("Name"),
             default_value: "".to_string(),
             rank: 0,
-            storage_scope: StorageScope::Runtime,
+            storage_scope: StorageScope::Configuration,
         },
     );
     object_schema.fields.insert(
@@ -445,7 +445,7 @@ async fn test_json_snapshot_path_resolution() {
             field_type: FieldType::from("Children"),
             default_value: vec![],
             rank: 1,
-            storage_scope: StorageScope::Runtime,
+            storage_scope: StorageScope::Configuration,
         },
     );
 
@@ -458,7 +458,7 @@ async fn test_json_snapshot_path_resolution() {
             field_type: FieldType::from("Parent"),
             default_value: None,
             rank: 5,
-            storage_scope: StorageScope::Runtime,
+            storage_scope: StorageScope::Configuration,
         },
     );
     
@@ -469,7 +469,7 @@ async fn test_json_snapshot_path_resolution() {
             field_type: FieldType::from("ParentFolder"),
             default_value: None,
             rank: 10,
-            storage_scope: StorageScope::Runtime,
+            storage_scope: StorageScope::Configuration,
         },
     );
     file_schema.fields.insert(
@@ -478,7 +478,7 @@ async fn test_json_snapshot_path_resolution() {
             field_type: FieldType::from("Parent"),
             default_value: None,
             rank: 11,
-            storage_scope: StorageScope::Runtime,
+            storage_scope: StorageScope::Configuration,
         },
     );
 
