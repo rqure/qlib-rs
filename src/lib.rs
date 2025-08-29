@@ -13,6 +13,7 @@ pub use data::{
     restore_entity_recursive,
     EntityType, FieldType, Timestamp, now, epoch, nanos_to_timestamp, secs_to_timestamp, 
     millis_to_timestamp, micros_to_timestamp, ft, et, Cache, resolve_indirection, resolve_indirection_async, path_async,
+    StoreTrait
 };
 
 pub use auth::{

@@ -3,6 +3,9 @@
 use std::sync::Arc;
 
 #[allow(unused_imports)]
+use crate::StoreTrait;
+
+#[allow(unused_imports)]
 use crate::{restore_json_snapshot, screate, sschemaupdate, swrite, take_json_snapshot, EntitySchema, EntityType, FieldSchema, FieldType, Request, Single, Snowflake, AsyncStore, Value};
 
 
