@@ -10,7 +10,6 @@ pub const LOCKED_UNTIL: &str = "LockedUntil";
 pub const NAME: &str = "Name";
 pub const PARENT: &str = "Parent";
 pub const PASSWORD: &str = "Password";
-pub const PERMISSION: &str = "Permission";
 pub const RESOURCE_FIELD: &str = "ResourceField";
 pub const RESOURCE_TYPE: &str = "ResourceType";
 pub const SCOPE: &str = "Scope";
@@ -25,9 +24,7 @@ pub const MAKE_ME_AVAILABLE: &str = "MakeMeAvailable";
 pub const MAKE_ME_UNAVAILABLE: &str = "MakeMeUnavailable";
 pub const HEARTBEAT: &str = "Heartbeat";
 pub const DEATH_DETECTION_TIMEOUT: &str = "DeathDetectionTimeout";
-pub const WASM_BINARY: &str = "WasmBinary";
-pub const EXECUTE: &str = "Execute";
-pub const LAST_OUTPUT: &str = "LastOutput";
+pub const CONDITION: &str = "Condition";
 
 pub fn children() -> FieldType {
     FieldType::from(CHILDREN)
@@ -85,10 +82,6 @@ pub fn resource_field() -> FieldType {
     FieldType::from(RESOURCE_FIELD)
 }
 
-pub fn program() -> FieldType {
-    FieldType::from(PERMISSION)
-}
-
 pub fn candidate_list() -> FieldType {
     FieldType::from(CANDIDATE_LIST)
 }
@@ -129,10 +122,6 @@ pub fn death_detection_timeout() -> FieldType {
     FieldType::from(DEATH_DETECTION_TIMEOUT)
 }
 
-pub fn wasm_binary() -> FieldType {
-    FieldType::from(WASM_BINARY)
-}
-
-pub fn execute() -> FieldType {
-    FieldType::from(EXECUTE)
+pub fn condition() -> FieldType {
+    FieldType::from(CONDITION)
 }

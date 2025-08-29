@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use tokio::sync::RwLock;
 
-use crate::{ft, scripting::execute, sread, Cache, EntityId, Error, FieldType, Result, AsyncStore, Value};
+use crate::{ft, AsyncStore, Cache, CelExecutor, EntityId, Error, FieldType, Result, Value};
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 #[allow(dead_code)]
@@ -15,76 +15,58 @@ pub enum AuthorizationScope {
 #[allow(dead_code)]
 pub async fn get_scope(
     store: Arc<RwLock<AsyncStore>>,
-    auth_rule_cache: &Cache<AsyncStore>,
+    executor: &mut CelExecutor,
+    permission_cache: &Cache<AsyncStore>,
     subject_entity_id: &EntityId,
     resource_entity_id: &EntityId,
     resource_field: &FieldType,
 ) -> Result<AuthorizationScope> {
-    let rules = auth_rule_cache.get(vec![
-        Value::String(resource_entity_id.get_type().to_string()),
-        Value::String(resource_field.to_string()),
-    ]);
     let mut filtered_rules: Vec<AuthorizationScope> = Vec::new();
 
-    if let Some(rules) = rules {
-        for rule in rules {
-            let scope = rule
-                .get(&ft::scope())
-                .ok_or(Error::CacheFieldNotFound(ft::scope()))?
-                .expect_choice()?;
+    let entity_types = {
+        let mut entity_types = store
+            .read()
+            .await
+            .inner()
+            .get_parent_types(resource_entity_id.get_type());
+        entity_types.push(resource_entity_id.get_type().clone());
+        entity_types
+    };
 
-            let rule_resource_type = rule
-                .get(&ft::resource_type())
-                .ok_or(Error::CacheFieldNotFound(ft::resource_type()))?
-                .expect_string()?;
+    for entity_type in entity_types.iter() {
+        let permissions = permission_cache.get(vec![
+            Value::String(entity_type.to_string()),
+            Value::String(resource_field.to_string()),
+        ]);
 
-            let rule_resource_field = rule
-                .get(&ft::resource_field())
-                .ok_or(Error::CacheFieldNotFound(ft::resource_field()))?
-                .expect_string()?;
+        if let Some(permissions) = permissions {
+            for rule in permissions {
+                let scope = rule
+                    .get(&ft::scope())
+                    .ok_or(Error::CacheFieldNotFound(ft::scope()))?
+                    .expect_choice()?;
 
-            let program = rule
-                .get(&ft::program())
-                .unwrap()
-                .expect_entity_reference()?;
+                let condition = rule.get(&ft::condition()).unwrap().expect_string()?;
 
-            if let Some(program) = program {
-                let mut reqs = vec![
-                    sread!(program.clone(), ft::wasm_binary()),
-                ];
-                store.write().await.perform(&mut reqs).await?;
-                let binary = reqs.first().unwrap().value().unwrap().expect_blob()?.clone();
+                let scope = match scope {
+                    0 => AuthorizationScope::None,
+                    1 => AuthorizationScope::ReadOnly,
+                    2 => AuthorizationScope::ReadWrite,
+                    _ => continue, // Invalid scope
+                };
 
-                if *rule_resource_type == resource_entity_id.get_type().to_string()
-                    && *rule_resource_field == resource_field.to_string()
-                {
-                    let scope = match scope {
-                        0 => AuthorizationScope::None,
-                        1 => AuthorizationScope::ReadOnly,
-                        2 => AuthorizationScope::ReadWrite,
-                        _ => continue, // Invalid scope
-                    };
+                let result = executor.execute(
+                    &condition.as_str(),
+                    &subject_entity_id,
+                    store.write().await.inner_mut(),
+                );
 
-                    let result = execute(
-                                    store.clone(),
-                                    &binary,
-                                    Some("main"),
-                                    serde_json::json!({
-                                        "subject_id": subject_entity_id.to_string(),
-                                        "resource_id": resource_entity_id.to_string(),
-                                        "resource_field": resource_field.to_string(),
-                                    }),
-                                )
-                                .await;
-
-                    if let Ok(result) = result {
-                        if result.success {
-                            if let Some(value) = result.value.as_bool() {
-                                if value {
-                                    filtered_rules.push(scope);
-                                }
-                            }
+                if let Ok(result) = result {
+                    match result {
+                        cel::Value::Bool(true) => {
+                            filtered_rules.push(scope);
                         }
+                        _ => {}
                     }
                 }
             }

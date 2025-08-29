@@ -1137,7 +1137,7 @@ impl Store {
 
     /// Check if derived_type inherits from base_type (directly or indirectly)
     /// This method guards against circular inheritance by limiting the depth of inheritance traversal
-    fn inherits_from(&self, derived_type: &EntityType, base_type: &EntityType) -> bool {
+    pub fn inherits_from(&self, derived_type: &EntityType, base_type: &EntityType) -> bool {
         if derived_type == base_type {
             return false; // A type doesn't inherit from itself
         }
@@ -1168,7 +1168,7 @@ impl Store {
     /// Get all parent types in the inheritance chain for a given entity type
     /// Returns a vector of parent types from most specific to most general
     /// For example, if Sedan -> Car -> Vehicle -> Object, returns [Car, Vehicle, Object]
-    fn get_parent_types(&self, entity_type: &EntityType) -> Vec<EntityType> {
+    pub fn get_parent_types(&self, entity_type: &EntityType) -> Vec<EntityType> {
         let mut parent_types = Vec::new();
         let mut current_type = entity_type;
         let mut depth = 0;
@@ -1409,7 +1409,11 @@ impl AsyncStore {
         }
     }
 
-    pub async fn inner(&self) -> &Store {
+    pub fn inner(&self) -> &Store {
         &self.inner
+    }
+
+    pub fn inner_mut(&mut self) -> &mut Store {
+        &mut self.inner
     }
 }

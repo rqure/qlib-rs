@@ -1,7 +1,7 @@
 pub mod data;
 pub mod auth;
 mod test;
-pub mod cel;
+pub mod expr;
 
 pub use data::{
     BadIndirectionReason, AsyncStore, PageOpts,
@@ -13,7 +13,7 @@ pub use data::{
     restore_entity_recursive,
     EntityType, FieldType, Timestamp, now, epoch, nanos_to_timestamp, secs_to_timestamp, 
     millis_to_timestamp, micros_to_timestamp, ft, et, Cache, resolve_indirection, resolve_indirection_async, path_async,
-    StoreTrait
+    StoreTrait, Store, from_base64, to_base64,
 };
 
 pub use auth::{
@@ -21,6 +21,8 @@ pub use auth::{
     authenticate, find_user_by_name, create_user, set_user_password,
     change_password, validate_password, hash_password, verify_password,
 };
+
+pub use expr::CelExecutor;
 
 pub type Result<T> = std::result::Result<T, Error>;
 
@@ -56,7 +58,7 @@ pub enum Error {
     StoreProxyError(String),
 
     // Scripting related errors
-    Scripting(String),
+    ExecutionError(String),
 }
 impl std::error::Error for Error {}
 impl std::fmt::Display for Error {
@@ -85,7 +87,7 @@ impl std::fmt::Display for Error {
             Error::InvalidAuthenticationMethod => write!(f, "Invalid authentication method for this operation"),
             Error::AuthenticationMethodNotImplemented(method) => write!(f, "Authentication method '{}' is not implemented", method),
             Error::StoreProxyError(msg) => write!(f, "Store proxy error: {}", msg),
-            Error::Scripting(msg) => write!(f, "Scripting error: {}", msg),
+            Error::ExecutionError(msg) => write!(f, "Execution error: {}", msg),
         }
     }
 }

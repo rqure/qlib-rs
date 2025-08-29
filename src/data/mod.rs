@@ -17,6 +17,7 @@ mod store;
 mod store_trait;
 mod value;
 mod cache;
+mod utils;
 
 use std::{fmt, time::Duration};
 
@@ -28,7 +29,7 @@ pub use field_schema::FieldSchema;
 pub use request::{AdjustBehavior, PushCondition, Request};
 use serde::{Deserialize, Serialize};
 pub use snowflake::Snowflake;
-pub use store::{AsyncStore};
+pub use store::{AsyncStore, Store};
 pub use store_trait::StoreTrait;
 pub use indirection::{BadIndirectionReason, INDIRECTION_DELIMITER, resolve_indirection, resolve_indirection_async, path_async};
 pub use pagination::{PageOpts, PageResult};
@@ -39,6 +40,8 @@ pub use cache::Cache;
 pub use store_proxy::{StoreProxy, StoreMessage, extract_message_id, AuthenticationResult};
 pub use value::Value;
 pub use notifications::{NotifyConfig, Notification, NotificationSender, NotificationReceiver, notification_channel, hash_notify_config};
+
+pub use utils::{from_base64, to_base64};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash)]
 pub struct EntityType(pub String);
