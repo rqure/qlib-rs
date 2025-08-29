@@ -5,6 +5,7 @@ use serde_json::Value as JsonValue;
 use crate::{
     EntityId, EntitySchema, EntityType, FieldSchema, FieldType, Single, Value, Error, Result
 };
+use crate::data::StoreTrait;
 
 /// JSON-friendly representation of a field schema
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -228,55 +229,54 @@ pub fn value_to_json_value(value: &Value, choices: Option<&Vec<String>>) -> Json
     }
 }
 
-/// Macro to convert Value to JsonValue with path resolution for entity references
-/// This works with both Store and StoreProxy since they have the same method signatures
-#[macro_export]
-macro_rules! value_to_json_value_with_paths {
-    ($store:expr, $value:expr, $choices:expr) => {{
-        async {
-            match $value {
-                $crate::Value::Blob(v) => serde_json::to_value(v).unwrap_or(serde_json::Value::Null),
-                $crate::Value::Bool(v) => serde_json::Value::Bool(*v),
-                $crate::Value::Choice(v) => {
-                    if let Some(choices) = $choices {
-                        if *v >= 0 && (*v as usize) < choices.len() {
-                            serde_json::Value::String(choices[*v as usize].clone())
-                        } else {
-                            serde_json::Value::Null
-                        }
-                    } else {
-                        serde_json::Value::Number(serde_json::Number::from(*v))
-                    }
-                },
-                $crate::Value::EntityList(v) => {
-                    let mut path_array = Vec::new();
-                    for entity_id in v {
-                        match crate::path_async($store, entity_id).await {
-                            Ok(path) => path_array.push(serde_json::Value::String(path)),
-                            Err(_) => path_array.push(serde_json::Value::String(entity_id.get_id())),
-                        }
-                    }
-                    serde_json::Value::Array(path_array)
-                },
-                $crate::Value::EntityReference(v) => {
-                    if let Some(entity_id) = v {
-                        match crate::path_async($store, entity_id).await {
-                            Ok(path) => serde_json::Value::String(path),
-                            Err(_) => serde_json::Value::String(entity_id.get_id()),
-                        }
-                    } else {
-                        serde_json::Value::Null
-                    }
-                },
-                $crate::Value::Float(v) => {
-                    serde_json::Value::Number(serde_json::Number::from_f64(*v).unwrap_or_else(|| serde_json::Number::from(0)))
-                },
-                $crate::Value::Int(v) => serde_json::Value::Number(serde_json::Number::from(*v)),
-                $crate::Value::String(v) => serde_json::Value::String(v.clone()),
-                $crate::Value::Timestamp(v) => serde_json::to_value(v).unwrap_or(serde_json::Value::Null),
+/// Convert Value to JsonValue with path resolution for entity references
+/// This works with any type implementing StoreTrait
+pub async fn value_to_json_value_with_paths<T: StoreTrait>(
+    store: &mut T,
+    value: &Value,
+    choices: Option<&Vec<String>>,
+) -> JsonValue {
+    match value {
+        Value::Blob(v) => serde_json::to_value(v).unwrap_or(JsonValue::Null),
+        Value::Bool(v) => JsonValue::Bool(*v),
+        Value::Choice(v) => {
+            if let Some(choices) = choices {
+                if *v >= 0 && (*v as usize) < choices.len() {
+                    JsonValue::String(choices[*v as usize].clone())
+                } else {
+                    JsonValue::Null
+                }
+            } else {
+                JsonValue::Number(serde_json::Number::from(*v))
             }
-        }
-    }};
+        },
+        Value::EntityList(v) => {
+            let mut path_array = Vec::new();
+            for entity_id in v {
+                match crate::path_async(store, entity_id).await {
+                    Ok(path) => path_array.push(JsonValue::String(path)),
+                    Err(_) => path_array.push(JsonValue::String(entity_id.get_id())),
+                }
+            }
+            JsonValue::Array(path_array)
+        },
+        Value::EntityReference(v) => {
+            if let Some(entity_id) = v {
+                match crate::path_async(store, entity_id).await {
+                    Ok(path) => JsonValue::String(path),
+                    Err(_) => JsonValue::String(entity_id.get_id()),
+                }
+            } else {
+                JsonValue::Null
+            }
+        },
+        Value::Float(v) => {
+            JsonValue::Number(serde_json::Number::from_f64(*v).unwrap_or_else(|| serde_json::Number::from(0)))
+        },
+        Value::Int(v) => JsonValue::Number(serde_json::Number::from(*v)),
+        Value::String(v) => JsonValue::String(v.clone()),
+        Value::Timestamp(v) => serde_json::to_value(v).unwrap_or(JsonValue::Null),
+    }
 }
 
 /// Helper function to convert JsonValue to Value for entity data
@@ -346,115 +346,40 @@ pub fn json_value_to_value(json_value: &JsonValue, field_schema: &FieldSchema) -
     }
 }
 
-/// Macro to take a JSON snapshot of the current store state
+/// Take a JSON snapshot of the current store state
 /// This finds the Root entity automatically and creates a hierarchical representation
-/// Works with both Store and StoreProxy since they have the same method signatures
-#[macro_export]
-macro_rules! take_json_snapshot {
-    ($store:expr) => {{
-        async {
-            // Collect all schemas by getting all entity types first
-            let mut json_schemas = Vec::new();
-            let entity_types = $store.get_entity_types().await?;
-            for entity_type in entity_types {
-                if let Ok(schema) = $store.get_entity_schema(&entity_type).await {
-                    json_schemas.push(crate::JsonEntitySchema::from_entity_schema(&schema));
-                }
-            }
-
-            // Sort schemas for consistent output
-            json_schemas.sort_by(|a, b| a.entity_type.cmp(&b.entity_type));
-
-            // Find the Root entity
-            let root_entities = $store.find_entities(&crate::EntityType::from("Root")).await?;
-            let root_entity_id = root_entities.first()
-                .ok_or_else(|| crate::Error::EntityNotFound(crate::EntityId::new("Root", 0)))?;
-
-            // Build the entity tree starting from root using the helper function
-            let root_entity = crate::build_json_entity_tree(&mut $store, root_entity_id).await?;
-
-            Ok::<crate::JsonSnapshot, crate::Error>(crate::JsonSnapshot {
-                schemas: json_schemas,
-                tree: root_entity,
-            })
-        }
-    }};
-}
-
-/// Helper function to build a JSON entity tree with special handling for Children fields
-/// This function works with StoreProxy
-pub async fn build_json_entity_tree_proxy(
-    store: &mut crate::StoreProxy,
-    entity_id: &EntityId,
-) -> Result<JsonEntity> {
-    if !store.entity_exists(entity_id).await {
-        return Err(Error::EntityNotFound(entity_id.clone()));
-    }
-
-    let entity_type = entity_id.get_type();
-    let complete_schema = store.get_complete_entity_schema(entity_type).await?;
-    
-    let mut fields = std::collections::HashMap::new();
-
-    // Read all field values for this entity using perform()
-    for (field_type, field_schema) in &complete_schema.fields {
-        // Create a read request
-        let mut read_requests = vec![crate::Request::Read {
-            entity_id: entity_id.clone(),
-            field_type: field_type.clone(),
-            value: None,
-            write_time: None,
-            writer_id: None,
-        }];
-
-        // Perform the read operation
-        if let Ok(_) = store.perform(&mut read_requests).await {
-            if let Some(crate::Request::Read { value: Some(ref value), .. }) = read_requests.first() {
-                // Special handling for Children field - show nested entities instead of paths
-                if field_type.as_ref() == "Children" {
-                    if let crate::Value::EntityList(child_ids) = value {
-                        let mut children = Vec::new();
-                        for child_id in child_ids {
-                            // Recursively build each child entity
-                            if let Ok(child_entity) = Box::pin(build_json_entity_tree_proxy(store, child_id)).await {
-                                children.push(serde_json::to_value(child_entity).unwrap_or(serde_json::Value::Null));
-                            }
-                        }
-                        fields.insert("Children".to_string(), serde_json::Value::Array(children));
-                    } else {
-                        fields.insert("Children".to_string(), serde_json::Value::Array(vec![]));
-                    }
-                } else {
-                    // For other fields, use path-aware value conversion for entity references
-                    let choices_ref = if let crate::FieldSchema::Choice { choices, .. } = field_schema {
-                        Some(choices)
-                    } else {
-                        None
-                    };
-                    
-                    // Use path resolution for EntityReference and EntityList fields (but not Children)
-                    let json_value = match value {
-                        crate::Value::EntityReference(_) | crate::Value::EntityList(_) => {
-                            value_to_json_value_with_paths!(store, value, choices_ref).await
-                        },
-                        _ => value_to_json_value(value, choices_ref)
-                    };
-                    fields.insert(field_type.as_ref().to_string(), json_value);
-                }
-            }
+/// Works with any type implementing StoreTrait
+pub async fn take_json_snapshot<T: StoreTrait>(store: &mut T) -> Result<JsonSnapshot> {
+    // Collect all schemas by getting all entity types first
+    let mut json_schemas = Vec::new();
+    let entity_types = store.get_entity_types().await?;
+    for entity_type in entity_types {
+        if let Ok(schema) = store.get_entity_schema(&entity_type).await {
+            json_schemas.push(JsonEntitySchema::from_entity_schema(&schema));
         }
     }
 
-    Ok(JsonEntity {
-        entity_type: entity_type.as_ref().to_string(),
-        fields,
+    // Sort schemas for consistent output
+    json_schemas.sort_by(|a, b| a.entity_type.cmp(&b.entity_type));
+
+    // Find the Root entity
+    let root_entities = store.find_entities(&EntityType::from("Root")).await?;
+    let root_entity_id = root_entities.first()
+        .ok_or_else(|| Error::EntityNotFound(EntityId::new("Root", 0)))?;
+
+    // Build the entity tree starting from root using the helper function
+    let root_entity = build_json_entity_tree(store, root_entity_id).await?;
+
+    Ok(JsonSnapshot {
+        schemas: json_schemas,
+        tree: root_entity,
     })
 }
 
 /// Helper function to build a JSON entity tree with special handling for Children fields
-/// This function works with Store
-pub async fn build_json_entity_tree(
-    store: &mut crate::AsyncStore,
+/// This function works with any type implementing StoreTrait
+pub async fn build_json_entity_tree<T: StoreTrait>(
+    store: &mut T,
     entity_id: &EntityId,
 ) -> Result<JsonEntity> {
     if !store.entity_exists(entity_id).await {
@@ -505,7 +430,7 @@ pub async fn build_json_entity_tree(
                     // Use path resolution for EntityReference and EntityList fields (but not Children)
                     let json_value = match value {
                         crate::Value::EntityReference(_) | crate::Value::EntityList(_) => {
-                            value_to_json_value_with_paths!(store, value, choices_ref).await
+                            value_to_json_value_with_paths(store, value, choices_ref).await
                         },
                         _ => value_to_json_value(value, choices_ref)
                     };
@@ -521,82 +446,52 @@ pub async fn build_json_entity_tree(
     })
 }
 
-/// Macro to restore the store state from a JSON snapshot (for Store)
+/// Restore the store state from a JSON snapshot
 /// This recreates the entity hierarchy from the JSON snapshot
-#[macro_export]
-macro_rules! restore_json_snapshot {
-    ($store:expr, $json_snapshot:expr) => {{
-        async {
-            // Sort schemas by dependency order (base classes first)
-            let mut sorted_schemas = $json_snapshot.schemas.clone();
-            sorted_schemas.sort_by(|a, b| {
-                // If a inherits from b, b should come first
-                if let Some(ref inherits) = a.inherits_from {
-                    if inherits == &b.entity_type {
-                        return std::cmp::Ordering::Greater;
-                    }
-                }
-                // If b inherits from a, a should come first  
-                if let Some(ref inherits) = b.inherits_from {
-                    if inherits == &a.entity_type {
-                        return std::cmp::Ordering::Less;
-                    }
-                }
-                // Otherwise sort alphabetically for consistency
-                a.entity_type.cmp(&b.entity_type)
-            });
-
-            // First, restore schemas in dependency order
-            let mut schema_requests = Vec::new();
-            for json_schema in &sorted_schemas {
-                let schema = json_schema.to_entity_schema()?;
-                schema_requests.push(crate::Request::SchemaUpdate { 
-                    schema, 
-                    originator: None 
-                });
+/// Works with any type implementing StoreTrait
+pub async fn restore_json_snapshot<T: StoreTrait>(store: &mut T, json_snapshot: &JsonSnapshot) -> Result<()> {
+    // Sort schemas by dependency order (base classes first)
+    let mut sorted_schemas = json_snapshot.schemas.clone();
+    sorted_schemas.sort_by(|a, b| {
+        // If a inherits from b, b should come first
+        if let Some(ref inherits) = a.inherits_from {
+            if inherits == &b.entity_type {
+                return std::cmp::Ordering::Greater;
             }
-
-            // Perform schema updates first
-            $store.perform(&mut schema_requests).await?;
-
-            // Restore the entity tree starting from the root
-            crate::restore_entity_recursive($store, &$json_snapshot.tree, None).await?;
-
-            Ok::<(), crate::Error>(())
         }
-    }};
-}
-
-/// Macro to restore the store state from a JSON snapshot (for StoreProxy)
-/// This recreates the entity hierarchy from the JSON snapshot
-#[macro_export]
-macro_rules! restore_json_snapshot_proxy {
-    ($store:expr, $json_snapshot:expr) => {{
-        async {
-            // First, restore schemas
-            let mut schema_requests = Vec::new();
-            for json_schema in &$json_snapshot.schemas {
-                let schema = json_schema.to_entity_schema()?;
-                schema_requests.push(crate::Request::SchemaUpdate { 
-                    schema, 
-                    originator: None 
-                });
+        // If b inherits from a, a should come first  
+        if let Some(ref inherits) = b.inherits_from {
+            if inherits == &a.entity_type {
+                return std::cmp::Ordering::Less;
             }
-
-            // Perform schema updates first
-            $store.perform(&mut schema_requests).await?;
-
-            // Restore the entity tree starting from the root
-            crate::restore_entity_recursive_proxy($store, &$json_snapshot.tree, None).await?;
-
-            Ok::<(), crate::Error>(())
         }
-    }};
+        // Otherwise sort alphabetically for consistency
+        a.entity_type.cmp(&b.entity_type)
+    });
+
+    // First, restore schemas in dependency order
+    let mut schema_requests = Vec::new();
+    for json_schema in &sorted_schemas {
+        let schema = json_schema.to_entity_schema()?;
+        schema_requests.push(crate::Request::SchemaUpdate { 
+            schema, 
+            originator: None 
+        });
+    }
+
+    // Perform schema updates first
+    store.perform(&mut schema_requests).await?;
+
+    // Restore the entity tree starting from the root
+    restore_entity_recursive(store, &json_snapshot.tree, None).await?;
+
+    Ok(())
 }
 
 /// Helper function to recursively restore entities from JSON
-pub async fn restore_entity_recursive(
-    store: &mut crate::AsyncStore,
+/// Works with any type implementing StoreTrait
+pub async fn restore_entity_recursive<T: StoreTrait>(
+    store: &mut T,
     json_entity: &JsonEntity,
     parent_id: Option<crate::EntityId>,
 ) -> Result<crate::EntityId> {
@@ -665,101 +560,6 @@ pub async fn restore_entity_recursive(
             for child_json in children_array {
                 if let Ok(child_entity) = serde_json::from_value::<JsonEntity>(child_json.clone()) {
                     let child_id = Box::pin(restore_entity_recursive(store, &child_entity, Some(entity_id.clone()))).await?;
-                    child_ids.push(child_id);
-                }
-            }
-
-            // Update the Children field with the created child IDs
-            if !child_ids.is_empty() {
-                let mut children_write_requests = vec![crate::Request::Write {
-                    entity_id: entity_id.clone(),
-                    field_type: crate::FieldType::from("Children"),
-                    value: Some(crate::Value::EntityList(child_ids)),
-                    push_condition: crate::PushCondition::Always,
-                    adjust_behavior: crate::AdjustBehavior::Set,
-                    write_time: None,
-                    writer_id: None,
-                    originator: None,
-                }];
-                store.perform(&mut children_write_requests).await?;
-            }
-        }
-    }
-
-    Ok(entity_id)
-}
-
-/// Helper function to recursively restore entities from JSON for StoreProxy
-pub async fn restore_entity_recursive_proxy(
-    store: &mut crate::StoreProxy,
-    json_entity: &JsonEntity,
-    parent_id: Option<crate::EntityId>,
-) -> Result<crate::EntityId> {
-    // Create the entity
-    let name = json_entity.fields.get("Name")
-        .and_then(|v| v.as_str())
-        .unwrap_or("Unknown")
-        .to_string();
-
-    let mut create_requests = vec![crate::Request::Create {
-        entity_type: crate::EntityType::from(json_entity.entity_type.clone()),
-        parent_id: parent_id.clone(),
-        name: name.clone(),
-        created_entity_id: None,
-        originator: None,
-    }];
-    store.perform(&mut create_requests).await?;
-
-    // Get the created entity ID
-    let entity_id = if let Some(crate::Request::Create { created_entity_id: Some(ref id), .. }) = create_requests.first() {
-        id.clone()
-    } else {
-        return Err(crate::Error::EntityNotFound(crate::EntityId::new(json_entity.entity_type.clone(), 0)));
-    };
-
-    // Get the entity schema to understand field types
-    let complete_schema = store.get_complete_entity_schema(&crate::EntityType::from(json_entity.entity_type.clone())).await?;
-
-    // Set field values (except Children - we'll handle that last)
-    let mut write_requests = Vec::new();
-    for (field_name, json_value) in &json_entity.fields {
-        if field_name == "Children" {
-            continue; // Handle children separately
-        }
-
-        let field_type = crate::FieldType::from(field_name.clone());
-        if let Some(field_schema) = complete_schema.fields.get(&field_type) {
-            match crate::json_value_to_value(json_value, field_schema) {
-                Ok(value) => {
-                    write_requests.push(crate::Request::Write {
-                        entity_id: entity_id.clone(),
-                        field_type: field_type.clone(),
-                        value: Some(value),
-                        push_condition: crate::PushCondition::Always,
-                        adjust_behavior: crate::AdjustBehavior::Set,
-                        write_time: None,
-                        writer_id: None,
-                        originator: None,
-                    });
-                }
-                Err(_) => {
-                    // Skip invalid values
-                }
-            }
-        }
-    }
-
-    if !write_requests.is_empty() {
-        store.perform(&mut write_requests).await?;
-    }
-
-    // Handle Children - recursively create child entities
-    if let Some(children_json) = json_entity.fields.get("Children") {
-        if let Some(children_array) = children_json.as_array() {
-            let mut child_ids = Vec::new();
-            for child_json in children_array {
-                if let Ok(child_entity) = serde_json::from_value::<JsonEntity>(child_json.clone()) {
-                    let child_id = Box::pin(restore_entity_recursive_proxy(store, &child_entity, Some(entity_id.clone()))).await?;
                     child_ids.push(child_id);
                 }
             }

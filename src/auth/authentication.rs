@@ -8,6 +8,7 @@ use crate::{
     et, ft, now, sread, swrite, EntityId, Error, Request, Result,
     Value, AsyncStore,
 };
+use crate::data::StoreTrait;
 
 /// Authentication methods supported by the system
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

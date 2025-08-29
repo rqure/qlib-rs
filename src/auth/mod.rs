@@ -12,6 +12,6 @@ pub use authentication::{
     get_service_secret, set_service_secret, authenticate_subject,
 };
 pub use authorization::{
-    AuthorizationScope, get_scope,
+    AuthorizationScope,
 };
 

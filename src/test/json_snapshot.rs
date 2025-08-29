@@ -183,7 +183,7 @@ async fn test_json_snapshot_functionality() {
     store.perform(&mut field_requests).await.unwrap();
 
     // Take JSON snapshot
-    let snapshot = take_json_snapshot!(store).await.unwrap();
+    let snapshot = take_json_snapshot(&mut store).await.unwrap();
     
     // Verify the snapshot structure matches the expected format
     assert_eq!(snapshot.schemas.len(), 5);
@@ -327,14 +327,14 @@ async fn test_json_snapshot_restore() {
     store1.perform(&mut field_requests).await.unwrap();
 
     // Take JSON snapshot from store1
-    let snapshot = take_json_snapshot!(store1).await.unwrap();
+    let snapshot = take_json_snapshot(&mut store1).await.unwrap();
 
     // Create a new empty store
     let snowflake2 = Arc::new(Snowflake::new());
     let mut store2 = AsyncStore::new(snowflake2.clone());
 
     // Restore the snapshot to store2
-    restore_json_snapshot!(&mut store2, snapshot).await.unwrap();
+    restore_json_snapshot(&mut store2, &snapshot).await.unwrap();
 
     // Verify that store2 now contains the same data
     let entities = store2.find_entities(&EntityType::from("Root")).await.unwrap();
@@ -513,7 +513,7 @@ async fn test_json_snapshot_path_resolution() {
     store.perform(&mut setup_requests).await.unwrap();
 
     // Take snapshot
-    let snapshot = take_json_snapshot!(store).await.unwrap();
+    let snapshot = take_json_snapshot(&mut store).await.unwrap();
     
     println!("Generated JSON snapshot with path resolution:");
     println!("{}", serde_json::to_string_pretty(&snapshot).unwrap());

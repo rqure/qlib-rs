@@ -60,11 +60,6 @@ impl std::fmt::Debug for Store {
 }
 
 impl Store {
-    fn default_write_channel() -> (tokio::sync::mpsc::UnboundedSender<Vec<Request>>, Arc<tokio::sync::Mutex<tokio::sync::mpsc::UnboundedReceiver<Vec<Request>>>>) {
-        let (sender, receiver) = tokio::sync::mpsc::unbounded_channel();
-        (sender, Arc::new(tokio::sync::Mutex::new(receiver)))
-    }
-
     /// Internal entity creation that doesn't use perform to avoid recursion
     pub fn create_entity_internal(
         &mut self,
@@ -1408,7 +1403,7 @@ impl StoreTrait for AsyncStore {
 }
 
 impl AsyncStore {
-    pub async fn new(snowflake: Arc<Snowflake>) -> Self {
+    pub fn new(snowflake: Arc<Snowflake>) -> Self {
         Self {
             inner: Store::new(snowflake),
         }
