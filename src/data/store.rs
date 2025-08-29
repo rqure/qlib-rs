@@ -1,5 +1,6 @@
 use std::{collections::HashMap, mem::discriminant, sync::{Arc}};
 use async_trait::async_trait;
+use itertools::Itertools;
 
 use crate::{
     data::{
@@ -1012,6 +1013,7 @@ impl Store {
                         old_list
                             .iter()
                             .chain(new_value.as_entity_list().unwrap_or(&Vec::new()).iter())
+                            .unique()
                             .cloned()
                             .collect(),
                     );

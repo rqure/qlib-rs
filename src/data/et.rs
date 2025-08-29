@@ -10,6 +10,7 @@ pub const SERVICE: &str = "Service";
 pub const SUBJECT: &str = "Subject";
 pub const USER: &str = "User";
 pub const PROGRAM: &str = "Program";
+pub const CANDIDATE: &str = "Candidate";
 
 pub fn fault_tolerance() -> EntityType {
     EntityType::from(FAULT_TOLERANCE)
@@ -49,4 +50,8 @@ pub fn user() -> EntityType {
 
 pub fn program() -> EntityType {
     EntityType::from(PROGRAM)
+}
+
+pub fn candidate() -> EntityType {
+    EntityType::from(CANDIDATE)
 }
