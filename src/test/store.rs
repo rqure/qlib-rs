@@ -432,16 +432,357 @@ async fn test_cel_filtering_parameters() -> Result<()> {
     
     let none_filtered = store.find_entities(&et_user, Some("false".to_string())).await?;
     assert_eq!(none_filtered.len(), 0); // "false" should match no entities
-    
-    println!("Basic CEL filtering tests passed!");
-    
-    // Test that the filter parameter is accepted for all methods
-    let _paginated_filtered = store.find_entities_paginated(&et_user, None, Some("true".to_string())).await?;
-    let _exact_filtered = store.find_entities_exact(&et_user, None, Some("true".to_string())).await?;
 
-    // TODO: Test with actual CEL filter once CEL executor is fixed to work with immutable store reference
-    // For now, just verify the API accepts the filter parameter 
-    // let _filtered = store.find_entities(&et_user, Some("true".to_string())).await;
+    Ok(())
+}
 
+#[tokio::test]
+async fn test_find_entities_comprehensive() -> Result<()> {
+    // Create a fresh store without using setup_test_database
+    let mut store = AsyncStore::new(Arc::new(Snowflake::new()));
+    
+    let et_user = EntityType::from("User");
+    
+    // Create a simple schema with just Name field
+    let mut user_schema = EntitySchema::<Single>::new(et_user.clone(), None);
+    user_schema.fields.insert(
+        FieldType::from("Name"),
+        FieldSchema::String {
+            field_type: FieldType::from("Name"),
+            default_value: String::new(),
+            rank: 0,
+        }
+    );
+    let mut requests = vec![sschemaupdate!(user_schema)];
+    store.perform_mut(&mut requests).await?;
+    
+    // Test finding entities when none exist
+    let empty_users = store.find_entities(&et_user, None).await?;
+    assert_eq!(empty_users.len(), 0);
+    
+    let empty_paginated = store.find_entities_paginated(&et_user, None, None).await?;
+    assert_eq!(empty_paginated.items.len(), 0);
+    assert_eq!(empty_paginated.total, 0);
+    assert!(empty_paginated.next_cursor.is_none());
+    
+    // Create test entities with various field values
+    let mut create_requests = vec![
+        screate!(et_user.clone(), "Alice".to_string()),
+        screate!(et_user.clone(), "Bob".to_string()),
+        screate!(et_user.clone(), "Charlie".to_string()),
+    ];
+    store.perform_mut(&mut create_requests).await?;
+    
+    // Extract created entity IDs for later use
+    let alice_id = create_requests[0].entity_id().unwrap().clone();
+    
+    // Verify the names were set correctly
+    let mut name_read = vec![sread!(alice_id.clone(), FieldType::from("Name"))];
+    store.perform_mut(&mut name_read).await?;
+    if let Some(Request::Read { value: Some(Value::String(alice_name)), .. }) = name_read.get(0) {
+        println!("Alice's name in store: '{}'", alice_name);
+        assert_eq!(alice_name, "Alice");
+    } else {
+        panic!("Alice's name not found or wrong type");
+    }
+    
+    // Test basic find_entities
+    let all_users = store.find_entities(&et_user, None).await?;
+    assert_eq!(all_users.len(), 3);
+    
+    // Test find_entities_exact (should be same as find_entities for non-inherited types)
+    let exact_users = store.find_entities_exact(&et_user, None, None).await?;
+    assert_eq!(exact_users.items.len(), 3);
+    assert_eq!(exact_users.total, 3);
+    
+    // Test CEL filtering with string comparison
+    let name_filtered = store.find_entities(&et_user, Some("Name == \"Alice\"".to_string())).await?;
+    println!("Name filtered results: {:?}, expected 1", name_filtered.len());
+    assert_eq!(name_filtered.len(), 1);
+    if !name_filtered.is_empty() {
+        assert_eq!(name_filtered[0], alice_id);
+    }
+    
+    // Test basic boolean CEL filters
+    let all_filtered = store.find_entities(&et_user, Some("true".to_string())).await?;
+    assert_eq!(all_filtered.len(), 3); // "true" should match all entities
+    
+    let none_filtered = store.find_entities(&et_user, Some("false".to_string())).await?;
+    assert_eq!(none_filtered.len(), 0); // "false" should match no entities
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_find_entities_pagination() -> Result<()> {
+    let mut store = AsyncStore::new(Arc::new(Snowflake::new()));
+    
+    let et_user = EntityType::from("User");
+    
+    // Create a simple schema
+    let mut user_schema = EntitySchema::<Single>::new(et_user.clone(), None);
+    user_schema.fields.insert(
+        FieldType::from("Name"),
+        FieldSchema::String {
+            field_type: FieldType::from("Name"),
+            default_value: String::new(),
+            rank: 0,
+        }
+    );
+    let mut requests = vec![sschemaupdate!(user_schema)];
+    store.perform_mut(&mut requests).await?;
+    
+    // Create 10 test users
+    for i in 0..10 {
+        let mut create_requests = vec![screate!(
+            et_user.clone(), 
+            format!("User{:02}", i)
+        )];
+        store.perform_mut(&mut create_requests).await?;
+    }
+    
+    // Test pagination with different page sizes
+    let page_opts = PageOpts::new(3, None);
+    let first_page = store.find_entities_paginated(&et_user, Some(page_opts), None).await?;
+    assert_eq!(first_page.items.len(), 3);
+    assert_eq!(first_page.total, 10);
+    assert!(first_page.next_cursor.is_some());
+    
+    // Get second page using cursor
+    let page_opts = PageOpts::new(3, first_page.next_cursor);
+    let second_page = store.find_entities_paginated(&et_user, Some(page_opts), None).await?;
+    assert_eq!(second_page.items.len(), 3);
+    assert_eq!(second_page.total, 10);
+    assert!(second_page.next_cursor.is_some());
+    
+    // Get third page
+    let page_opts = PageOpts::new(3, second_page.next_cursor);
+    let third_page = store.find_entities_paginated(&et_user, Some(page_opts), None).await?;
+    assert_eq!(third_page.items.len(), 3);
+    assert_eq!(third_page.total, 10);
+    assert!(third_page.next_cursor.is_some());
+    
+    // Get fourth (final) page
+    let page_opts = PageOpts::new(3, third_page.next_cursor);
+    let fourth_page = store.find_entities_paginated(&et_user, Some(page_opts), None).await?;
+    assert_eq!(fourth_page.items.len(), 1); // Only 1 item left
+    assert_eq!(fourth_page.total, 10);
+    assert!(fourth_page.next_cursor.is_none()); // No more pages
+    
+    // Test large page size (should get all items)
+    let large_page = PageOpts::new(20, None);
+    let all_page = store.find_entities_paginated(&et_user, Some(large_page), None).await?;
+    assert_eq!(all_page.items.len(), 10);
+    assert_eq!(all_page.total, 10);
+    assert!(all_page.next_cursor.is_none());
+    
+    // Test zero page size (should return no results)
+    let zero_page = PageOpts::new(0, None);
+    let zero_result = store.find_entities_paginated(&et_user, Some(zero_page), None).await?;
+    assert_eq!(zero_result.items.len(), 0); // Zero limit should return no items
+    assert_eq!(zero_result.total, 10); // But total should still be correct
+    
+    // Test with invalid cursor
+    let invalid_page = PageOpts::new(5, Some("invalid".to_string()));
+    let invalid_result = store.find_entities_paginated(&et_user, Some(invalid_page), None).await?;
+    assert_eq!(invalid_result.items.len(), 5); // Should start from beginning
+    
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_find_entities_inheritance() -> Result<()> {
+    let mut store = AsyncStore::new(Arc::new(Snowflake::new()));
+    
+    // Create inheritance hierarchy: Animal -> Mammal -> Dog/Cat
+    let et_animal = EntityType::from("Animal");
+    let et_mammal = EntityType::from("Mammal");
+    let et_dog = EntityType::from("Dog");
+    let et_cat = EntityType::from("Cat");
+    let et_bird = EntityType::from("Bird");
+    
+    // Create base Animal schema
+    let mut animal_schema = EntitySchema::<Single>::new(et_animal.clone(), None);
+    animal_schema.fields.insert(
+        FieldType::from("Name"),
+        FieldSchema::String {
+            field_type: FieldType::from("Name"),
+            default_value: String::new(),
+            rank: 0,
+        }
+    );
+    let mut requests = vec![sschemaupdate!(animal_schema)];
+    store.perform_mut(&mut requests).await?;
+    
+    // Create Mammal schema (inherits from Animal)
+    let mut mammal_schema = EntitySchema::<Single>::new(et_mammal.clone(), Some(et_animal.clone()));
+    mammal_schema.fields.insert(
+        FieldType::from("FurColor"),
+        FieldSchema::String {
+            field_type: FieldType::from("FurColor"),
+            default_value: String::new(),
+            rank: 1,
+        }
+    );
+    let mut requests = vec![sschemaupdate!(mammal_schema)];
+    store.perform_mut(&mut requests).await?;
+    
+    // Create Dog schema (inherits from Mammal)
+    let mut dog_schema = EntitySchema::<Single>::new(et_dog.clone(), Some(et_mammal.clone()));
+    dog_schema.fields.insert(
+        FieldType::from("Breed"),
+        FieldSchema::String {
+            field_type: FieldType::from("Breed"),
+            default_value: String::new(),
+            rank: 2,
+        }
+    );
+    let mut requests = vec![sschemaupdate!(dog_schema)];
+    store.perform_mut(&mut requests).await?;
+    
+    // Create Cat schema (inherits from Mammal)
+    let mut cat_schema = EntitySchema::<Single>::new(et_cat.clone(), Some(et_mammal.clone()));
+    cat_schema.fields.insert(
+        FieldType::from("IndoorOutdoor"),
+        FieldSchema::String {
+            field_type: FieldType::from("IndoorOutdoor"),
+            default_value: String::new(),
+            rank: 2,
+        }
+    );
+    let mut requests = vec![sschemaupdate!(cat_schema)];
+    store.perform_mut(&mut requests).await?;
+    
+    // Create Bird schema (inherits from Animal, not Mammal)
+    let mut bird_schema = EntitySchema::<Single>::new(et_bird.clone(), Some(et_animal.clone()));
+    bird_schema.fields.insert(
+        FieldType::from("CanFly"),
+        FieldSchema::Bool {
+            field_type: FieldType::from("CanFly"),
+            default_value: true,
+            rank: 1,
+        }
+    );
+    let mut requests = vec![sschemaupdate!(bird_schema)];
+    store.perform_mut(&mut requests).await?;
+    
+    // Create test entities
+    let mut create_requests = vec![
+        screate!(et_animal.clone(), "Generic Animal".to_string()),
+        screate!(et_mammal.clone(), "Generic Mammal".to_string()),
+        screate!(et_dog.clone(), "Rex".to_string()),
+        screate!(et_dog.clone(), "Buddy".to_string()),
+        screate!(et_cat.clone(), "Whiskers".to_string()),
+        screate!(et_cat.clone(), "Mittens".to_string()),
+        screate!(et_bird.clone(), "Tweety".to_string()),
+    ];
+    store.perform_mut(&mut create_requests).await?;
+    
+    // Test find_entities with inheritance (includes derived types)
+    let all_animals = store.find_entities(&et_animal, None).await?;
+    assert_eq!(all_animals.len(), 7); // All entities should be included
+    
+    let all_mammals = store.find_entities(&et_mammal, None).await?;
+    assert_eq!(all_mammals.len(), 5); // Mammal + dogs + cats, but not bird or base animal
+    
+    let all_dogs = store.find_entities(&et_dog, None).await?;
+    assert_eq!(all_dogs.len(), 2); // Only dogs
+    
+    let all_cats = store.find_entities(&et_cat, None).await?;
+    assert_eq!(all_cats.len(), 2); // Only cats
+    
+    let all_birds = store.find_entities(&et_bird, None).await?;
+    assert_eq!(all_birds.len(), 1); // Only birds
+    
+    // Test find_entities_exact (no inheritance)
+    let exact_animals = store.find_entities_exact(&et_animal, None, None).await?;
+    assert_eq!(exact_animals.items.len(), 1); // Only the generic animal
+    
+    let exact_mammals = store.find_entities_exact(&et_mammal, None, None).await?;
+    assert_eq!(exact_mammals.items.len(), 1); // Only the generic mammal
+    
+    let exact_dogs = store.find_entities_exact(&et_dog, None, None).await?;
+    assert_eq!(exact_dogs.items.len(), 2); // Both dogs
+    
+    let exact_cats = store.find_entities_exact(&et_cat, None, None).await?;
+    assert_eq!(exact_cats.items.len(), 2); // Both cats
+    
+    let exact_birds = store.find_entities_exact(&et_bird, None, None).await?;
+    assert_eq!(exact_birds.items.len(), 1); // Only the bird
+    
+    // Test with filtering on inherited and non-inherited searches
+    let filtered_animals = store.find_entities(&et_animal, Some("Name == \"Rex\"".to_string())).await?;
+    assert_eq!(filtered_animals.len(), 1); // Should find Rex the dog through inheritance
+    
+    let filtered_exact_animals = store.find_entities_exact(&et_animal, None, Some("Name == \"Rex\"".to_string())).await?;
+    assert_eq!(filtered_exact_animals.items.len(), 0); // Rex is not an exact Animal type
+    
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_find_entities_nonexistent_types() -> Result<()> {
+    let store = setup_test_database().await?;
+    
+    let et_nonexistent = EntityType::from("NonExistentType");
+    
+    // Test finding entities of a type that doesn't exist
+    let empty_result = store.find_entities(&et_nonexistent, None).await?;
+    assert_eq!(empty_result.len(), 0);
+    
+    let empty_paginated = store.find_entities_paginated(&et_nonexistent, None, None).await?;
+    assert_eq!(empty_paginated.items.len(), 0);
+    assert_eq!(empty_paginated.total, 0);
+    assert!(empty_paginated.next_cursor.is_none());
+    
+    let empty_exact = store.find_entities_exact(&et_nonexistent, None, None).await?;
+    assert_eq!(empty_exact.items.len(), 0);
+    assert_eq!(empty_exact.total, 0);
+    assert!(empty_exact.next_cursor.is_none());
+    
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_find_entities_cel_edge_cases() -> Result<()> {
+    let mut store = AsyncStore::new(Arc::new(Snowflake::new()));
+    
+    let et_user = EntityType::from("User");
+    
+    // Create a simple schema
+    let mut user_schema = EntitySchema::<Single>::new(et_user.clone(), None);
+    user_schema.fields.insert(
+        FieldType::from("Name"),
+        FieldSchema::String {
+            field_type: FieldType::from("Name"),
+            default_value: String::new(),
+            rank: 0,
+        }
+    );
+    let mut requests = vec![sschemaupdate!(user_schema)];
+    store.perform_mut(&mut requests).await?;
+    
+    // Create test users
+    let mut create_requests = vec![
+        screate!(et_user.clone(), "Alice".to_string()),
+        screate!(et_user.clone(), "Bob".to_string()),
+    ];
+    store.perform_mut(&mut create_requests).await?;
+    
+    // Test CEL expression that returns non-boolean
+    let non_boolean = store.find_entities(&et_user, Some("42".to_string())).await?;
+    assert_eq!(non_boolean.len(), 0);
+    
+    // Test CEL expression with undefined field (should be handled gracefully)
+    let undefined_field = store.find_entities(&et_user, Some("UndefinedField == true".to_string())).await?;
+    assert_eq!(undefined_field.len(), 0);
+    
+    // Test basic true/false filters
+    let all_match = store.find_entities(&et_user, Some("true".to_string())).await?;
+    assert_eq!(all_match.len(), 2);
+    
+    let none_match = store.find_entities(&et_user, Some("false".to_string())).await?;
+    assert_eq!(none_match.len(), 0);
+    
     Ok(())
 }
