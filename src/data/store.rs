@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use crate::{
     data::{
         entity_schema::Complete, hash_notify_config, indirection::resolve_indirection, now, request::PushCondition, EntityType, FieldType, Notification, NotificationSender, NotifyConfig, StoreTrait, Timestamp, INDIRECTION_DELIMITER
-    }, expr::CelExecutor, sread, AdjustBehavior, Entity, EntityId, EntitySchema, Error, Field, FieldSchema, PageOpts, PageResult, Request, Result, Single, Snapshot, Snowflake, Value
+    }, expr::CelExecutor, sread, AdjustBehavior, EntityId, EntitySchema, Error, Field, FieldSchema, PageOpts, PageResult, Request, Result, Single, Snapshot, Snowflake, Value
 };
 
 pub struct Store {
@@ -66,8 +66,9 @@ impl Store {
         &mut self,
         entity_type: &EntityType,
         parent_id: Option<EntityId>,
+        created_entity_id: &mut Option<EntityId>,
         name: &str,
-    ) -> Result<Entity> {
+    ) -> Result<()> {
         if !self.schemas.contains_key(&entity_type) {
             return Err(Error::EntityTypeNotFound(entity_type.clone()));
         }
@@ -78,7 +79,15 @@ impl Store {
             }
         }
 
-        let entity_id = EntityId::new(entity_type.clone(), self.snowflake.generate());
+        let entity_id = {
+            if let Some(id) = created_entity_id {
+                id.clone()
+            } else {
+                let entity_id = EntityId::new(entity_type.clone(), self.snowflake.generate());
+                *created_entity_id = Some(entity_id.clone());
+                entity_id
+            }
+        };
         if self.fields.contains_key(&entity_id) {
             return Err(Error::EntityAlreadyExists(entity_id));
         }
@@ -138,7 +147,7 @@ impl Store {
             }
         }
 
-        Ok(Entity::new(entity_id))
+        Ok(())
     }
 
     pub fn get_entity_schema(
@@ -307,9 +316,7 @@ impl Store {
                     created_entity_id,
                     ..
                 } => {
-                    let entity = self.create_entity_internal(entity_type, parent_id.clone(), name)?;
-                    *created_entity_id = Some(entity.entity_id);
-
+                    self.create_entity_internal(entity_type, parent_id.clone(), created_entity_id, name)?;
                     write_requests.push(request.clone());
                 }
                 Request::Delete {
