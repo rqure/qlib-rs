@@ -75,7 +75,7 @@ async fn test_inheritance_in_find_entities() -> Result<()> {
     } else {
         panic!("Expected created entity ID");
     };
-    let dog1 = Entity::new(dog1_id);
+    let dog1_ref = dog1_id.clone();
 
     let mut create_requests = vec![screate!(
         et_dog.clone(),
@@ -87,7 +87,7 @@ async fn test_inheritance_in_find_entities() -> Result<()> {
     } else {
         panic!("Expected created entity ID");
     };
-    let dog2 = Entity::new(dog2_id);
+    let dog2_ref = dog2_id.clone();
 
     let mut create_requests = vec![screate!(
         et_cat.clone(),
@@ -99,27 +99,27 @@ async fn test_inheritance_in_find_entities() -> Result<()> {
     } else {
         panic!("Expected created entity ID");
     };
-    let cat1 = Entity::new(cat1_id);
+    let cat1_ref = cat1_id.clone();
 
     // Test: Finding Dog entities should return only dogs
     let dogs = store.find_entities(&et_dog, None).await?;
     assert_eq!(dogs.len(), 2);
-    assert!(dogs.contains(&dog1.entity_id));
-    assert!(dogs.contains(&dog2.entity_id));
+    assert!(dogs.contains(&dog1_ref));
+    assert!(dogs.contains(&dog2_ref));
 
     // Test: Finding Mammal entities should return dogs and cats (inheritance)
     let mammals = store.find_entities(&et_mammal, None).await?;
     assert_eq!(mammals.len(), 3);
-    assert!(mammals.contains(&dog1.entity_id));
-    assert!(mammals.contains(&dog2.entity_id));
-    assert!(mammals.contains(&cat1.entity_id));
+    assert!(mammals.contains(&dog1_ref));
+    assert!(mammals.contains(&dog2_ref));
+    assert!(mammals.contains(&cat1_ref));
 
     // Test: Finding Animal entities should return all (full inheritance chain)
     let animals = store.find_entities(&et_animal, None).await?;
     assert_eq!(animals.len(), 3);
-    assert!(animals.contains(&dog1.entity_id));
-    assert!(animals.contains(&dog2.entity_id));
-    assert!(animals.contains(&cat1.entity_id));
+    assert!(animals.contains(&dog1_ref));
+    assert!(animals.contains(&dog2_ref));
+    assert!(animals.contains(&cat1_ref));
 
     Ok(())
 }
@@ -152,7 +152,7 @@ async fn test_inheritance_with_direct_instances() -> Result<()> {
     } else {
         panic!("Expected created entity ID");
     };
-    let animal1 = Entity::new(animal1_id);
+    let animal1_ref = animal1_id.clone();
 
     let mut create_requests = vec![screate!(
         et_mammal.clone(),
@@ -164,18 +164,18 @@ async fn test_inheritance_with_direct_instances() -> Result<()> {
     } else {
         panic!("Expected created entity ID");
     };
-    let mammal1 = Entity::new(mammal1_id);
+    let mammal1_ref = mammal1_id.clone();
 
     // Test: Finding Animal entities should return both (mammal inherits from animal)
     let animals = store.find_entities(&et_animal, None).await?;
     assert_eq!(animals.len(), 2);
-    assert!(animals.contains(&animal1.entity_id));
-    assert!(animals.contains(&mammal1.entity_id));
+    assert!(animals.contains(&animal1_ref));
+    assert!(animals.contains(&mammal1_ref));
 
     // Test: Finding Mammal entities should return only the mammal
     let mammals = store.find_entities(&et_mammal, None).await?;
     assert_eq!(mammals.len(), 1);
-    assert!(mammals.contains(&mammal1.entity_id));
+    assert!(mammals.contains(&mammal1_ref));
 
     Ok(())
 }

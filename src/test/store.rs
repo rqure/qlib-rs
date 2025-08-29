@@ -78,12 +78,12 @@ async fn test_create_entity_hierarchy() -> Result<()> {
     } else {
         panic!("Expected created entity ID");
     };
-    let root_entity = Entity::new(root_entity_id);
+    let root_entity_id_ref = root_entity_id.clone();
 
     let mut create_requests = vec![screate!(
         et_folder.clone(),
         "Users".to_string(),
-        root_entity.entity_id.clone()
+        root_entity_id_ref.clone()
     )];
     store.perform_mut(&mut create_requests).await?;
     let users_folder_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
@@ -91,12 +91,12 @@ async fn test_create_entity_hierarchy() -> Result<()> {
     } else {
         panic!("Expected created entity ID");
     };
-    let users_folder = Entity::new(users_folder_id);
+    let users_folder_id_ref = users_folder_id.clone();
 
     let mut create_requests = vec![screate!(
         et_folder.clone(),
         "Roles".to_string(),
-        root_entity.entity_id.clone()
+        root_entity_id_ref.clone()
     )];
     store.perform_mut(&mut create_requests).await?;
     let roles_folder_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
@@ -104,12 +104,12 @@ async fn test_create_entity_hierarchy() -> Result<()> {
     } else {
         panic!("Expected created entity ID");
     };
-    let roles_folder = Entity::new(roles_folder_id);
+    let roles_folder_id_ref = roles_folder_id.clone();
 
     let mut create_requests = vec![screate!(
         et_user.clone(),
         "qei".to_string(),
-        users_folder.entity_id.clone()
+        users_folder_id_ref.clone()
     )];
     store.perform_mut(&mut create_requests).await?;
     let user_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
@@ -117,12 +117,12 @@ async fn test_create_entity_hierarchy() -> Result<()> {
     } else {
         panic!("Expected created entity ID");
     };
-    let user = Entity::new(user_id);
+    let user_id_ref = user_id.clone();
 
     let mut create_requests = vec![screate!(
         et_user.clone(),
         "admin".to_string(),
-        roles_folder.entity_id.clone()
+        roles_folder_id_ref.clone()
     )];
     store.perform_mut(&mut create_requests).await?;
 
@@ -131,21 +131,21 @@ async fn test_create_entity_hierarchy() -> Result<()> {
     let ft_name = FieldType::from("Name");
 
     let mut reqs = vec![
-        sread!(user.entity_id.clone(), ft_parent.clone()),
-        sread!(user.entity_id.clone(), ft_name.clone()),
+        sread!(user_id_ref.clone(), ft_parent.clone()),
+        sread!(user_id_ref.clone(), ft_name.clone()),
     ];
 
     store.perform_mut(&mut reqs).await?;
 
     if let Some(Request::Read { value: Some(Value::EntityReference(Some(parent_id))), .. }) = reqs.get(0) {
-        assert_eq!(*parent_id, users_folder.entity_id);
+        assert_eq!(*parent_id, users_folder_id_ref);
     } else {
         panic!("Expected parent reference");
     }
 
     // Verify name
     let mut reqs = vec![
-        sread!(users_folder.entity_id.clone(), ft_name.clone()),
+        sread!(users_folder_id_ref.clone(), ft_name.clone()),
     ];
 
     store.perform_mut(&mut reqs).await?;
@@ -188,19 +188,19 @@ async fn test_field_operations() -> Result<()> {
     } else {
         panic!("Expected created entity ID");
     };
-    let user = Entity::new(user_id);
+    let user_ref = user_id.clone();
 
     // Test write and read operations
     let ft_name = FieldType::from("Name");
 
     let mut writes = vec![
-        swrite!(user.entity_id.clone(), ft_name.clone(), sstr!("Updated User")),
+        swrite!(user_ref.clone(), ft_name.clone(), sstr!("Updated User")),
     ];
 
     store.perform_mut(&mut writes).await?;
 
     let mut reads = vec![
-        sread!(user.entity_id.clone(), ft_name.clone()),
+        sread!(user_ref.clone(), ft_name.clone()),
     ];
 
     store.perform_mut(&mut reads).await?;
@@ -213,13 +213,13 @@ async fn test_field_operations() -> Result<()> {
 
     // Test field updates
     let mut updates = vec![
-        swrite!(user.entity_id.clone(), ft_name.clone(), sstr!("Final Name")),
+        swrite!(user_ref.clone(), ft_name.clone(), sstr!("Final Name")),
     ];
 
     store.perform_mut(&mut updates).await?;
 
     let mut verify = vec![
-        sread!(user.entity_id.clone(), ft_name.clone()),
+        sread!(user_ref.clone(), ft_name.clone()),
     ];
 
     store.perform_mut(&mut verify).await?;
@@ -251,12 +251,12 @@ async fn test_indirection_resolution() -> Result<()> {
     } else {
         panic!("Expected created entity ID");
     };
-    let security_folder = Entity::new(security_folder_id);
+    let security_folder_ref = security_folder_id.clone();
 
     let mut create_requests = vec![screate!(
         et_folder.clone(),
         "Users".to_string(),
-        security_folder.entity_id.clone()
+        security_folder_ref.clone()
     )];
     store.perform_mut(&mut create_requests).await?;
     let users_folder_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
@@ -264,12 +264,12 @@ async fn test_indirection_resolution() -> Result<()> {
     } else {
         panic!("Expected created entity ID");
     };
-    let users_folder = Entity::new(users_folder_id);
+    let users_folder_ref = users_folder_id.clone();
 
     let mut create_requests = vec![screate!(
         et_user.clone(),
         "admin".to_string(),
-        users_folder.entity_id.clone()
+        users_folder_ref.clone()
     )];
     store.perform_mut(&mut create_requests).await?;
     let admin_user_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
@@ -277,20 +277,20 @@ async fn test_indirection_resolution() -> Result<()> {
     } else {
         panic!("Expected created entity ID");
     };
-    let admin_user = Entity::new(admin_user_id);
+    let admin_user_ref = admin_user_id.clone();
 
     // Test indirection: User->Parent->Name should resolve to "Users"
     let parent_name_field = FieldType::from("Parent->Name");
 
     let mut writes = vec![
-        swrite!(admin_user.entity_id.clone(), "Name".into(), sstr!("Administrator")),
+        swrite!(admin_user_ref.clone(), "Name".into(), sstr!("Administrator")),
     ];
 
     store.perform_mut(&mut writes).await?;
 
     // Test indirection resolution
     let mut indirect_reads = vec![
-        sread!(admin_user.entity_id.clone(), parent_name_field.clone()),
+        sread!(admin_user_ref.clone(), parent_name_field.clone()),
     ];
 
     store.perform_mut(&mut indirect_reads).await?;
@@ -333,20 +333,20 @@ async fn test_entity_deletion() -> Result<()> {
     } else {
         panic!("Expected created entity ID");
     };
-    let user = Entity::new(user_id);
+    let user_ref = user_id.clone();
 
     // Verify entity exists
-    assert!(store.entity_exists(&user.entity_id).await);
+    assert!(store.entity_exists(&user_ref).await);
 
     // Delete the entity
-    let mut delete_requests = vec![sdelete!(user.entity_id.clone())];
+    let mut delete_requests = vec![sdelete!(user_ref.clone())];
     store.perform_mut(&mut delete_requests).await?;
 
     // Verify entity is gone
-    assert!(!store.entity_exists(&user.entity_id).await);
+    assert!(!store.entity_exists(&user_ref).await);
 
     // Try to read from deleted entity - the request should succeed but return no value
-    let mut request = vec![sread!(user.entity_id.clone(), "Name".into())];
+    let mut request = vec![sread!(user_ref.clone(), "Name".into())];
     let result = store.perform_mut(&mut request).await;
     
     // The request may succeed but return None, or it may fail - both are acceptable

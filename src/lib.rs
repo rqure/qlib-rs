@@ -5,7 +5,7 @@ pub mod expr;
 
 pub use data::{
     BadIndirectionReason, AsyncStore, PageOpts,
-    PageResult, NotificationSender, NotificationReceiver, notification_channel, hash_notify_config, Snapshot, Entity, EntityId, EntitySchema, Single, Complete, 
+    PageResult, NotificationSender, NotificationReceiver, notification_channel, hash_notify_config, Snapshot, EntityId, EntitySchema, Single, Complete, 
     Field, FieldSchema, AdjustBehavior, PushCondition, Request, Snowflake, 
     StoreProxy, StoreMessage, extract_message_id, Value, INDIRECTION_DELIMITER, NotifyConfig, Notification,
     AuthenticationResult,

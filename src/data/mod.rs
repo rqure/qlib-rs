@@ -1,7 +1,6 @@
 pub mod et;
 mod entity_id;
 mod entity_schema;
-mod entity;
 mod field_schema;
 mod field;
 pub mod ft;
@@ -21,7 +20,6 @@ mod utils;
 
 use std::{fmt, time::Duration};
 
-pub use entity::Entity;
 pub use entity_id::EntityId;
 pub use entity_schema::{EntitySchema, Single, Complete};
 pub use field::Field;
