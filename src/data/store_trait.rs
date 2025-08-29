@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use async_trait::async_trait;
 
 use crate::{
@@ -30,6 +32,19 @@ pub trait StoreTrait: Send + Sync {
     /// Perform a batch of requests
     async fn perform(&self, requests: &mut Vec<Request>) -> Result<()>;
     async fn perform_mut(&mut self, requests: &mut Vec<Request>) -> Result<()>;
+
+    async fn perform_map(&self, requests: &mut Vec<Request>) -> Result<HashMap<FieldType, Request>> {
+        self.perform(requests).await?;
+
+        let mut result_map = HashMap::new();
+        while let Some(request) = requests.pop() {
+            if let Some(field_type) = request.field_type() {
+                result_map.insert(field_type.clone(), request);
+            }
+        }
+
+        Ok(result_map)
+    }
 
     /// Find entities of a specific type with pagination (includes inherited types)
     async fn find_entities_paginated(&self, entity_type: &EntityType, page_opts: Option<PageOpts>, filter: Option<String>) -> Result<PageResult<EntityId>>;
