@@ -1008,6 +1008,13 @@ impl Store {
                 Value::Float(old_float) => {
                     new_value = Value::Float(old_float + new_value.as_float().unwrap_or(0.0));
                 }
+                Value::EntityReference(old_ref) => {
+                    if old_ref.is_some() {
+                        // prefer the old value if old value exists
+                        new_value = old_value.clone();
+                    }
+                    // otherwise just use the new value (which could be None or Some)
+                }
                 Value::EntityList(old_list) => {
                     new_value = Value::EntityList(
                         old_list
@@ -1048,6 +1055,19 @@ impl Store {
                 }
                 Value::Float(old_float) => {
                     new_value = Value::Float(old_float - new_value.as_float().unwrap_or(0.0));
+                }
+                Value::EntityReference(old_ref) => {
+                    if let Some(old_id) = old_ref {
+                        if let Some(new_id) = new_value.as_entity_reference().unwrap_or(&None) {
+                            if old_id == new_id {
+                                // If the new value matches the old value, set to None
+                                new_value = Value::EntityReference(None);
+                            } else {
+                                // Otherwise, keep the old value
+                                new_value = old_value.clone();
+                            }
+                        }
+                    }
                 }
                 Value::EntityList(old_list) => {
                     let new_list = new_value.as_entity_list().cloned().unwrap_or_default();

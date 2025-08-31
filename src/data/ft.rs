@@ -20,8 +20,7 @@ pub const SYNC_STATUS: &str = "SyncStatus";
 pub const CURRENT_LEADER: &str = "CurrentLeader";
 pub const STATUS: &str = "Status";
 pub const START_TIME: &str = "StartTime";
-pub const MAKE_ME_AVAILABLE: &str = "MakeMeAvailable";
-pub const MAKE_ME_UNAVAILABLE: &str = "MakeMeUnavailable";
+pub const MAKE_ME: &str = "MakeMeAvailable";
 pub const HEARTBEAT: &str = "Heartbeat";
 pub const DEATH_DETECTION_TIMEOUT: &str = "DeathDetectionTimeout";
 pub const CONDITION: &str = "Condition";
@@ -106,12 +105,8 @@ pub fn start_time() -> FieldType {
     FieldType::from(START_TIME)
 }
 
-pub fn make_me_available() -> FieldType {
-    FieldType::from(MAKE_ME_AVAILABLE)
-}
-
-pub fn make_me_unavailable() -> FieldType {
-    FieldType::from(MAKE_ME_UNAVAILABLE)
+pub fn make_me() -> FieldType {
+    FieldType::from(MAKE_ME)
 }
 
 pub fn heartbeat() -> FieldType {
