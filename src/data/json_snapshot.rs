@@ -779,42 +779,50 @@ fn convert_json_entity_to_snapshot(
     
     // Convert field values (only configuration fields)
     let mut entity_fields = HashMap::new();
+    let mut child_entity_ids = Vec::new();
     
     for (field_name, json_value) in &json_entity.fields {
-        if field_name == "Children" {
-            // Handle children separately
-            continue;
-        }
-        
         let field_type = crate::FieldType::from(field_name.clone());
         if let Some(field_schema) = combined_fields.get(&field_type) {
             // Only include configuration fields in factory restore
             if matches!(field_schema.storage_scope(), crate::data::StorageScope::Configuration) {
-                if let Ok(value) = json_value_to_value(json_value, field_schema) {
+                if field_name == "Children" {
+                    // Handle children recursively first to get their entity IDs
+                    if let Some(children_array) = json_value.as_array() {
+                        for child_json_value in children_array {
+                            if let Ok(child_json_entity) = serde_json::from_value::<JsonEntity>(child_json_value.clone()) {
+                                let child_id = convert_json_entity_to_snapshot(&child_json_entity, Some(entity_id.clone()), snapshot, entity_counters, total_entities)?;
+                                child_entity_ids.push(child_id);
+                            }
+                        }
+                    }
+                    
+                    // Now create the Children field with the actual child entity IDs
+                    let children_value = crate::Value::EntityList(child_entity_ids.clone());
                     let field = crate::Field {
                         field_type: field_type.clone(),
-                        value,
+                        value: children_value,
                         write_time: crate::now(),
                         writer_id: parent_id.clone(),
                     };
                     entity_fields.insert(field_type, field);
+                } else {
+                    // Handle other fields normally
+                    if let Ok(value) = json_value_to_value(json_value, field_schema) {
+                        let field = crate::Field {
+                            field_type: field_type.clone(),
+                            value,
+                            write_time: crate::now(),
+                            writer_id: parent_id.clone(),
+                        };
+                        entity_fields.insert(field_type, field);
+                    }
                 }
             }
         }
     }
     
     snapshot.fields.insert(entity_id.clone(), entity_fields.clone());
-    
-    // Handle children recursively
-    if let Some(children_json) = json_entity.fields.get("Children") {
-        if let Some(children_array) = children_json.as_array() {
-            for child_json_value in children_array {
-                if let Ok(child_json_entity) = serde_json::from_value::<JsonEntity>(child_json_value.clone()) {
-                    convert_json_entity_to_snapshot(&child_json_entity, Some(entity_id.clone()), snapshot, entity_counters, total_entities)?;
-                }
-            }
-        }
-    }
     
     Ok(entity_id)
 }
