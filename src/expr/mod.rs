@@ -77,12 +77,12 @@ impl CelExecutor {
                     context.add_variable_from_value(cel_field.clone(), v.as_str());
                 },
                 Value::Timestamp(v) => {
-                    // Convert SystemTime to chrono::DateTime<chrono::FixedOffset>
-                    let duration_since_epoch = v.duration_since(std::time::UNIX_EPOCH)
-                        .map_err(|e| crate::Error::ExecutionError(format!("Invalid timestamp: {}", e)))?;
+                    // Convert time::OffsetDateTime to chrono::DateTime<chrono::FixedOffset>
+                    let unix_timestamp = v.unix_timestamp();
+                    let nanoseconds = v.nanosecond();
                     let datetime = chrono::DateTime::from_timestamp(
-                        duration_since_epoch.as_secs() as i64,
-                        duration_since_epoch.subsec_nanos()
+                        unix_timestamp,
+                        nanoseconds
                     ).ok_or_else(|| crate::Error::ExecutionError("Failed to convert timestamp".to_string()))?
                         .with_timezone(&chrono::FixedOffset::east_opt(0).unwrap());
                     context.add_variable_from_value(cel_field.clone(), datetime);

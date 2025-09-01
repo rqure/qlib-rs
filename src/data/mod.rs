@@ -18,7 +18,7 @@ mod value;
 mod cache;
 mod utils;
 
-use std::{fmt, time::Duration};
+use std::fmt;
 
 pub use entity_id::EntityId;
 pub use entity_schema::{EntitySchema, Single, Complete};
@@ -103,28 +103,28 @@ impl FieldType {
     }
 }
 
-pub type Timestamp = std::time::SystemTime;
+pub type Timestamp = time::OffsetDateTime;
 
 pub fn now() -> Timestamp {
-    std::time::SystemTime::now()
+    time::OffsetDateTime::now_utc()
 }
 
 pub fn epoch() -> Timestamp {
-    std::time::UNIX_EPOCH
+    time::OffsetDateTime::UNIX_EPOCH
 }
 
 pub fn nanos_to_timestamp(nanos: u64) -> Timestamp {
-    epoch() + Duration::from_nanos(nanos)
+    epoch() + time::Duration::nanoseconds(nanos as i64)
 }
 
 pub fn secs_to_timestamp(secs: u64) -> Timestamp {
-    epoch() + Duration::from_secs(secs)
+    epoch() + time::Duration::seconds(secs as i64)
 }
 
 pub fn millis_to_timestamp(millis: u64) -> Timestamp {
-    epoch() + Duration::from_millis(millis)
+    epoch() + time::Duration::milliseconds(millis as i64)
 }
 
 pub fn micros_to_timestamp(micros: u64) -> Timestamp {
-    epoch() + Duration::from_micros(micros)
+    epoch() + time::Duration::microseconds(micros as i64)
 }

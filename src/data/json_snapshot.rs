@@ -84,7 +84,7 @@ impl JsonFieldSchema {
                 ("String".to_string(), JsonValue::String(default_value.clone()), None)
             },
             FieldSchema::Timestamp { default_value, .. } => {
-                ("Timestamp".to_string(), serde_json::to_value(default_value).unwrap_or(JsonValue::Null), None)
+                ("Timestamp".to_string(), serde_json::to_value(default_value.unix_timestamp()).unwrap_or(JsonValue::Null), None)
             },
         };
 
@@ -158,7 +158,9 @@ impl JsonFieldSchema {
                 Ok(FieldSchema::String { field_type, default_value, rank, storage_scope })
             },
             "Timestamp" => {
-                let default_value = serde_json::from_value(self.default.clone())
+                let unix_timestamp: i64 = serde_json::from_value(self.default.clone())
+                    .unwrap_or(0);
+                let default_value = time::OffsetDateTime::from_unix_timestamp(unix_timestamp)
                     .unwrap_or_else(|_| super::epoch());
                 Ok(FieldSchema::Timestamp { field_type, default_value, rank, storage_scope })
             },
@@ -235,7 +237,7 @@ pub fn value_to_json_value(value: &Value, choices: Option<&Vec<String>>) -> Json
         },
         Value::Int(v) => JsonValue::Number(serde_json::Number::from(*v)),
         Value::String(v) => JsonValue::String(v.clone()),
-        Value::Timestamp(v) => serde_json::to_value(v).unwrap_or(JsonValue::Null),
+        Value::Timestamp(v) => serde_json::to_value(v.unix_timestamp()).unwrap_or(JsonValue::Null),
     }
 }
 
@@ -285,7 +287,7 @@ pub async fn value_to_json_value_with_paths<T: StoreTrait>(
         },
         Value::Int(v) => JsonValue::Number(serde_json::Number::from(*v)),
         Value::String(v) => JsonValue::String(v.clone()),
-        Value::Timestamp(v) => serde_json::to_value(v).unwrap_or(JsonValue::Null),
+        Value::Timestamp(v) => serde_json::to_value(v.unix_timestamp()).unwrap_or(JsonValue::Null),
     }
 }
 
@@ -349,8 +351,10 @@ pub fn json_value_to_value(json_value: &JsonValue, field_schema: &FieldSchema) -
             Ok(Value::String(string_val.to_string()))
         },
         FieldSchema::Timestamp { .. } => {
-            let timestamp = serde_json::from_value(json_value.clone())
+            let unix_timestamp: i64 = serde_json::from_value(json_value.clone())
                 .map_err(|_| Error::InvalidFieldValue("Invalid timestamp data".to_string()))?;
+            let timestamp = time::OffsetDateTime::from_unix_timestamp(unix_timestamp)
+                .map_err(|_| Error::InvalidFieldValue("Invalid unix timestamp".to_string()))?;
             Ok(Value::Timestamp(timestamp))
         },
     }
@@ -738,7 +742,7 @@ fn convert_json_entity_to_snapshot(
                     let field = crate::Field {
                         field_type: field_type.clone(),
                         value,
-                        write_time: crate::Timestamp::now(),
+                        write_time: crate::now(),
                         writer_id: parent_id.clone(),
                     };
                     entity_fields.insert(field_type, field);

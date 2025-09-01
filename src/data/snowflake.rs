@@ -1,5 +1,4 @@
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::{SystemTime, UNIX_EPOCH};
 use std::thread::yield_now;
 use std::env;
 
@@ -79,8 +78,6 @@ impl From<u64> for Snowflake {
 }
 
 fn current_timestamp() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("System time before UNIX_EPOCH")
-        .as_millis() as u64
+    let now = time::OffsetDateTime::now_utc();
+    (now.unix_timestamp_nanos() / 1_000_000) as u64
 }

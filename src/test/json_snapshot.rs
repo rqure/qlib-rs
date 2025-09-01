@@ -112,7 +112,7 @@ async fn test_json_snapshot_functionality() {
         FieldType::from("LastUpdated"),
         FieldSchema::Timestamp {
             field_type: FieldType::from("LastUpdated"),
-            default_value: std::time::UNIX_EPOCH,
+            default_value: time::OffsetDateTime::UNIX_EPOCH,
             rank: 12,
             storage_scope: StorageScope::Runtime,
         },
