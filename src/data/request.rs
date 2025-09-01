@@ -160,4 +160,19 @@ impl Request {
             }
         }
     }
+
+    pub fn try_set_writer_id(&mut self, writer_id: EntityId) {
+        match self {
+            Request::Read { .. } => {}
+            Request::Write { writer_id: w, .. } => {
+                if w.is_none() {
+                    *w = Some(writer_id);
+                }
+            }
+            Request::Create { .. } => {}
+            Request::Delete { .. } => {}
+            Request::SchemaUpdate { .. } => {}
+            Request::Snapshot { .. } => {}
+        }
+    }
 }
