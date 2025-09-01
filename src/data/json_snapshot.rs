@@ -38,7 +38,7 @@ pub struct JsonEntity {
     #[serde(rename = "entityType")]
     pub entity_type: String,
     #[serde(flatten)]
-    pub fields: HashMap<String, JsonValue>,
+    pub fields: serde_json::Map<String, JsonValue>,
 }
 
 /// JSON snapshot format matching the user's requirements
@@ -204,8 +204,43 @@ impl JsonEntitySchema {
             inherits_from
         );
 
-        for field in &self.fields {
-            let field_schema = field.to_field_schema()?;
+        // Assign ranks based on the order of fields in the JSON array
+        // (rank adjustment for inheritance is handled at the restore level)
+        for (index, field) in self.fields.iter().enumerate() {
+            let mut field_schema = field.to_field_schema()?;
+            // Use the rank from the field if provided, otherwise use the index
+            let rank = field.rank.unwrap_or(index as i64);
+            
+            // Override the rank to maintain file order
+            field_schema = match field_schema {
+                FieldSchema::Blob { field_type, default_value, storage_scope, .. } => {
+                    FieldSchema::Blob { field_type, default_value, rank, storage_scope }
+                },
+                FieldSchema::Bool { field_type, default_value, storage_scope, .. } => {
+                    FieldSchema::Bool { field_type, default_value, rank, storage_scope }
+                },
+                FieldSchema::Choice { field_type, default_value, choices, storage_scope, .. } => {
+                    FieldSchema::Choice { field_type, default_value, rank, choices, storage_scope }
+                },
+                FieldSchema::EntityList { field_type, default_value, storage_scope, .. } => {
+                    FieldSchema::EntityList { field_type, default_value, rank, storage_scope }
+                },
+                FieldSchema::EntityReference { field_type, default_value, storage_scope, .. } => {
+                    FieldSchema::EntityReference { field_type, default_value, rank, storage_scope }
+                },
+                FieldSchema::Float { field_type, default_value, storage_scope, .. } => {
+                    FieldSchema::Float { field_type, default_value, rank, storage_scope }
+                },
+                FieldSchema::Int { field_type, default_value, storage_scope, .. } => {
+                    FieldSchema::Int { field_type, default_value, rank, storage_scope }
+                },
+                FieldSchema::String { field_type, default_value, storage_scope, .. } => {
+                    FieldSchema::String { field_type, default_value, rank, storage_scope }
+                },
+                FieldSchema::Timestamp { field_type, default_value, storage_scope, .. } => {
+                    FieldSchema::Timestamp { field_type, default_value, rank, storage_scope }
+                },
+            };
             schema.fields.insert(field_schema.field_type().clone(), field_schema);
         }
 
@@ -422,16 +457,23 @@ pub async fn build_json_entity_tree<T: StoreTrait>(
     let entity_type = entity_id.get_type();
     let complete_schema = store.get_complete_entity_schema(entity_type).await?;
     
-    let mut fields = std::collections::HashMap::new();
+    // First, collect and sort all fields by rank to ensure correct processing order
+    let mut schema_fields: Vec<(&crate::FieldType, &crate::FieldSchema)> = complete_schema.fields
+        .iter()
+        .filter(|(_, field_schema)| {
+            // Only include configuration fields in snapshots, excluding runtime fields
+            !matches!(field_schema.storage_scope(), crate::data::StorageScope::Runtime)
+        })
+        .collect();
+    
+    // Sort by rank to ensure consistent field ordering
+    schema_fields.sort_by_key(|(_, field_schema)| field_schema.rank());
+    
+    // Collect fields with their rank for ordering
+    let mut field_data: Vec<(i64, String, serde_json::Value)> = Vec::new();
 
     // Read all field values for this entity using perform()
-    // Only include configuration fields in snapshots, excluding runtime fields
-    for (field_type, field_schema) in &complete_schema.fields {
-        // Skip runtime fields when taking snapshots
-        if matches!(field_schema.storage_scope(), crate::data::StorageScope::Runtime) {
-            continue;
-        }
-        
+    for (field_type, field_schema) in schema_fields {
         // Create a read request
         let mut read_requests = vec![crate::Request::Read {
             entity_id: entity_id.clone(),
@@ -454,9 +496,9 @@ pub async fn build_json_entity_tree<T: StoreTrait>(
                                 children.push(serde_json::to_value(child_entity).unwrap_or(serde_json::Value::Null));
                             }
                         }
-                        fields.insert("Children".to_string(), serde_json::Value::Array(children));
+                        field_data.push((field_schema.rank(), "Children".to_string(), serde_json::Value::Array(children)));
                     } else {
-                        fields.insert("Children".to_string(), serde_json::Value::Array(vec![]));
+                        field_data.push((field_schema.rank(), "Children".to_string(), serde_json::Value::Array(vec![])));
                     }
                 } else {
                     // For other fields, use path-aware value conversion for entity references
@@ -473,10 +515,19 @@ pub async fn build_json_entity_tree<T: StoreTrait>(
                         },
                         _ => value_to_json_value(value, choices_ref)
                     };
-                    fields.insert(field_type.as_ref().to_string(), json_value);
+                    field_data.push((field_schema.rank(), field_type.as_ref().to_string(), json_value));
                 }
             }
         }
+    }
+
+    // Sort fields by rank to maintain order
+    field_data.sort_by_key(|(rank, _, _)| *rank);
+    
+    // Create the ordered fields map using serde_json::Map for ordered insertion
+    let mut fields = serde_json::Map::new();
+    for (_, field_name, field_value) in field_data {
+        fields.insert(field_name, field_value);
     }
 
     Ok(JsonEntity {
@@ -504,10 +555,35 @@ pub async fn restore_json_snapshot<T: StoreTrait>(store: &mut T, json_snapshot: 
         a.entity_type.cmp(&b.entity_type)
     });
 
-    // First, restore schemas in dependency order
+    // Calculate proper rank offsets for inheritance
+    let mut max_ranks: std::collections::HashMap<String, i64> = std::collections::HashMap::new();
+
+    // First, restore schemas in dependency order with proper rank adjustments
     let mut schema_requests = Vec::new();
     for json_schema in &sorted_schemas {
-        let schema = json_schema.to_entity_schema()?;
+        // Calculate rank offset based on inherited schemas
+        let mut rank_offset = 0i64;
+        for parent_type in &json_schema.inherits_from {
+            if let Some(&parent_max_rank) = max_ranks.get(parent_type) {
+                rank_offset = rank_offset.max(parent_max_rank + 1);
+            }
+        }
+
+        // Create a modified schema with adjusted ranks
+        let mut adjusted_schema = json_schema.clone();
+        let mut current_max_rank = rank_offset - 1;
+        
+        for (index, field) in adjusted_schema.fields.iter_mut().enumerate() {
+            // Use the field's original rank if provided, otherwise use the index
+            let original_rank = field.rank.unwrap_or(index as i64);
+            field.rank = Some(rank_offset + original_rank);
+            current_max_rank = current_max_rank.max(field.rank.unwrap());
+        }
+        
+        // Store the maximum rank for this schema
+        max_ranks.insert(json_schema.entity_type.clone(), current_max_rank);
+        
+        let schema = adjusted_schema.to_entity_schema()?;
         schema_requests.push(crate::Request::SchemaUpdate { 
             schema, 
             originator: None 
