@@ -24,7 +24,7 @@ async fn test_inheritance_in_find_entities() -> Result<()> {
     //       └── Cat (inherits from Mammal)
     
     // Base Animal schema
-    let mut animal_schema = EntitySchema::<Single>::new(et_animal.clone(), None);
+    let mut animal_schema = EntitySchema::<Single>::new(et_animal.clone(), vec![]);
     animal_schema.fields.insert(
         FieldType::from("Name"),
         FieldSchema::String {
@@ -38,7 +38,7 @@ async fn test_inheritance_in_find_entities() -> Result<()> {
     store.perform_mut(&mut requests).await?;
 
     // Mammal schema (inherits from Animal)
-    let mut mammal_schema = EntitySchema::<Single>::new(et_mammal.clone(), Some(et_animal.clone()));
+    let mut mammal_schema = EntitySchema::<Single>::new(et_mammal.clone(), vec![et_animal.clone()]);
     mammal_schema.fields.insert(
         FieldType::from("FurColor"),
         FieldSchema::String {
@@ -52,7 +52,7 @@ async fn test_inheritance_in_find_entities() -> Result<()> {
     store.perform_mut(&mut requests).await?;
 
     // Dog schema (inherits from Mammal)
-    let mut dog_schema = EntitySchema::<Single>::new(et_dog.clone(), Some(et_mammal.clone()));
+    let mut dog_schema = EntitySchema::<Single>::new(et_dog.clone(), vec![et_mammal.clone()]);
     dog_schema.fields.insert(
         FieldType::from("Breed"),
         FieldSchema::String {
@@ -66,7 +66,7 @@ async fn test_inheritance_in_find_entities() -> Result<()> {
     store.perform_mut(&mut requests).await?;
 
     // Cat schema (inherits from Mammal)
-    let cat_schema = EntitySchema::<Single>::new(et_cat.clone(), Some(et_mammal.clone()));
+    let cat_schema = EntitySchema::<Single>::new(et_cat.clone(), vec![et_mammal.clone()]);
     let mut requests = vec![sschemaupdate!(cat_schema)];
     store.perform_mut(&mut requests).await?;
 
@@ -138,12 +138,12 @@ async fn test_inheritance_with_direct_instances() -> Result<()> {
     let et_mammal = EntityType::from("Mammal");
 
     // Create base Animal schema
-    let animal_schema = EntitySchema::<Single>::new(et_animal.clone(), None);
+    let animal_schema = EntitySchema::<Single>::new(et_animal.clone(), vec![]);
     let mut requests = vec![sschemaupdate!(animal_schema)];
     store.perform_mut(&mut requests).await?;
 
     // Create Mammal schema that inherits from Animal
-    let mammal_schema = EntitySchema::<Single>::new(et_mammal.clone(), Some(et_animal.clone()));
+    let mammal_schema = EntitySchema::<Single>::new(et_mammal.clone(), vec![et_animal.clone()]);
     let mut requests = vec![sschemaupdate!(mammal_schema)];
     store.perform_mut(&mut requests).await?;
 
@@ -194,17 +194,17 @@ async fn test_circular_inheritance_protection() -> Result<()> {
     let et_b = EntityType::from("TypeB");
 
     // Create TypeA
-    let schema_a = EntitySchema::<Single>::new(et_a.clone(), None);
+    let schema_a = EntitySchema::<Single>::new(et_a.clone(), vec![]);
     let mut requests = vec![sschemaupdate!(schema_a)];
     store.perform_mut(&mut requests).await?;
 
     // Create TypeB that inherits from TypeA
-    let schema_b = EntitySchema::<Single>::new(et_b.clone(), Some(et_a.clone()));
+    let schema_b = EntitySchema::<Single>::new(et_b.clone(), vec![et_a.clone()]);
     let mut requests = vec![sschemaupdate!(schema_b)];
     store.perform_mut(&mut requests).await?;
 
     // Try to make TypeA inherit from TypeB (should fail or be ignored)
-    let circular_schema_a = EntitySchema::<Single>::new(et_a.clone(), Some(et_b.clone()));
+    let circular_schema_a = EntitySchema::<Single>::new(et_a.clone(), vec![et_b.clone()]);
     
     // This should either fail or the system should handle it gracefully
     let mut requests = vec![sschemaupdate!(circular_schema_a)];
@@ -232,6 +232,119 @@ async fn test_circular_inheritance_protection() -> Result<()> {
             // This is fine - the system properly rejected the circular dependency
         }
     }
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_multi_inheritance() -> Result<()> {
+    let mut store = AsyncStore::new(Arc::new(Snowflake::new()));
+
+    // Create base types
+    let et_flyable = EntityType::from("Flyable");
+    let et_mammal = EntityType::from("Mammal");
+    let et_bat = EntityType::from("Bat");
+    
+    // Create Flyable trait (interface-like entity type)
+    let mut flyable_schema = EntitySchema::<Single>::new(et_flyable.clone(), vec![]);
+    flyable_schema.fields.insert(
+        FieldType::from("CanFly"),
+        FieldSchema::Bool {
+            field_type: FieldType::from("CanFly"),
+            default_value: true,
+            rank: 0,
+            storage_scope: StorageScope::Runtime,
+        }
+    );
+    flyable_schema.fields.insert(
+        FieldType::from("WingSpan"),
+        FieldSchema::Float {
+            field_type: FieldType::from("WingSpan"),
+            default_value: 0.0,
+            rank: 1,
+            storage_scope: StorageScope::Runtime,
+        }
+    );
+    let mut requests = vec![sschemaupdate!(flyable_schema)];
+    store.perform_mut(&mut requests).await?;
+
+    // Create Mammal schema
+    let mut mammal_schema = EntitySchema::<Single>::new(et_mammal.clone(), vec![]);
+    mammal_schema.fields.insert(
+        FieldType::from("FurColor"),
+        FieldSchema::String {
+            field_type: FieldType::from("FurColor"),
+            default_value: String::new(),
+            rank: 0,
+            storage_scope: StorageScope::Runtime,
+        }
+    );
+    mammal_schema.fields.insert(
+        FieldType::from("IsWarmBlooded"),
+        FieldSchema::Bool {
+            field_type: FieldType::from("IsWarmBlooded"),
+            default_value: true,
+            rank: 1,
+            storage_scope: StorageScope::Runtime,
+        }
+    );
+    let mut requests = vec![sschemaupdate!(mammal_schema)];
+    store.perform_mut(&mut requests).await?;
+
+    // Create Bat schema that inherits from BOTH Flyable and Mammal
+    let mut bat_schema = EntitySchema::<Single>::new(et_bat.clone(), vec![et_flyable.clone(), et_mammal.clone()]);
+    bat_schema.fields.insert(
+        FieldType::from("EcholocationRange"),
+        FieldSchema::Float {
+            field_type: FieldType::from("EcholocationRange"),
+            default_value: 100.0,
+            rank: 0,
+            storage_scope: StorageScope::Runtime,
+        }
+    );
+    let mut requests = vec![sschemaupdate!(bat_schema)];
+    store.perform_mut(&mut requests).await?;
+
+    // Create a bat entity
+    let mut create_requests = vec![screate!(
+        et_bat.clone(),
+        "Vampire Bat".to_string()
+    )];
+    store.perform_mut(&mut create_requests).await?;
+    let bat_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
+        id.clone()
+    } else {
+        panic!("Expected created entity ID");
+    };
+
+    // Verify that the bat has fields from all parent types
+    let complete_schema = store.inner().get_complete_entity_schema(&et_bat)?;
+    
+    // Should have fields from Flyable
+    assert!(complete_schema.fields.contains_key(&FieldType::from("CanFly")));
+    assert!(complete_schema.fields.contains_key(&FieldType::from("WingSpan")));
+    
+    // Should have fields from Mammal
+    assert!(complete_schema.fields.contains_key(&FieldType::from("FurColor")));
+    assert!(complete_schema.fields.contains_key(&FieldType::from("IsWarmBlooded")));
+    
+    // Should have its own field
+    assert!(complete_schema.fields.contains_key(&FieldType::from("EcholocationRange")));
+
+    // Test inheritance lookup - searching for Flyable should find bats
+    let flyable_entities = store.find_entities(&et_flyable, None).await?;
+    assert_eq!(flyable_entities.len(), 1);
+    assert!(flyable_entities.contains(&bat_id));
+
+    // Test inheritance lookup - searching for Mammal should find bats
+    let mammal_entities = store.find_entities(&et_mammal, None).await?;
+    assert_eq!(mammal_entities.len(), 1);
+    assert!(mammal_entities.contains(&bat_id));
+
+    // Test inheritance lookup - searching for Bat should find bats
+    let bat_entities = store.find_entities(&et_bat, None).await?;
+    assert_eq!(bat_entities.len(), 1);
+    assert!(bat_entities.contains(&bat_id));
 
     Ok(())
 }

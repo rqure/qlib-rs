@@ -169,32 +169,37 @@ impl Store {
         let mut visited_types = std::collections::HashSet::new();
         visited_types.insert(entity_type.clone());
 
-        loop {
-            if let Some(inherit_type) = &schema.inherit.clone() {
-                // Check for circular inheritance
-                if visited_types.contains(inherit_type) {
-                    // Circular inheritance detected, break the loop
-                    schema.inherit = None;
-                    break;
+        // Use a queue to process inheritance in breadth-first manner
+        let mut inherit_queue: std::collections::VecDeque<EntityType> = 
+            schema.inherit.clone().into_iter().collect();
+
+        while let Some(inherit_type) = inherit_queue.pop_front() {
+            // Check for circular inheritance
+            if visited_types.contains(&inherit_type) {
+                // Circular inheritance detected, skip this type
+                continue;
+            }
+
+            if let Some(inherit_schema) = self.schemas.get(&inherit_type) {
+                visited_types.insert(inherit_type.clone());
+
+                // Merge inherited fields into the current schema
+                // Fields in the derived schema take precedence over inherited fields
+                for (field_type, field_schema) in &inherit_schema.fields {
+                    schema
+                        .fields
+                        .entry(field_type.clone())
+                        .or_insert_with(|| field_schema.clone());
                 }
-
-                if let Some(inherit_schema) = self.schemas.get(inherit_type) {
-                    visited_types.insert(inherit_type.clone());
-
-                    // Merge inherited fields into the current schema
-                    for (field_type, field_schema) in &inherit_schema.fields {
-                        schema
-                            .fields
-                            .entry(field_type.clone())
-                            .or_insert_with(|| field_schema.clone());
+                
+                // Add parent types to the queue for further processing
+                for parent in &inherit_schema.inherit {
+                    if !visited_types.contains(parent) {
+                        inherit_queue.push_back(parent.clone());
                     }
-                    // Move up the inheritance chain
-                    schema.inherit = inherit_schema.inherit.clone();
-                } else {
-                    return Err(Error::EntityTypeNotFound(inherit_type.clone()));
                 }
             } else {
-                break;
+                return Err(Error::EntityTypeNotFound(inherit_type.clone()));
             }
         }
 
@@ -1237,23 +1242,24 @@ impl Store {
             return false; // A type doesn't inherit from itself
         }
 
-        let mut current_type = derived_type;
-        let mut depth = 0;
-        const MAX_INHERITANCE_DEPTH: usize = 100; // Prevent infinite loops
+        let mut types_to_check = std::collections::VecDeque::new();
+        let mut visited = std::collections::HashSet::new();
+        types_to_check.push_back(derived_type.clone());
+        visited.insert(derived_type.clone());
 
-        while depth < MAX_INHERITANCE_DEPTH {
-            if let Some(schema) = self.schemas.get(current_type) {
-                if let Some(inherit_type) = &schema.inherit {
+        while let Some(current_type) = types_to_check.pop_front() {
+            if let Some(schema) = self.schemas.get(&current_type) {
+                for inherit_type in &schema.inherit {
                     if inherit_type == base_type {
                         return true;
                     }
-                    current_type = inherit_type;
-                    depth += 1;
-                } else {
-                    break;
+                    
+                    // Add to queue if not already visited to prevent infinite loops
+                    if !visited.contains(inherit_type) {
+                        types_to_check.push_back(inherit_type.clone());
+                        visited.insert(inherit_type.clone());
+                    }
                 }
-            } else {
-                break;
             }
         }
 
@@ -1261,25 +1267,25 @@ impl Store {
     }
 
     /// Get all parent types in the inheritance chain for a given entity type
-    /// Returns a vector of parent types from most specific to most general
-    /// For example, if Sedan -> Car -> Vehicle -> Object, returns [Car, Vehicle, Object]
+    /// Returns a vector of parent types (all ancestors in the inheritance hierarchy)
+    /// For multi-inheritance, this includes all paths through the inheritance graph
     pub fn get_parent_types(&self, entity_type: &EntityType) -> Vec<EntityType> {
         let mut parent_types = Vec::new();
-        let mut current_type = entity_type;
-        let mut depth = 0;
-        const MAX_INHERITANCE_DEPTH: usize = 100; // Prevent infinite loops
+        let mut types_to_check = std::collections::VecDeque::new();
+        let mut visited = std::collections::HashSet::new();
+        
+        types_to_check.push_back(entity_type.clone());
+        visited.insert(entity_type.clone());
 
-        while depth < MAX_INHERITANCE_DEPTH {
-            if let Some(schema) = self.schemas.get(current_type) {
-                if let Some(inherit_type) = &schema.inherit {
-                    parent_types.push(inherit_type.clone());
-                    current_type = inherit_type;
-                    depth += 1;
-                } else {
-                    break;
+        while let Some(current_type) = types_to_check.pop_front() {
+            if let Some(schema) = self.schemas.get(&current_type) {
+                for inherit_type in &schema.inherit {
+                    if !visited.contains(inherit_type) {
+                        parent_types.push(inherit_type.clone());
+                        types_to_check.push_back(inherit_type.clone());
+                        visited.insert(inherit_type.clone());
+                    }
                 }
-            } else {
-                break;
             }
         }
 

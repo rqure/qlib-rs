@@ -27,8 +27,8 @@ pub struct JsonFieldSchema {
 pub struct JsonEntitySchema {
     #[serde(rename = "entityType")]
     pub entity_type: String,
-    #[serde(skip_serializing_if = "Option::is_none", rename = "inheritsFrom")]
-    pub inherits_from: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty", rename = "inheritsFrom")]
+    pub inherits_from: Vec<String>,
     pub fields: Vec<JsonFieldSchema>,
 }
 
@@ -184,7 +184,7 @@ impl JsonEntitySchema {
             rank_a.cmp(&rank_b).then_with(|| a.name.cmp(&b.name))
         });
 
-        let inherits_from = schema.inherit.as_ref().map(|t| t.as_ref().to_string());
+        let inherits_from: Vec<String> = schema.inherit.iter().map(|t| t.as_ref().to_string()).collect();
 
         Self {
             entity_type: schema.entity_type.as_ref().to_string(),
@@ -195,10 +195,13 @@ impl JsonEntitySchema {
 
     /// Convert to internal EntitySchema
     pub fn to_entity_schema(&self) -> Result<EntitySchema<Single>> {
+        let inherits_from: Vec<EntityType> = self.inherits_from.iter()
+            .map(|s| EntityType::from(s.clone()))
+            .collect();
+            
         let mut schema = EntitySchema::<Single>::new(
             self.entity_type.clone(),
-            self.inherits_from.as_ref()
-                .map(|s| EntityType::from(s.clone()))
+            inherits_from
         );
 
         for field in &self.fields {
@@ -474,16 +477,12 @@ pub async fn restore_json_snapshot<T: StoreTrait>(store: &mut T, json_snapshot: 
     let mut sorted_schemas = json_snapshot.schemas.clone();
     sorted_schemas.sort_by(|a, b| {
         // If a inherits from b, b should come first
-        if let Some(ref inherits) = a.inherits_from {
-            if inherits == &b.entity_type {
-                return std::cmp::Ordering::Greater;
-            }
+        if a.inherits_from.contains(&b.entity_type) {
+            return std::cmp::Ordering::Greater;
         }
         // If b inherits from a, a should come first  
-        if let Some(ref inherits) = b.inherits_from {
-            if inherits == &a.entity_type {
-                return std::cmp::Ordering::Less;
-            }
+        if b.inherits_from.contains(&a.entity_type) {
+            return std::cmp::Ordering::Less;
         }
         // Otherwise sort alphabetically for consistency
         a.entity_type.cmp(&b.entity_type)

@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 // Helper to create an entity schema with basic fields
 async fn create_entity_schema(store: &mut AsyncStore, entity_type: &EntityType) -> Result<()> {
-    let mut schema = EntitySchema::<Single>::new(entity_type.clone(), None);
+    let mut schema = EntitySchema::<Single>::new(entity_type.clone(), vec![]);
     let ft_name = FieldType::from("Name");
     let ft_parent = FieldType::from("Parent");
     let ft_children = FieldType::from("Children");
@@ -447,7 +447,7 @@ async fn test_find_entities_comprehensive() -> Result<()> {
     let et_user = EntityType::from("User");
     
     // Create a simple schema with just Name field
-    let mut user_schema = EntitySchema::<Single>::new(et_user.clone(), None);
+    let mut user_schema = EntitySchema::<Single>::new(et_user.clone(), vec![]);
     user_schema.fields.insert(
         FieldType::from("Name"),
         FieldSchema::String {
@@ -524,7 +524,7 @@ async fn test_find_entities_pagination() -> Result<()> {
     let et_user = EntityType::from("User");
     
     // Create a simple schema
-    let mut user_schema = EntitySchema::<Single>::new(et_user.clone(), None);
+    let mut user_schema = EntitySchema::<Single>::new(et_user.clone(), vec![]);
     user_schema.fields.insert(
         FieldType::from("Name"),
         FieldSchema::String {
@@ -607,7 +607,7 @@ async fn test_find_entities_inheritance() -> Result<()> {
     let et_bird = EntityType::from("Bird");
     
     // Create base Animal schema
-    let mut animal_schema = EntitySchema::<Single>::new(et_animal.clone(), None);
+    let mut animal_schema = EntitySchema::<Single>::new(et_animal.clone(), vec![]);
     animal_schema.fields.insert(
         FieldType::from("Name"),
         FieldSchema::String {
@@ -621,7 +621,7 @@ async fn test_find_entities_inheritance() -> Result<()> {
     store.perform_mut(&mut requests).await?;
     
     // Create Mammal schema (inherits from Animal)
-    let mut mammal_schema = EntitySchema::<Single>::new(et_mammal.clone(), Some(et_animal.clone()));
+    let mut mammal_schema = EntitySchema::<Single>::new(et_mammal.clone(), vec![et_animal.clone()]);
     mammal_schema.fields.insert(
         FieldType::from("FurColor"),
         FieldSchema::String {
@@ -635,7 +635,7 @@ async fn test_find_entities_inheritance() -> Result<()> {
     store.perform_mut(&mut requests).await?;
     
     // Create Dog schema (inherits from Mammal)
-    let mut dog_schema = EntitySchema::<Single>::new(et_dog.clone(), Some(et_mammal.clone()));
+    let mut dog_schema = EntitySchema::<Single>::new(et_dog.clone(), vec![et_mammal.clone()]);
     dog_schema.fields.insert(
         FieldType::from("Breed"),
         FieldSchema::String {
@@ -649,7 +649,7 @@ async fn test_find_entities_inheritance() -> Result<()> {
     store.perform_mut(&mut requests).await?;
     
     // Create Cat schema (inherits from Mammal)
-    let mut cat_schema = EntitySchema::<Single>::new(et_cat.clone(), Some(et_mammal.clone()));
+    let mut cat_schema = EntitySchema::<Single>::new(et_cat.clone(), vec![et_mammal.clone()]);
     cat_schema.fields.insert(
         FieldType::from("IndoorOutdoor"),
         FieldSchema::String {
@@ -663,7 +663,7 @@ async fn test_find_entities_inheritance() -> Result<()> {
     store.perform_mut(&mut requests).await?;
     
     // Create Bird schema (inherits from Animal, not Mammal)
-    let mut bird_schema = EntitySchema::<Single>::new(et_bird.clone(), Some(et_animal.clone()));
+    let mut bird_schema = EntitySchema::<Single>::new(et_bird.clone(), vec![et_animal.clone()]);
     bird_schema.fields.insert(
         FieldType::from("CanFly"),
         FieldSchema::Bool {
@@ -760,7 +760,7 @@ async fn test_find_entities_cel_edge_cases() -> Result<()> {
     let et_user = EntityType::from("User");
     
     // Create a simple schema
-    let mut user_schema = EntitySchema::<Single>::new(et_user.clone(), None);
+    let mut user_schema = EntitySchema::<Single>::new(et_user.clone(), vec![]);
     user_schema.fields.insert(
         FieldType::from("Name"),
         FieldSchema::String {

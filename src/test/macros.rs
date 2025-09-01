@@ -567,7 +567,7 @@ fn test_sdelete_macro() {
 #[test]
 fn test_sschemaupdate_macro() {
     let et_user = EntityType::from("User");
-    let schema = EntitySchema::<Single>::new(et_user.clone(), None);
+    let schema = EntitySchema::<Single>::new(et_user.clone(), vec![]);
 
     let schema_update = sschemaupdate!(schema.clone());
     match schema_update {

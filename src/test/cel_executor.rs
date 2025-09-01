@@ -14,7 +14,7 @@ fn setup_test_store_with_entity() -> Result<(Store, EntityId)> {
 
     // Create a test entity type with various field types
     let et_test = EntityType::from("TestEntity");
-    let mut schema = EntitySchema::<Single>::new(et_test.clone(), None);
+    let mut schema = EntitySchema::<Single>::new(et_test.clone(), vec![]);
     
     schema.fields.insert(
         FieldType::from("Name"),
@@ -446,7 +446,7 @@ fn test_cel_executor_execute_with_indirection() -> Result<()> {
     let et_department = EntityType::from("Department");
     
     // Create Department schema
-    let mut dept_schema = EntitySchema::<Single>::new(et_department.clone(), None);
+    let mut dept_schema = EntitySchema::<Single>::new(et_department.clone(), vec![]);
     dept_schema.fields.insert(
         FieldType::from("Name"),
         FieldSchema::String {
@@ -467,7 +467,7 @@ fn test_cel_executor_execute_with_indirection() -> Result<()> {
     );
     
     // Create User schema with department reference
-    let mut user_schema = EntitySchema::<Single>::new(et_user.clone(), None);
+    let mut user_schema = EntitySchema::<Single>::new(et_user.clone(), vec![]);
     user_schema.fields.insert(
         FieldType::from("Name"),
         FieldSchema::String {
@@ -577,7 +577,7 @@ fn test_cel_executor_execute_with_deep_indirection() -> Result<()> {
     let et_employee = EntityType::from("Employee");
     
     // Create Company schema
-    let mut company_schema = EntitySchema::<Single>::new(et_company.clone(), None);
+    let mut company_schema = EntitySchema::<Single>::new(et_company.clone(), vec![]);
     company_schema.fields.insert(
         FieldType::from("Name"),
         FieldSchema::String {
@@ -598,7 +598,7 @@ fn test_cel_executor_execute_with_deep_indirection() -> Result<()> {
     );
     
     // Create Department schema with company reference
-    let mut dept_schema = EntitySchema::<Single>::new(et_department.clone(), None);
+    let mut dept_schema = EntitySchema::<Single>::new(et_department.clone(), vec![]);
     dept_schema.fields.insert(
         FieldType::from("Name"),
         FieldSchema::String {
@@ -619,7 +619,7 @@ fn test_cel_executor_execute_with_deep_indirection() -> Result<()> {
     );
     
     // Create Employee schema with department reference
-    let mut employee_schema = EntitySchema::<Single>::new(et_employee.clone(), None);
+    let mut employee_schema = EntitySchema::<Single>::new(et_employee.clone(), vec![]);
     employee_schema.fields.insert(
         FieldType::from("Name"),
         FieldSchema::String {
@@ -731,7 +731,7 @@ fn test_cel_executor_execute_with_indirection_and_entity_lists() -> Result<()> {
     let et_project = EntityType::from("Project");
     
     // Create Project schema
-    let mut project_schema = EntitySchema::<Single>::new(et_project.clone(), None);
+    let mut project_schema = EntitySchema::<Single>::new(et_project.clone(), vec![]);
     project_schema.fields.insert(
         FieldType::from("Name"),
         FieldSchema::String {
@@ -752,7 +752,7 @@ fn test_cel_executor_execute_with_indirection_and_entity_lists() -> Result<()> {
     );
     
     // Create Team schema with projects list
-    let mut team_schema = EntitySchema::<Single>::new(et_team.clone(), None);
+    let mut team_schema = EntitySchema::<Single>::new(et_team.clone(), vec![]);
     team_schema.fields.insert(
         FieldType::from("Name"),
         FieldSchema::String {
@@ -845,7 +845,7 @@ fn test_cel_executor_execute_with_null_entity_reference() -> Result<()> {
 
     // Create entity with null entity reference
     let et_user = EntityType::from("User");
-    let mut user_schema = EntitySchema::<Single>::new(et_user.clone(), None);
+    let mut user_schema = EntitySchema::<Single>::new(et_user.clone(), vec![]);
     user_schema.fields.insert(
         FieldType::from("Manager"),
         FieldSchema::EntityReference {
@@ -955,7 +955,7 @@ fn test_cel_executor_execute_with_mixed_field_access() -> Result<()> {
     let et_department = EntityType::from("Department");
     
     // Create Department schema
-    let mut dept_schema = EntitySchema::<Single>::new(et_department.clone(), None);
+    let mut dept_schema = EntitySchema::<Single>::new(et_department.clone(), vec![]);
     dept_schema.fields.insert(
         FieldType::from("Name"),
         FieldSchema::String {
@@ -967,7 +967,7 @@ fn test_cel_executor_execute_with_mixed_field_access() -> Result<()> {
     );
     
     // Create User schema with department reference
-    let mut user_schema = EntitySchema::<Single>::new(et_user.clone(), None);
+    let mut user_schema = EntitySchema::<Single>::new(et_user.clone(), vec![]);
     user_schema.fields.insert(
         FieldType::from("Name"),
         FieldSchema::String {

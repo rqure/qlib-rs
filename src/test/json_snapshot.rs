@@ -19,7 +19,7 @@ async fn test_json_snapshot_functionality() {
     let mut store = AsyncStore::new(snowflake.clone());
 
     // Define schemas as per the example
-    let mut object_schema = EntitySchema::<Single>::new("Object", None);
+    let mut object_schema = EntitySchema::<Single>::new("Object", vec![]);
     object_schema.fields.insert(
         FieldType::from("Name"),
         FieldSchema::String {
@@ -48,7 +48,7 @@ async fn test_json_snapshot_functionality() {
         },
     );
 
-    let mut root_schema = EntitySchema::<Single>::new("Root", Some(EntityType::from("Object")));
+    let mut root_schema = EntitySchema::<Single>::new("Root", vec![EntityType::from("Object")]);
     root_schema.fields.insert(
         FieldType::from("CreatedEntity"),
         FieldSchema::String {
@@ -77,7 +77,7 @@ async fn test_json_snapshot_functionality() {
         },
     );
 
-    let mut machine_schema = EntitySchema::<Single>::new("Machine", Some(EntityType::from("Object")));
+    let mut machine_schema = EntitySchema::<Single>::new("Machine", vec![EntityType::from("Object")]);
     machine_schema.fields.insert(
         FieldType::from("Status"),
         FieldSchema::Choice {
@@ -89,7 +89,7 @@ async fn test_json_snapshot_functionality() {
         },
     );
 
-    let mut sensor_schema = EntitySchema::<Single>::new("Sensor", Some(EntityType::from("Object")));
+    let mut sensor_schema = EntitySchema::<Single>::new("Sensor", vec![EntityType::from("Object")]);
     sensor_schema.fields.insert(
         FieldType::from("CurrentValue"),
         FieldSchema::Float {
@@ -118,7 +118,7 @@ async fn test_json_snapshot_functionality() {
         },
     );
 
-    let mut temp_sensor_schema = EntitySchema::<Single>::new("TemperatureSensor", Some(EntityType::from("Sensor")));
+    let mut temp_sensor_schema = EntitySchema::<Single>::new("TemperatureSensor", vec![EntityType::from("Sensor")]);
     temp_sensor_schema.fields.insert(
         FieldType::from("CalibrationOffset"),
         FieldSchema::Float {
@@ -247,7 +247,7 @@ async fn test_json_snapshot_restore() {
     let mut store1 = AsyncStore::new(snowflake1.clone());
 
     // Define schemas
-    let mut object_schema = EntitySchema::<Single>::new("Object", None);
+    let mut object_schema = EntitySchema::<Single>::new("Object", vec![]);
     object_schema.fields.insert(
         FieldType::from("Name"),
         FieldSchema::String {
@@ -276,7 +276,7 @@ async fn test_json_snapshot_restore() {
         },
     );
 
-    let mut root_schema = EntitySchema::<Single>::new("Root", Some(EntityType::from("Object")));
+    let mut root_schema = EntitySchema::<Single>::new("Root", vec![EntityType::from("Object")]);
     root_schema.fields.insert(
         FieldType::from("Status"),
         FieldSchema::String {
@@ -287,7 +287,7 @@ async fn test_json_snapshot_restore() {
         },
     );
 
-    let mut document_schema = EntitySchema::<Single>::new("Document", Some(EntityType::from("Object")));
+    let mut document_schema = EntitySchema::<Single>::new("Document", vec![EntityType::from("Object")]);
     document_schema.fields.insert(
         FieldType::from("Content"),
         FieldSchema::String {
@@ -429,7 +429,7 @@ async fn test_json_snapshot_path_resolution() {
     let mut store = AsyncStore::new(snowflake.clone());
 
     // Define schemas
-    let mut object_schema = EntitySchema::<Single>::new("Object", None);
+    let mut object_schema = EntitySchema::<Single>::new("Object", vec![]);
     object_schema.fields.insert(
         FieldType::from("Name"),
         FieldSchema::String {
@@ -449,9 +449,9 @@ async fn test_json_snapshot_path_resolution() {
         },
     );
 
-    let root_schema = EntitySchema::<Single>::new("Root", Some(EntityType::from("Object")));
+    let root_schema = EntitySchema::<Single>::new("Root", vec![EntityType::from("Object")]);
 
-    let mut folder_schema = EntitySchema::<Single>::new("Folder", Some(EntityType::from("Object")));
+    let mut folder_schema = EntitySchema::<Single>::new("Folder", vec![EntityType::from("Object")]);
     folder_schema.fields.insert(
         FieldType::from("Parent"),
         FieldSchema::EntityReference {
@@ -462,7 +462,7 @@ async fn test_json_snapshot_path_resolution() {
         },
     );
     
-    let mut file_schema = EntitySchema::<Single>::new("File", Some(EntityType::from("Object")));
+    let mut file_schema = EntitySchema::<Single>::new("File", vec![EntityType::from("Object")]);
     file_schema.fields.insert(
         FieldType::from("ParentFolder"),
         FieldSchema::EntityReference {
@@ -579,7 +579,7 @@ async fn test_json_snapshot_storage_scope() {
     let mut store = AsyncStore::new(snowflake.clone());
 
     // Define schemas with different storage scopes
-    let mut object_schema = EntitySchema::<Single>::new("Object", None);
+    let mut object_schema = EntitySchema::<Single>::new("Object", vec![]);
     object_schema.fields.insert(
         FieldType::from("Name"),
         FieldSchema::String {
@@ -590,7 +590,7 @@ async fn test_json_snapshot_storage_scope() {
         },
     );
 
-    let mut root_schema = EntitySchema::<Single>::new("Root", Some(EntityType::from("Object")));
+    let mut root_schema = EntitySchema::<Single>::new("Root", vec![EntityType::from("Object")]);
     root_schema.fields.insert(
         FieldType::from("ConfigField"),
         FieldSchema::String {

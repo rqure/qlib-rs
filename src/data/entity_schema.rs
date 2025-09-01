@@ -12,14 +12,14 @@ pub struct Complete;
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct EntitySchema<T> {
     pub entity_type: EntityType,
-    pub inherit: Option<EntityType>,
+    pub inherit: Vec<EntityType>,
     pub fields: HashMap<FieldType, FieldSchema>,
     
     _marker: std::marker::PhantomData<T>,
 }
 
 impl EntitySchema<Single> {
-    pub fn new(entity_type: impl Into<EntityType>, inherit: Option<EntityType>) -> Self {
+    pub fn new(entity_type: impl Into<EntityType>, inherit: Vec<EntityType>) -> Self {
         Self {
             entity_type: entity_type.into(),
             inherit,
@@ -33,7 +33,7 @@ impl EntitySchema<Complete> {
     pub fn new(entity_type: impl Into<EntityType>) -> Self {
         Self {
             entity_type: entity_type.into(),
-            inherit: None,
+            inherit: Vec::new(),
             fields: HashMap::new(),
             _marker: std::marker::PhantomData,
         }
