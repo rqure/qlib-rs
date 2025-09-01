@@ -298,7 +298,7 @@ impl Store {
                     ..
                 } => {
                     let indir = resolve_indirection(self, entity_id, field_type)?;
-                    self.write(
+                    if self.write(
                         &indir.0,
                         &indir.1,
                         value,
@@ -306,9 +306,9 @@ impl Store {
                         writer_id,
                         push_condition,
                         adjust_behavior,
-                    )?;
-
-                    write_requests.push(request.clone());
+                    )? {
+                        write_requests.push(request.clone());
+                    }
                 }
                 Request::Create {
                     entity_type,
@@ -964,7 +964,7 @@ impl Store {
         writer_id: &Option<EntityId>,
         write_option: &PushCondition,
         adjust_behavior: &AdjustBehavior,
-    ) -> Result<()> {
+    ) -> Result<bool> {
         let entity_schema = self.get_complete_entity_schema( entity_id.get_type())?;
         let field_schema = entity_schema
             .fields
@@ -1096,6 +1096,8 @@ impl Store {
         let notification_new_value = new_value.clone();
         let notification_old_value = old_value.clone();
 
+        let mut do_write = false;
+
         match write_option {
             PushCondition::Always => {
                 // Only update if the incoming write is newer or if no write_time is specified (local write)
@@ -1124,6 +1126,8 @@ impl Store {
                         write_time: Some(field.write_time), // Use the time before the write
                         writer_id: field.writer_id.clone(),
                     };
+
+                    do_write = true;
                     
                     self.trigger_notifications(
                         entity_id,
@@ -1133,7 +1137,7 @@ impl Store {
                     );
                 } else {
                     // Incoming write is older, ignore it
-                    return Ok(());
+                    return Ok(false);
                 }
             }
             PushCondition::Changes => {
@@ -1163,6 +1167,8 @@ impl Store {
                         write_time: Some(field.write_time), // Use the time before the write
                         writer_id: field.writer_id.clone(),
                     };
+
+                    do_write = true;
                     
                     self.trigger_notifications(
                         entity_id,
@@ -1172,12 +1178,12 @@ impl Store {
                     );
                 } else if write_time.is_some() && incoming_time < field.write_time {
                     // Incoming write is older, ignore it
-                    return Ok(());
+                    return Ok(false);
                 }
             }
         }
 
-        Ok(())
+        Ok(do_write)
     }
 
     /// Take a snapshot of the current store state
