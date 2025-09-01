@@ -561,11 +561,15 @@ pub async fn restore_json_snapshot<T: StoreTrait>(store: &mut T, json_snapshot: 
     // First, restore schemas in dependency order with proper rank adjustments
     let mut schema_requests = Vec::new();
     for json_schema in &sorted_schemas {
-        // Calculate rank offset based on inherited schemas
+        // Calculate rank offset based on ALL inherited schemas
+        // For multiple inheritance, we need to accumulate offsets properly
         let mut rank_offset = 0i64;
+        
+        // Calculate the total offset by summing the field counts of all inherited types
         for parent_type in &json_schema.inherits_from {
             if let Some(&parent_max_rank) = max_ranks.get(parent_type) {
-                rank_offset = rank_offset.max(parent_max_rank + 1);
+                // Add 1 to the parent's max rank to get the starting offset for this inheritance
+                rank_offset += parent_max_rank + 1;
             }
         }
 
@@ -580,7 +584,7 @@ pub async fn restore_json_snapshot<T: StoreTrait>(store: &mut T, json_snapshot: 
             current_max_rank = current_max_rank.max(field.rank.unwrap());
         }
         
-        // Store the maximum rank for this schema
+        // Store the maximum rank for this schema type
         max_ranks.insert(json_schema.entity_type.clone(), current_max_rank);
         
         let schema = adjusted_schema.to_entity_schema()?;

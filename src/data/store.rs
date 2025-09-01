@@ -169,6 +169,14 @@ impl Store {
         let mut visited_types = std::collections::HashSet::new();
         visited_types.insert(entity_type.clone());
 
+        // Collect all fields from inheritance hierarchy with proper rank ordering
+        let mut all_fields: Vec<(FieldType, FieldSchema)> = Vec::new();
+        
+        // Add fields from the base schema first
+        for (field_type, field_schema) in &schema.fields {
+            all_fields.push((field_type.clone(), field_schema.clone()));
+        }
+
         // Use a queue to process inheritance in breadth-first manner
         let mut inherit_queue: std::collections::VecDeque<EntityType> = 
             schema.inherit.clone().into_iter().collect();
@@ -183,13 +191,12 @@ impl Store {
             if let Some(inherit_schema) = self.schemas.get(&inherit_type) {
                 visited_types.insert(inherit_type.clone());
 
-                // Merge inherited fields into the current schema
+                // Add inherited fields if they don't already exist in the derived schema
                 // Fields in the derived schema take precedence over inherited fields
                 for (field_type, field_schema) in &inherit_schema.fields {
-                    schema
-                        .fields
-                        .entry(field_type.clone())
-                        .or_insert_with(|| field_schema.clone());
+                    if !all_fields.iter().any(|(existing_field_type, _)| existing_field_type == field_type) {
+                        all_fields.push((field_type.clone(), field_schema.clone()));
+                    }
                 }
                 
                 // Add parent types to the queue for further processing
@@ -201,6 +208,15 @@ impl Store {
             } else {
                 return Err(Error::EntityTypeNotFound(inherit_type.clone()));
             }
+        }
+
+        // Sort all fields by rank to ensure proper ordering
+        all_fields.sort_by_key(|(_, field_schema)| field_schema.rank());
+        
+        // Rebuild the schema with properly ordered fields
+        schema.fields.clear();
+        for (field_type, field_schema) in all_fields {
+            schema.fields.insert(field_type, field_schema);
         }
 
         Ok(schema)
