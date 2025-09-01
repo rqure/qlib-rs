@@ -620,6 +620,22 @@ pub async fn restore_entity_recursive<T: StoreTrait>(
     Ok(entity_id)
 }
 
+/// Helper function to clear all contents from a directory
+async fn clear_directory_contents(dir_path: &std::path::Path) -> std::io::Result<()> {
+    let mut entries = tokio::fs::read_dir(dir_path).await?;
+    
+    while let Some(entry) = entries.next_entry().await? {
+        let path = entry.path();
+        if path.is_dir() {
+            tokio::fs::remove_dir_all(&path).await?;
+        } else {
+            tokio::fs::remove_file(&path).await?;
+        }
+    }
+    
+    Ok(())
+}
+
 /// Factory restore: Create snapshot and WAL files in a target data directory
 /// This is useful for creating a fresh QCore data directory from a JSON snapshot
 pub async fn factory_restore_json_snapshot(
@@ -639,6 +655,14 @@ pub async fn factory_restore_json_snapshot(
         .map_err(|e| crate::Error::StoreProxyError(format!("Failed to create snapshots directory: {}", e)))?;
     tokio::fs::create_dir_all(&wal_dir).await
         .map_err(|e| crate::Error::StoreProxyError(format!("Failed to create WAL directory: {}", e)))?;
+
+    // Clear snapshots directory if it contains any files
+    clear_directory_contents(&snapshots_dir).await
+        .map_err(|e| crate::Error::StoreProxyError(format!("Failed to clear snapshots directory: {}", e)))?;
+    
+    // Clear WAL directory if it contains any files
+    clear_directory_contents(&wal_dir).await
+        .map_err(|e| crate::Error::StoreProxyError(format!("Failed to clear WAL directory: {}", e)))?;
 
     // Create a temporary Store instance and restore the JSON snapshot into it
     let snowflake = Arc::new(Snowflake::new());
