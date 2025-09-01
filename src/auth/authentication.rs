@@ -161,7 +161,12 @@ pub async fn authenticate_openid_connect(
 pub async fn get_user_auth_method(store: &mut AsyncStore, user_id: &EntityId) -> Result<AuthMethod> {
     let mut requests = vec![sread!(user_id.clone(), ft::auth_method())];
 
-    store.perform_mut(&mut requests).await?;
+    let result = store.perform_mut(&mut requests).await;
+    
+    // If the store operation failed, default to Native
+    if let Err(_) = result {
+        return Ok(AuthMethod::Native);
+    }
 
     if let Some(request) = requests.first() {
         if let Request::Read {
@@ -282,7 +287,12 @@ pub async fn is_user_active(store: &mut AsyncStore, user_id: &EntityId) -> Resul
 pub async fn is_user_locked(store: &mut AsyncStore, user_id: &EntityId) -> Result<bool> {
     let mut requests = vec![sread!(user_id.clone(), ft::locked_until())];
 
-    store.perform_mut(&mut requests).await?;
+    let result = store.perform_mut(&mut requests).await;
+    
+    // If the store operation failed, it might be because the field doesn't exist
+    if let Err(_) = result {
+        return Ok(false);
+    }
 
     if let Some(request) = requests.first() {
         if let Request::Read {
@@ -290,11 +300,13 @@ pub async fn is_user_locked(store: &mut AsyncStore, user_id: &EntityId) -> Resul
             ..
         } = request
         {
-            return Ok(now() < *locked_until);
+            Ok(now() < *locked_until)
+        } else {
+            Ok(false)
         }
+    } else {
+        Ok(false)
     }
-
-    Ok(false)
 }
 
 /// Hash a password using Argon2

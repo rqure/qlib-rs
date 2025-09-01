@@ -351,7 +351,23 @@ pub fn json_value_to_value(json_value: &JsonValue, field_schema: &FieldSchema) -
         FieldSchema::String { .. } => {
             let string_val = json_value.as_str()
                 .ok_or_else(|| Error::InvalidFieldValue("Expected string value".to_string()))?;
-            Ok(Value::String(string_val.to_string()))
+            
+            // Check for special password hashing function
+            if string_val.starts_with("__hashpw__(") && string_val.ends_with(")") {
+                // Extract password from __hashpw__(password) syntax
+                let password = &string_val[11..string_val.len()-1]; // Remove "__hashpw__(" and ")"
+                let config = crate::auth::AuthConfig::default();
+                match crate::auth::hash_password(password, &config) {
+                    Ok(hashed) => {
+                        Ok(Value::String(hashed))
+                    },
+                    Err(_) => {
+                        Err(Error::InvalidFieldValue("Failed to hash password".to_string()))
+                    }
+                }
+            } else {
+                Ok(Value::String(string_val.to_string()))
+            }
         },
         FieldSchema::Timestamp { .. } => {
             let unix_timestamp: i64 = serde_json::from_value(json_value.clone())
@@ -539,6 +555,7 @@ pub async fn restore_entity_recursive<T: StoreTrait>(
     // Get the entity schema to understand field types
     let complete_schema = store.get_complete_entity_schema(&crate::EntityType::from(json_entity.entity_type.clone())).await?;
 
+    // Debug: Print the complete schema fields
     // Set field values (except Children - we'll handle that last)
     let mut write_requests = Vec::new();
     for (field_name, json_value) in &json_entity.fields {
@@ -643,11 +660,11 @@ pub async fn factory_restore_json_snapshot(
     
     convert_json_entity_to_snapshot(&json_snapshot.tree, None, &mut snapshot, &mut entity_counters, &mut total_entities)?;
 
-    // Write snapshot binary file - using serde_json for now instead of bincode
+    // Write snapshot binary file - using bincode instead of serde_json to handle non-string HashMap keys
     let snapshot_filename = "snapshot_0000000000.bin";
     let snapshot_path = snapshots_dir.join(snapshot_filename);
     
-    let serialized_snapshot = serde_json::to_vec(&snapshot)
+    let serialized_snapshot = bincode::serialize(&snapshot)
         .map_err(|e| crate::Error::StoreProxyError(format!("Failed to serialize snapshot: {}", e)))?;
     
     tokio::fs::write(&snapshot_path, &serialized_snapshot).await
@@ -703,6 +720,42 @@ pub async fn restore_json_snapshot_via_proxy(
 }
 
 /// Helper function to convert JSON entity tree to internal snapshot format (for factory restore)
+/// Helper function to resolve inheritance for a schema within a snapshot context
+fn resolve_schema_inheritance(
+    entity_type: &crate::EntityType,
+    snapshot: &crate::Snapshot,
+) -> Result<std::collections::HashMap<crate::FieldType, crate::FieldSchema>> {
+    let mut combined_fields = std::collections::HashMap::new();
+    let mut visited_types = std::collections::HashSet::new();
+    let mut inheritance_queue = std::collections::VecDeque::new();
+    
+    // Start with the entity type itself
+    inheritance_queue.push_back(entity_type.clone());
+    
+    while let Some(current_type) = inheritance_queue.pop_front() {
+        if visited_types.contains(&current_type) {
+            continue; // Avoid circular inheritance
+        }
+        visited_types.insert(current_type.clone());
+        
+        if let Some(schema) = snapshot.schemas.get(&current_type) {
+            // Add fields from this schema (derived fields take precedence)
+            for (field_type, field_schema) in &schema.fields {
+                combined_fields.entry(field_type.clone()).or_insert_with(|| field_schema.clone());
+            }
+            
+            // Add parent types to the queue
+            for inherit_type in &schema.inherit {
+                if !visited_types.contains(inherit_type) {
+                    inheritance_queue.push_back(inherit_type.clone());
+                }
+            }
+        }
+    }
+    
+    Ok(combined_fields)
+}
+
 fn convert_json_entity_to_snapshot(
     json_entity: &JsonEntity,
     parent_id: Option<crate::EntityId>,
@@ -721,12 +774,12 @@ fn convert_json_entity_to_snapshot(
     // Add entity to the snapshot
     snapshot.entities.entry(entity_type.clone()).or_insert_with(Vec::new).push(entity_id.clone());
     
-    // Get the schema for this entity type
-    let schema = snapshot.schemas.get(&entity_type)
-        .ok_or_else(|| crate::Error::EntityNotFound(entity_id.clone()))?;
+    // Get the schema for this entity type with inheritance resolved
+    let combined_fields = resolve_schema_inheritance(&entity_type, snapshot)?;
     
     // Convert field values (only configuration fields)
     let mut entity_fields = HashMap::new();
+    
     for (field_name, json_value) in &json_entity.fields {
         if field_name == "Children" {
             // Handle children separately
@@ -734,7 +787,7 @@ fn convert_json_entity_to_snapshot(
         }
         
         let field_type = crate::FieldType::from(field_name.clone());
-        if let Some(field_schema) = schema.fields.get(&field_type) {
+        if let Some(field_schema) = combined_fields.get(&field_type) {
             // Only include configuration fields in factory restore
             if matches!(field_schema.storage_scope(), crate::data::StorageScope::Configuration) {
                 if let Ok(value) = json_value_to_value(json_value, field_schema) {
@@ -750,7 +803,7 @@ fn convert_json_entity_to_snapshot(
         }
     }
     
-    snapshot.fields.insert(entity_id.clone(), entity_fields);
+    snapshot.fields.insert(entity_id.clone(), entity_fields.clone());
     
     // Handle children recursively
     if let Some(children_json) = json_entity.fields.get("Children") {
