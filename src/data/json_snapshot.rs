@@ -627,8 +627,8 @@ pub async fn factory_restore_json_snapshot(
     data_dir: std::path::PathBuf,
     machine_id: String,
 ) -> Result<()> {
-    use crate::Snapshot;
-    use std::collections::HashMap;
+    use crate::{Snowflake, AsyncStore};
+    use std::sync::Arc;
 
     // Create the directory structure
     let machine_data_dir = data_dir.join(&machine_id);
@@ -640,25 +640,15 @@ pub async fn factory_restore_json_snapshot(
     tokio::fs::create_dir_all(&wal_dir).await
         .map_err(|e| crate::Error::StoreProxyError(format!("Failed to create WAL directory: {}", e)))?;
 
-    // Convert JsonSnapshot to internal Snapshot format
-    let mut snapshot = Snapshot::default();
+    // Create a temporary Store instance and restore the JSON snapshot into it
+    let snowflake = Arc::new(Snowflake::new());
+    let mut temp_store = AsyncStore::new(snowflake);
     
-    // Convert schemas
-    for json_schema in &json_snapshot.schemas {
-        let entity_type = crate::EntityType::from(json_schema.entity_type.clone());
-        let schema = json_schema.to_entity_schema()?;
-        
-        snapshot.schemas.insert(entity_type.clone(), schema);
-        if !snapshot.types.contains(&entity_type) {
-            snapshot.types.push(entity_type);
-        }
-    }
+    // Restore the JSON snapshot into the temporary store
+    restore_json_snapshot(&mut temp_store, json_snapshot).await?;
     
-    // Convert the entity tree to individual entities and fields
-    let mut entity_counters: HashMap<String, u64> = HashMap::new();
-    let mut total_entities = 0;
-    
-    convert_json_entity_to_snapshot(&json_snapshot.tree, None, &mut snapshot, &mut entity_counters, &mut total_entities)?;
+    // Take a snapshot from the temporary store - this handles all the complex logic
+    let snapshot = temp_store.inner().take_snapshot();
 
     // Write snapshot binary file - using bincode instead of serde_json to handle non-string HashMap keys
     let snapshot_filename = "snapshot_0000000000.bin";
@@ -717,114 +707,6 @@ pub async fn restore_json_snapshot_via_proxy(
     apply_entity_diff(store_proxy, &current_snapshot.tree, &json_snapshot.tree).await?;
 
     Ok(())
-}
-
-/// Helper function to convert JSON entity tree to internal snapshot format (for factory restore)
-/// Helper function to resolve inheritance for a schema within a snapshot context
-fn resolve_schema_inheritance(
-    entity_type: &crate::EntityType,
-    snapshot: &crate::Snapshot,
-) -> Result<std::collections::HashMap<crate::FieldType, crate::FieldSchema>> {
-    let mut combined_fields = std::collections::HashMap::new();
-    let mut visited_types = std::collections::HashSet::new();
-    let mut inheritance_queue = std::collections::VecDeque::new();
-    
-    // Start with the entity type itself
-    inheritance_queue.push_back(entity_type.clone());
-    
-    while let Some(current_type) = inheritance_queue.pop_front() {
-        if visited_types.contains(&current_type) {
-            continue; // Avoid circular inheritance
-        }
-        visited_types.insert(current_type.clone());
-        
-        if let Some(schema) = snapshot.schemas.get(&current_type) {
-            // Add fields from this schema (derived fields take precedence)
-            for (field_type, field_schema) in &schema.fields {
-                combined_fields.entry(field_type.clone()).or_insert_with(|| field_schema.clone());
-            }
-            
-            // Add parent types to the queue
-            for inherit_type in &schema.inherit {
-                if !visited_types.contains(inherit_type) {
-                    inheritance_queue.push_back(inherit_type.clone());
-                }
-            }
-        }
-    }
-    
-    Ok(combined_fields)
-}
-
-fn convert_json_entity_to_snapshot(
-    json_entity: &JsonEntity,
-    parent_id: Option<crate::EntityId>,
-    snapshot: &mut crate::Snapshot,
-    entity_counters: &mut HashMap<String, u64>,
-    total_entities: &mut usize,
-) -> Result<crate::EntityId> {
-    let entity_type = crate::EntityType::from(json_entity.entity_type.clone());
-    
-    // Generate a unique entity ID using a counter per type
-    let counter = entity_counters.entry(entity_type.as_ref().to_string()).or_insert(0);
-    let entity_id = crate::EntityId::new(entity_type.as_ref(), *counter);
-    *counter += 1;
-    *total_entities += 1;
-    
-    // Add entity to the snapshot
-    snapshot.entities.entry(entity_type.clone()).or_insert_with(Vec::new).push(entity_id.clone());
-    
-    // Get the schema for this entity type with inheritance resolved
-    let combined_fields = resolve_schema_inheritance(&entity_type, snapshot)?;
-    
-    // Convert field values (only configuration fields)
-    let mut entity_fields = HashMap::new();
-    let mut child_entity_ids = Vec::new();
-    
-    for (field_name, json_value) in &json_entity.fields {
-        let field_type = crate::FieldType::from(field_name.clone());
-        if let Some(field_schema) = combined_fields.get(&field_type) {
-            // Only include configuration fields in factory restore
-            if matches!(field_schema.storage_scope(), crate::data::StorageScope::Configuration) {
-                if field_name == "Children" {
-                    // Handle children recursively first to get their entity IDs
-                    if let Some(children_array) = json_value.as_array() {
-                        for child_json_value in children_array {
-                            if let Ok(child_json_entity) = serde_json::from_value::<JsonEntity>(child_json_value.clone()) {
-                                let child_id = convert_json_entity_to_snapshot(&child_json_entity, Some(entity_id.clone()), snapshot, entity_counters, total_entities)?;
-                                child_entity_ids.push(child_id);
-                            }
-                        }
-                    }
-                    
-                    // Now create the Children field with the actual child entity IDs
-                    let children_value = crate::Value::EntityList(child_entity_ids.clone());
-                    let field = crate::Field {
-                        field_type: field_type.clone(),
-                        value: children_value,
-                        write_time: crate::now(),
-                        writer_id: parent_id.clone(),
-                    };
-                    entity_fields.insert(field_type, field);
-                } else {
-                    // Handle other fields normally
-                    if let Ok(value) = json_value_to_value(json_value, field_schema) {
-                        let field = crate::Field {
-                            field_type: field_type.clone(),
-                            value,
-                            write_time: crate::now(),
-                            writer_id: parent_id.clone(),
-                        };
-                        entity_fields.insert(field_type, field);
-                    }
-                }
-            }
-        }
-    }
-    
-    snapshot.fields.insert(entity_id.clone(), entity_fields.clone());
-    
-    Ok(entity_id)
 }
 
 /// Apply schema differences between current and target snapshots
