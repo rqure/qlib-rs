@@ -398,7 +398,7 @@ impl StoreProxy {
             .fields
             .insert(field_type.clone(), schema);
 
-        let mut requests = vec![Request::SchemaUpdate { schema: entity_schema, originator: None }];
+        let mut requests = vec![Request::SchemaUpdate { schema: entity_schema, timestamp: None, originator: None }];
         self.perform(&mut requests).await
     }
 

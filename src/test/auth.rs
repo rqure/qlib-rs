@@ -100,6 +100,7 @@ async fn test_create_and_authenticate_user() -> Result<()> {
         parent_id: None,
         name: "TestParent".to_string(),
         created_entity_id: Some(parent_id.clone()),
+        timestamp: None,
         originator: None,
     }];
     store.perform_mut(&mut create_requests).await?;
@@ -231,6 +232,7 @@ async fn test_authentication_with_factory_restore_format() -> Result<()> {
         parent_id: None,
         name: username.to_string(),
         created_entity_id: Some(user_id.clone()),
+        timestamp: None,
         originator: None,
     }];
     store.perform_mut(&mut create_requests).await?;

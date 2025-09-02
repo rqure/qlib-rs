@@ -535,7 +535,7 @@ macro_rules! sblob {
 /// Create a Create request with minimal syntax
 ///
 /// This macro creates a `Request::Create` for creating new entities.
-/// The originator is always set to None.
+/// The timestamp and originator are always set to None.
 ///
 /// # Arguments
 ///
@@ -552,6 +552,7 @@ macro_rules! screate {
             parent_id: None,
             name: $name,
             created_entity_id: None,
+            timestamp: None,
             originator: None,
         }
     };
@@ -563,6 +564,7 @@ macro_rules! screate {
             parent_id: Some($parent_id),
             name: $name,
             created_entity_id: None,
+            timestamp: None,
             originator: None,
         }
     };
@@ -574,6 +576,7 @@ macro_rules! screate {
             parent_id: Some($parent_id),
             name: $name,
             created_entity_id: Some($created_entity_id),
+            timestamp: None,
             originator: None,
         }
     };
@@ -582,7 +585,7 @@ macro_rules! screate {
 /// Create a Delete request with minimal syntax
 ///
 /// This macro creates a `Request::Delete` for deleting entities.
-/// The originator is always set to None.
+/// The timestamp and originator are always set to None.
 ///
 /// # Arguments
 ///
@@ -592,6 +595,7 @@ macro_rules! sdelete {
     ($entity_id:expr) => {
         $crate::Request::Delete {
             entity_id: $entity_id,
+            timestamp: None,
             originator: None,
         }
     };
@@ -600,7 +604,7 @@ macro_rules! sdelete {
 /// Create a SchemaUpdate request with minimal syntax
 ///
 /// This macro creates a `Request::SchemaUpdate` for updating entity schemas.
-/// The originator is always set to None.
+/// The timestamp and originator are always set to None.
 ///
 /// # Arguments
 ///
@@ -610,6 +614,7 @@ macro_rules! sschemaupdate {
     ($schema:expr) => {
         $crate::Request::SchemaUpdate {
             schema: $schema,
+            timestamp: None,
             originator: None,
         }
     };

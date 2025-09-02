@@ -520,7 +520,7 @@ fn test_screate_macro() {
     // Test basic create with just type and name
     let basic_create = screate!(et_user.clone(), "test_user".to_string());
     match basic_create {
-        Request::Create { entity_type, parent_id: None, name, created_entity_id: None, originator: None } => {
+        Request::Create { entity_type, parent_id: None, name, created_entity_id: None, timestamp: None, originator: None } => {
             assert_eq!(entity_type, et_user);
             assert_eq!(name, "test_user");
         }
@@ -530,7 +530,7 @@ fn test_screate_macro() {
     // Test create with parent ID
     let create_with_parent = screate!(et_user.clone(), "child_user".to_string(), parent_id.clone());
     match create_with_parent {
-        Request::Create { entity_type, parent_id: Some(pid), name, created_entity_id: None, originator: None } => {
+        Request::Create { entity_type, parent_id: Some(pid), name, created_entity_id: None, timestamp: None, originator: None } => {
             assert_eq!(entity_type, et_user);
             assert_eq!(pid, parent_id);
             assert_eq!(name, "child_user");
@@ -541,7 +541,7 @@ fn test_screate_macro() {
     // Test create with parent ID and desired entity ID
     let create_with_ids = screate!(et_user.clone(), "specific_user".to_string(), parent_id.clone(), entity_id.clone());
     match create_with_ids {
-        Request::Create { entity_type, parent_id: Some(pid), name, created_entity_id: Some(eid), originator: None } => {
+        Request::Create { entity_type, parent_id: Some(pid), name, created_entity_id: Some(eid), timestamp: None, originator: None } => {
             assert_eq!(entity_type, et_user);
             assert_eq!(pid, parent_id);
             assert_eq!(name, "specific_user");
@@ -557,7 +557,7 @@ fn test_sdelete_macro() {
 
     let delete_request = sdelete!(entity_id.clone());
     match delete_request {
-        Request::Delete { entity_id: eid, originator: None } => {
+        Request::Delete { entity_id: eid, timestamp: None, originator: None } => {
             assert_eq!(eid, entity_id);
         }
         _ => panic!("Expected Request::Delete"),
@@ -571,7 +571,7 @@ fn test_sschemaupdate_macro() {
 
     let schema_update = sschemaupdate!(schema.clone());
     match schema_update {
-        Request::SchemaUpdate { schema: s, originator: None } => {
+        Request::SchemaUpdate { schema: s, timestamp: None, originator: None } => {
             assert_eq!(s.entity_type, et_user);
         }
         _ => panic!("Expected Request::SchemaUpdate"),

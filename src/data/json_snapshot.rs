@@ -590,6 +590,7 @@ pub async fn restore_json_snapshot<T: StoreTrait>(store: &mut T, json_snapshot: 
         let schema = adjusted_schema.to_entity_schema()?;
         schema_requests.push(crate::Request::SchemaUpdate { 
             schema, 
+            timestamp: None,
             originator: None 
         });
     }
@@ -621,6 +622,7 @@ pub async fn restore_entity_recursive<T: StoreTrait>(
         parent_id: parent_id.clone(),
         name: name.clone(),
         created_entity_id: None,
+        timestamp: None,
         originator: None,
     }];
     store.perform_mut(&mut create_requests).await?;
@@ -770,6 +772,7 @@ pub async fn factory_restore_json_snapshot(
     
     let snapshot_request = crate::Request::Snapshot {
         snapshot_counter: 0,
+        timestamp: None,
         originator: Some("factory-restore".to_string()),
     };
     
@@ -840,6 +843,7 @@ async fn apply_schema_diff(
             let schema = target_schema.to_entity_schema()?;
             schema_requests.push(crate::Request::SchemaUpdate { 
                 schema, 
+                timestamp: None,
                 originator: Some("restore-via-proxy".to_string()) 
             });
         }
@@ -1025,6 +1029,7 @@ async fn create_entity_from_json(
         parent_id,
         name,
         created_entity_id: None,
+        timestamp: None,
         originator: Some("restore-via-proxy".to_string()),
     }];
     

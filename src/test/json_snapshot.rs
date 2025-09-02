@@ -146,6 +146,7 @@ async fn test_json_snapshot_functionality() {
             parent_id: None,
             name: "DataStore".to_string(),
             created_entity_id: None,
+            timestamp: None,
             originator: None,
         },
     ];
@@ -313,6 +314,7 @@ async fn test_json_snapshot_restore() {
             parent_id: None,
             name: "TestRoot".to_string(),
             created_entity_id: None,
+            timestamp: None,
             originator: None,
         },
     ];

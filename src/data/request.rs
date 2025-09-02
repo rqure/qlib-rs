@@ -47,18 +47,22 @@ pub enum Request {
         parent_id: Option<EntityId>,
         name: String,
         created_entity_id: Option<EntityId>,
+        timestamp: Option<Timestamp>,
         originator: Option<String>,
     },
     Delete {
         entity_id: EntityId,
+        timestamp: Option<Timestamp>,
         originator: Option<String>,
     },
     SchemaUpdate {
         schema: EntitySchema<Single>,
+        timestamp: Option<Timestamp>,
         originator: Option<String>,
     },
     Snapshot {
         snapshot_counter: u64,
+        timestamp: Option<Timestamp>,
         originator: Option<String>,
     },
 }
@@ -101,10 +105,10 @@ impl Request {
         match self {
             Request::Read { write_time, .. } => *write_time,
             Request::Write { write_time, .. } => *write_time,
-            Request::Create { .. } => None,
-            Request::Delete { .. } => None,
-            Request::SchemaUpdate { .. } => None,
-            Request::Snapshot { .. } => None,
+            Request::Create { timestamp, .. } => *timestamp,
+            Request::Delete { timestamp, .. } => *timestamp,
+            Request::SchemaUpdate { timestamp, .. } => *timestamp,
+            Request::Snapshot { timestamp, .. } => *timestamp,
         }
     }
 
@@ -173,6 +177,41 @@ impl Request {
             Request::Delete { .. } => {}
             Request::SchemaUpdate { .. } => {}
             Request::Snapshot { .. } => {}
+        }
+    }
+
+    pub fn try_set_timestamp(&mut self, timestamp: Timestamp) {
+        match self {
+            Request::Read { write_time, .. } => {
+                if write_time.is_none() {
+                    *write_time = Some(timestamp);
+                }
+            }
+            Request::Write { write_time, .. } => {
+                if write_time.is_none() {
+                    *write_time = Some(timestamp);
+                }
+            }
+            Request::Create { timestamp: t, .. } => {
+                if t.is_none() {
+                    *t = Some(timestamp);
+                }
+            }
+            Request::Delete { timestamp: t, .. } => {
+                if t.is_none() {
+                    *t = Some(timestamp);
+                }
+            }
+            Request::SchemaUpdate { timestamp: t, .. } => {
+                if t.is_none() {
+                    *t = Some(timestamp);
+                }
+            }
+            Request::Snapshot { timestamp: t, .. } => {
+                if t.is_none() {
+                    *t = Some(timestamp);
+                }
+            }
         }
     }
 }

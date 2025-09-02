@@ -442,6 +442,7 @@ pub async fn create_user(
         parent_id: Some(parent_id.clone()),
         name: name.to_string(),
         created_entity_id: None,
+        timestamp: None,
         originator: None,
     }];
     store.perform_mut(&mut requests).await?;

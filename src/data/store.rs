@@ -253,7 +253,7 @@ impl Store {
             .fields
             .insert(field_type.clone(), field_schema);
 
-        let mut requests = vec![Request::SchemaUpdate { schema: entity_schema, originator: None }];
+        let mut requests = vec![Request::SchemaUpdate { schema: entity_schema, timestamp: None, originator: None }];
         self.perform_mut(&mut requests)
     }
 
@@ -339,21 +339,25 @@ impl Store {
                     parent_id,
                     name,
                     created_entity_id,
+                    timestamp,
                     ..
                 } => {
                     self.create_entity_internal(entity_type, parent_id.clone(), created_entity_id, name)?;
+                    *timestamp = Some(now());
                     write_requests.push(request.clone());
                 }
                 Request::Delete {
                     entity_id,
+                    timestamp,
                     ..
                 } => {
                     self.delete_entity_internal(entity_id)?;
-
+                    *timestamp = Some(now());
                     write_requests.push(request.clone());
                 }
                 Request::SchemaUpdate {
                     schema,
+                    timestamp,
                     ..
                 } => {
                     // Get a copy of the existing schema if it exists
@@ -416,12 +420,15 @@ impl Store {
 
                     // Rebuild inheritance map after schema changes
                     self.rebuild_inheritance_map();
-
+                    *timestamp = Some(now());
                     write_requests.push(request.clone());
                 }
                 Request::Snapshot {
+                    timestamp,
                     ..
                 } => {
+                    *timestamp = Some(now());
+                    
                     // Snapshot requests are mainly for WAL marking purposes
                     // The actual snapshot logic is handled elsewhere
                     // We just log this event and include it in write requests for WAL persistence
