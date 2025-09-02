@@ -981,7 +981,7 @@ impl Store {
         entity_id: &EntityId,
         field_type: &FieldType,
         value: &Option<Value>,
-        write_time: &Option<Timestamp>,
+        write_time: &mut Option<Timestamp>,
         writer_id: &Option<EntityId>,
         write_option: &PushCondition,
         adjust_behavior: &AdjustBehavior,
@@ -1149,6 +1149,8 @@ impl Store {
                     };
 
                     do_write = true;
+
+                    *write_time = Some(field.write_time);
                     
                     self.trigger_notifications(
                         entity_id,
@@ -1190,6 +1192,8 @@ impl Store {
                     };
 
                     do_write = true;
+
+                    *write_time = Some(field.write_time);
                     
                     self.trigger_notifications(
                         entity_id,
