@@ -34,6 +34,9 @@ pub struct Store {
 
     /// Flag to temporarily disable notifications (e.g., during WAL replay)
     notifications_disabled: bool,
+
+    /// Default writer id for operations that don't specify one
+    pub default_writer_id: Option<EntityId>,
 }
 
 #[derive(Debug)]
@@ -914,6 +917,7 @@ impl Store {
                 (sender, Arc::new(tokio::sync::Mutex::new(receiver)))
             },
             notifications_disabled: false,
+            default_writer_id: None,
         }
     }
 
@@ -982,7 +986,7 @@ impl Store {
         field_type: &FieldType,
         value: &Option<Value>,
         write_time: &mut Option<Timestamp>,
-        writer_id: &Option<EntityId>,
+        writer_id: &mut Option<EntityId>,
         write_option: &PushCondition,
         adjust_behavior: &AdjustBehavior,
     ) -> Result<bool> {
@@ -1129,7 +1133,7 @@ impl Store {
                     if let Some(writer_id) = writer_id {
                         field.writer_id = Some(writer_id.clone());
                     } else {
-                        field.writer_id = None;
+                        field.writer_id = self.default_writer_id.clone();
                     }
 
                     // Trigger notifications after a write operation
@@ -1151,6 +1155,7 @@ impl Store {
                     do_write = true;
 
                     *write_time = Some(field.write_time);
+                    *writer_id = field.writer_id.clone();
                     
                     self.trigger_notifications(
                         entity_id,
@@ -1172,7 +1177,7 @@ impl Store {
                     if let Some(writer_id) = writer_id {
                         field.writer_id = Some(writer_id.clone());
                     } else {
-                        field.writer_id = None;
+                        field.writer_id = self.default_writer_id.clone();
                     }
                     
                     // Trigger notifications after a write operation
@@ -1194,6 +1199,7 @@ impl Store {
                     do_write = true;
 
                     *write_time = Some(field.write_time);
+                    *writer_id = field.writer_id.clone();
                     
                     self.trigger_notifications(
                         entity_id,
