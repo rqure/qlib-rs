@@ -520,7 +520,7 @@ pub async fn authenticate_service(
     name: &str,
     secret_key: &str,
 ) -> Result<EntityId> {
-    let service_id = find_service_by_name(store, name).await?
+    let service_id = find_subject_by_name(store, name).await?
         .ok_or(Error::SubjectNotFound)?; // Reusing user error for services
 
     // Check if service is active
@@ -539,9 +539,9 @@ pub async fn authenticate_service(
     }
 }
 
-/// Find a service by name
-pub async fn find_service_by_name(store: &mut AsyncStore, name: &str) -> Result<Option<EntityId>> {
-    let entities = store.find_entities(&et::service(), None).await?;
+/// Find a subject by name
+pub async fn find_subject_by_name(store: &mut AsyncStore, name: &str) -> Result<Option<EntityId>> {
+    let entities = store.find_entities(&et::subject(), None).await?;
 
     for entity_id in entities {
         let mut requests = vec![sread!(entity_id.clone(), ft::name())];
