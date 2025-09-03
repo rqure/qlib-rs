@@ -2,7 +2,7 @@ use futures_util::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::{oneshot, Mutex, RwLock};
+use tokio::sync::{oneshot, Mutex};
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 use uuid::Uuid;
 use async_trait::async_trait;
@@ -194,7 +194,7 @@ pub struct StoreProxy {
     sender: Arc<Mutex<futures_util::stream::SplitSink<WsStream, Message>>>,
     pending_requests: Arc<Mutex<HashMap<String, oneshot::Sender<serde_json::Value>>>>,
     // Map from config hash to list of notification senders
-    notification_configs: Arc<RwLock<HashMap<u64, Vec<NotificationSender>>>>,
+    notification_configs: Arc<Mutex<HashMap<u64, Vec<NotificationSender>>>>,
     // Authentication state - set once during connection
     authenticated_subject: Option<EntityId>,
 }
@@ -214,7 +214,7 @@ impl StoreProxy {
         let (sender, mut receiver) = ws_stream.split();
         let sender = Arc::new(Mutex::new(sender));
         let pending_requests = Arc::new(Mutex::new(HashMap::new()));
-        let notification_configs = Arc::new(RwLock::new(HashMap::new()));
+        let notification_configs = Arc::new(Mutex::new(HashMap::new()));
 
         // Send authentication message immediately
         let auth_request = StoreMessage::Authenticate {
@@ -272,7 +272,7 @@ impl StoreProxy {
     async fn handle_incoming_messages(
         mut receiver: futures_util::stream::SplitStream<WsStream>,
         pending_requests: Arc<Mutex<HashMap<String, oneshot::Sender<serde_json::Value>>>>,
-        notification_configs: Arc<RwLock<HashMap<u64, Vec<NotificationSender>>>>,
+        notification_configs: Arc<Mutex<HashMap<u64, Vec<NotificationSender>>>>,
     ) {
         while let Some(message) = receiver.next().await {
             match message {
@@ -282,7 +282,7 @@ impl StoreProxy {
                             StoreMessage::Notification { notification } => {
                                 // Handle notification
                                 let config_hash = notification.config_hash;
-                                let configs = notification_configs.read().await;
+                                let configs = notification_configs.lock().await;
                                 if let Some(senders) = configs.get(&config_hash) {
                                     for sender in senders {
                                         let _ = sender.send(notification.clone());
@@ -627,7 +627,7 @@ impl StoreProxy {
                     Ok(_) => {
                         // Store the sender locally so we can forward notifications
                         let config_hash = hash_notify_config(&config);
-                        let mut configs = self.notification_configs.write().await;
+                        let mut configs = self.notification_configs.lock().await;
                         configs.entry(config_hash).or_insert_with(Vec::new).push(sender);
                         Ok(())
                     }
@@ -643,7 +643,7 @@ impl StoreProxy {
    pub async fn unregister_notification(&mut self, target_config: &NotifyConfig, sender: &NotificationSender) -> bool {
         // First remove the sender from local mapping
         let config_hash = hash_notify_config(target_config);
-        let mut configs = self.notification_configs.write().await;
+        let mut configs = self.notification_configs.lock().await;
         let mut removed_locally = false;
         
         if let Some(senders) = configs.get_mut(&config_hash) {

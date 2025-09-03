@@ -1,15 +1,11 @@
 use std::collections::HashMap;
-use std::sync::Arc;
-use tokio::sync::RwLock;
 
 use crate::{
     data::StoreTrait, EntityId, EntityType, FieldType, NotificationReceiver, NotificationSender, Request, Value
 };
 
 #[derive(Debug)]
-pub struct Cache<T: StoreTrait + Send + Sync + 'static> {
-    pub store: Arc<RwLock<T>>,
-
+pub struct Cache {
     pub entity_type: EntityType,
     pub index_fields: Vec<FieldType>,
     pub other_fields: Vec<FieldType>,
@@ -27,9 +23,9 @@ pub struct Cache<T: StoreTrait + Send + Sync + 'static> {
     pub notify_channel: (NotificationSender, NotificationReceiver),
 }
 
-impl<T: StoreTrait + Send + Sync + 'static> Cache<T> {
+impl Cache {
     pub async fn new(
-        store: Arc<RwLock<T>>,
+        store: &mut impl StoreTrait,
         entity_type: EntityType,
         index_fields: Vec<FieldType>,
         other_fields: Vec<FieldType>,
@@ -38,40 +34,34 @@ impl<T: StoreTrait + Send + Sync + 'static> Cache<T> {
 
         // Register notifications for all fields
         for field in index_fields.iter() {
-            store
-                .write()
-                .await
-                .register_notification(
-                    crate::NotifyConfig::EntityType {
-                        entity_type: entity_type.clone(),
-                        field_type: field.clone(),
-                        trigger_on_change: true,
-                        context: vec![],
-                    },
-                    sender.clone(),
-                ).await?;
+            store.register_notification(
+                crate::NotifyConfig::EntityType {
+                    entity_type: entity_type.clone(),
+                    field_type: field.clone(),
+                    trigger_on_change: true,
+                    context: vec![],
+                },
+                sender.clone(),
+            ).await?;
         }
 
         for field in other_fields.iter() {
-            store
-                .write()
-                .await
-                .register_notification(
-                    crate::NotifyConfig::EntityType {
-                        entity_type: entity_type.clone(),
-                        field_type: field.clone(),
-                        trigger_on_change: true,
-                        context: vec![],
-                    },
-                    sender.clone(),
-                ).await?;
+            store.register_notification(
+                crate::NotifyConfig::EntityType {
+                    entity_type: entity_type.clone(),
+                    field_type: field.clone(),
+                    trigger_on_change: true,
+                    context: vec![],
+                },
+                sender.clone(),
+            ).await?;
         }
 
         // Read initial values from the store
         let mut entity_ids_by_index_fields = HashMap::new();
         let mut fields_by_entity_id = HashMap::new();
 
-        let entity_ids = store.read().await.find_entities(&entity_type, None).await?;
+        let entity_ids = store.find_entities(&entity_type, None).await?;
         for entity_id in entity_ids {
             let mut reqs = Vec::new();
             for field in index_fields.iter() {
@@ -82,7 +72,7 @@ impl<T: StoreTrait + Send + Sync + 'static> Cache<T> {
                 reqs.push(crate::sread!(entity_id.clone(), field.clone()));
             }
 
-            store.write().await.perform_mut(&mut reqs).await?;
+            store.perform_mut(&mut reqs).await?;
 
             let index_key = reqs[..index_fields.len()]
                 .iter()
@@ -126,12 +116,11 @@ impl<T: StoreTrait + Send + Sync + 'static> Cache<T> {
             entity_ids_by_index_fields,
             fields_by_entity_id,
             notify_channel: (sender, receiver),
-            store,
         })
     }
 }
 
-impl<T: StoreTrait + Send + Sync + 'static> Cache<T> {
+impl Cache {
     pub fn process_notifications(&mut self) {
         loop {
             match self.notify_channel.1.try_recv() {
@@ -218,43 +207,30 @@ impl<T: StoreTrait + Send + Sync + 'static> Cache<T> {
             }
         });
     }
-}
+    
+    pub async fn close(&self, store: &mut impl StoreTrait) {
+        let sender = &self.notify_channel.0;
 
-impl<T: StoreTrait + Send + Sync + 'static> Drop for Cache<T> {
-    fn drop(&mut self) {
-        // Clone the necessary data for the cleanup task
-        let store = self.store.clone();
-        let entity_type = self.entity_type.clone();
-        let index_fields = self.index_fields.clone();
-        let other_fields = self.other_fields.clone();
-        let sender = self.notify_channel.0.clone();
+        // Unregister notifications for index fields
+        for field in self.index_fields.iter() {
+            let config = crate::NotifyConfig::EntityType {
+                entity_type: self.entity_type.clone(),
+                field_type: field.clone(),
+                trigger_on_change: true,
+                context: vec![],
+            };
+            store.unregister_notification(&config, &sender).await;
+        }
 
-        // Spawn a task to handle async cleanup
-        // This is a best-effort cleanup - if the runtime is shutting down, this may not complete
-        tokio::spawn(async move {
-            let mut store_guard = store.write().await;
-
-            // Unregister notifications for index fields
-            for field in index_fields.iter() {
-                let config = crate::NotifyConfig::EntityType {
-                    entity_type: entity_type.clone(),
-                    field_type: field.clone(),
-                    trigger_on_change: true,
-                    context: vec![],
-                };
-                store_guard.unregister_notification(&config, &sender).await;
-            }
-
-            // Unregister notifications for other fields
-            for field in other_fields.iter() {
-                let config = crate::NotifyConfig::EntityType {
-                    entity_type: entity_type.clone(),
-                    field_type: field.clone(),
-                    trigger_on_change: true,
-                    context: vec![],
-                };
-                store_guard.unregister_notification(&config, &sender).await;
-            }
-        });
+        // Unregister notifications for other fields
+        for field in self.other_fields.iter() {
+            let config = crate::NotifyConfig::EntityType {
+                entity_type: self.entity_type.clone(),
+                field_type: field.clone(),
+                trigger_on_change: true,
+                context: vec![],
+            };
+            store.unregister_notification(&config, &sender).await;
+        }
     }
 }

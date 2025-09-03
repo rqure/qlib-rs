@@ -1,7 +1,3 @@
-use std::sync::Arc;
-
-use tokio::sync::RwLock;
-
 use crate::{ft, AsyncStore, Cache, CelExecutor, EntityId, Error, FieldType, Result, Value};
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -14,9 +10,9 @@ pub enum AuthorizationScope {
 
 #[allow(dead_code)]
 pub async fn get_scope(
-    store: Arc<RwLock<AsyncStore>>,
+    store: &AsyncStore,
     executor: &mut CelExecutor,
-    permission_cache: &Cache<AsyncStore>,
+    permission_cache: &Cache,
     subject_entity_id: &EntityId,
     resource_entity_id: &EntityId,
     resource_field: &FieldType,
@@ -25,8 +21,6 @@ pub async fn get_scope(
 
     let entity_types = {
         let mut entity_types = store
-            .read()
-            .await
             .inner()
             .get_parent_types(resource_entity_id.get_type());
         entity_types.push(resource_entity_id.get_type().clone());
@@ -62,7 +56,7 @@ pub async fn get_scope(
                 let result = executor.execute(
                     &condition.as_str(),
                     &subject_entity_id,
-                    store.write().await.inner_mut(),
+                    store.inner(),
                 );
 
                 if let Ok(result) = result {
