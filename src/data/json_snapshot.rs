@@ -414,6 +414,62 @@ pub fn json_value_to_value(json_value: &JsonValue, field_schema: &FieldSchema) -
     }
 }
 
+/// Helper function to convert JsonValue to Value with path resolution for entity data
+/// This is used during restore to resolve paths to EntityIds
+pub async fn json_value_to_value_with_resolution<T: StoreTrait>(
+    store: &mut T,
+    json_value: &JsonValue, 
+    field_schema: &FieldSchema
+) -> Result<Value> {
+    match field_schema {
+        FieldSchema::EntityList { .. } => {
+            let entity_ids = if let Some(array) = json_value.as_array() {
+                let mut resolved_ids = Vec::new();
+                for v in array {
+                    if let Some(s) = v.as_str() {
+                        // Try to parse as EntityId first, then as path
+                        if let Ok(entity_id) = EntityId::try_from(s) {
+                            resolved_ids.push(entity_id);
+                        } else {
+                            // Try to resolve as path
+                            match crate::path_to_entity_id_async(store, s).await {
+                                Ok(entity_id) => resolved_ids.push(entity_id),
+                                Err(_) => {
+                                    // Skip invalid paths/IDs
+                                    continue;
+                                }
+                            }
+                        }
+                    }
+                }
+                resolved_ids
+            } else {
+                Vec::new()
+            };
+            Ok(Value::EntityList(entity_ids))
+        },
+        FieldSchema::EntityReference { .. } => {
+            let entity_ref = if let Some(id_str) = json_value.as_str() {
+                // Try to parse as EntityId first, then as path
+                if let Ok(entity_id) = EntityId::try_from(id_str) {
+                    Some(entity_id)
+                } else {
+                    // Try to resolve as path
+                    match crate::path_to_entity_id_async(store, id_str).await {
+                        Ok(entity_id) => Some(entity_id),
+                        Err(_) => None,
+                    }
+                }
+            } else {
+                None
+            };
+            Ok(Value::EntityReference(entity_ref))
+        },
+        // For all other field types, use the regular conversion
+        _ => json_value_to_value(json_value, field_schema),
+    }
+}
+
 /// Take a JSON snapshot of the current store state
 /// This finds the Root entity automatically and creates a hierarchical representation
 /// Works with any type implementing StoreTrait
@@ -647,7 +703,15 @@ pub async fn restore_entity_recursive<T: StoreTrait>(
 
         let field_type = crate::FieldType::from(field_name.clone());
         if let Some(field_schema) = complete_schema.fields.get(&field_type) {
-            match crate::json_value_to_value(json_value, field_schema) {
+            // Use path resolution for EntityReference and EntityList fields
+            let value_result = match field_schema {
+                crate::FieldSchema::EntityList { .. } | crate::FieldSchema::EntityReference { .. } => {
+                    json_value_to_value_with_resolution(store, json_value, field_schema).await
+                },
+                _ => crate::json_value_to_value(json_value, field_schema),
+            };
+            
+            match value_result {
                 Ok(value) => {
                     write_requests.push(crate::Request::Write {
                         entity_id: entity_id.clone(),

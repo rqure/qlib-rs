@@ -12,7 +12,7 @@ pub use data::{
     JsonSnapshot, JsonEntitySchema, JsonEntity, value_to_json_value, json_value_to_value, value_to_json_value_with_paths, build_json_entity_tree, take_json_snapshot, restore_json_snapshot,
     restore_entity_recursive, factory_restore_json_snapshot, restore_json_snapshot_via_proxy,
     EntityType, FieldType, Timestamp, now, epoch, nanos_to_timestamp, secs_to_timestamp, 
-    millis_to_timestamp, micros_to_timestamp, ft, et, Cache, resolve_indirection, resolve_indirection_async, path_async,
+    millis_to_timestamp, micros_to_timestamp, ft, et, Cache, resolve_indirection, resolve_indirection_async, path_async, path_to_entity_id_async,
     StoreTrait, Store, from_base64, to_base64,
 };
 

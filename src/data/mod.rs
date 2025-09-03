@@ -29,7 +29,7 @@ use serde::{Deserialize, Serialize};
 pub use snowflake::Snowflake;
 pub use store::{AsyncStore, Store};
 pub use store_trait::StoreTrait;
-pub use indirection::{BadIndirectionReason, INDIRECTION_DELIMITER, resolve_indirection, resolve_indirection_async, path_async};
+pub use indirection::{BadIndirectionReason, INDIRECTION_DELIMITER, resolve_indirection, resolve_indirection_async, path_async, path_to_entity_id_async};
 pub use pagination::{PageOpts, PageResult};
 pub use snapshots::Snapshot;
 pub use json_snapshot::{JsonSnapshot, JsonEntitySchema, JsonEntity, value_to_json_value, json_value_to_value, value_to_json_value_with_paths, build_json_entity_tree, take_json_snapshot, restore_json_snapshot, restore_entity_recursive, factory_restore_json_snapshot, restore_json_snapshot_via_proxy};

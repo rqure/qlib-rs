@@ -667,3 +667,196 @@ async fn test_json_snapshot_storage_scope() {
 
     println!("Storage scope test completed successfully!");
 }
+
+#[tokio::test]
+async fn test_json_snapshot_entity_list_paths() {
+    // Test that EntityList fields with paths are properly handled during restore
+    // This reproduces the CandidateList issue from base-topology.json
+    
+    let snowflake = Arc::new(Snowflake::new());
+    let mut store = AsyncStore::new(snowflake.clone());
+
+    // Define schemas similar to the base topology
+    let mut object_schema = EntitySchema::<Single>::new("Object", vec![]);
+    object_schema.fields.insert(
+        FieldType::from("Name"),
+        FieldSchema::String {
+            field_type: FieldType::from("Name"),
+            default_value: "".to_string(),
+            rank: 0,
+            storage_scope: StorageScope::Configuration,
+        },
+    );
+    object_schema.fields.insert(
+        FieldType::from("Parent"),
+        FieldSchema::EntityReference {
+            field_type: FieldType::from("Parent"),
+            default_value: None,
+            rank: 1,
+            storage_scope: StorageScope::Configuration,
+        },
+    );
+    object_schema.fields.insert(
+        FieldType::from("Children"),
+        FieldSchema::EntityList {
+            field_type: FieldType::from("Children"),
+            default_value: vec![],
+            rank: 2,
+            storage_scope: StorageScope::Configuration,
+        },
+    );
+
+    let root_schema = EntitySchema::<Single>::new("Root", vec![EntityType::from("Object")]);
+    let machine_schema = EntitySchema::<Single>::new("Machine", vec![EntityType::from("Object")]);
+    let service_schema = EntitySchema::<Single>::new("Service", vec![EntityType::from("Object")]);
+    
+    let mut fault_tolerance_schema = EntitySchema::<Single>::new("FaultTolerance", vec![EntityType::from("Object")]);
+    fault_tolerance_schema.fields.insert(
+        FieldType::from("CandidateList"),
+        FieldSchema::EntityList {
+            field_type: FieldType::from("CandidateList"),
+            default_value: vec![],
+            rank: 10,
+            storage_scope: StorageScope::Configuration,
+        },
+    );
+
+    // Add schemas
+    let mut schema_requests = vec![
+        sschemaupdate!(object_schema),
+        sschemaupdate!(root_schema),
+        sschemaupdate!(machine_schema),
+        sschemaupdate!(service_schema),
+        sschemaupdate!(fault_tolerance_schema),
+    ];
+    store.perform_mut(&mut schema_requests).await.unwrap();
+
+    // Create the entity structure from base-topology.json
+    let mut create_requests = vec![
+        screate!(EntityType::from("Root"), "QOS".to_string()),
+    ];
+    store.perform_mut(&mut create_requests).await.unwrap();
+    let root_id = if let Some(Request::Create { created_entity_id: Some(ref id), .. }) = create_requests.first() {
+        id.clone()
+    } else {
+        panic!("Failed to get created root entity ID");
+    };
+
+    // Create machines
+    let mut machine_a_create = vec![screate!(EntityType::from("Machine"), "qos-a".to_string(), root_id.clone())];
+    store.perform_mut(&mut machine_a_create).await.unwrap();
+    let machine_a_id = if let Some(Request::Create { created_entity_id: Some(ref id), .. }) = machine_a_create.first() {
+        id.clone()
+    } else {
+        panic!("Failed to get created machine A entity ID");
+    };
+
+    let mut machine_b_create = vec![screate!(EntityType::from("Machine"), "qos-b".to_string(), root_id.clone())];
+    store.perform_mut(&mut machine_b_create).await.unwrap();
+    let machine_b_id = if let Some(Request::Create { created_entity_id: Some(ref id), .. }) = machine_b_create.first() {
+        id.clone()
+    } else {
+        panic!("Failed to get created machine B entity ID");
+    };
+
+    // Create services
+    let mut service_a_create = vec![screate!(EntityType::from("Service"), "qcore".to_string(), machine_a_id.clone())];
+    store.perform_mut(&mut service_a_create).await.unwrap();
+    let service_a_id = if let Some(Request::Create { created_entity_id: Some(ref id), .. }) = service_a_create.first() {
+        id.clone()
+    } else {
+        panic!("Failed to get created service A entity ID");
+    };
+
+    let mut service_b_create = vec![screate!(EntityType::from("Service"), "qcore".to_string(), machine_b_id.clone())];
+    store.perform_mut(&mut service_b_create).await.unwrap();
+    let service_b_id = if let Some(Request::Create { created_entity_id: Some(ref id), .. }) = service_b_create.first() {
+        id.clone()
+    } else {
+        panic!("Failed to get created service B entity ID");
+    };
+
+    // Create fault tolerance entity
+    let mut ft_create = vec![screate!(EntityType::from("FaultTolerance"), "qcore".to_string(), root_id.clone())];
+    store.perform_mut(&mut ft_create).await.unwrap();
+    let ft_id = if let Some(Request::Create { created_entity_id: Some(ref id), .. }) = ft_create.first() {
+        id.clone()
+    } else {
+        panic!("Failed to get created FaultTolerance entity ID");
+    };
+
+    // Set up the entity relationships and Parent references for path resolution
+    let mut setup_requests = vec![
+        // Set up Parent references for path resolution
+        swrite!(machine_a_id.clone(), FieldType::from("Parent"), Some(Value::EntityReference(Some(root_id.clone())))),
+        swrite!(machine_b_id.clone(), FieldType::from("Parent"), Some(Value::EntityReference(Some(root_id.clone())))),
+        swrite!(service_a_id.clone(), FieldType::from("Parent"), Some(Value::EntityReference(Some(machine_a_id.clone())))),
+        swrite!(service_b_id.clone(), FieldType::from("Parent"), Some(Value::EntityReference(Some(machine_b_id.clone())))),
+        swrite!(ft_id.clone(), FieldType::from("Parent"), Some(Value::EntityReference(Some(root_id.clone())))),
+        
+        // Set up Children relationships
+        swrite!(root_id.clone(), FieldType::from("Children"), Some(Value::EntityList(vec![machine_a_id.clone(), machine_b_id.clone(), ft_id.clone()]))),
+        swrite!(machine_a_id.clone(), FieldType::from("Children"), Some(Value::EntityList(vec![service_a_id.clone()]))),
+        swrite!(machine_b_id.clone(), FieldType::from("Children"), Some(Value::EntityList(vec![service_b_id.clone()]))),
+        
+        // Set up CandidateList with entity references (not paths yet)
+        swrite!(ft_id.clone(), FieldType::from("CandidateList"), Some(Value::EntityList(vec![service_a_id.clone(), service_b_id.clone()]))),
+    ];
+    store.perform_mut(&mut setup_requests).await.unwrap();
+
+    // Take a snapshot
+    let snapshot = take_json_snapshot(&mut store).await.unwrap();
+    
+    println!("Generated snapshot:");
+    println!("{}", serde_json::to_string_pretty(&snapshot).unwrap());
+
+    // The snapshot should now contain CandidateList with paths like ["Root/qos-a/qcore", "Root/qos-b/qcore"]
+    // Let's verify this
+    let ft_entity = snapshot.tree.fields.get("Children").unwrap().as_array().unwrap()
+        .iter()
+        .find(|child| child.get("entityType").unwrap().as_str().unwrap() == "FaultTolerance")
+        .expect("FaultTolerance entity should be in children");
+    
+    let candidate_list = ft_entity.get("CandidateList").unwrap().as_array().unwrap();
+    assert_eq!(candidate_list.len(), 2);
+    assert_eq!(candidate_list[0].as_str().unwrap(), "QOS/qos-a/qcore");
+    assert_eq!(candidate_list[1].as_str().unwrap(), "QOS/qos-b/qcore");
+
+    // Now test the problematic restore operation
+    // Create a new store and try to restore the snapshot
+    let snowflake2 = Arc::new(Snowflake::new());
+    let mut store2 = AsyncStore::new(snowflake2.clone());
+
+    // This should fail because json_value_to_value can't handle paths in EntityList
+    let restore_result = restore_json_snapshot(&mut store2, &snapshot).await;
+    
+    match restore_result {
+        Ok(()) => {
+            println!("Restore succeeded - checking if CandidateList was set correctly");
+            
+            // Find the FaultTolerance entity in the restored store
+            let ft_entities = store2.find_entities(&EntityType::from("FaultTolerance"), None).await.unwrap();
+            assert_eq!(ft_entities.len(), 1);
+            let restored_ft_id = &ft_entities[0];
+            
+            // Check if CandidateList was restored correctly
+            let mut read_requests = vec![
+                crate::sread!(restored_ft_id.clone(), FieldType::from("CandidateList")),
+            ];
+            store2.perform_mut(&mut read_requests).await.unwrap();
+            
+            if let Some(Request::Read { value: Some(Value::EntityList(candidates)), .. }) = read_requests.get(0) {
+                assert_eq!(candidates.len(), 2, "CandidateList should have 2 entities");
+                println!("CandidateList restored successfully with {} candidates", candidates.len());
+            } else {
+                panic!("Failed to read CandidateList from restored entity");
+            }
+        },
+        Err(e) => {
+            println!("Restore failed as expected: {}", e);
+            panic!("This test demonstrates the bug: EntityList paths are not properly converted during restore");
+        }
+    }
+
+    println!("EntityList path test completed!");
+}

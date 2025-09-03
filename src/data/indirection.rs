@@ -393,3 +393,90 @@ pub async fn path_async<T: StoreTrait>(store: &mut T, entity_id: &EntityId) -> R
     path_parts.reverse();
     Ok::<String, crate::Error>(path_parts.join("/"))
 }
+
+/// Resolve a path to an entity ID by traversing down from the root
+/// This works with both AsyncStore and StoreProxy since they have the same method signatures
+pub async fn path_to_entity_id_async<T: StoreTrait>(store: &mut T, path: &str) -> Result<EntityId> {
+    if path.is_empty() {
+        return Err(crate::Error::InvalidFieldValue("Empty path".to_string()));
+    }
+
+    let path_parts: Vec<&str> = path.split('/').collect();
+    
+    // Start by finding the root entity with the first part of the path
+    let root_entities = store.find_entities(&crate::EntityType::from("Root"), None).await?;
+    let mut current_entity_id = None;
+    
+    // Find the root entity that matches the first path part
+    for root_id in root_entities {
+        let mut name_requests = vec![crate::sread!(
+            root_id.clone(),
+            crate::FieldType::from("Name")
+        )];
+        
+        if store.perform_mut(&mut name_requests).await.is_ok() {
+            if let crate::Request::Read {
+                value: Some(crate::Value::String(name)),
+                ..
+            } = &name_requests[0]
+            {
+                if name == path_parts[0] {
+                    current_entity_id = Some(root_id);
+                    break;
+                }
+            }
+        }
+    }
+    
+    let mut current_id = current_entity_id.ok_or_else(|| {
+        crate::Error::EntityNotFound(crate::EntityId::new("Root".to_string(), 0))
+    })?;
+    
+    // Traverse down the path by following Children relationships
+    for part in &path_parts[1..] {
+        let mut children_requests = vec![crate::sread!(
+            current_id.clone(),
+            crate::FieldType::from("Children")
+        )];
+        
+        if store.perform_mut(&mut children_requests).await.is_ok() {
+            if let crate::Request::Read {
+                value: Some(crate::Value::EntityList(children)),
+                ..
+            } = &children_requests[0]
+            {
+                let mut found = false;
+                for child_id in children {
+                    let mut child_name_requests = vec![crate::sread!(
+                        child_id.clone(),
+                        crate::FieldType::from("Name")
+                    )];
+                    
+                    if store.perform_mut(&mut child_name_requests).await.is_ok() {
+                        if let crate::Request::Read {
+                            value: Some(crate::Value::String(child_name)),
+                            ..
+                        } = &child_name_requests[0]
+                        {
+                            if child_name == part {
+                                current_id = child_id.clone();
+                                found = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+                
+                if !found {
+                    return Err(crate::Error::EntityNotFound(crate::EntityId::new(part.to_string(), 0)));
+                }
+            } else {
+                return Err(crate::Error::EntityNotFound(crate::EntityId::new(part.to_string(), 0)));
+            }
+        } else {
+            return Err(crate::Error::EntityNotFound(crate::EntityId::new(part.to_string(), 0)));
+        }
+    }
+    
+    Ok(current_id)
+}
