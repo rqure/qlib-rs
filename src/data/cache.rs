@@ -1,7 +1,9 @@
 use std::collections::HashMap;
 
+use tokio::sync::mpsc::UnboundedSender;
+
 use crate::{
-    data::StoreTrait, EntityId, EntityType, FieldType, NotificationReceiver, NotificationSender, Request, Value
+    data::StoreTrait, EntityId, EntityType, FieldType, Notification, NotificationReceiver, NotificationSender, NotifyConfig, Request, Value
 };
 
 #[derive(Debug)]
@@ -207,9 +209,10 @@ impl Cache {
             }
         });
     }
-    
-    pub async fn close(&self, store: &mut impl StoreTrait) {
+
+    pub fn get_config_sender(&self) -> (Vec<NotifyConfig>, Option<UnboundedSender<Notification>>) {
         let sender = &self.notify_channel.0;
+        let mut configs = Vec::new();
 
         // Unregister notifications for index fields
         for field in self.index_fields.iter() {
@@ -219,7 +222,7 @@ impl Cache {
                 trigger_on_change: true,
                 context: vec![],
             };
-            store.unregister_notification(&config, &sender).await;
+            configs.push(config);
         }
 
         // Unregister notifications for other fields
@@ -230,7 +233,9 @@ impl Cache {
                 trigger_on_change: true,
                 context: vec![],
             };
-            store.unregister_notification(&config, &sender).await;
+            configs.push(config);
         }
+
+        (configs, Some(sender.clone()))
     }
 }
