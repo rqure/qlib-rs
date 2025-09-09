@@ -532,7 +532,6 @@ pub async fn authenticate_service(
     let stored_secret = get_service_secret(store, &service_id).await?;
 
     // Compare secret keys (simple string comparison for services)
-    println!("Stored Secret: {}, Provided Secret: {}", stored_secret, secret_key);
     if stored_secret == secret_key {
         Ok(service_id)
     } else {
