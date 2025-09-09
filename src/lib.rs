@@ -18,7 +18,7 @@ pub use data::{
 
 pub use auth::{
     AuthConfig, AuthMethod,
-    authenticate, find_user_by_name, create_user, set_user_password,
+    authenticate_user, find_user_by_name, create_user, set_user_password,
     change_password, validate_password, hash_password, verify_password,
 };
 

@@ -2,7 +2,7 @@ mod authentication;
 mod authorization;
 
 pub use authentication::{
-    AuthConfig, AuthMethod, authenticate, change_password, find_user_by_name,
+    AuthConfig, AuthMethod, authenticate_user, change_password, find_user_by_name,
     is_user_active, is_user_locked, get_user_auth_method, get_user_secret,
     hash_password, verify_password, validate_password, increment_failed_attempts,
     reset_failed_attempts, update_last_login, create_user, set_user_password,

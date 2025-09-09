@@ -68,7 +68,7 @@ impl Default for AuthConfig {
 /// Authenticate a user with name and password
 /// This function determines the authentication method from the user's AuthMethod field
 /// and delegates to the appropriate authentication mechanism
-pub async fn authenticate(
+pub async fn authenticate_user(
     store: &mut AsyncStore,
     name: &str,
     password: &str,
@@ -532,6 +532,7 @@ pub async fn authenticate_service(
     let stored_secret = get_service_secret(store, &service_id).await?;
 
     // Compare secret keys (simple string comparison for services)
+    println!("Stored Secret: {}, Provided Secret: {}", stored_secret, secret_key);
     if stored_secret == secret_key {
         Ok(service_id)
     } else {
@@ -626,15 +627,14 @@ pub async fn authenticate_subject(
     credential: &str,
     config: &AuthConfig,
 ) -> Result<EntityId> {
-    // Try to authenticate as user first
-    if let Ok(user_id) = authenticate(store, name, credential, config).await {
-        return Ok(user_id);
+    match authenticate_user(store, name, credential, config).await {
+        Ok(user_id) => return Ok(user_id),
+        Err(Error::SubjectNotFound) => {
+            match authenticate_service(store, name, credential).await {
+                Ok(service_id) => return Ok(service_id),
+                Err(e) => return Err(e),
+            }
+        }
+        Err(e) => return Err(e),
     }
-
-    // If user authentication fails, try service authentication
-    if let Ok(service_id) = authenticate_service(store, name, credential).await {
-        return Ok(service_id);
-    }
-
-    Err(Error::InvalidCredentials)
 }

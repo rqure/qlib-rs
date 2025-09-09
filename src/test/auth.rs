@@ -5,7 +5,7 @@ use crate::*;
 use crate::data::StorageScope;
 
 #[allow(unused_imports)]
-use crate::auth::{authenticate, find_user_by_name, create_user, set_user_password, AuthConfig, AuthMethod};
+use crate::auth::{authenticate_user, find_user_by_name, create_user, set_user_password, AuthConfig, AuthMethod};
 
 #[allow(unused_imports)]
 use std::sync::Arc;
@@ -122,11 +122,11 @@ async fn test_create_and_authenticate_user() -> Result<()> {
     assert_eq!(found_user.unwrap(), user_id);
     
     // Test authentication
-    let authenticated_user = authenticate(&mut store, username, password, &auth_config).await?;
+    let authenticated_user = authenticate_user(&mut store, username, password, &auth_config).await?;
     assert_eq!(authenticated_user, user_id);
     
     // Test authentication with wrong password
-    let wrong_auth = authenticate(&mut store, username, "wrongpassword", &auth_config).await;
+    let wrong_auth = authenticate_user(&mut store, username, "wrongpassword", &auth_config).await;
     assert!(wrong_auth.is_err());
     
     Ok(())
@@ -282,7 +282,7 @@ async fn test_authentication_with_factory_restore_format() -> Result<()> {
     
     // Test authentication
     let auth_config = AuthConfig::default();
-    let authenticated_user = authenticate(&mut store, username, password, &auth_config).await?;
+    let authenticated_user = authenticate_user(&mut store, username, password, &auth_config).await?;
     assert_eq!(authenticated_user, user_id, "Authentication should succeed and return correct user ID");
     
     Ok(())
