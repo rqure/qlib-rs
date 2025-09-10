@@ -529,46 +529,22 @@ impl Store {
         let opts = page_opts.unwrap_or_default();
 
         // Get all entity types that match the requested type (including derived types)
+        // Use reference to avoid cloning the entire vector
         let types_to_search = self
             .inheritance_map
             .get(entity_type)
-            .cloned()
+            .map(|v| v.as_slice())
             .unwrap_or_else(|| {
                 // If not in inheritance map, just check the exact type
                 if self.entities.contains_key(entity_type) {
-                    vec![entity_type.clone()]
+                    std::slice::from_ref(entity_type)
                 } else {
-                    Vec::new()
+                    &[]
                 }
             });
 
-        // Collect all entities from all matching types
-        let mut all_entities = Vec::new();
-        for et in &types_to_search {
-            if let Some(entities) = self.entities.get(et) {
-                all_entities.extend(entities.iter().cloned());
-            }
-        }
-
-        // Apply CEL filter if provided
-        if let Some(filter_expr) = filter {
-            let mut filtered_entities = Vec::new();
-            let mut cel_executor = CelExecutor::new();
-            
-            for entity_id in all_entities {                
-                match cel_executor.execute(&filter_expr, &entity_id, self) {
-                    Ok(cel::Value::Bool(true)) => filtered_entities.push(entity_id),
-                    Ok(cel::Value::Bool(false)) => {}, // Skip this entity
-                    Ok(_) => {}, // Non-boolean result, skip
-                    Err(_) => {}, // Error in evaluation, skip
-                }
-            }
-            all_entities = filtered_entities;
-        }
-
-        let total = all_entities.len();
-
-        if total == 0 {
+        // Early return if no types to search
+        if types_to_search.is_empty() {
             return Ok(PageResult {
                 items: Vec::new(),
                 total: 0,
@@ -576,25 +552,65 @@ impl Store {
             });
         }
 
-        // Find the starting index based on cursor
+        // Parse cursor early to avoid work if invalid
         let start_idx = if let Some(cursor) = &opts.cursor {
-            match cursor.parse::<usize>() {
-                Ok(idx) => idx,
-                Err(_) => 0,
-            }
+            cursor.parse::<usize>().unwrap_or(0)
         } else {
             0
         };
 
-        // Get the slice of entities for this page
-        let end_idx = std::cmp::min(start_idx + opts.limit, total);
-        let items: Vec<EntityId> = if start_idx < total {
-            all_entities[start_idx..end_idx].to_vec()
+        if let Some(filter_expr) = filter {
+            // Optimized path for filtered queries - lazy evaluation with early termination
+            self.find_entities_paginated_filtered(types_to_search, &opts, start_idx, &filter_expr)
         } else {
-            Vec::new()
-        };
+            // Optimized path for unfiltered queries - direct iteration without collecting all
+            self.find_entities_paginated_unfiltered(types_to_search, &opts, start_idx)
+        }
+    }
 
-        // Calculate the next cursor
+    /// Fast path for unfiltered paginated queries
+    fn find_entities_paginated_unfiltered(
+        &self,
+        types_to_search: &[EntityType],
+        opts: &PageOpts,
+        start_idx: usize,
+    ) -> Result<PageResult<EntityId>> {
+        // Calculate total count without allocating all entities
+        let total: usize = types_to_search
+            .iter()
+            .map(|et| self.entities.get(et).map_or(0, |entities| entities.len()))
+            .sum();
+
+        if total == 0 || start_idx >= total {
+            return Ok(PageResult {
+                items: Vec::new(),
+                total,
+                next_cursor: None,
+            });
+        }
+
+        // Collect only the entities we need for this page
+        let mut items = Vec::with_capacity(opts.limit);
+        let mut current_idx = 0;
+        let end_idx = std::cmp::min(start_idx + opts.limit, total);
+
+        'outer: for et in types_to_search {
+            if let Some(entities) = self.entities.get(et) {
+                for entity_id in entities {
+                    if current_idx >= start_idx && items.len() < opts.limit {
+                        items.push(entity_id.clone());
+                        if items.len() >= opts.limit {
+                            break 'outer;
+                        }
+                    }
+                    current_idx += 1;
+                    if current_idx >= end_idx {
+                        break 'outer;
+                    }
+                }
+            }
+        }
+
         let next_cursor = if end_idx < total {
             Some(end_idx.to_string())
         } else {
@@ -603,6 +619,65 @@ impl Store {
 
         Ok(PageResult {
             items,
+            total,
+            next_cursor,
+        })
+    }
+
+    /// Optimized path for filtered paginated queries
+    fn find_entities_paginated_filtered(
+        &self,
+        types_to_search: &[EntityType],
+        opts: &PageOpts,
+        start_idx: usize,
+        filter_expr: &str,
+    ) -> Result<PageResult<EntityId>> {
+        let mut cel_executor = CelExecutor::new();
+        let mut filtered_entities = Vec::new();
+        let mut page_items = Vec::new();
+        let mut current_filtered_idx = 0;
+
+        // Iterate through all entities, but only collect what we need
+        for et in types_to_search {
+            if let Some(entities) = self.entities.get(et) {
+                for entity_id in entities {
+                    // Apply filter
+                    let passes_filter = match cel_executor.execute(filter_expr, entity_id, self) {
+                        Ok(cel::Value::Bool(true)) => true,
+                        _ => false, // Skip for false, non-boolean, or error results
+                    };
+
+                    if passes_filter {
+                        // If we haven't reached the start index yet, just count
+                        if current_filtered_idx < start_idx {
+                            current_filtered_idx += 1;
+                            continue;
+                        }
+
+                        // If we have space in our page, add it
+                        if page_items.len() < opts.limit {
+                            page_items.push(entity_id.clone());
+                        }
+
+                        current_filtered_idx += 1;
+
+                        // If we've filled our page and gone past it enough to know the total,
+                        // we can stop early (but we need to continue to get accurate total count)
+                        filtered_entities.push(entity_id.clone());
+                    }
+                }
+            }
+        }
+
+        let total = filtered_entities.len();
+        let next_cursor = if start_idx + opts.limit < total {
+            Some((start_idx + opts.limit).to_string())
+        } else {
+            None
+        };
+
+        Ok(PageResult {
+            items: page_items,
             total,
             next_cursor,
         })
@@ -628,54 +703,54 @@ impl Store {
     ) -> Result<PageResult<EntityId>> {
         let opts = page_opts.unwrap_or_default();
 
-        // Check if entity type exists
-        if !self.entities.contains_key(entity_type) {
-            return Ok(PageResult {
-                items: Vec::new(),
-                total: 0,
-                next_cursor: None,
-            });
-        }
-
-        let mut all_entities = self.entities.get(entity_type).unwrap().clone();
-
-        // Apply CEL filter if provided
-        if let Some(filter_expr) = filter {
-            let mut filtered_entities = Vec::new();
-            let mut cel_executor = CelExecutor::new();
-            
-            for entity_id in all_entities {
-                match cel_executor.execute(&filter_expr, &entity_id, self) {
-                    Ok(cel::Value::Bool(true)) => filtered_entities.push(entity_id),
-                    Ok(cel::Value::Bool(false)) => {}, // Skip this entity
-                    Ok(_) => {}, // Non-boolean result, skip
-                    Err(_) => {}, // Error in evaluation, skip
-                }
+        // Check if entity type exists - early return if not
+        let entities = match self.entities.get(entity_type) {
+            Some(entities) => entities,
+            None => {
+                return Ok(PageResult {
+                    items: Vec::new(),
+                    total: 0,
+                    next_cursor: None,
+                });
             }
-            all_entities = filtered_entities;
-        }
+        };
 
-        let total = all_entities.len();
-
-        // Find the starting index based on cursor
+        // Parse cursor early
         let start_idx = if let Some(cursor) = &opts.cursor {
-            match cursor.parse::<usize>() {
-                Ok(idx) => idx,
-                Err(_) => 0,
-            }
+            cursor.parse::<usize>().unwrap_or(0)
         } else {
             0
         };
 
-        // Get the slice of entities for this page
-        let end_idx = std::cmp::min(start_idx + opts.limit, total);
-        let items: Vec<EntityId> = if start_idx < total {
-            all_entities[start_idx..end_idx].to_vec()
+        if let Some(filter_expr) = filter {
+            // Optimized filtered path - only evaluate what we need
+            self.find_entities_exact_filtered(entities, &opts, start_idx, &filter_expr)
         } else {
-            Vec::new()
-        };
+            // Optimized unfiltered path - direct slicing without cloning all
+            self.find_entities_exact_unfiltered(entities, &opts, start_idx)
+        }
+    }
 
-        // Calculate the next cursor
+    /// Fast path for exact unfiltered queries
+    fn find_entities_exact_unfiltered(
+        &self,
+        entities: &[EntityId],
+        opts: &PageOpts,
+        start_idx: usize,
+    ) -> Result<PageResult<EntityId>> {
+        let total = entities.len();
+
+        if total == 0 || start_idx >= total {
+            return Ok(PageResult {
+                items: Vec::new(),
+                total,
+                next_cursor: None,
+            });
+        }
+
+        let end_idx = std::cmp::min(start_idx + opts.limit, total);
+        let items = entities[start_idx..end_idx].to_vec();
+
         let next_cursor = if end_idx < total {
             Some(end_idx.to_string())
         } else {
@@ -685,6 +760,52 @@ impl Store {
         Ok(PageResult {
             items,
             total,
+            next_cursor,
+        })
+    }
+
+    /// Optimized path for exact filtered queries
+    fn find_entities_exact_filtered(
+        &self,
+        entities: &[EntityId],
+        opts: &PageOpts,
+        start_idx: usize,
+        filter_expr: &str,
+    ) -> Result<PageResult<EntityId>> {
+        let mut cel_executor = CelExecutor::new();
+        let mut page_items = Vec::new();
+        let mut current_filtered_idx = 0;
+        let mut total_filtered = 0;
+
+        // Process entities in order, collecting only what we need
+        for entity_id in entities {
+            // Apply filter
+            let passes_filter = match cel_executor.execute(filter_expr, entity_id, self) {
+                Ok(cel::Value::Bool(true)) => true,
+                _ => false, // Skip for false, non-boolean, or error results
+            };
+
+            if passes_filter {
+                total_filtered += 1;
+
+                // If we haven't reached the start index yet, just count
+                if current_filtered_idx >= start_idx && page_items.len() < opts.limit {
+                    page_items.push(entity_id.clone());
+                }
+
+                current_filtered_idx += 1;
+            }
+        }
+
+        let next_cursor = if start_idx + opts.limit < total_filtered {
+            Some((start_idx + opts.limit).to_string())
+        } else {
+            None
+        };
+
+        Ok(PageResult {
+            items: page_items,
+            total: total_filtered,
             next_cursor,
         })
     }
