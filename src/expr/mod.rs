@@ -1,31 +1,66 @@
-use std::collections::HashMap;
 use cel::{Context, Program};
+use lru::LruCache;
+use std::num::NonZeroUsize;
 
 use crate::{sread, to_base64, EntityId, FieldType, Result, Store, Value, INDIRECTION_DELIMITER};
 
+/// CelExecutor with LRU cache for compiled CEL programs
 #[derive(Debug)]
 pub struct CelExecutor {
-    cache: HashMap<String, Program>
+    cache: LruCache<String, Program>,
 }
 
 impl CelExecutor {
     pub fn new() -> Self {
+        Self::with_capacity(100) // Default capacity of 100 compiled programs
+    }
+
+    pub fn with_capacity(capacity: usize) -> Self {
         Self {
-            cache: HashMap::new()
+            cache: LruCache::new(NonZeroUsize::new(capacity).unwrap_or(NonZeroUsize::new(1).unwrap())),
         }
     }
 
     pub fn remove(&mut self, source: &str) {
-        self.cache.remove(source);
+        self.cache.pop(source);
+    }
+
+    /// Get the current cache size
+    pub fn cache_size(&self) -> usize {
+        self.cache.len()
+    }
+
+    /// Get the cache capacity
+    pub fn cache_capacity(&self) -> usize {
+        self.cache.cap().get()
+    }
+
+    /// Clear the cache completely
+    pub fn clear_cache(&mut self) {
+        self.cache.clear();
+    }
+
+    /// Resize the cache capacity
+    pub fn resize_cache(&mut self, new_capacity: usize) {
+        if let Some(capacity) = NonZeroUsize::new(new_capacity) {
+            self.cache.resize(capacity);
+        }
     }
 
     pub fn get_or_compile(&mut self, source: &str) -> Result<&Program> {
-        if !self.cache.contains_key(source) {
-            let program = Program::compile(source)
-                .map_err(|e| crate::Error::ExecutionError(e.to_string()))?;
-            self.cache.insert(source.to_string(), program);
+        // Check if already in cache (this will mark it as recently used)
+        if self.cache.contains(source) {
+            return Ok(self.cache.get(source).unwrap());
         }
 
+        // Not in cache, compile it
+        let program = Program::compile(source)
+            .map_err(|e| crate::Error::ExecutionError(e.to_string()))?;
+        
+        // Insert into cache (LRU will handle eviction if needed)
+        self.cache.put(source.to_string(), program);
+        
+        // Get the reference to the newly inserted program
         Ok(self.cache.get(source).unwrap())
     }
 

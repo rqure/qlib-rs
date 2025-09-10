@@ -1,4 +1,4 @@
-use std::{collections::HashMap, mem::discriminant, sync::{Arc}};
+use std::{collections::HashMap, mem::discriminant, sync::{Arc, Mutex}};
 use async_trait::async_trait;
 use itertools::Itertools;
 
@@ -19,6 +19,10 @@ pub struct Store {
     inheritance_map: HashMap<EntityType, Vec<EntityType>>,
 
     snowflake: Arc<Snowflake>,
+
+    /// Cached CEL executor for filter expressions
+    /// This is wrapped in Arc<Mutex<>> for thread-safe access with interior mutability
+    cel_executor_cache: Arc<Mutex<CelExecutor>>,
 
     /// Notification senders indexed by entity ID and field type
     /// Each config can have multiple senders
@@ -632,53 +636,57 @@ impl Store {
         start_idx: usize,
         filter_expr: &str,
     ) -> Result<PageResult<EntityId>> {
-        let mut cel_executor = CelExecutor::new();
-        let mut filtered_entities = Vec::new();
-        let mut page_items = Vec::new();
+        let mut page_items = Vec::with_capacity(opts.limit);
         let mut current_filtered_idx = 0;
+        let mut total_filtered = 0;
+        let end_target = start_idx + opts.limit;
+        
+        // Early termination flags
+        let mut page_complete = false;
 
-        // Iterate through all entities, but only collect what we need
+        // Iterate through all entities with optimized early termination
         for et in types_to_search {
             if let Some(entities) = self.entities.get(et) {
                 for entity_id in entities {
-                    // Apply filter
-                    let passes_filter = match cel_executor.execute(filter_expr, entity_id, self) {
-                        Ok(cel::Value::Bool(true)) => true,
-                        _ => false, // Skip for false, non-boolean, or error results
+                    // Apply filter using cached executor
+                    let passes_filter = {
+                        let mut executor = self.cel_executor_cache.lock().unwrap();
+                        match executor.execute(filter_expr, entity_id, self) {
+                            Ok(cel::Value::Bool(true)) => true,
+                            _ => false, // Skip for false, non-boolean, or error results
+                        }
                     };
 
                     if passes_filter {
-                        // If we haven't reached the start index yet, just count
-                        if current_filtered_idx < start_idx {
-                            current_filtered_idx += 1;
-                            continue;
-                        }
+                        total_filtered += 1;
 
-                        // If we have space in our page, add it
-                        if page_items.len() < opts.limit {
+                        // Collect items for the current page
+                        if current_filtered_idx >= start_idx && page_items.len() < opts.limit {
                             page_items.push(entity_id.clone());
+                            
+                            // Check if we've filled the page
+                            if page_items.len() >= opts.limit {
+                                page_complete = true;
+                                // For filtered queries, we still need the total count
+                                // so we can't exit early
+                            }
                         }
 
                         current_filtered_idx += 1;
-
-                        // If we've filled our page and gone past it enough to know the total,
-                        // we can stop early (but we need to continue to get accurate total count)
-                        filtered_entities.push(entity_id.clone());
                     }
                 }
             }
         }
 
-        let total = filtered_entities.len();
-        let next_cursor = if start_idx + opts.limit < total {
-            Some((start_idx + opts.limit).to_string())
+        let next_cursor = if page_complete && total_filtered > end_target {
+            Some(end_target.to_string())
         } else {
             None
         };
 
         Ok(PageResult {
             items: page_items,
-            total,
+            total: total_filtered,
             next_cursor,
         })
     }
@@ -772,23 +780,25 @@ impl Store {
         start_idx: usize,
         filter_expr: &str,
     ) -> Result<PageResult<EntityId>> {
-        let mut cel_executor = CelExecutor::new();
-        let mut page_items = Vec::new();
+        let mut page_items = Vec::with_capacity(opts.limit);
         let mut current_filtered_idx = 0;
         let mut total_filtered = 0;
 
         // Process entities in order, collecting only what we need
         for entity_id in entities {
-            // Apply filter
-            let passes_filter = match cel_executor.execute(filter_expr, entity_id, self) {
-                Ok(cel::Value::Bool(true)) => true,
-                _ => false, // Skip for false, non-boolean, or error results
+            // Apply filter using cached executor
+            let passes_filter = {
+                let mut executor = self.cel_executor_cache.lock().unwrap();
+                match executor.execute(filter_expr, entity_id, self) {
+                    Ok(cel::Value::Bool(true)) => true,
+                    _ => false, // Skip for false, non-boolean, or error results
+                }
             };
 
             if passes_filter {
                 total_filtered += 1;
 
-                // If we haven't reached the start index yet, just count
+                // Collect for current page if within range
                 if current_filtered_idx >= start_idx && page_items.len() < opts.limit {
                     page_items.push(entity_id.clone());
                 }
@@ -1046,6 +1056,7 @@ impl Store {
             },
             notifications_disabled: false,
             default_writer_id: None,
+            cel_executor_cache: Arc::new(Mutex::new(CelExecutor::new())),
         }
     }
 
