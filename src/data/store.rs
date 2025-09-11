@@ -1,4 +1,5 @@
-use std::{collections::HashMap, mem::discriminant, sync::{Arc, Mutex}};
+use std::{mem::discriminant, sync::{Arc, Mutex}};
+use ahash::AHashMap;
 use async_trait::async_trait;
 use itertools::Itertools;
 
@@ -9,18 +10,18 @@ use crate::{
 };
 
 pub struct Store {
-    schemas: HashMap<EntityType, EntitySchema<Single>>,
-    entities: HashMap<EntityType, Vec<EntityId>>,
+    schemas: AHashMap<EntityType, EntitySchema<Single>>,
+    entities: AHashMap<EntityType, Vec<EntityId>>,
     types: Vec<EntityType>,
-    fields: HashMap<(EntityId, FieldType), Field>,
+    fields: AHashMap<(EntityId, FieldType), Field>,
 
     /// Maps parent types to all their derived types (including direct and indirect children)
     /// This allows fast lookup of all entity types that inherit from a given parent type
-    inheritance_map: HashMap<EntityType, Vec<EntityType>>,
+    inheritance_map: AHashMap<EntityType, Vec<EntityType>>,
 
     /// Cache for complete entity schemas to avoid rebuilding inheritance chains repeatedly
     /// This cache is invalidated whenever schemas are updated or inheritance map is rebuilt
-    complete_entity_schema_cache: HashMap<EntityType, EntitySchema<Complete>>,
+    complete_entity_schema_cache: AHashMap<EntityType, EntitySchema<Complete>>,
 
     snowflake: Arc<Snowflake>,
 
@@ -31,12 +32,12 @@ pub struct Store {
     /// Notification senders indexed by entity ID and field type
     /// Each config can have multiple senders
     id_notifications:
-        HashMap<EntityId, HashMap<FieldType, HashMap<NotifyConfig, Vec<NotificationSender>>>>,
+        AHashMap<EntityId, AHashMap<FieldType, AHashMap<NotifyConfig, Vec<NotificationSender>>>>,
 
     /// Notification senders indexed by entity type and field type
     /// Each config can have multiple senders
     type_notifications:
-        HashMap<EntityType, HashMap<FieldType, HashMap<NotifyConfig, Vec<NotificationSender>>>>,
+        AHashMap<EntityType, AHashMap<FieldType, AHashMap<NotifyConfig, Vec<NotificationSender>>>>,
 
     pub write_channel: (tokio::sync::mpsc::UnboundedSender<Vec<Request>>, Arc<tokio::sync::Mutex<tokio::sync::mpsc::UnboundedReceiver<Vec<Request>>>>),
 
@@ -959,9 +960,9 @@ impl Store {
                 let senders = self
                     .id_notifications
                     .entry(entity_id.clone())
-                    .or_insert_with(HashMap::new)
+                    .or_insert_with(AHashMap::new)
                     .entry(field_type.clone())
-                    .or_insert_with(HashMap::new)
+                    .or_insert_with(AHashMap::new)
                     .entry(config.clone())
                     .or_insert_with(Vec::new);
                 senders.push(sender);
@@ -974,9 +975,9 @@ impl Store {
                 let senders = self
                     .type_notifications
                     .entry(EntityType::from(entity_type.clone()))
-                    .or_insert_with(HashMap::new)
+                    .or_insert_with(AHashMap::new)
                     .entry(field_type.clone())
-                    .or_insert_with(HashMap::new)
+                    .or_insert_with(AHashMap::new)
                     .entry(config.clone())
                     .or_insert_with(Vec::new);
                 senders.push(sender);
@@ -1059,15 +1060,15 @@ impl Store {
     
     pub fn new(snowflake: Arc<Snowflake>) -> Self {
         Store {
-            schemas: HashMap::new(),
-            entities: HashMap::new(),
+            schemas: AHashMap::new(),
+            entities: AHashMap::new(),
             types: Vec::new(),
-            fields: HashMap::new(),
-            inheritance_map: HashMap::new(),
-            complete_entity_schema_cache: HashMap::new(),
+            fields: AHashMap::new(),
+            inheritance_map: AHashMap::new(),
+            complete_entity_schema_cache: AHashMap::new(),
             snowflake,
-            id_notifications: HashMap::new(),
-            type_notifications: HashMap::new(),
+            id_notifications: AHashMap::new(),
+            type_notifications: AHashMap::new(),
             write_channel: {
                 let (sender, receiver) = tokio::sync::mpsc::unbounded_channel();
                 (sender, Arc::new(tokio::sync::Mutex::new(receiver)))
@@ -1079,17 +1080,17 @@ impl Store {
     }
 
     /// Get a reference to the schemas map
-    pub fn get_schemas(&self) -> &HashMap<EntityType, EntitySchema<Single>> {
+    pub fn get_schemas(&self) -> &AHashMap<EntityType, EntitySchema<Single>> {
         &self.schemas
     }
 
     /// Get a reference to the fields map (converts to nested structure for compatibility)
-    pub fn get_fields(&self) -> HashMap<EntityId, HashMap<FieldType, Field>> {
-        let mut nested_fields = HashMap::new();
+    pub fn get_fields(&self) -> AHashMap<EntityId, AHashMap<FieldType, Field>> {
+        let mut nested_fields = AHashMap::new();
         for ((entity_id, field_type), field) in &self.fields {
             nested_fields
                 .entry(entity_id.clone())
-                .or_insert_with(HashMap::new)
+                .or_insert_with(AHashMap::new)
                 .insert(field_type.clone(), field.clone());
         }
         nested_fields
@@ -1379,7 +1380,7 @@ impl Store {
             schemas: self.schemas.clone(),
             entities: self.entities.clone(),
             types: self.types.clone(),
-            fields: self.get_fields(), // Convert to nested structure
+            fields: self.get_fields(),
         }
     }
 

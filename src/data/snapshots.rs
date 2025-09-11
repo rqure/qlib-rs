@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use ahash::AHashMap;
 
 use serde::{Deserialize, Serialize};
 
@@ -7,19 +7,19 @@ use crate::{EntityId, EntitySchema, EntityType, Field, FieldType, Single};
 /// Represents a complete snapshot of the store at a point in time
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Snapshot {
-    pub schemas: HashMap<EntityType, EntitySchema<Single>>,
-    pub entities: HashMap<EntityType, Vec<EntityId>>,
+    pub schemas: AHashMap<EntityType, EntitySchema<Single>>,
+    pub entities: AHashMap<EntityType, Vec<EntityId>>,
     pub types: Vec<EntityType>,
-    pub fields: HashMap<EntityId, HashMap<FieldType, Field>>,
+    pub fields: AHashMap<EntityId, AHashMap<FieldType, Field>>,
 }
 
 impl Default for Snapshot {
     fn default() -> Self {
         Self {
-            schemas: HashMap::new(),
-            entities: HashMap::new(),
+            schemas: AHashMap::new(),
+            entities: AHashMap::new(),
             types: Vec::new(),
-            fields: HashMap::new(),
+            fields: AHashMap::new(),
         }
     }
 }

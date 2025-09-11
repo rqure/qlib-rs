@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use ahash::AHashMap;
 use serde::{Deserialize, Serialize};
 
 use crate::data::{EntityType, FieldSchema, FieldType};
@@ -13,7 +13,7 @@ pub struct Complete;
 pub struct EntitySchema<T> {
     pub entity_type: EntityType,
     pub inherit: Vec<EntityType>,
-    pub fields: HashMap<FieldType, FieldSchema>,
+    pub fields: AHashMap<FieldType, FieldSchema>,
     
     _marker: std::marker::PhantomData<T>,
 }
@@ -23,7 +23,7 @@ impl EntitySchema<Single> {
         Self {
             entity_type: entity_type.into(),
             inherit,
-            fields: HashMap::new(),
+            fields: AHashMap::new(),
             _marker: std::marker::PhantomData,
         }
     }
@@ -34,7 +34,7 @@ impl EntitySchema<Complete> {
         Self {
             entity_type: entity_type.into(),
             inherit: Vec::new(),
-            fields: HashMap::new(),
+            fields: AHashMap::new(),
             _marker: std::marker::PhantomData,
         }
     }
