@@ -18,6 +18,10 @@ pub struct Store {
     /// This allows fast lookup of all entity types that inherit from a given parent type
     inheritance_map: HashMap<EntityType, Vec<EntityType>>,
 
+    /// Cache for complete entity schemas to avoid rebuilding inheritance chains repeatedly
+    /// This cache is invalidated whenever schemas are updated or inheritance map is rebuilt
+    complete_entity_schema_cache: HashMap<EntityType, EntitySchema<Complete>>,
+
     snowflake: Arc<Snowflake>,
 
     /// Cached CEL executor for filter expressions
@@ -56,6 +60,10 @@ impl std::fmt::Debug for Store {
             .field("types", &self.types)
             .field("fields", &self.fields)
             .field("inheritance_map", &self.inheritance_map)
+            .field(
+                "complete_entity_schema_cache",
+                &format_args!("{} cached schemas", self.complete_entity_schema_cache.len()),
+            )
             .field(
                 "entity_notifications",
                 &format_args!("{} entity notifications", self.id_notifications.len()),
@@ -169,6 +177,21 @@ impl Store {
     }
 
     pub fn get_complete_entity_schema(
+        &self,
+        entity_type: &EntityType,
+    ) -> Result<EntitySchema<Complete>> {
+        // Check cache first
+        if let Some(cached_schema) = self.complete_entity_schema_cache.get(entity_type) {
+            return Ok(cached_schema.clone());
+        }
+
+        // Build the complete schema if not in cache
+        self.build_complete_entity_schema(entity_type)
+    }
+
+    /// Internal method to build a complete entity schema from inheritance hierarchy
+    /// This method should only be called when the cache is empty or being rebuilt
+    fn build_complete_entity_schema(
         &self,
         entity_type: &EntityType,
     ) -> Result<EntitySchema<Complete>> {
@@ -382,9 +405,13 @@ impl Store {
                         self.types.push(schema.entity_type.clone());
                     }
 
-                    // Get the complete schema for the entity type
+                    // Clear the complete entity schema cache since a schema was updated
+                    // This will be rebuilt by rebuild_inheritance_map()
+                    self.complete_entity_schema_cache.clear();
+
+                    // Get the complete schema for the entity type (will rebuild since cache is cleared)
                     let complete_new_schema =
-                        self.get_complete_entity_schema(&schema.entity_type)?;
+                        self.build_complete_entity_schema(&schema.entity_type)?;
 
                     for removed_field in complete_old_schema.diff(&complete_new_schema) {
                         // If the field was removed, we need to remove it from all entities
@@ -423,6 +450,7 @@ impl Store {
                     }
 
                     // Rebuild inheritance map after schema changes
+                    // This will also rebuild the complete entity schema cache
                     self.rebuild_inheritance_map();
                     *timestamp = Some(now());
                     write_requests.push(request.clone());
@@ -1047,6 +1075,7 @@ impl Store {
             types: Vec::new(),
             fields: HashMap::new(),
             inheritance_map: HashMap::new(),
+            complete_entity_schema_cache: HashMap::new(),
             snowflake,
             id_notifications: HashMap::new(),
             type_notifications: HashMap::new(),
@@ -1372,7 +1401,9 @@ impl Store {
         self.entities = snapshot.entities;
         self.types = snapshot.types;
         self.fields = snapshot.fields;
-        // Rebuild inheritance map after restoring
+        // Clear the cache since schema structure may have changed
+        self.complete_entity_schema_cache.clear();
+        // Rebuild inheritance map after restoring (this will also rebuild the cache)
         self.rebuild_inheritance_map();
     }
 
@@ -1380,6 +1411,8 @@ impl Store {
     /// This should be called whenever schemas are added or updated
     fn rebuild_inheritance_map(&mut self) {
         self.inheritance_map.clear();
+        // Clear the complete entity schema cache since inheritance relationships may have changed
+        self.complete_entity_schema_cache.clear();
 
         // For each entity type, find all types that inherit from it
         for entity_type in &self.types {
@@ -1397,6 +1430,22 @@ impl Store {
 
             self.inheritance_map
                 .insert(entity_type.clone(), derived_types);
+        }
+
+        // Rebuild the complete entity schema cache
+        self.rebuild_complete_entity_schema_cache();
+    }
+
+    /// Rebuild the complete entity schema cache for all entity types
+    /// This should be called after inheritance map changes or schema updates
+    fn rebuild_complete_entity_schema_cache(&mut self) {
+        self.complete_entity_schema_cache.clear();
+        
+        // Build complete schemas for all entity types
+        for entity_type in &self.types {
+            if let Ok(complete_schema) = self.build_complete_entity_schema(entity_type) {
+                self.complete_entity_schema_cache.insert(entity_type.clone(), complete_schema);
+            }
         }
     }
 

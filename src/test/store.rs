@@ -797,3 +797,85 @@ async fn test_find_entities_cel_edge_cases() -> Result<()> {
     
     Ok(())
 }
+
+#[tokio::test]
+async fn test_complete_entity_schema_caching() -> Result<()> {
+    let mut store = AsyncStore::new(Arc::new(Snowflake::new()));
+    
+    // Create base entity type
+    let et_base = EntityType::from("BaseEntity");
+    let mut base_schema = EntitySchema::<Single>::new(et_base.clone(), vec![]);
+    base_schema.fields.insert(
+        FieldType::from("BaseField"),
+        FieldSchema::String {
+            field_type: FieldType::from("BaseField"),
+            default_value: "base_default".to_string(),
+            rank: 0,
+            storage_scope: StorageScope::Runtime,
+        }
+    );
+    
+    let mut requests = vec![sschemaupdate!(base_schema)];
+    store.perform_mut(&mut requests).await?;
+    
+    // Create derived entity type that inherits from base
+    let et_derived = EntityType::from("DerivedEntity");
+    let mut derived_schema = EntitySchema::<Single>::new(et_derived.clone(), vec![et_base.clone()]);
+    derived_schema.fields.insert(
+        FieldType::from("DerivedField"),
+        FieldSchema::String {
+            field_type: FieldType::from("DerivedField"),
+            default_value: "derived_default".to_string(),
+            rank: 1,
+            storage_scope: StorageScope::Runtime,
+        }
+    );
+    
+    let mut requests = vec![sschemaupdate!(derived_schema)];
+    store.perform_mut(&mut requests).await?;
+    
+    // First call to get_complete_entity_schema should populate the cache
+    let complete_schema_1 = store.get_complete_entity_schema(&et_derived).await?;
+    assert!(complete_schema_1.fields.contains_key(&FieldType::from("BaseField")));
+    assert!(complete_schema_1.fields.contains_key(&FieldType::from("DerivedField")));
+    
+    // Second call should use the cache (no way to directly verify this without exposing cache, 
+    // but this tests that the cache doesn't break functionality)
+    let complete_schema_2 = store.get_complete_entity_schema(&et_derived).await?;
+    assert_eq!(complete_schema_1.fields.len(), complete_schema_2.fields.len());
+    assert!(complete_schema_2.fields.contains_key(&FieldType::from("BaseField")));
+    assert!(complete_schema_2.fields.contains_key(&FieldType::from("DerivedField")));
+    
+    // Update the base schema - this should invalidate the cache
+    let mut updated_base_schema = EntitySchema::<Single>::new(et_base.clone(), vec![]);
+    updated_base_schema.fields.insert(
+        FieldType::from("BaseField"),
+        FieldSchema::String {
+            field_type: FieldType::from("BaseField"),
+            default_value: "updated_base_default".to_string(),
+            rank: 0,
+            storage_scope: StorageScope::Runtime,
+        }
+    );
+    updated_base_schema.fields.insert(
+        FieldType::from("NewBaseField"),
+        FieldSchema::String {
+            field_type: FieldType::from("NewBaseField"),
+            default_value: "new_base_field".to_string(),
+            rank: 0,
+            storage_scope: StorageScope::Runtime,
+        }
+    );
+    
+    let mut requests = vec![sschemaupdate!(updated_base_schema)];
+    store.perform_mut(&mut requests).await?;
+    
+    // After update, cache should be invalidated and the complete schema should include the new field
+    let complete_schema_3 = store.get_complete_entity_schema(&et_derived).await?;
+    assert!(complete_schema_3.fields.contains_key(&FieldType::from("BaseField")));
+    assert!(complete_schema_3.fields.contains_key(&FieldType::from("DerivedField")));
+    assert!(complete_schema_3.fields.contains_key(&FieldType::from("NewBaseField")));
+    assert_eq!(complete_schema_3.fields.len(), 3); // BaseField, DerivedField, NewBaseField
+    
+    Ok(())
+}
