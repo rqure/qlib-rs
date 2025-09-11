@@ -21,7 +21,7 @@ pub async fn get_scope(
 
     let entity_types = {
         let mut entity_types = store
-            .inner()
+            .inner().await
             .get_parent_types(resource_entity_id.get_type());
         entity_types.push(resource_entity_id.get_type().clone());
         entity_types
@@ -56,7 +56,7 @@ pub async fn get_scope(
                 let result = executor.execute(
                     &condition.as_str(),
                     &subject_entity_id,
-                    store.inner(),
+                    &*store.inner().await,
                 );
 
                 if let Ok(result) = result {

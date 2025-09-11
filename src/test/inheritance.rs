@@ -318,7 +318,7 @@ async fn test_multi_inheritance() -> Result<()> {
     };
 
     // Verify that the bat has fields from all parent types
-    let complete_schema = store.inner().get_complete_entity_schema(&et_bat)?;
+    let complete_schema = store.inner().await.get_complete_entity_schema(&et_bat)?;
     
     // Should have fields from Flyable
     assert!(complete_schema.fields.contains_key(&FieldType::from("CanFly")));

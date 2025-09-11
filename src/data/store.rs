@@ -48,9 +48,9 @@ pub struct Store {
     pub default_writer_id: Option<EntityId>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct AsyncStore {
-    inner: Store,
+    inner: Arc<tokio::sync::RwLock<Store>>,
 }
 
 impl std::fmt::Debug for Store {
@@ -1695,78 +1695,141 @@ impl Store {
 #[async_trait]
 impl StoreTrait for AsyncStore {
     async fn get_entity_schema(&self, entity_type: &EntityType) -> Result<EntitySchema<Single>> {
-        self.inner.get_entity_schema(entity_type)
+        let store = self.inner.read().await;
+        store.get_entity_schema(entity_type)
     }
 
     async fn get_complete_entity_schema(&self, entity_type: &EntityType) -> Result<EntitySchema<Complete>> {
-        self.inner.get_complete_entity_schema(entity_type)
+        let store = self.inner.read().await;
+        store.get_complete_entity_schema(entity_type)
     }
 
     async fn get_field_schema(&self, entity_type: &EntityType, field_type: &FieldType) -> Result<FieldSchema> {
-        self.inner.get_field_schema(entity_type, field_type)
+        let store = self.inner.read().await;
+        store.get_field_schema(entity_type, field_type)
     }
 
     async fn set_field_schema(&mut self, entity_type: &EntityType, field_type: &FieldType, schema: FieldSchema) -> Result<()> {
-        self.inner.set_field_schema(entity_type, field_type, schema)
+        let mut store = self.inner.write().await;
+        store.set_field_schema(entity_type, field_type, schema)
     }
 
     async fn entity_exists(&self, entity_id: &EntityId) -> bool {
-        self.inner.entity_exists(entity_id)
+        let store = self.inner.read().await;
+        store.entity_exists(entity_id)
     }
 
     async fn field_exists(&self, entity_type: &EntityType, field_type: &FieldType) -> bool {
-        self.inner.field_exists(entity_type, field_type)
+        let store = self.inner.read().await;
+        store.field_exists(entity_type, field_type)
     }
 
     async fn perform(&self, requests: &mut Vec<Request>) -> Result<()> {
-        self.inner.perform(requests)
+        let store = self.inner.read().await;
+        store.perform(requests)
     }
 
     async fn perform_mut(&mut self, requests: &mut Vec<Request>) -> Result<()> {
-        self.inner.perform_mut(requests)
+        let mut store = self.inner.write().await;
+        store.perform_mut(requests)
     }
 
     async fn find_entities_paginated(&self, entity_type: &EntityType, page_opts: Option<PageOpts>, filter: Option<String>) -> Result<PageResult<EntityId>> {
-        self.inner.find_entities_paginated(entity_type, page_opts, filter)
+        let store = self.inner.read().await;
+        store.find_entities_paginated(entity_type, page_opts, filter)
     }
 
     async fn find_entities_exact(&self, entity_type: &EntityType, page_opts: Option<PageOpts>, filter: Option<String>) -> Result<PageResult<EntityId>> {
-        self.inner.find_entities_exact(entity_type, page_opts, filter)
+        let store = self.inner.read().await;
+        store.find_entities_exact(entity_type, page_opts, filter)
     }
 
     async fn find_entities(&self, entity_type: &EntityType, filter: Option<String>) -> Result<Vec<EntityId>> {
-        self.inner.find_entities(entity_type, filter)
+        let store = self.inner.read().await;
+        store.find_entities(entity_type, filter)
     }
 
     async fn get_entity_types(&self) -> Result<Vec<EntityType>> {
-        self.inner.get_entity_types()
+        let store = self.inner.read().await;
+        store.get_entity_types()
     }
 
     async fn get_entity_types_paginated(&self, page_opts: Option<PageOpts>) -> Result<PageResult<EntityType>> {
-        self.inner.get_entity_types_paginated(page_opts)
+        let store = self.inner.read().await;
+        store.get_entity_types_paginated(page_opts)
     }
 
     async fn register_notification(&mut self, config: NotifyConfig, sender: NotificationSender) -> Result<()> {
-        self.inner.register_notification(config, sender)
+        let mut store = self.inner.write().await;
+        store.register_notification(config, sender)
     }
 
     async fn unregister_notification(&mut self, config: &NotifyConfig, sender: &NotificationSender) -> bool {
-        self.inner.unregister_notification(config, sender)
+        let mut store = self.inner.write().await;
+        store.unregister_notification(config, sender)
     }
 }
 
 impl AsyncStore {
     pub fn new(snowflake: Arc<Snowflake>) -> Self {
         Self {
-            inner: Store::new(snowflake),
+            inner: Arc::new(tokio::sync::RwLock::new(Store::new(snowflake))),
         }
     }
 
-    pub fn inner(&self) -> &Store {
-        &self.inner
+    pub async fn inner(&self) -> tokio::sync::RwLockReadGuard<'_, Store> {
+        self.inner.read().await
     }
 
-    pub fn inner_mut(&mut self) -> &mut Store {
-        &mut self.inner
+    pub async fn inner_mut(&self) -> tokio::sync::RwLockWriteGuard<'_, Store> {
+        self.inner.write().await
+    }
+
+    /// Take a snapshot of the current store state
+    pub async fn take_snapshot(&self) -> Snapshot {
+        let store = self.inner.read().await;
+        store.take_snapshot()
+    }
+
+    /// Restore the store state from a snapshot
+    pub async fn restore_snapshot(&self, snapshot: Snapshot) {
+        let mut store = self.inner.write().await;
+        store.restore_snapshot(snapshot);
+    }
+
+    /// Get a clone of the write channel receiver for external consumption
+    pub async fn get_write_channel_receiver(&self) -> Arc<tokio::sync::Mutex<tokio::sync::mpsc::UnboundedReceiver<Vec<Request>>>> {
+        let store = self.inner.read().await;
+        store.get_write_channel_receiver()
+    }
+
+    /// Disable notifications temporarily (e.g., during WAL replay)
+    pub async fn disable_notifications(&self) {
+        let mut store = self.inner.write().await;
+        store.disable_notifications();
+    }
+
+    /// Re-enable notifications
+    pub async fn enable_notifications(&self) {
+        let mut store = self.inner.write().await;
+        store.enable_notifications();
+    }
+
+    /// Check if notifications are currently disabled
+    pub async fn are_notifications_disabled(&self) -> bool {
+        let store = self.inner.read().await;
+        store.are_notifications_disabled()
+    }
+
+    /// Check if derived_type inherits from base_type (directly or indirectly)
+    pub async fn inherits_from(&self, derived_type: &EntityType, base_type: &EntityType) -> bool {
+        let store = self.inner.read().await;
+        store.inherits_from(derived_type, base_type)
+    }
+
+    /// Get all parent types in the inheritance chain for a given entity type
+    pub async fn get_parent_types(&self, entity_type: &EntityType) -> Vec<EntityType> {
+        let store = self.inner.read().await;
+        store.get_parent_types(entity_type)
     }
 }

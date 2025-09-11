@@ -818,7 +818,7 @@ pub async fn factory_restore_json_snapshot(
     restore_json_snapshot(&mut temp_store, json_snapshot).await?;
     
     // Take a snapshot from the temporary store - this handles all the complex logic
-    let snapshot = temp_store.inner().take_snapshot();
+    let snapshot = temp_store.inner().await.take_snapshot();
 
     // Write snapshot binary file - using bincode instead of serde_json to handle non-string HashMap keys
     let snapshot_filename = "snapshot_0000000000.bin";
