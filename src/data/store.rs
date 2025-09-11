@@ -5,14 +5,14 @@ use itertools::Itertools;
 use crate::{
     data::{
         entity_schema::Complete, hash_notify_config, indirection::resolve_indirection, now, request::PushCondition, EntityType, FieldType, Notification, NotificationSender, NotifyConfig, StoreTrait, Timestamp, INDIRECTION_DELIMITER
-    }, expr::CelExecutor, sread, AdjustBehavior, EntityId, EntitySchema, Error, Field, FieldSchema, PageOpts, PageResult, Request, Result, Single, Snapshot, Snowflake, Value
+    }, expr::CelExecutor, ft, sread, AdjustBehavior, EntityId, EntitySchema, Error, Field, FieldSchema, PageOpts, PageResult, Request, Result, Single, Snapshot, Snowflake, Value
 };
 
 pub struct Store {
     schemas: HashMap<EntityType, EntitySchema<Single>>,
     entities: HashMap<EntityType, Vec<EntityId>>,
     types: Vec<EntityType>,
-    fields: HashMap<EntityId, HashMap<FieldType, Field>>,
+    fields: HashMap<(EntityId, FieldType), Field>,
 
     /// Maps parent types to all their derived types (including direct and indirect children)
     /// This allows fast lookup of all entity types that inherit from a given parent type
@@ -104,7 +104,7 @@ impl Store {
                 entity_id
             }
         };
-        if self.fields.contains_key(&entity_id) {
+        if self.fields.keys().any(|(eid, _)| eid == &entity_id) {
             return Err(Error::EntityAlreadyExists(entity_id));
         }
 
@@ -119,47 +119,42 @@ impl Store {
         // Get the schema before accessing fields to avoid borrow issues
         let complete_schema = self.get_complete_entity_schema(entity_type)?;
 
-        {
-            let entity_fields = self.fields
-                .entry(entity_id.clone())
-                .or_insert_with(HashMap::new);
-            
-            // Directly set fields in the entity's field map
-            for (field_type, field_schema) in complete_schema.fields.iter() {
-                let value = match field_type.as_ref() {
-                    "Name" => Value::String(name.to_string()),
-                    "Parent" => match &parent_id {
-                        Some(parent) => Value::EntityReference(Some(parent.clone())),
-                        None => field_schema.default_value(),
-                    },
-                    _ => field_schema.default_value(),
-                };
+        // Directly set fields in the entity's field map
+        for (field_type, field_schema) in complete_schema.fields.iter() {
+            let value = match field_type.as_ref() {
+                "Name" => Value::String(name.to_string()),
+                "Parent" => match &parent_id {
+                    Some(parent) => Value::EntityReference(Some(parent.clone())),
+                    None => field_schema.default_value(),
+                },
+                _ => field_schema.default_value(),
+            };
 
-                entity_fields.insert(field_type.clone(), Field {
-                    field_type: field_type.clone(),
-                    value,
-                    write_time: now(),
-                    writer_id: None,
-                });
-            }
+            let field_key = (entity_id.clone(), field_type.clone());
+            self.fields.insert(field_key, Field {
+                field_type: field_type.clone(),
+                value,
+                write_time: now(),
+                writer_id: None,
+            });
         }
 
         // If we have a parent, add it to the parent's children list
         if let Some(parent) = &parent_id {
-            if let Some(parent_fields) = self.fields.get_mut(parent) {
-                let children_field = parent_fields
-                    .entry("Children".into())
-                    .or_insert_with(|| Field {
-                        field_type: "Children".into(),
-                        value: Value::EntityList(Vec::new()),
-                        write_time: now(),
-                        writer_id: None,
-                    });
-
+            let children_field_key = (parent.clone(), "Children".into());
+            if let Some(children_field) = self.fields.get_mut(&children_field_key) {
                 if let Value::EntityList(children) = &mut children_field.value {
                     children.push(entity_id.clone());
                     children_field.write_time = now();
                 }
+            } else {
+                // Create the Children field if it doesn't exist
+                self.fields.insert(children_field_key, Field {
+                    field_type: "Children".into(),
+                    value: Value::EntityList(vec![entity_id.clone()]),
+                    write_time: now(),
+                    writer_id: None,
+                });
             }
         }
 
@@ -285,7 +280,7 @@ impl Store {
     }
 
     pub fn entity_exists(&self, entity_id: &EntityId) -> bool {
-        self.fields.contains_key(entity_id)
+        self.fields.contains_key(&(entity_id.clone(), ft::name()))
     }
 
     pub fn field_exists(
@@ -420,9 +415,8 @@ impl Store {
                             .get(&schema.entity_type)
                             .unwrap_or(&Vec::new())
                         {
-                            if let Some(fields) = self.fields.get_mut(entity_id) {
-                                fields.remove(&removed_field.field_type());
-                            }
+                            let field_key = (entity_id.clone(), removed_field.field_type().clone());
+                            self.fields.remove(&field_key);
                         }
                     }
 
@@ -433,19 +427,19 @@ impl Store {
                             .get(&schema.entity_type)
                             .unwrap_or(&Vec::new())
                         {
-                            let fields = self
-                                .fields
-                                .entry(entity_id.clone())
-                                .or_insert_with(HashMap::new);
-                            fields.insert(
-                                added_field.field_type().clone(),
-                                Field {
-                                    field_type: added_field.field_type().clone(),
-                                    value: added_field.default_value(),
-                                    write_time: now(),
-                                    writer_id: None,
-                                },
-                            );
+                            let field_key = (entity_id.clone(), added_field.field_type().clone());
+                            self.fields.insert(field_key, Field {
+                                field_type: added_field.field_type().clone(),
+                                value: added_field.default_value(),
+                                write_time: now(),
+                                writer_id: None,
+
+
+
+
+
+
+                            });
                         }
                     }
 
@@ -480,30 +474,26 @@ impl Store {
     /// Internal entity deletion that doesn't use perform to avoid recursion
     fn delete_entity_internal(&mut self, entity_id: &EntityId) -> Result<()> {
         // Check if the entity exists
-        if !self.fields.contains_key(entity_id) {
+        if !self.fields.keys().any(|(eid, _)| eid == entity_id) {
             return Err(Error::EntityNotFound(entity_id.clone()));
         }
 
         // Remove all children first (recursively)
-        if let Some(entity_fields) = self.fields.get(entity_id) {
-            if let Some(children_field) = entity_fields.get(&"Children".into()) {
-                if let Value::EntityList(children) = &children_field.value {
-                    let children_to_delete = children.clone(); // Clone to avoid borrow issues
-                    for child in children_to_delete {
-                        self.delete_entity_internal(&child)?;
-                    }
+        let children_field_key = (entity_id.clone(), "Children".into());
+        if let Some(children_field) = self.fields.get(&children_field_key) {
+            if let Value::EntityList(children) = &children_field.value {
+                let children_to_delete = children.clone(); // Clone to avoid borrow issues
+                for child in children_to_delete {
+                    self.delete_entity_internal(&child)?;
                 }
             }
         }
 
         // Remove from parent's children list
-        let parent_id = if let Some(entity_fields) = self.fields.get(entity_id) {
-            if let Some(parent_field) = entity_fields.get(&"Parent".into()) {
-                if let Value::EntityReference(Some(parent_id)) = &parent_field.value {
-                    Some(parent_id.clone())
-                } else {
-                    None
-                }
+        let parent_field_key = (entity_id.clone(), "Parent".into());
+        let parent_id = if let Some(parent_field) = self.fields.get(&parent_field_key) {
+            if let Value::EntityReference(Some(parent_id)) = &parent_field.value {
+                Some(parent_id.clone())
             } else {
                 None
             }
@@ -512,18 +502,17 @@ impl Store {
         };
 
         if let Some(parent_id) = parent_id {
-            if let Some(parent_fields) = self.fields.get_mut(&parent_id) {
-                if let Some(children_field) = parent_fields.get_mut(&"Children".into()) {
-                    if let Value::EntityList(children) = &mut children_field.value {
-                        children.retain(|id| id != entity_id);
-                        children_field.write_time = now();
-                    }
+            let parent_children_key = (parent_id, "Children".into());
+            if let Some(children_field) = self.fields.get_mut(&parent_children_key) {
+                if let Value::EntityList(children) = &mut children_field.value {
+                    children.retain(|id| id != entity_id);
+                    children_field.write_time = now();
                 }
             }
         }
 
         // Remove fields
-        self.fields.remove(entity_id);
+        self.fields.retain(|(eid, _), _| eid != entity_id);
 
         // Remove from entity type list
         if let Some(entities) = self.entities.get_mut(entity_id.get_type()) {
@@ -1094,9 +1083,16 @@ impl Store {
         &self.schemas
     }
 
-    /// Get a reference to the fields map
-    pub fn get_fields(&self) -> &HashMap<EntityId, HashMap<FieldType, Field>> {
-        &self.fields
+    /// Get a reference to the fields map (converts to nested structure for compatibility)
+    pub fn get_fields(&self) -> HashMap<EntityId, HashMap<FieldType, Field>> {
+        let mut nested_fields = HashMap::new();
+        for ((entity_id, field_type), field) in &self.fields {
+            nested_fields
+                .entry(entity_id.clone())
+                .or_insert_with(HashMap::new)
+                .insert(field_type.clone(), field.clone());
+        }
+        nested_fields
     }
 
     /// Get a reference to the snowflake generator
@@ -1132,10 +1128,7 @@ impl Store {
         write_time: &mut Option<Timestamp>,
         writer_id: &mut Option<EntityId>,
     ) -> Result<()> {
-        let field = self
-            .fields
-            .get(&entity_id)
-            .and_then(|fields| fields.get(field_type));
+        let field = self.fields.get(&(entity_id.clone(), field_type.clone()));
 
         if let Some(field) = field {
             *value = Some(field.value.clone());
@@ -1164,12 +1157,7 @@ impl Store {
             .get(field_type)
             .ok_or_else(|| Error::FieldNotFound(entity_id.clone(), field_type.clone()))?;
 
-        let fields = self
-            .fields
-            .entry(entity_id.clone())
-            .or_insert_with(HashMap::new);
-
-        let field = fields.entry(field_type.clone()).or_insert_with(|| Field {
+        let field = self.fields.entry((entity_id.clone(), field_type.clone())).or_insert_with(|| Field {
             field_type: field_type.clone(),
             value: field_schema.default_value(),
             write_time: now(),
@@ -1391,7 +1379,7 @@ impl Store {
             schemas: self.schemas.clone(),
             entities: self.entities.clone(),
             types: self.types.clone(),
-            fields: self.fields.clone(),
+            fields: self.get_fields(), // Convert to nested structure
         }
     }
 
@@ -1400,7 +1388,15 @@ impl Store {
         self.schemas = snapshot.schemas;
         self.entities = snapshot.entities;
         self.types = snapshot.types;
-        self.fields = snapshot.fields;
+        
+        // Convert nested fields structure to flattened structure
+        self.fields.clear();
+        for (entity_id, entity_fields) in snapshot.fields {
+            for (field_type, field) in entity_fields {
+                self.fields.insert((entity_id.clone(), field_type), field);
+            }
+        }
+        
         // Clear the cache since schema structure may have changed
         self.complete_entity_schema_cache.clear();
         // Rebuild inheritance map after restoring (this will also rebuild the cache)
