@@ -1734,6 +1734,19 @@ impl StoreTrait for AsyncStore {
         store.perform_mut(requests)
     }
 
+    async fn perform_map(&self, requests: &mut Vec<Request>) -> Result<HashMap<FieldType, Request>> {
+        self.perform(requests).await?;
+
+        let mut result_map = HashMap::new();
+        while let Some(request) = requests.pop() {
+            if let Some(field_type) = request.field_type() {
+                result_map.insert(field_type.clone(), request);
+            }
+        }
+
+        Ok(result_map)
+    }
+
     async fn find_entities_paginated(&self, entity_type: &EntityType, page_opts: Option<PageOpts>, filter: Option<String>) -> Result<PageResult<EntityId>> {
         let store = self.inner.read().await;
         store.find_entities_paginated(entity_type, page_opts, filter)
