@@ -1320,7 +1320,7 @@ impl Store {
                         field_type,
                         current_request,
                         previous_request,
-                    );
+                    ).await;
                 } else {
                     // Incoming write is older, ignore it
                     return Ok(false);
@@ -1364,7 +1364,7 @@ impl Store {
                         field_type,
                         current_request,
                         previous_request,
-                    );
+                    ).await;
                 } else if write_time.is_some() && incoming_time < field.write_time {
                     // Incoming write is older, ignore it
                     return Ok(false);
@@ -1528,7 +1528,7 @@ impl Store {
     }
     
     /// Trigger notifications for a write operation
-    fn trigger_notifications(
+    async fn trigger_notifications(
         &mut self,
         entity_id: &EntityId,
         field_type: &FieldType,
@@ -1626,13 +1626,12 @@ impl Store {
                     field_type: config_field_type,
                     ..
                 } => {
-                    if let Some(field_map) = self.id_notifications.get(entity_id) {
-                        if let Some(sender_map) = field_map.get(config_field_type) {
-                            if let Some(senders) = sender_map.get(&config) {
-                                // Send to all senders for this config
+                    if let Some(field_map) = self.id_notifications.get_mut(entity_id) {
+                        if let Some(sender_map) = field_map.get_mut(config_field_type) {
+                            if let Some(senders) = sender_map.get_mut(&config) {
                                 for sender in senders {
                                     // Ignore send errors (receiver may have been dropped)
-                                    let _ = sender.send(notification.clone());
+                                    let _ = sender.send(notification.clone()).await;
                                 }
                             }
                         }
@@ -1643,13 +1642,13 @@ impl Store {
                     field_type: config_field_type,
                     ..
                 } => {
-                    if let Some(field_map) = self.type_notifications.get(config_entity_type) {
-                        if let Some(sender_map) = field_map.get(config_field_type) {
-                            if let Some(senders) = sender_map.get(&config) {
+                    if let Some(field_map) = self.type_notifications.get_mut(config_entity_type) {
+                        if let Some(sender_map) = field_map.get_mut(config_field_type) {
+                            if let Some(senders) = sender_map.get_mut(&config) {
                                 // Send to all senders for this config
                                 for sender in senders {
                                     // Ignore send errors (receiver may have been dropped)
-                                    let _ = sender.send(notification.clone());
+                                    let _ = sender.send(notification.clone()).await;
                                 }
                             }
                         }

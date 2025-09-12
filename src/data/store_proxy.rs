@@ -1,8 +1,9 @@
+use crossfire::MAsyncTx;
 use futures_util::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::{oneshot, Mutex};
+use tokio::sync::{Mutex};
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 use uuid::Uuid;
 use async_trait::async_trait;
@@ -192,7 +193,7 @@ type WsStream =
 #[derive(Debug)]
 pub struct StoreProxy {
     sender: Arc<Mutex<futures_util::stream::SplitSink<WsStream, Message>>>,
-    pending_requests: Arc<Mutex<HashMap<String, oneshot::Sender<serde_json::Value>>>>,
+    pending_requests: Arc<Mutex<HashMap<String, MAsyncTx<serde_json::Value>>>>,
     // Map from config hash to list of notification senders
     notification_configs: Arc<Mutex<HashMap<u64, Vec<NotificationSender>>>>,
     // Authentication state - set once during connection
@@ -271,7 +272,7 @@ impl StoreProxy {
     /// Handle incoming messages from the WebSocket
     async fn handle_incoming_messages(
         mut receiver: futures_util::stream::SplitStream<WsStream>,
-        pending_requests: Arc<Mutex<HashMap<String, oneshot::Sender<serde_json::Value>>>>,
+        pending_requests: Arc<Mutex<HashMap<String, MAsyncTx<serde_json::Value>>>>,
         notification_configs: Arc<Mutex<HashMap<u64, Vec<NotificationSender>>>>,
     ) {
         while let Some(message) = receiver.next().await {
@@ -285,7 +286,9 @@ impl StoreProxy {
                                 let configs = notification_configs.lock().await;
                                 if let Some(senders) = configs.get(&config_hash) {
                                     for sender in senders {
-                                        let _ = sender.send(notification.clone());
+                                        if let Err(_) = sender.send(notification.clone()).await {
+                                            // do nothing
+                                        }
                                     }
                                 }
                             }
@@ -295,7 +298,9 @@ impl StoreProxy {
                                     let mut pending = pending_requests.lock().await;
                                     if let Some(sender) = pending.remove(&id) {
                                         let response_json = serde_json::to_value(store_message).unwrap_or_default();
-                                        let _ = sender.send(response_json);
+                                        if let Err(_) = sender.send(response_json).await {
+                                            // do nothing
+                                        }
                                     }
                                 }
                             }
@@ -318,7 +323,7 @@ impl StoreProxy {
         let id = extract_message_id(&request)
             .ok_or_else(|| Error::StoreProxyError("Request missing ID".to_string()))?;
 
-        let (tx, rx) = oneshot::channel();
+        let (tx, rx) = crossfire::mpsc::bounded_async(1);
         self.pending_requests.lock().await.insert(id.clone(), tx);
 
         let message_text = serde_json::to_string(&request)
@@ -327,7 +332,7 @@ impl StoreProxy {
         self.sender.lock().await.send(Message::Text(message_text)).await
             .map_err(|e| Error::StoreProxyError(format!("Failed to send message: {}", e)))?;
 
-        let response_json = rx.await
+        let response_json = rx.recv().await
             .map_err(|_| Error::StoreProxyError("Request timeout or connection closed".to_string()))?;
 
         let response: StoreMessage = serde_json::from_value(response_json)
