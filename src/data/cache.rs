@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use crate::{
-    data::StoreTrait, EntityId, EntityType, FieldType, NotificationReceiver, NotificationSender, NotifyConfig, Request, Value
+    data::StoreTrait, EntityId, EntityType, FieldType, Notification, NotificationReceiver, NotificationSender, NotifyConfig, Request, Value
 };
 
 #[derive(Debug)]
@@ -19,8 +19,7 @@ pub struct Cache {
     // For instance, an entity with a specific ID may have different values for the other fields.
     pub fields_by_entity_id: HashMap<EntityId, HashMap<FieldType, Value>>,
 
-    // Notification for keeping the cache up to date
-    pub notify_channel: (NotificationSender, NotificationReceiver),
+    pub sender: NotificationSender,
 }
 
 impl Cache {
@@ -29,7 +28,7 @@ impl Cache {
         entity_type: EntityType,
         index_fields: Vec<FieldType>,
         other_fields: Vec<FieldType>,
-    ) -> crate::Result<Self> {
+    ) -> crate::Result<(Self, NotificationReceiver)> {
         let (sender, receiver) = crate::notification_channel();
 
         // Register notifications for all fields
@@ -109,55 +108,45 @@ impl Cache {
             fields_by_entity_id.insert(entity_id, all_fields);
         }
 
-        Ok(Cache {
+        Ok((Cache {
             entity_type,
             index_fields,
             other_fields,
             entity_ids_by_index_fields,
             fields_by_entity_id,
-            notify_channel: (sender, receiver),
-        })
+            sender
+        }, receiver))
     }
 }
 
 impl Cache {
-    pub fn process_notifications(&mut self) {
-        loop {
-            match self.notify_channel.1.try_recv() {
-                Ok(notification) => {
-                    // Extract entity_id and field_type from the current request
-                    if let Request::Read { entity_id, field_type, value: current_value, .. } = &notification.current {
-                        if let Request::Read { value: previous_value, .. } = &notification.previous {
-                            if let Some(curr_val) = current_value {
-                                self.fields_by_entity_id
-                                    .entry(entity_id.clone())
-                                    .or_default()
-                                    .insert(field_type.clone(), curr_val.clone());
-                            }
+    pub fn process_notification(&mut self, notification: Notification) {
+        // Extract entity_id and field_type from the current request
+        if let Request::Read { entity_id, field_type, value: current_value, .. } = &notification.current {
+            if let Request::Read { value: previous_value, .. } = &notification.previous {
+                if let Some(curr_val) = current_value {
+                    self.fields_by_entity_id
+                        .entry(entity_id.clone())
+                        .or_default()
+                        .insert(field_type.clone(), curr_val.clone());
+                }
 
-                            // If the field type is one of the index fields, we need to update the index
-                            if self.index_fields.contains(field_type) {
-                                // Remove old entry if it exists
-                                if let Some(prev_val) = previous_value {
-                                    let old_index_key = self.make_index_key(entity_id, field_type, prev_val);
-                                    self.entity_ids_by_index_fields.remove(&old_index_key);
-                                }
-                                
-                                // Add new entry
-                                if let Some(curr_val) = current_value {
-                                    let new_index_key = self.make_index_key(entity_id, field_type, curr_val);
-                                    self.entity_ids_by_index_fields
-                                        .entry(new_index_key)
-                                        .or_insert_with(Vec::new)
-                                        .push(entity_id.clone());
-                                }
-                            }
-                        }
+                // If the field type is one of the index fields, we need to update the index
+                if self.index_fields.contains(field_type) {
+                    // Remove old entry if it exists
+                    if let Some(prev_val) = previous_value {
+                        let old_index_key = self.make_index_key(entity_id, field_type, prev_val);
+                        self.entity_ids_by_index_fields.remove(&old_index_key);
                     }
-                },
-                Err(_) => {
-                    /* No notification to process */
-                    break;
+                    
+                    // Add new entry
+                    if let Some(curr_val) = current_value {
+                        let new_index_key = self.make_index_key(entity_id, field_type, curr_val);
+                        self.entity_ids_by_index_fields
+                            .entry(new_index_key)
+                            .or_insert_with(Vec::new)
+                            .push(entity_id.clone());
+                    }
                 }
             }
         }
@@ -209,7 +198,7 @@ impl Cache {
     }
 
     pub fn get_config_sender(&self) -> (Vec<NotifyConfig>, Option<NotificationSender>) {
-        let sender = &self.notify_channel.0;
+        let sender = &self.sender;
         let mut configs = Vec::new();
 
         // Unregister notifications for index fields
