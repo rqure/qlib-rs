@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, hash_map::DefaultHasher};
 use std::hash::{Hash, Hasher};
-use tokio::sync::mpsc;
 
+use crossfire::{AsyncRx, MAsyncTx};
 use serde::{Deserialize, Serialize};
 
 use crate::{EntityId, EntityType, FieldType, Request};
@@ -31,14 +31,14 @@ pub struct Notification {
 }
 
 /// Notification sender type for sending notifications to a specific channel
-pub type NotificationSender = mpsc::UnboundedSender<Notification>;
+pub type NotificationSender = MAsyncTx<Notification>;
 
 /// Notification receiver type for receiving notifications from a specific channel
-pub type NotificationReceiver = mpsc::UnboundedReceiver<Notification>;
+pub type NotificationReceiver = AsyncRx<Notification>;
 
 /// Create a new notification channel pair
 pub fn notification_channel() -> (NotificationSender, NotificationReceiver) {
-    mpsc::unbounded_channel()
+    crossfire::mpsc::bounded_async::<Notification>(8192)
 }
 
 /// Calculate a hash for a NotifyConfig for fast lookup

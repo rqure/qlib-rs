@@ -1,9 +1,7 @@
 use std::collections::HashMap;
 
-use tokio::sync::mpsc::UnboundedSender;
-
 use crate::{
-    data::StoreTrait, EntityId, EntityType, FieldType, Notification, NotificationReceiver, NotificationSender, NotifyConfig, Request, Value
+    data::StoreTrait, EntityId, EntityType, FieldType, NotificationReceiver, NotificationSender, NotifyConfig, Request, Value
 };
 
 #[derive(Debug)]
@@ -210,7 +208,7 @@ impl Cache {
         });
     }
 
-    pub fn get_config_sender(&self) -> (Vec<NotifyConfig>, Option<UnboundedSender<Notification>>) {
+    pub fn get_config_sender(&self) -> (Vec<NotifyConfig>, Option<NotificationSender>) {
         let sender = &self.notify_channel.0;
         let mut configs = Vec::new();
 
