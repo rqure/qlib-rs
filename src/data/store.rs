@@ -1629,9 +1629,15 @@ impl Store {
                     if let Some(field_map) = self.id_notifications.get_mut(entity_id) {
                         if let Some(sender_map) = field_map.get_mut(config_field_type) {
                             if let Some(senders) = sender_map.get_mut(&config) {
-                                for sender in senders {
-                                    // Ignore send errors (receiver may have been dropped)
-                                    let _ = sender.send(notification.clone()).await;
+                                let mut failed_indices = Vec::new();
+                                for (index, sender) in senders.iter().enumerate() {
+                                    if sender.send(notification.clone()).await.is_err() {
+                                        failed_indices.push(index);
+                                    }
+                                }
+                                // Remove failed senders in reverse order to maintain indices
+                                for &index in failed_indices.iter().rev() {
+                                    senders.remove(index);
                                 }
                             }
                         }
@@ -1645,10 +1651,16 @@ impl Store {
                     if let Some(field_map) = self.type_notifications.get_mut(config_entity_type) {
                         if let Some(sender_map) = field_map.get_mut(config_field_type) {
                             if let Some(senders) = sender_map.get_mut(&config) {
+                                let mut failed_indices = Vec::new();
                                 // Send to all senders for this config
-                                for sender in senders {
-                                    // Ignore send errors (receiver may have been dropped)
-                                    let _ = sender.send(notification.clone()).await;
+                                for (index, sender) in senders.iter().enumerate() {
+                                    if sender.send(notification.clone()).await.is_err() {
+                                        failed_indices.push(index);
+                                    }
+                                }
+                                // Remove failed senders in reverse order to maintain indices
+                                for &index in failed_indices.iter().rev() {
+                                    senders.remove(index);
                                 }
                             }
                         }
