@@ -1,6 +1,7 @@
 use std::{mem::discriminant, sync::{Arc, Mutex}};
 use ahash::AHashMap;
 use async_trait::async_trait;
+use crossfire::{AsyncRx, MAsyncTx};
 use itertools::Itertools;
 
 use crate::{
@@ -39,7 +40,7 @@ pub struct Store {
     type_notifications:
         AHashMap<EntityType, AHashMap<FieldType, AHashMap<NotifyConfig, Vec<NotificationSender>>>>,
 
-    pub write_channel: (tokio::sync::mpsc::UnboundedSender<Vec<Request>>, Arc<tokio::sync::Mutex<tokio::sync::mpsc::UnboundedReceiver<Vec<Request>>>>),
+    pub write_channel: (MAsyncTx<Vec<Request>>, Arc<tokio::sync::Mutex<AsyncRx<Vec<Request>>>>),
 
     /// Flag to temporarily disable notifications (e.g., during WAL replay)
     notifications_disabled: bool,
@@ -264,7 +265,7 @@ impl Store {
     }
 
     /// Set or update the schema for a specific field
-    pub fn set_field_schema(
+    pub async fn set_field_schema(
         &mut self,
         entity_type: &EntityType,
         field_type: &FieldType,
@@ -277,7 +278,7 @@ impl Store {
             .insert(field_type.clone(), field_schema);
 
         let requests = vec![Request::SchemaUpdate { schema: entity_schema, timestamp: None, originator: None }];
-        self.perform_mut(requests).map(|_| ())
+        self.perform_mut(requests).await.map(|_| ())
     }
 
     pub fn entity_exists(&self, entity_id: &EntityId) -> bool {
@@ -318,7 +319,7 @@ impl Store {
         Ok(requests)
     }
 
-    pub fn perform_mut(&mut self, mut requests: Vec<Request>) -> Result<Vec<Request>> {
+    pub async fn perform_mut(&mut self, mut requests: Vec<Request>) -> Result<Vec<Request>> {
         let mut write_requests = Vec::new();
         
         for request in requests.iter_mut() {
@@ -353,7 +354,7 @@ impl Store {
                         writer_id,
                         push_condition,
                         adjust_behavior,
-                    )? {
+                    ).await? {
                         write_requests.push(request.clone());
                     }
                 }
@@ -466,7 +467,7 @@ impl Store {
         
         // Send all write requests as a batch to maintain atomicity
         if !write_requests.is_empty() {
-            let _ = self.write_channel.0.send(write_requests);
+            let _ = self.write_channel.0.send(write_requests).await;
         }
         
         Ok(requests)
@@ -1070,7 +1071,7 @@ impl Store {
             id_notifications: AHashMap::new(),
             type_notifications: AHashMap::new(),
             write_channel: {
-                let (sender, receiver) = tokio::sync::mpsc::unbounded_channel();
+                let (sender, receiver) = crossfire::mpsc::bounded_async(131072);
                 (sender, Arc::new(tokio::sync::Mutex::new(receiver)))
             },
             notifications_disabled: false,
@@ -1102,7 +1103,7 @@ impl Store {
     }
 
     /// Get a clone of the write channel receiver for external consumption
-    pub fn get_write_channel_receiver(&self) -> Arc<tokio::sync::Mutex<tokio::sync::mpsc::UnboundedReceiver<Vec<Request>>>> {
+    pub fn get_write_channel_receiver(&self) -> Arc<tokio::sync::Mutex<AsyncRx<Vec<Request>>>> {
         self.write_channel.1.clone()
     }
 
@@ -1142,7 +1143,7 @@ impl Store {
         Ok(())
     }
 
-    fn write(
+    async fn write(
         &mut self,
         entity_id: &EntityId,
         field_type: &FieldType,
@@ -1515,7 +1516,7 @@ impl Store {
             // Use perform to handle indirection properly
             let requests = vec![sread!(entity_id.clone(), context_field.clone())];
 
-            if let Ok(updated_requests) = self.perform_mut(requests) {
+            if let Ok(updated_requests) = self.perform(requests) {
                 context_map.insert(context_field.clone(), updated_requests.into_iter().next().unwrap());
             } else {
                 // If perform_mut fails, insert the original request
@@ -1674,7 +1675,7 @@ impl StoreTrait for AsyncStore {
     }
 
     async fn set_field_schema(&mut self, entity_type: &EntityType, field_type: &FieldType, schema: FieldSchema) -> Result<()> {
-        self.inner.set_field_schema(entity_type, field_type, schema)
+        self.inner.set_field_schema(entity_type, field_type, schema).await
     }
 
     async fn entity_exists(&self, entity_id: &EntityId) -> bool {
@@ -1690,7 +1691,7 @@ impl StoreTrait for AsyncStore {
     }
 
     async fn perform_mut(&mut self, requests: Vec<Request>) -> Result<Vec<Request>> {
-        self.inner.perform_mut(requests)
+        self.inner.perform_mut(requests).await
     }
 
     async fn find_entities_paginated(&self, entity_type: &EntityType, page_opts: Option<PageOpts>, filter: Option<String>) -> Result<PageResult<EntityId>> {
