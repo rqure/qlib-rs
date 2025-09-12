@@ -480,7 +480,7 @@ impl Store {
         }
 
         // Remove all children first (recursively)
-        let children_field_key = (entity_id.clone(), "Children".into());
+        let children_field_key = (entity_id.clone(), ft::children());
         if let Some(children_field) = self.fields.get(&children_field_key) {
             if let Value::EntityList(children) = &children_field.value {
                 let children_to_delete = children.clone(); // Clone to avoid borrow issues
@@ -491,7 +491,7 @@ impl Store {
         }
 
         // Remove from parent's children list
-        let parent_field_key = (entity_id.clone(), "Parent".into());
+        let parent_field_key = (entity_id.clone(), ft::parent());
         let parent_id = if let Some(parent_field) = self.fields.get(&parent_field_key) {
             if let Value::EntityReference(Some(parent_id)) = &parent_field.value {
                 Some(parent_id.clone())
@@ -503,7 +503,7 @@ impl Store {
         };
 
         if let Some(parent_id) = parent_id {
-            let parent_children_key = (parent_id, "Children".into());
+            let parent_children_key = (parent_id, ft::children());
             if let Some(children_field) = self.fields.get_mut(&parent_children_key) {
                 if let Value::EntityList(children) = &mut children_field.value {
                     children.retain(|id| id != entity_id);
