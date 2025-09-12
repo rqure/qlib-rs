@@ -471,17 +471,22 @@ impl StoreProxy {
     }
 
     /// Perform requests
-    pub async fn perform(&self, requests: &mut Vec<Request>) -> Result<()> {
+    pub async fn perform(&self, requests: &mut [Request]) -> Result<()> {
         let request = StoreMessage::Perform {
             id: Uuid::new_v4().to_string(),
-            requests: requests.clone(),
+            requests: requests.to_vec(),
         };
 
         let response: StoreMessage = self.send_request(request).await?;
         match response {
             StoreMessage::PerformResponse { response, .. } => match response {
                 Ok(updated_requests) => {
-                    *requests = updated_requests;
+                    if updated_requests.len() != requests.len() {
+                        return Err(Error::StoreProxyError("Response length mismatch".to_string()));
+                    }
+                    for (i, request) in updated_requests.into_iter().enumerate() {
+                        requests[i] = request;
+                    }
                     Ok(())
                 }
                 Err(e) => Err(Error::StoreProxyError(e)),
@@ -708,11 +713,11 @@ impl StoreTrait for StoreProxy {
         self.field_exists(entity_type, field_type).await
     }
 
-    async fn perform(&self, requests: &mut Vec<Request>) -> Result<()> {
+    async fn perform(&self, requests: &mut [Request]) -> Result<()> {
         self.perform(requests).await
     }
 
-    async fn perform_mut(&mut self, requests: &mut Vec<Request>) -> Result<()> {
+    async fn perform_mut(&mut self, requests: &mut [Request]) -> Result<()> {
         self.perform(requests).await
     }
 

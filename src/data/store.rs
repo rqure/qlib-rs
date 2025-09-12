@@ -295,7 +295,7 @@ impl Store {
             .unwrap_or(false)
     }
 
-    pub fn perform(&self, requests: &mut Vec<Request>) -> Result<()> {
+    pub fn perform(&self, requests: &mut [Request]) -> Result<()> {
         for request in requests.iter_mut() {
             match request {
                 Request::Read {
@@ -318,7 +318,7 @@ impl Store {
         Ok(())
     }
 
-    pub fn perform_mut(&mut self, requests: &mut Vec<Request>) -> Result<()> {
+    pub fn perform_mut(&mut self, requests: &mut [Request]) -> Result<()> {
         let mut write_requests = Vec::new();
         
         for request in requests.iter_mut() {
@@ -1681,11 +1681,11 @@ impl StoreTrait for AsyncStore {
         self.inner.field_exists(entity_type, field_type)
     }
 
-    async fn perform(&self, requests: &mut Vec<Request>) -> Result<()> {
+    async fn perform(&self, requests: &mut [Request]) -> Result<()> {
         self.inner.perform(requests)
     }
 
-    async fn perform_mut(&mut self, requests: &mut Vec<Request>) -> Result<()> {
+    async fn perform_mut(&mut self, requests: &mut [Request]) -> Result<()> {
         self.inner.perform_mut(requests)
     }
 
