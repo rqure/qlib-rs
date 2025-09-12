@@ -27,7 +27,6 @@ itertools = "0.14.0"
 time = { version = "0.3.42", features = ["serde"] }
 lru = "0.12"
 ahash = { version = "0.8", features = ["serde"] }
-crossfire = "2.0.26"
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }

@@ -1,7 +1,7 @@
 use std::{mem::discriminant, sync::{Arc, Mutex}};
 use ahash::AHashMap;
 use async_trait::async_trait;
-use crossfire::{AsyncRx, MAsyncTx};
+use tokio::sync::mpsc::{Receiver, Sender};
 use itertools::Itertools;
 
 use crate::{
@@ -40,7 +40,7 @@ pub struct Store {
     type_notifications:
         AHashMap<EntityType, AHashMap<FieldType, AHashMap<NotifyConfig, Vec<NotificationSender>>>>,
 
-    pub write_channel: (MAsyncTx<Vec<Request>>, Arc<tokio::sync::Mutex<AsyncRx<Vec<Request>>>>),
+    pub write_channel: (Sender<Vec<Request>>, Arc<tokio::sync::Mutex<Receiver<Vec<Request>>>>),
 
     /// Flag to temporarily disable notifications (e.g., during WAL replay)
     notifications_disabled: bool,
@@ -1071,7 +1071,7 @@ impl Store {
             id_notifications: AHashMap::new(),
             type_notifications: AHashMap::new(),
             write_channel: {
-                let (sender, receiver) = crossfire::mpsc::bounded_async(131072);
+                let (sender, receiver) = tokio::sync::mpsc::channel(131072);
                 (sender, Arc::new(tokio::sync::Mutex::new(receiver)))
             },
             notifications_disabled: false,
@@ -1103,7 +1103,7 @@ impl Store {
     }
 
     /// Get a clone of the write channel receiver for external consumption
-    pub fn get_write_channel_receiver(&self) -> Arc<tokio::sync::Mutex<AsyncRx<Vec<Request>>>> {
+    pub fn get_write_channel_receiver(&self) -> Arc<tokio::sync::Mutex<Receiver<Vec<Request>>>> {
         self.write_channel.1.clone()
     }
 
