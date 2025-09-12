@@ -25,8 +25,8 @@ async fn test_create_and_authenticate_user() -> Result<()> {
             storage_scope: StorageScope::Configuration,
         }
     );
-    let mut requests = vec![sschemaupdate!(object_schema)];
-    store.perform_mut(&mut requests).await?;
+    let requests = vec![sschemaupdate!(object_schema)];
+    store.perform_mut(requests).await?;
     
     // Create the Subject entity schema with required authentication fields
     let mut subject_schema = EntitySchema::<Single>::new(EntityType::from("Subject"), vec![EntityType::from("Object")]);
@@ -85,17 +85,17 @@ async fn test_create_and_authenticate_user() -> Result<()> {
             storage_scope: StorageScope::Runtime,
         }
     );
-    let mut requests = vec![sschemaupdate!(subject_schema)];
-    store.perform_mut(&mut requests).await?;
+    let requests = vec![sschemaupdate!(subject_schema)];
+    store.perform_mut(requests).await?;
     
     // Create the User entity schema (inheriting from Subject)
     let user_schema = EntitySchema::<Single>::new(EntityType::from("User"), vec![EntityType::from("Subject")]);
-    let mut requests = vec![sschemaupdate!(user_schema)];
-    store.perform_mut(&mut requests).await?;
+    let requests = vec![sschemaupdate!(user_schema)];
+    store.perform_mut(requests).await?;
     
     // Create an object entity to serve as parent
     let parent_id = EntityId::new("Object", 1);
-    let mut create_requests = vec![Request::Create {
+    let create_requests = vec![Request::Create {
         entity_type: EntityType::from("Object"),
         parent_id: None,
         name: "TestParent".to_string(),
@@ -103,7 +103,7 @@ async fn test_create_and_authenticate_user() -> Result<()> {
         timestamp: None,
         originator: None,
     }];
-    store.perform_mut(&mut create_requests).await?;
+    store.perform_mut(create_requests).await?;
     
     // Create a test user
     let username = "testuser";
@@ -150,8 +150,8 @@ async fn test_authentication_with_factory_restore_format() -> Result<()> {
             storage_scope: StorageScope::Configuration,
         }
     );
-    let mut requests = vec![sschemaupdate!(object_schema)];
-    store.perform_mut(&mut requests).await?;
+    let requests = vec![sschemaupdate!(object_schema)];
+    store.perform_mut(requests).await?;
     
     // Create Subject schema
     let mut subject_schema = EntitySchema::<Single>::new(EntityType::from("Subject"), vec![EntityType::from("Object")]);
@@ -210,13 +210,13 @@ async fn test_authentication_with_factory_restore_format() -> Result<()> {
             storage_scope: StorageScope::Runtime,
         }
     );
-    let mut requests = vec![sschemaupdate!(subject_schema)];
-    store.perform_mut(&mut requests).await?;
+    let requests = vec![sschemaupdate!(subject_schema)];
+    store.perform_mut(requests).await?;
     
     // Create User schema
     let user_schema = EntitySchema::<Single>::new(EntityType::from("User"), vec![EntityType::from("Subject")]);
-    let mut requests = vec![sschemaupdate!(user_schema)];
-    store.perform_mut(&mut requests).await?;
+    let requests = vec![sschemaupdate!(user_schema)];
+    store.perform_mut(requests).await?;
     
     // Create a user entity as it would be created by factory restore
     let username = "qei";
@@ -227,7 +227,7 @@ async fn test_authentication_with_factory_restore_format() -> Result<()> {
     let user_id = EntityId::new("User", 0); // This matches our factory restore format: User$0
     
     // Add the user entity to the store
-    let mut create_requests = vec![Request::Create {
+    let create_requests = vec![Request::Create {
         entity_type: user_type.clone(),
         parent_id: None,
         name: username.to_string(),
@@ -235,13 +235,13 @@ async fn test_authentication_with_factory_restore_format() -> Result<()> {
         timestamp: None,
         originator: None,
     }];
-    store.perform_mut(&mut create_requests).await?;
+    store.perform_mut(create_requests).await?;
     
     // Set the user fields as factory restore would
     let auth_config = AuthConfig::default();
     let password_hash = crate::auth::hash_password(password, &auth_config)?;
     
-    let mut field_requests = vec![
+    let field_requests = vec![
         Request::Write {
             entity_id: user_id.clone(),
             field_type: FieldType::from("Name"),
@@ -273,7 +273,7 @@ async fn test_authentication_with_factory_restore_format() -> Result<()> {
             originator: None,
         },
     ];
-    store.perform_mut(&mut field_requests).await?;
+    store.perform_mut(field_requests).await?;
     
     // Test finding the user by name
     let found_user = find_user_by_name(&mut store, username).await?;

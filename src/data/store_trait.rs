@@ -30,14 +30,14 @@ pub trait StoreTrait: Send + Sync {
     async fn field_exists(&self, entity_type: &EntityType, field_type: &FieldType) -> bool;
 
     /// Perform a batch of requests
-    async fn perform(&self, requests: &mut [Request]) -> Result<()>;
-    async fn perform_mut(&mut self, requests: &mut [Request]) -> Result<()>;
+    async fn perform(&self, requests: Vec<Request>) -> Result<Vec<Request>>;
+    async fn perform_mut(&mut self, requests: Vec<Request>) -> Result<Vec<Request>>;
 
-    async fn perform_map(&self, requests: &mut [Request]) -> Result<HashMap<FieldType, Request>> {
-        self.perform(requests).await?;
+    async fn perform_map(&self, requests: Vec<Request>) -> Result<HashMap<FieldType, Request>> {
+        let updated_requests = self.perform(requests).await?;
 
         let mut result_map = HashMap::new();
-        for request in requests.iter() {
+        for request in updated_requests.iter() {
             if let Some(field_type) = request.field_type() {
                 result_map.insert(field_type.clone(), request.clone());
             }

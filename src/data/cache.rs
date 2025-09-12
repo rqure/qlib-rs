@@ -74,7 +74,7 @@ impl Cache {
                 reqs.push(crate::sread!(entity_id.clone(), field.clone()));
             }
 
-            store.perform_mut(&mut reqs).await?;
+            let reqs = store.perform_mut(reqs).await?;
 
             let index_key = reqs[..index_fields.len()]
                 .iter()

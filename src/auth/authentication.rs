@@ -159,14 +159,15 @@ pub async fn authenticate_openid_connect(
 
 /// Get user authentication method
 pub async fn get_user_auth_method(store: &mut AsyncStore, user_id: &EntityId) -> Result<AuthMethod> {
-    let mut requests = vec![sread!(user_id.clone(), ft::auth_method())];
+    let requests = vec![sread!(user_id.clone(), ft::auth_method())];
 
-    let result = store.perform_mut(&mut requests).await;
+    let result = store.perform_mut(requests).await;
     
     // If the store operation failed, default to Native
-    if let Err(_) = result {
-        return Ok(AuthMethod::Native);
-    }
+    let requests = match result {
+        Ok(requests) => requests,
+        Err(_) => return Ok(AuthMethod::Native),
+    };
 
     if let Some(request) = requests.first() {
         if let Request::Read {
@@ -187,9 +188,9 @@ pub async fn get_user_auth_method(store: &mut AsyncStore, user_id: &EntityId) ->
 
 /// Get user secret (password hash for native auth, or other secret data)
 pub async fn get_user_secret(store: &mut AsyncStore, user_id: &EntityId) -> Result<String> {
-    let mut requests = vec![sread!(user_id.clone(), ft::secret())];
+    let requests = vec![sread!(user_id.clone(), ft::secret())];
 
-    store.perform_mut(&mut requests).await?;
+    let requests = store.perform_mut(requests).await?;
 
     if let Some(request) = requests.first() {
         if let Request::Read {
@@ -225,13 +226,13 @@ pub async fn change_password(
     // Hash the new password
     let password_hash = hash_password(new_password, config)?;
 
-    let mut requests = vec![swrite!(
+    let requests = vec![swrite!(
         user_id.clone(),
         ft::secret(),
         Some(Value::String(password_hash))
     )];
 
-    store.perform_mut(&mut requests).await?;
+    store.perform_mut(requests).await?;
 
     Ok(())
 }
@@ -242,9 +243,9 @@ pub async fn find_user_by_name(store: &mut AsyncStore, name: &str) -> Result<Opt
     let entities = store.find_entities(&et::user(), None).await?;
 
     for entity_id in entities {
-        let mut requests = vec![sread!(entity_id.clone(), ft::name())];
+        let requests = vec![sread!(entity_id.clone(), ft::name())];
 
-        store.perform_mut(&mut requests).await?;
+        let requests = store.perform_mut(requests).await?;
 
         if let Some(request) = requests.first() {
             if let Request::Read {
@@ -264,9 +265,9 @@ pub async fn find_user_by_name(store: &mut AsyncStore, name: &str) -> Result<Opt
 
 /// Check if a user is active
 pub async fn is_user_active(store: &mut AsyncStore, user_id: &EntityId) -> Result<bool> {
-    let mut requests = vec![sread!(user_id.clone(), ft::active())];
+    let requests = vec![sread!(user_id.clone(), ft::active())];
 
-    store.perform_mut(&mut requests).await?;
+    let requests = store.perform_mut(requests).await?;
 
     if let Some(request) = requests.first() {
         if let Request::Read {
@@ -285,14 +286,15 @@ pub async fn is_user_active(store: &mut AsyncStore, user_id: &EntityId) -> Resul
 
 /// Check if a user is locked
 pub async fn is_user_locked(store: &mut AsyncStore, user_id: &EntityId) -> Result<bool> {
-    let mut requests = vec![sread!(user_id.clone(), ft::locked_until())];
+    let requests = vec![sread!(user_id.clone(), ft::locked_until())];
 
-    let result = store.perform_mut(&mut requests).await;
+    let result = store.perform_mut(requests).await;
     
     // If the store operation failed, it might be because the field doesn't exist
-    if let Err(_) = result {
-        return Ok(false);
-    }
+    let requests = match result {
+        Ok(requests) => requests,
+        Err(_) => return Ok(false),
+    };
 
     if let Some(request) = requests.first() {
         if let Request::Read {
@@ -360,9 +362,9 @@ pub async fn increment_failed_attempts(
     config: &AuthConfig,
 ) -> Result<()> {
     // Get current failed attempts
-    let mut read_requests = vec![sread!(user_id.clone(), ft::failed_attempts())];
+    let read_requests = vec![sread!(user_id.clone(), ft::failed_attempts())];
 
-    store.perform_mut(&mut read_requests).await?;
+    let read_requests = store.perform_mut(read_requests).await?;
 
     let current_attempts = if let Some(request) = read_requests.first() {
         if let Request::Read {
@@ -397,29 +399,29 @@ pub async fn increment_failed_attempts(
         ));
     }
 
-    store.perform_mut(&mut write_requests).await?;
+    store.perform_mut(write_requests).await?;
 
     Ok(())
 }
 
 /// Reset failed login attempts
 pub async fn reset_failed_attempts(store: &mut AsyncStore, user_id: &EntityId) -> Result<()> {
-    let mut requests = vec![swrite!(user_id.clone(), ft::failed_attempts(), Some(Value::Int(0)))];
+    let requests = vec![swrite!(user_id.clone(), ft::failed_attempts(), Some(Value::Int(0)))];
 
-    store.perform_mut(&mut requests).await?;
+    store.perform_mut(requests).await?;
 
     Ok(())
 }
 
 /// Update last login timestamp
 pub async fn update_last_login(store: &mut AsyncStore, user_id: &EntityId) -> Result<()> {
-    let mut requests = vec![swrite!(
+    let requests = vec![swrite!(
         user_id.clone(),
         ft::last_login(),
         Some(Value::Timestamp(now()))
     )];
 
-    store.perform_mut(&mut requests).await?;
+    store.perform_mut(requests).await?;
 
     Ok(())
 }
@@ -437,7 +439,7 @@ pub async fn create_user(
     }
 
     // Create the user entity
-    let mut requests = vec![Request::Create {
+    let requests = vec![Request::Create {
         entity_type: et::user(),
         parent_id: Some(parent_id.clone()),
         name: name.to_string(),
@@ -445,7 +447,7 @@ pub async fn create_user(
         timestamp: None,
         originator: None,
     }];
-    store.perform_mut(&mut requests).await?;
+    let requests = store.perform_mut(requests).await?;
 
     // Get the created user ID
     let user_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = requests.first() {
@@ -455,13 +457,13 @@ pub async fn create_user(
     };
 
     // Set authentication method and default values
-    let mut requests = vec![
+    let requests = vec![
         swrite!(user_id.clone(), ft::auth_method(), Some(Value::Choice(i64::from(auth_method)))),
         swrite!(user_id.clone(), ft::active(), Some(Value::Bool(true))),
         swrite!(user_id.clone(), ft::failed_attempts(), Some(Value::Int(0))),
     ];
 
-    store.perform_mut(&mut requests).await?;
+    store.perform_mut(requests).await?;
 
     Ok(user_id)
 }
@@ -486,13 +488,13 @@ pub async fn set_user_password(
     let password_hash = hash_password(password, config)?;
 
     // Store in Secret field
-    let mut requests = vec![swrite!(
+    let requests = vec![swrite!(
         user_id.clone(),
         ft::secret(),
         Some(Value::String(password_hash))
     )];
 
-    store.perform_mut(&mut requests).await?;
+    store.perform_mut(requests).await?;
 
     Ok(())
 }
@@ -503,13 +505,13 @@ pub async fn set_user_auth_method(
     user_id: &EntityId,
     auth_method: AuthMethod,
 ) -> Result<()> {
-    let mut requests = vec![swrite!(
+    let requests = vec![swrite!(
         user_id.clone(),
         ft::auth_method(),
         Some(Value::Choice(i64::from(auth_method)))
     )];
 
-    store.perform_mut(&mut requests).await?;
+    store.perform_mut(requests).await?;
 
     Ok(())
 }
@@ -544,8 +546,8 @@ pub async fn find_subject_by_name(store: &mut AsyncStore, name: &str) -> Result<
     let entities = store.find_entities(&et::subject(), None).await?;
 
     for entity_id in entities {
-        let mut requests = vec![sread!(entity_id.clone(), ft::name())];
-        store.perform_mut(&mut requests).await?;
+        let requests = vec![sread!(entity_id.clone(), ft::name())];
+        let requests = store.perform_mut(requests).await?;
 
         if let Some(request) = requests.first() {
             if let Request::Read {
@@ -565,8 +567,8 @@ pub async fn find_subject_by_name(store: &mut AsyncStore, name: &str) -> Result<
 
 /// Check if a service is active
 pub async fn is_service_active(store: &mut AsyncStore, service_id: &EntityId) -> Result<bool> {
-    let mut requests = vec![sread!(service_id.clone(), ft::active())];
-    store.perform_mut(&mut requests).await?;
+    let requests = vec![sread!(service_id.clone(), ft::active())];
+    let requests = store.perform_mut(requests).await?;
 
     if let Some(request) = requests.first() {
         if let Request::Read {
@@ -585,8 +587,8 @@ pub async fn is_service_active(store: &mut AsyncStore, service_id: &EntityId) ->
 
 /// Get service secret key
 pub async fn get_service_secret(store: &mut AsyncStore, service_id: &EntityId) -> Result<String> {
-    let mut requests = vec![sread!(service_id.clone(), ft::secret())];
-    store.perform_mut(&mut requests).await?;
+    let requests = vec![sread!(service_id.clone(), ft::secret())];
+    let requests = store.perform_mut(requests).await?;
 
     if let Some(request) = requests.first() {
         if let Request::Read {
@@ -609,13 +611,13 @@ pub async fn set_service_secret(
     service_id: &EntityId,
     secret_key: &str,
 ) -> Result<()> {
-    let mut requests = vec![swrite!(
+    let requests = vec![swrite!(
         service_id.clone(),
         ft::secret(),
         Some(Value::String(secret_key.to_string()))
     )];
 
-    store.perform_mut(&mut requests).await?;
+    store.perform_mut(requests).await?;
     Ok(())
 }
 

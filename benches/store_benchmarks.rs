@@ -48,8 +48,8 @@ async fn create_entity_schema(store: &mut AsyncStore, entity_type: &EntityType) 
         storage_scope: StorageScope::Runtime,
     });
 
-    let mut requests = vec![sschemaupdate!(schema)];
-    store.perform_mut(&mut requests).await?;
+    let requests = vec![sschemaupdate!(schema)];
+    store.perform_mut(requests).await?;
     Ok(())
 }
 
@@ -74,7 +74,7 @@ fn bench_entity_creation(c: &mut Criterion) {
                         create_requests.push(screate!(et_user.clone(), format!("User{}", i)));
                     }
                     
-                    black_box(store.perform_mut(&mut create_requests).await.unwrap());
+                    black_box(store.perform_mut(create_requests).await.unwrap());
                 })
             })
         });
@@ -99,7 +99,7 @@ fn bench_field_operations(c: &mut Criterion) {
         for i in 0..1000 {
             create_requests.push(screate!(et_user.clone(), format!("User{}", i)));
         }
-        store.perform_mut(&mut create_requests).await.unwrap();
+        let create_requests = store.perform_mut(create_requests).await.unwrap();
         
         let entity_ids: Vec<EntityId> = create_requests
             .iter()
@@ -122,7 +122,7 @@ fn bench_field_operations(c: &mut Criterion) {
                     for (i, entity_id) in entity_subset.iter().enumerate() {
                         write_requests.push(swrite!(entity_id.clone(), "Score".into(), sint!(i as i64)));
                     }
-                    black_box(store.perform_mut(&mut write_requests).await.unwrap());
+                    black_box(store.perform_mut(write_requests).await.unwrap());
                 })
             })
         });
@@ -136,7 +136,7 @@ fn bench_field_operations(c: &mut Criterion) {
                     for entity_id in &entity_subset {
                         read_requests.push(sread!(entity_id.clone(), "Name".into()));
                     }
-                    black_box(store.perform_mut(&mut read_requests).await.unwrap());
+                    black_box(store.perform_mut(read_requests).await.unwrap());
                 })
             })
         });
@@ -164,7 +164,7 @@ fn bench_entity_search(c: &mut Criterion) {
                 for i in 0..dataset_size {
                     create_requests.push(screate!(et_user.clone(), format!("User{:04}", i)));
                 }
-                store.perform_mut(&mut create_requests).await.unwrap();
+                store.perform_mut(create_requests).await.unwrap();
                 
                 store
             });
@@ -188,7 +188,7 @@ fn bench_entity_search(c: &mut Criterion) {
                 for i in 0..dataset_size {
                     create_requests.push(screate!(et_user.clone(), format!("User{:04}", i)));
                 }
-                store.perform_mut(&mut create_requests).await.unwrap();
+                store.perform_mut(create_requests).await.unwrap();
                 
                 store
             });
@@ -232,8 +232,8 @@ fn bench_inheritance_operations(c: &mut Criterion) {
                 storage_scope: StorageScope::Runtime,
             }
         );
-        let mut requests = vec![sschemaupdate!(user_schema)];
-        store.perform_mut(&mut requests).await.unwrap();
+        let requests = vec![sschemaupdate!(user_schema)];
+        store.perform_mut(requests).await.unwrap();
         
         // AdminUser inherits from User
         let mut admin_schema = EntitySchema::<Single>::new(et_admin.clone(), vec![et_user.clone()]);
@@ -246,8 +246,8 @@ fn bench_inheritance_operations(c: &mut Criterion) {
                 storage_scope: StorageScope::Runtime,
             }
         );
-        let mut requests = vec![sschemaupdate!(admin_schema)];
-        store.perform_mut(&mut requests).await.unwrap();
+        let requests = vec![sschemaupdate!(admin_schema)];
+        store.perform_mut(requests).await.unwrap();
         
         // Create entities
         let mut create_requests = Vec::new();
@@ -256,7 +256,7 @@ fn bench_inheritance_operations(c: &mut Criterion) {
             create_requests.push(screate!(et_user.clone(), format!("User{}", i)));
             create_requests.push(screate!(et_admin.clone(), format!("Admin{}", i)));
         }
-        store.perform_mut(&mut create_requests).await.unwrap();
+        store.perform_mut(create_requests).await.unwrap();
         
         store
     });
@@ -307,7 +307,7 @@ fn bench_pagination(c: &mut Criterion) {
         for i in 0..10000 {
             create_requests.push(screate!(et_user.clone(), format!("User{:05}", i)));
         }
-        store.perform_mut(&mut create_requests).await.unwrap();
+        store.perform_mut(create_requests).await.unwrap();
         
         store
     });

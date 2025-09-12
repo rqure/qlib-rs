@@ -73,10 +73,10 @@ impl CelExecutor {
         for field in fields {
             // Convert underscore to indirection delimiter for store reading
             let store_field = field.to_string().replace("_", INDIRECTION_DELIMITER);
-            let mut reqs = vec![
+            let reqs = vec![
                 sread!(relative_id.clone(), FieldType::from(store_field))
             ];
-            store.perform(&mut reqs)?;
+            let reqs = store.perform(reqs)?;
             let value = reqs.first().unwrap().value().unwrap().clone();
             // Use the original field name for CEL context (keep underscores)
             let cel_field = field.to_string();

@@ -67,8 +67,8 @@ pub async fn resolve_indirection_async<T: StoreTrait>(
             // The previous field should have been an EntityList
             let prev_field = &fields[i - 1];
 
-            let mut reqs = vec![crate::sread!(current_entity_id.clone(), prev_field.clone())];
-            store.perform_mut(&mut reqs).await?;
+            let reqs = vec![crate::sread!(current_entity_id.clone(), prev_field.clone())];
+            let reqs = store.perform_mut(reqs).await?;
 
             if let crate::Request::Read { value, .. } = &reqs[0] {
                 if let Some(crate::Value::EntityList(entities)) = value {
@@ -101,15 +101,18 @@ pub async fn resolve_indirection_async<T: StoreTrait>(
         }
 
         // Normal field resolution
-        let mut reqs = vec![crate::sread!(current_entity_id.clone(), field.clone())];
+        let reqs = vec![crate::sread!(current_entity_id.clone(), field.clone())];
 
-        if let Err(e) = store.perform_mut(&mut reqs).await {
-            return Err(crate::Error::BadIndirection(
-                current_entity_id.clone(),
-                field_type.clone(),
-                crate::BadIndirectionReason::FailedToResolveField(field.clone(), e.to_string()),
-            ));
-        }
+        let reqs = match store.perform_mut(reqs).await {
+            Ok(reqs) => reqs,
+            Err(e) => {
+                return Err(crate::Error::BadIndirection(
+                    current_entity_id.clone(),
+                    field_type.clone(),
+                    crate::BadIndirectionReason::FailedToResolveField(field.clone(), e.to_string()),
+                ));
+            }
+        };
 
         if let crate::Request::Read { value, .. } = &reqs[0] {
             if let Some(crate::Value::EntityReference(reference)) = value {
@@ -209,8 +212,8 @@ pub fn resolve_indirection(
             // The previous field should have been an EntityList
             let prev_field = &fields[i - 1];
 
-            let mut reqs = vec![crate::sread!(current_entity_id.clone(), prev_field.clone())];
-            store.perform(&mut reqs)?;
+            let reqs = vec![crate::sread!(current_entity_id.clone(), prev_field.clone())];
+            let reqs = store.perform(reqs)?;
 
             if let crate::Request::Read { value, .. } = &reqs[0] {
                 if let Some(crate::Value::EntityList(entities)) = value {
@@ -243,15 +246,18 @@ pub fn resolve_indirection(
         }
 
         // Normal field resolution
-        let mut reqs = vec![crate::sread!(current_entity_id.clone(), field.clone())];
+        let reqs = vec![crate::sread!(current_entity_id.clone(), field.clone())];
 
-        if let Err(e) = store.perform(&mut reqs) {
-            return Err(crate::Error::BadIndirection(
-                current_entity_id.clone(),
-                field_type.clone(),
-                crate::BadIndirectionReason::FailedToResolveField(field.clone(), e.to_string()),
-            ));
-        }
+        let reqs = match store.perform(reqs) {
+            Ok(reqs) => reqs,
+            Err(e) => {
+                return Err(crate::Error::BadIndirection(
+                    current_entity_id.clone(),
+                    field_type.clone(),
+                    crate::BadIndirectionReason::FailedToResolveField(field.clone(), e.to_string()),
+                ));
+            }
+        };
 
         if let crate::Request::Read { value, .. } = &reqs[0] {
             if let Some(crate::Value::EntityReference(reference)) = value {
@@ -343,16 +349,16 @@ pub async fn path_async<T: StoreTrait>(store: &mut T, entity_id: &EntityId) -> R
         visited.insert(current_id.clone());
 
         // Read the name of the current entity
-        let mut name_requests = vec![crate::sread!(
+        let name_requests = vec![crate::sread!(
             current_id.clone(),
             crate::FieldType::from("Name")
         )];
 
-        let entity_name = if store.perform_mut(&mut name_requests).await.is_ok() {
+        let entity_name = if let Ok(reqs) = store.perform_mut(name_requests).await {
             if let crate::Request::Read {
                 value: Some(crate::Value::String(name)),
                 ..
-            } = &name_requests[0]
+            } = &reqs[0]
             {
                 name.clone()
             } else {
@@ -367,16 +373,16 @@ pub async fn path_async<T: StoreTrait>(store: &mut T, entity_id: &EntityId) -> R
         path_parts.push(entity_name);
 
         // Read the parent of the current entity
-        let mut parent_requests = vec![crate::sread!(
+        let parent_requests = vec![crate::sread!(
             current_id.clone(),
             crate::FieldType::from("Parent")
         )];
 
-        if store.perform_mut(&mut parent_requests).await.is_ok() {
+        if let Ok(reqs) = store.perform_mut(parent_requests).await {
             if let crate::Request::Read {
                 value: Some(crate::Value::EntityReference(Some(parent_id))),
                 ..
-            } = &parent_requests[0]
+            } = &reqs[0]
             {
                 current_id = parent_id.clone();
             } else {
@@ -409,16 +415,16 @@ pub async fn path_to_entity_id_async<T: StoreTrait>(store: &mut T, path: &str) -
     
     // Find the root entity that matches the first path part
     for root_id in root_entities {
-        let mut name_requests = vec![crate::sread!(
+        let name_requests = vec![crate::sread!(
             root_id.clone(),
             crate::FieldType::from("Name")
         )];
         
-        if store.perform_mut(&mut name_requests).await.is_ok() {
+        if let Ok(reqs) = store.perform_mut(name_requests).await {
             if let crate::Request::Read {
                 value: Some(crate::Value::String(name)),
                 ..
-            } = &name_requests[0]
+            } = &reqs[0]
             {
                 if name == path_parts[0] {
                     current_entity_id = Some(root_id);
@@ -434,29 +440,29 @@ pub async fn path_to_entity_id_async<T: StoreTrait>(store: &mut T, path: &str) -
     
     // Traverse down the path by following Children relationships
     for part in &path_parts[1..] {
-        let mut children_requests = vec![crate::sread!(
+        let children_requests = vec![crate::sread!(
             current_id.clone(),
             crate::FieldType::from("Children")
         )];
         
-        if store.perform_mut(&mut children_requests).await.is_ok() {
+        if let Ok(reqs) = store.perform_mut(children_requests).await {
             if let crate::Request::Read {
                 value: Some(crate::Value::EntityList(children)),
                 ..
-            } = &children_requests[0]
+            } = &reqs[0]
             {
                 let mut found = false;
                 for child_id in children {
-                    let mut child_name_requests = vec![crate::sread!(
+                    let child_name_requests = vec![crate::sread!(
                         child_id.clone(),
                         crate::FieldType::from("Name")
                     )];
                     
-                    if store.perform_mut(&mut child_name_requests).await.is_ok() {
+                    if let Ok(reqs) = store.perform_mut(child_name_requests).await {
                         if let crate::Request::Read {
                             value: Some(crate::Value::String(child_name)),
                             ..
-                        } = &child_name_requests[0]
+                        } = &reqs[0]
                         {
                             if child_name == part {
                                 current_id = child_id.clone();

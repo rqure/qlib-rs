@@ -276,8 +276,8 @@ impl Store {
             .fields
             .insert(field_type.clone(), field_schema);
 
-        let mut requests = vec![Request::SchemaUpdate { schema: entity_schema, timestamp: None, originator: None }];
-        self.perform_mut(&mut requests)
+        let requests = vec![Request::SchemaUpdate { schema: entity_schema, timestamp: None, originator: None }];
+        self.perform_mut(requests).map(|_| ())
     }
 
     pub fn entity_exists(&self, entity_id: &EntityId) -> bool {
@@ -295,7 +295,7 @@ impl Store {
             .unwrap_or(false)
     }
 
-    pub fn perform(&self, requests: &mut [Request]) -> Result<()> {
+    pub fn perform(&self, mut requests: Vec<Request>) -> Result<Vec<Request>> {
         for request in requests.iter_mut() {
             match request {
                 Request::Read {
@@ -315,10 +315,10 @@ impl Store {
             }
         }
 
-        Ok(())
+        Ok(requests)
     }
 
-    pub fn perform_mut(&mut self, requests: &mut [Request]) -> Result<()> {
+    pub fn perform_mut(&mut self, mut requests: Vec<Request>) -> Result<Vec<Request>> {
         let mut write_requests = Vec::new();
         
         for request in requests.iter_mut() {
@@ -469,7 +469,7 @@ impl Store {
             let _ = self.write_channel.0.send(write_requests);
         }
         
-        Ok(())
+        Ok(requests)
     }
 
     /// Internal entity deletion that doesn't use perform to avoid recursion
@@ -1513,10 +1513,14 @@ impl Store {
 
         for context_field in context_fields {
             // Use perform to handle indirection properly
-            let mut requests = vec![sread!(entity_id.clone(), context_field.clone())];
+            let requests = vec![sread!(entity_id.clone(), context_field.clone())];
 
-            let _ = self.perform_mut(&mut requests); // Include both successful and failed reads
-            context_map.insert(context_field.clone(), requests.into_iter().next().unwrap());
+            if let Ok(updated_requests) = self.perform_mut(requests) {
+                context_map.insert(context_field.clone(), updated_requests.into_iter().next().unwrap());
+            } else {
+                // If perform_mut fails, insert the original request
+                context_map.insert(context_field.clone(), sread!(entity_id.clone(), context_field.clone()));
+            }
         }
 
         context_map
@@ -1681,11 +1685,11 @@ impl StoreTrait for AsyncStore {
         self.inner.field_exists(entity_type, field_type)
     }
 
-    async fn perform(&self, requests: &mut [Request]) -> Result<()> {
+    async fn perform(&self, requests: Vec<Request>) -> Result<Vec<Request>> {
         self.inner.perform(requests)
     }
 
-    async fn perform_mut(&mut self, requests: &mut [Request]) -> Result<()> {
+    async fn perform_mut(&mut self, requests: Vec<Request>) -> Result<Vec<Request>> {
         self.inner.perform_mut(requests)
     }
 

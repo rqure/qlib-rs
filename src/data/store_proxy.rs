@@ -398,8 +398,8 @@ impl StoreProxy {
             .fields
             .insert(field_type.clone(), schema);
 
-        let mut requests = vec![Request::SchemaUpdate { schema: entity_schema, timestamp: None, originator: None }];
-        self.perform(&mut requests).await
+                let requests = vec![Request::SchemaUpdate { schema: entity_schema, timestamp: None, originator: None }];
+        self.perform(requests).await.map(|_| ())
     }
 
     /// Get field schema
@@ -471,23 +471,17 @@ impl StoreProxy {
     }
 
     /// Perform requests
-    pub async fn perform(&self, requests: &mut [Request]) -> Result<()> {
+    pub async fn perform(&self, requests: Vec<Request>) -> Result<Vec<Request>> {
         let request = StoreMessage::Perform {
             id: Uuid::new_v4().to_string(),
-            requests: requests.to_vec(),
+            requests: requests.clone(),
         };
 
         let response: StoreMessage = self.send_request(request).await?;
         match response {
             StoreMessage::PerformResponse { response, .. } => match response {
                 Ok(updated_requests) => {
-                    if updated_requests.len() != requests.len() {
-                        return Err(Error::StoreProxyError("Response length mismatch".to_string()));
-                    }
-                    for (i, request) in updated_requests.into_iter().enumerate() {
-                        requests[i] = request;
-                    }
-                    Ok(())
+                    Ok(updated_requests)
                 }
                 Err(e) => Err(Error::StoreProxyError(e)),
             },
@@ -713,11 +707,11 @@ impl StoreTrait for StoreProxy {
         self.field_exists(entity_type, field_type).await
     }
 
-    async fn perform(&self, requests: &mut [Request]) -> Result<()> {
+    async fn perform(&self, requests: Vec<Request>) -> Result<Vec<Request>> {
         self.perform(requests).await
     }
 
-    async fn perform_mut(&mut self, requests: &mut [Request]) -> Result<()> {
+    async fn perform_mut(&mut self, requests: Vec<Request>) -> Result<Vec<Request>> {
         self.perform(requests).await
     }
 

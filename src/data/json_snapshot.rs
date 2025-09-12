@@ -531,7 +531,7 @@ pub async fn build_json_entity_tree<T: StoreTrait>(
     // Read all field values for this entity using perform()
     for (field_type, field_schema) in schema_fields {
         // Create a read request
-        let mut read_requests = vec![crate::Request::Read {
+        let read_requests = vec![crate::Request::Read {
             entity_id: entity_id.clone(),
             field_type: field_type.clone(),
             value: None,
@@ -540,8 +540,8 @@ pub async fn build_json_entity_tree<T: StoreTrait>(
         }];
 
         // Perform the read operation
-        if let Ok(_) = store.perform_mut(&mut read_requests).await {
-            if let Some(crate::Request::Read { value: Some(ref value), .. }) = read_requests.first() {
+        if let Ok(updated_requests) = store.perform_mut(read_requests).await {
+            if let Some(crate::Request::Read { value: Some(ref value), .. }) = updated_requests.first() {
                 // Special handling for Children field - show nested entities instead of paths
                 if field_type.as_ref() == "Children" {
                     if let crate::Value::EntityList(child_ids) = value {
@@ -652,7 +652,7 @@ pub async fn restore_json_snapshot<T: StoreTrait>(store: &mut T, json_snapshot: 
     }
 
     // Perform schema updates first
-    store.perform_mut(&mut schema_requests).await?;
+    store.perform_mut(schema_requests).await?;
 
     // Restore the entity tree starting from the root
     restore_entity_recursive(store, &json_snapshot.tree, None).await?;
@@ -673,7 +673,7 @@ pub async fn restore_entity_recursive<T: StoreTrait>(
         .unwrap_or("Unknown")
         .to_string();
 
-    let mut create_requests = vec![crate::Request::Create {
+    let create_requests = vec![crate::Request::Create {
         entity_type: crate::EntityType::from(json_entity.entity_type.clone()),
         parent_id: parent_id.clone(),
         name: name.clone(),
@@ -681,7 +681,7 @@ pub async fn restore_entity_recursive<T: StoreTrait>(
         timestamp: None,
         originator: None,
     }];
-    store.perform_mut(&mut create_requests).await?;
+    let create_requests = store.perform_mut(create_requests).await?;
 
     // Get the created entity ID
     let entity_id = if let Some(crate::Request::Create { created_entity_id: Some(ref id), .. }) = create_requests.first() {
@@ -732,7 +732,7 @@ pub async fn restore_entity_recursive<T: StoreTrait>(
     }
 
     if !write_requests.is_empty() {
-        store.perform_mut(&mut write_requests).await?;
+        store.perform_mut(write_requests).await?;
     }
 
     // Handle Children - recursively create child entities
@@ -748,7 +748,7 @@ pub async fn restore_entity_recursive<T: StoreTrait>(
 
             // Update the Children field with the created child IDs
             if !child_ids.is_empty() {
-                let mut children_write_requests = vec![crate::Request::Write {
+                let children_write_requests = vec![crate::Request::Write {
                     entity_id: entity_id.clone(),
                     field_type: crate::FieldType::from("Children"),
                     value: Some(crate::Value::EntityList(child_ids)),
@@ -758,7 +758,7 @@ pub async fn restore_entity_recursive<T: StoreTrait>(
                     writer_id: None,
                     originator: None,
                 }];
-                store.perform_mut(&mut children_write_requests).await?;
+                store.perform_mut(children_write_requests).await?;
             }
         }
     }
@@ -919,7 +919,7 @@ async fn apply_schema_diff(
     // as this could be destructive. Only add/update schemas.
     
     if !schema_requests.is_empty() {
-        store.perform_mut(&mut schema_requests).await?;
+        store.perform_mut(schema_requests).await?;
     }
     
     Ok(())
@@ -961,7 +961,7 @@ fn apply_entity_diff_recursive<'a>(
                 
             let mut found_entity_id = None;
             for entity_id in &entities {
-                let mut read_requests = vec![crate::Request::Read {
+                let read_requests = vec![crate::Request::Read {
                     entity_id: entity_id.clone(),
                     field_type: crate::FieldType::from("Name".to_string()),
                     value: None,
@@ -969,7 +969,7 @@ fn apply_entity_diff_recursive<'a>(
                     writer_id: None,
                 }];
                 
-                if store.perform_mut(&mut read_requests).await.is_ok() {
+                if let Ok(read_requests) = store.perform_mut(read_requests).await {
                     if let Some(crate::Request::Read { value: Some(crate::Value::String(name)), .. }) = read_requests.first() {
                         if name == target_name {
                             found_entity_id = Some(entity_id.clone());
@@ -1023,7 +1023,7 @@ fn apply_entity_diff_recursive<'a>(
     }
     
     if !write_requests.is_empty() {
-        store.perform_mut(&mut write_requests).await?;
+        store.perform_mut(write_requests).await?;
     }
     
     // Handle children recursively
@@ -1058,7 +1058,7 @@ fn apply_entity_diff_recursive<'a>(
             
             // Update the Children field
             if !child_ids.is_empty() {
-                let mut children_write_requests = vec![crate::Request::Write {
+                let children_write_requests = vec![crate::Request::Write {
                     entity_id: entity_id.clone(),
                     field_type: crate::FieldType::from("Children".to_string()),
                     value: Some(crate::Value::EntityList(child_ids)),
@@ -1068,7 +1068,7 @@ fn apply_entity_diff_recursive<'a>(
                     writer_id: None,
                     originator: Some("restore-via-proxy".to_string()),
                 }];
-                store.perform_mut(&mut children_write_requests).await?;
+                store.perform_mut(children_write_requests).await?;
             }
         }
     }
@@ -1088,7 +1088,7 @@ async fn create_entity_from_json(
         .unwrap_or("Unknown")
         .to_string();
 
-    let mut create_requests = vec![crate::Request::Create {
+    let create_requests = vec![crate::Request::Create {
         entity_type: crate::EntityType::from(json_entity.entity_type.clone()),
         parent_id,
         name,
@@ -1097,7 +1097,7 @@ async fn create_entity_from_json(
         originator: Some("restore-via-proxy".to_string()),
     }];
     
-    store.perform_mut(&mut create_requests).await?;
+    let create_requests = store.perform_mut(create_requests).await?;
 
     if let Some(crate::Request::Create { created_entity_id: Some(ref id), .. }) = create_requests.first() {
         Ok(id.clone())
