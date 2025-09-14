@@ -2,13 +2,10 @@ use futures_util::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::{oneshot, Mutex};
-use tokio_tungstenite::{connect_async, tungstenite::Message};
 use uuid::Uuid;
-use async_trait::async_trait;
 
 use crate::{
-    Complete, EntityId, EntitySchema, EntityType, Error, FieldSchema, FieldType, Notification, NotificationSender, NotifyConfig, hash_notify_config, PageOpts, PageResult, Request, Result, Single
+    Complete, EntityId, EntitySchema, EntityType, Error, FieldSchema, FieldType, Notification, NotificationQueue, NotifyConfig, hash_notify_config, PageOpts, PageResult, Request, Result, Single
 };
 use crate::data::StoreTrait;
 
@@ -194,7 +191,7 @@ pub struct StoreProxy {
     sender: Arc<Mutex<futures_util::stream::SplitSink<WsStream, Message>>>,
     pending_requests: Arc<Mutex<HashMap<String, oneshot::Sender<serde_json::Value>>>>,
     // Map from config hash to list of notification senders
-    notification_configs: Arc<Mutex<HashMap<u64, Vec<NotificationSender>>>>,
+    notification_configs: Arc<Mutex<HashMap<u64, Vec<NotificationQueue>>>>,
     // Authentication state - set once during connection
     authenticated_subject: Option<EntityId>,
 }
@@ -202,13 +199,13 @@ pub struct StoreProxy {
 impl StoreProxy {
     /// Connect to WebSocket server and authenticate immediately
     /// If authentication fails, the connection will be closed by the server
-    pub async fn connect_and_authenticate(
+    pub fn connect_and_authenticate(
         url: &str,
         subject_name: &str,
         credential: &str,
     ) -> Result<Self> {
         // Connect to WebSocket
-        let (ws_stream, _) = connect_async(url).await
+        let (ws_stream, _) = connect_async(url)
             .map_err(|e| Error::StoreProxyError(format!("Failed to connect: {}", e)))?;
 
         let (sender, mut receiver) = ws_stream.split();
@@ -226,11 +223,11 @@ impl StoreProxy {
         let auth_message = serde_json::to_string(&auth_request)
             .map_err(|e| Error::StoreProxyError(format!("Failed to serialize auth request: {}", e)))?;
 
-        sender.lock().await.send(Message::Text(auth_message)).await
+        sender.lock().send(Message::Text(auth_message))
             .map_err(|e| Error::StoreProxyError(format!("Failed to send auth message: {}", e)))?;
 
         // Wait for authentication response
-        let auth_response = receiver.next().await
+        let auth_response = receiver.next()
             .ok_or_else(|| Error::StoreProxyError("Connection closed during authentication".to_string()))?
             .map_err(|e| Error::StoreProxyError(format!("WebSocket error during auth: {}", e)))?;
 
@@ -257,7 +254,7 @@ impl StoreProxy {
         let pending_requests_clone = pending_requests.clone();
         let notification_configs_clone = notification_configs.clone();
         tokio::spawn(async move {
-            StoreProxy::handle_incoming_messages(receiver, pending_requests_clone, notification_configs_clone).await;
+            StoreProxy::handle_incoming_messages(receiver, pending_requests_clone, notification_configs_clone);
         });
 
         Ok(StoreProxy {
@@ -269,12 +266,12 @@ impl StoreProxy {
     }
 
     /// Handle incoming messages from the WebSocket
-    async fn handle_incoming_messages(
+    fn handle_incoming_messages(
         mut receiver: futures_util::stream::SplitStream<WsStream>,
         pending_requests: Arc<Mutex<HashMap<String, oneshot::Sender<serde_json::Value>>>>,
-        notification_configs: Arc<Mutex<HashMap<u64, Vec<NotificationSender>>>>,
+        notification_configs: Arc<Mutex<HashMap<u64, Vec<NotificationQueue>>>>,
     ) {
-        while let Some(message) = receiver.next().await {
+        while let Some(message) = receiver.next() {
             match message {
                 Ok(Message::Text(text)) => {
                     if let Ok(store_message) = serde_json::from_str::<StoreMessage>(&text) {
@@ -282,10 +279,10 @@ impl StoreProxy {
                             StoreMessage::Notification { notification } => {
                                 // Handle notification
                                 let config_hash = notification.config_hash;
-                                let configs = notification_configs.lock().await;
+                                let configs = notification_configs.lock();
                                 if let Some(senders) = configs.get(&config_hash) {
                                     for sender in senders {
-                                        if let Err(_) = sender.send(notification.clone()).await {
+                                        if let Err(_) = sender.send(notification.clone()) {
                                             // do nothing
                                         }
                                     }
@@ -294,7 +291,7 @@ impl StoreProxy {
                             _ => {
                                 // Handle response to pending request
                                 if let Some(id) = extract_message_id(&store_message) {
-                                    let mut pending = pending_requests.lock().await;
+                                    let mut pending = pending_requests.lock();
                                     if let Some(sender) = pending.remove(&id) {
                                         let response_json = serde_json::to_value(store_message).unwrap_or_default();
                                         if let Err(_) = sender.send(response_json) {
@@ -318,20 +315,20 @@ impl StoreProxy {
     }
 
     /// Send a request and wait for response
-    async fn send_request(&self, request: StoreMessage) -> Result<StoreMessage> {
+    fn send_request(&self, request: StoreMessage) -> Result<StoreMessage> {
         let id = extract_message_id(&request)
             .ok_or_else(|| Error::StoreProxyError("Request missing ID".to_string()))?;
 
         let (tx, rx) = tokio::sync::oneshot::channel::<serde_json::Value>();
-        self.pending_requests.lock().await.insert(id.clone(), tx);
+        self.pending_requests.lock().insert(id.clone(), tx);
 
         let message_text = serde_json::to_string(&request)
             .map_err(|e| Error::StoreProxyError(format!("Failed to serialize request: {}", e)))?;
 
-        self.sender.lock().await.send(Message::Text(message_text)).await
+        self.sender.lock().send(Message::Text(message_text))
             .map_err(|e| Error::StoreProxyError(format!("Failed to send message: {}", e)))?;
 
-        let response_json = rx.await
+        let response_json = rx
             .map_err(|_| Error::StoreProxyError("Request timeout or connection closed".to_string()))?;
 
         let response: StoreMessage = serde_json::from_value(response_json)
@@ -345,7 +342,7 @@ impl StoreProxy {
         self.authenticated_subject.as_ref()
     }
     /// Check if entity exists
-    pub async fn get_entity_schema(
+    pub fn get_entity_schema(
         &self,
         entity_type: &EntityType,
     ) -> Result<EntitySchema<Single>> {
@@ -354,7 +351,7 @@ impl StoreProxy {
             entity_type: entity_type.clone(),
         };
 
-        let response: StoreMessage = self.send_request(request).await?;
+        let response: StoreMessage = self.send_request(request)?;
         match response {
             StoreMessage::GetEntitySchemaResponse { response, .. } => {
                 response
@@ -372,7 +369,7 @@ impl StoreProxy {
     }
 
     /// Get complete entity schema
-    pub async fn get_complete_entity_schema(
+    pub fn get_complete_entity_schema(
         &self,
         entity_type: &EntityType,
     ) -> Result<EntitySchema<Complete>> {
@@ -381,7 +378,7 @@ impl StoreProxy {
             entity_type: entity_type.clone(),
         };
 
-        let response: StoreMessage = self.send_request(request).await?;
+        let response: StoreMessage = self.send_request(request)?;
         match response {
             StoreMessage::GetCompleteEntitySchemaResponse { response, .. } => {
                 response.map_err(|e| Error::StoreProxyError(e))
@@ -391,23 +388,23 @@ impl StoreProxy {
     }
 
     /// Set field schema
-    pub async fn set_field_schema(
+    pub fn set_field_schema(
         &mut self,
         entity_type: &EntityType,
         field_type: &FieldType,
         schema: FieldSchema,
     ) -> Result<()> {
-        let mut entity_schema = self.get_entity_schema(entity_type).await?;
+        let mut entity_schema = self.get_entity_schema(entity_type)?;
         entity_schema
             .fields
             .insert(field_type.clone(), schema);
 
                 let requests = vec![Request::SchemaUpdate { schema: entity_schema, timestamp: None, originator: None }];
-        self.perform(requests).await.map(|_| ())
+        self.perform(requests).map(|_| ())
     }
 
     /// Get field schema
-    pub async fn get_field_schema(
+    pub fn get_field_schema(
         &self,
         entity_type: &EntityType,
         field_type: &FieldType,
@@ -418,7 +415,7 @@ impl StoreProxy {
             field_type: field_type.clone(),
         };
 
-        let response: StoreMessage = self.send_request(request).await?;
+        let response: StoreMessage = self.send_request(request)?;
         match response {
             StoreMessage::GetFieldSchemaResponse { response, .. } => {
                 response
@@ -436,13 +433,13 @@ impl StoreProxy {
     }
 
     /// Check if entity exists
-    pub async fn entity_exists(&self, entity_id: &EntityId) -> bool {
+    pub fn entity_exists(&self, entity_id: &EntityId) -> bool {
         let request = StoreMessage::EntityExists {
             id: Uuid::new_v4().to_string(),
             entity_id: entity_id.clone(),
         };
 
-        if let Ok(response) = self.send_request(request).await {
+        if let Ok(response) = self.send_request(request) {
             match response {
                 StoreMessage::EntityExistsResponse { response, .. } => response,
                 _ => false, // If we get an unexpected response, assume entity does not exist
@@ -453,7 +450,7 @@ impl StoreProxy {
     }
 
     /// Check if field exists
-    pub async fn field_exists(
+    pub fn field_exists(
         &self,
         entity_type: &EntityType,
         field_type: &FieldType,
@@ -464,7 +461,7 @@ impl StoreProxy {
             field_type: field_type.clone(),
         };
 
-        if let Ok(response) = self.send_request(request).await {
+        if let Ok(response) = self.send_request(request) {
             match response {
                 StoreMessage::FieldExistsResponse { response, .. } => response,
                 _ => false, // If we get an unexpected response, assume field does not exist
@@ -475,13 +472,13 @@ impl StoreProxy {
     }
 
     /// Perform requests
-    pub async fn perform(&self, requests: Vec<Request>) -> Result<Vec<Request>> {
+    pub fn perform(&self, requests: Vec<Request>) -> Result<Vec<Request>> {
         let request = StoreMessage::Perform {
             id: Uuid::new_v4().to_string(),
             requests: requests.clone(),
         };
 
-        let response: StoreMessage = self.send_request(request).await?;
+        let response: StoreMessage = self.send_request(request)?;
         match response {
             StoreMessage::PerformResponse { response, .. } => match response {
                 Ok(updated_requests) => {
@@ -494,7 +491,7 @@ impl StoreProxy {
     }
 
     /// Find entities
-    pub async fn find_entities_paginated(
+    pub fn find_entities_paginated(
         &self,
         entity_type: &EntityType,
         page_opts: Option<PageOpts>,
@@ -507,7 +504,7 @@ impl StoreProxy {
             filter,
         };
 
-        let response: StoreMessage = self.send_request(request).await?;
+        let response: StoreMessage = self.send_request(request)?;
         match response {
             StoreMessage::FindEntitiesResponse { response, .. } => {
                 response.map_err(|e| Error::StoreProxyError(e))
@@ -517,7 +514,7 @@ impl StoreProxy {
     }
 
     /// Find entities exact
-    pub async fn find_entities_exact(
+    pub fn find_entities_exact(
         &self,
         entity_type: &EntityType,
         page_opts: Option<PageOpts>,
@@ -530,7 +527,7 @@ impl StoreProxy {
             filter,
         };
 
-        let response: StoreMessage = self.send_request(request).await?;
+        let response: StoreMessage = self.send_request(request)?;
         match response {
             StoreMessage::FindEntitiesExactResponse { response, .. } => {
                 response.map_err(|e| Error::StoreProxyError(e))
@@ -539,7 +536,7 @@ impl StoreProxy {
         }
     }
 
-    pub async fn find_entities(
+    pub fn find_entities(
         &self,
         entity_type: &EntityType,
         filter: Option<String>,
@@ -550,7 +547,7 @@ impl StoreProxy {
         loop {
             let page_result = self
                 .find_entities_paginated(entity_type, page_opts.clone(), filter.clone())
-                .await?;
+                ?;
             if page_result.items.is_empty() {
                 break;
             }
@@ -567,14 +564,14 @@ impl StoreProxy {
         Ok(result)
     }
 
-    pub async fn get_entity_types(&self) -> Result<Vec<EntityType>> {
+    pub fn get_entity_types(&self) -> Result<Vec<EntityType>> {
         let mut result = Vec::new();
         let mut page_opts: Option<PageOpts> = None;
 
         loop {
             let page_result = self
                 .get_entity_types_paginated(page_opts)
-                .await?;
+                ?;
             if page_result.items.is_empty() {
                 break;
             }
@@ -592,7 +589,7 @@ impl StoreProxy {
     }
 
     /// Get entity types
-    pub async fn get_entity_types_paginated(
+    pub fn get_entity_types_paginated(
         &self,
         page_opts: Option<PageOpts>,
     ) -> Result<PageResult<EntityType>> {
@@ -601,7 +598,7 @@ impl StoreProxy {
             page_opts,
         };
 
-        let response: StoreMessage = self.send_request(request).await?;
+        let response: StoreMessage = self.send_request(request)?;
         match response {
             StoreMessage::GetEntityTypesResponse { response, .. } => {
                 response.map_err(|e| Error::StoreProxyError(e))
@@ -613,24 +610,24 @@ impl StoreProxy {
     /// Register notification with provided sender
     /// Note: For proxy, this registers the notification on the remote server
     /// and stores the sender locally to forward notifications
-    pub async fn register_notification(
+    pub fn register_notification(
         &mut self,
         config: NotifyConfig,
-        sender: NotificationSender,
+        sender: NotificationQueue,
     ) -> Result<()> {
         let request = StoreMessage::RegisterNotification {
             id: Uuid::new_v4().to_string(),
             config: config.clone(),
         };
 
-        let response: StoreMessage = self.send_request(request).await?;
+        let response: StoreMessage = self.send_request(request)?;
         match response {
             StoreMessage::RegisterNotificationResponse { response, .. } => {
                 match response {
                     Ok(_) => {
                         // Store the sender locally so we can forward notifications
                         let config_hash = hash_notify_config(&config);
-                        let mut configs = self.notification_configs.lock().await;
+                        let mut configs = self.notification_configs.lock();
                         configs.entry(config_hash).or_insert_with(Vec::new).push(sender);
                         Ok(())
                     }
@@ -643,10 +640,10 @@ impl StoreProxy {
 
     /// Unregister a notification by removing a specific sender
     /// Note: This will remove ALL notifications matching the config for proxy
-   pub async fn unregister_notification(&mut self, target_config: &NotifyConfig, sender: &NotificationSender) -> bool {
+   pub fn unregister_notification(&mut self, target_config: &NotifyConfig, sender: &NotificationQueue) -> bool {
         // First remove the sender from local mapping
         let config_hash = hash_notify_config(target_config);
-        let mut configs = self.notification_configs.lock().await;
+        let mut configs = self.notification_configs.lock();
         let mut removed_locally = false;
         
         if let Some(senders) = configs.get_mut(&config_hash) {
@@ -670,7 +667,7 @@ impl StoreProxy {
                 config: target_config.clone(),
             };
 
-            if let Ok(response) = self.send_request(request).await {
+            if let Ok(response) = self.send_request(request) {
                 match response {
                     StoreMessage::UnregisterNotificationResponse { response, .. } => response,
                     _ => false,
@@ -685,65 +682,64 @@ impl StoreProxy {
 
 }
 
-#[async_trait]
 impl StoreTrait for StoreProxy {
-    async fn get_entity_schema(&self, entity_type: &EntityType) -> Result<EntitySchema<Single>> {
-        self.get_entity_schema(entity_type).await
+    fn get_entity_schema(&self, entity_type: &EntityType) -> Result<EntitySchema<Single>> {
+        self.get_entity_schema(entity_type)
     }
 
-    async fn get_complete_entity_schema(&self, entity_type: &EntityType) -> Result<EntitySchema<Complete>> {
-        self.get_complete_entity_schema(entity_type).await
+    fn get_complete_entity_schema(&self, entity_type: &EntityType) -> Result<EntitySchema<Complete>> {
+        self.get_complete_entity_schema(entity_type)
     }
 
-    async fn get_field_schema(&self, entity_type: &EntityType, field_type: &FieldType) -> Result<FieldSchema> {
-        self.get_field_schema(entity_type, field_type).await
+    fn get_field_schema(&self, entity_type: &EntityType, field_type: &FieldType) -> Result<FieldSchema> {
+        self.get_field_schema(entity_type, field_type)
     }
 
-    async fn set_field_schema(&mut self, entity_type: &EntityType, field_type: &FieldType, schema: FieldSchema) -> Result<()> {
-        self.set_field_schema(entity_type, field_type, schema).await
+    fn set_field_schema(&mut self, entity_type: &EntityType, field_type: &FieldType, schema: FieldSchema) -> Result<()> {
+        self.set_field_schema(entity_type, field_type, schema)
     }
 
-    async fn entity_exists(&self, entity_id: &EntityId) -> bool {
-        self.entity_exists(entity_id).await
+    fn entity_exists(&self, entity_id: &EntityId) -> bool {
+        self.entity_exists(entity_id)
     }
 
-    async fn field_exists(&self, entity_type: &EntityType, field_type: &FieldType) -> bool {
-        self.field_exists(entity_type, field_type).await
+    fn field_exists(&self, entity_type: &EntityType, field_type: &FieldType) -> bool {
+        self.field_exists(entity_type, field_type)
     }
 
-    async fn perform(&self, requests: Vec<Request>) -> Result<Vec<Request>> {
-        self.perform(requests).await
+    fn perform(&self, requests: Vec<Request>) -> Result<Vec<Request>> {
+        self.perform(requests)
     }
 
-    async fn perform_mut(&mut self, requests: Vec<Request>) -> Result<Vec<Request>> {
-        self.perform(requests).await
+    fn perform_mut(&mut self, requests: Vec<Request>) -> Result<Vec<Request>> {
+        self.perform(requests)
     }
 
-    async fn find_entities_paginated(&self, entity_type: &EntityType, page_opts: Option<PageOpts>, filter: Option<String>) -> Result<PageResult<EntityId>> {
-        self.find_entities_paginated(entity_type, page_opts, filter).await
+    fn find_entities_paginated(&self, entity_type: &EntityType, page_opts: Option<PageOpts>, filter: Option<String>) -> Result<PageResult<EntityId>> {
+        self.find_entities_paginated(entity_type, page_opts, filter)
     }
 
-    async fn find_entities_exact(&self, entity_type: &EntityType, page_opts: Option<PageOpts>, filter: Option<String>) -> Result<PageResult<EntityId>> {
-        self.find_entities_exact(entity_type, page_opts, filter).await
+    fn find_entities_exact(&self, entity_type: &EntityType, page_opts: Option<PageOpts>, filter: Option<String>) -> Result<PageResult<EntityId>> {
+        self.find_entities_exact(entity_type, page_opts, filter)
     }
 
-    async fn find_entities(&self, entity_type: &EntityType, filter: Option<String>) -> Result<Vec<EntityId>> {
-        self.find_entities(entity_type, filter).await
+    fn find_entities(&self, entity_type: &EntityType, filter: Option<String>) -> Result<Vec<EntityId>> {
+        self.find_entities(entity_type, filter)
     }
 
-    async fn get_entity_types(&self) -> Result<Vec<EntityType>> {
-        self.get_entity_types().await
+    fn get_entity_types(&self) -> Result<Vec<EntityType>> {
+        self.get_entity_types()
     }
 
-    async fn get_entity_types_paginated(&self, page_opts: Option<PageOpts>) -> Result<PageResult<EntityType>> {
-        self.get_entity_types_paginated(page_opts).await
+    fn get_entity_types_paginated(&self, page_opts: Option<PageOpts>) -> Result<PageResult<EntityType>> {
+        self.get_entity_types_paginated(page_opts)
     }
 
-    async fn register_notification(&mut self, config: NotifyConfig, sender: NotificationSender) -> Result<()> {
-        self.register_notification(config, sender).await
+    fn register_notification(&mut self, config: NotifyConfig, sender: NotificationQueue) -> Result<()> {
+        self.register_notification(config, sender)
     }
 
-    async fn unregister_notification(&mut self, config: &NotifyConfig, sender: &NotificationSender) -> bool {
-        self.unregister_notification(config, sender).await
+    fn unregister_notification(&mut self, config: &NotifyConfig, sender: &NotificationQueue) -> bool {
+        self.unregister_notification(config, sender)
     }
 }

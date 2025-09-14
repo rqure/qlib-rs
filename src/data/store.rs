@@ -1,12 +1,11 @@
 use std::{mem::discriminant, sync::{Arc, Mutex}};
 use ahash::AHashMap;
-use async_trait::async_trait;
-use tokio::sync::mpsc::{Receiver, Sender};
+use crossbeam::queue::SegQueue;
 use itertools::Itertools;
 
 use crate::{
     data::{
-        entity_schema::Complete, hash_notify_config, indirection::resolve_indirection, now, request::PushCondition, EntityType, FieldType, Notification, NotificationSender, NotifyConfig, StoreTrait, Timestamp, INDIRECTION_DELIMITER
+        entity_schema::Complete, hash_notify_config, indirection::resolve_indirection, now, request::PushCondition, EntityType, FieldType, Notification, NotificationQueue, NotifyConfig, StoreTrait, Timestamp, INDIRECTION_DELIMITER
     }, expr::CelExecutor, ft, sread, AdjustBehavior, EntityId, EntitySchema, Error, Field, FieldSchema, PageOpts, PageResult, Request, Result, Single, Snapshot, Snowflake, Value
 };
 
@@ -33,25 +32,20 @@ pub struct Store {
     /// Notification senders indexed by entity ID and field type
     /// Each config can have multiple senders
     id_notifications:
-        AHashMap<EntityId, AHashMap<FieldType, AHashMap<NotifyConfig, Vec<NotificationSender>>>>,
+        AHashMap<EntityId, AHashMap<FieldType, AHashMap<NotifyConfig, Vec<NotificationQueue>>>>,
 
     /// Notification senders indexed by entity type and field type
     /// Each config can have multiple senders
     type_notifications:
-        AHashMap<EntityType, AHashMap<FieldType, AHashMap<NotifyConfig, Vec<NotificationSender>>>>,
+        AHashMap<EntityType, AHashMap<FieldType, AHashMap<NotifyConfig, Vec<NotificationQueue>>>>,
 
-    pub write_channel: (Sender<Vec<Request>>, Arc<tokio::sync::Mutex<Receiver<Vec<Request>>>>),
+    pub write_queue: SegQueue<Request>,
 
     /// Flag to temporarily disable notifications (e.g., during WAL replay)
     notifications_disabled: bool,
 
     /// Default writer id for operations that don't specify one
     pub default_writer_id: Option<EntityId>,
-}
-
-#[derive(Debug)]
-pub struct AsyncStore {
-    inner: Store,
 }
 
 impl std::fmt::Debug for Store {
@@ -265,7 +259,7 @@ impl Store {
     }
 
     /// Set or update the schema for a specific field
-    pub async fn set_field_schema(
+    pub fn set_field_schema(
         &mut self,
         entity_type: &EntityType,
         field_type: &FieldType,
@@ -278,7 +272,7 @@ impl Store {
             .insert(field_type.clone(), field_schema);
 
         let requests = vec![Request::SchemaUpdate { schema: entity_schema, timestamp: None, originator: None }];
-        self.perform_mut(requests).await.map(|_| ())
+        self.perform_mut(requests).map(|_| ())
     }
 
     pub fn entity_exists(&self, entity_id: &EntityId) -> bool {
@@ -319,9 +313,7 @@ impl Store {
         Ok(requests)
     }
 
-    pub async fn perform_mut(&mut self, mut requests: Vec<Request>) -> Result<Vec<Request>> {
-        let mut write_requests = Vec::new();
-        
+    pub fn perform_mut(&mut self, mut requests: Vec<Request>) -> Result<Vec<Request>> {
         for request in requests.iter_mut() {
             match request {
                 Request::Read {
@@ -354,8 +346,8 @@ impl Store {
                         writer_id,
                         push_condition,
                         adjust_behavior,
-                    ).await? {
-                        write_requests.push(request.clone());
+                    )? {
+                        self.write_queue.push(request.clone());
                     }
                 }
                 Request::Create {
@@ -368,7 +360,7 @@ impl Store {
                 } => {
                     self.create_entity_internal(entity_type, parent_id.clone(), created_entity_id, name)?;
                     *timestamp = Some(now());
-                    write_requests.push(request.clone());
+                    self.write_queue.push(request.clone());
                 }
                 Request::Delete {
                     entity_id,
@@ -377,7 +369,7 @@ impl Store {
                 } => {
                     self.delete_entity_internal(entity_id)?;
                     *timestamp = Some(now());
-                    write_requests.push(request.clone());
+                    self.write_queue.push(request.clone());
                 }
                 Request::SchemaUpdate {
                     schema,
@@ -449,7 +441,7 @@ impl Store {
                     // This will also rebuild the complete entity schema cache
                     self.rebuild_inheritance_map();
                     *timestamp = Some(now());
-                    write_requests.push(request.clone());
+                    self.write_queue.push(request.clone());
                 }
                 Request::Snapshot {
                     timestamp,
@@ -460,14 +452,9 @@ impl Store {
                     // Snapshot requests are mainly for WAL marking purposes
                     // The actual snapshot logic is handled elsewhere
                     // We just log this event and include it in write requests for WAL persistence
-                    write_requests.push(request.clone());
+                    self.write_queue.push(request.clone());
                 }
             }
-        }
-        
-        // Send all write requests as a batch to maintain atomicity
-        if !write_requests.is_empty() {
-            let _ = self.write_channel.0.send(write_requests).await;
         }
         
         Ok(requests)
@@ -937,7 +924,7 @@ impl Store {
     pub fn register_notification(
         &mut self,
         config: NotifyConfig,
-        sender: NotificationSender,
+        sender: NotificationQueue,
     ) -> Result<()> {
         // Validate that the main field_type is not indirect
         let field_type = match &config {
@@ -990,7 +977,7 @@ impl Store {
 
     /// Unregister a notification by removing a specific sender
     /// Returns true if the sender was found and removed
-    pub fn unregister_notification(&mut self, target_config: &NotifyConfig, target_sender: &NotificationSender) -> bool {
+    pub fn unregister_notification(&mut self, target_config: &NotifyConfig, target_sender: &NotificationQueue) -> bool {
         let mut removed_any = false;
         
         match target_config {
@@ -1070,10 +1057,7 @@ impl Store {
             snowflake,
             id_notifications: AHashMap::new(),
             type_notifications: AHashMap::new(),
-            write_channel: {
-                let (sender, receiver) = tokio::sync::mpsc::channel(131072);
-                (sender, Arc::new(tokio::sync::Mutex::new(receiver)))
-            },
+            write_queue: SegQueue::new(),
             notifications_disabled: false,
             default_writer_id: None,
             cel_executor_cache: Arc::new(Mutex::new(CelExecutor::new())),
@@ -1100,11 +1084,6 @@ impl Store {
     /// Get a reference to the snowflake generator
     pub fn get_snowflake(&self) -> &Arc<Snowflake> {
         &self.snowflake
-    }
-
-    /// Get a clone of the write channel receiver for external consumption
-    pub fn get_write_channel_receiver(&self) -> Arc<tokio::sync::Mutex<Receiver<Vec<Request>>>> {
-        self.write_channel.1.clone()
     }
 
     /// Disable notifications temporarily (e.g., during WAL replay)
@@ -1143,7 +1122,7 @@ impl Store {
         Ok(())
     }
 
-    async fn write(
+    fn write(
         &mut self,
         entity_id: &EntityId,
         field_type: &FieldType,
@@ -1320,7 +1299,7 @@ impl Store {
                         field_type,
                         current_request,
                         previous_request,
-                    ).await;
+                    );
                 } else {
                     // Incoming write is older, ignore it
                     return Ok(false);
@@ -1364,7 +1343,7 @@ impl Store {
                         field_type,
                         current_request,
                         previous_request,
-                    ).await;
+                    );
                 } else if write_time.is_some() && incoming_time < field.write_time {
                     // Incoming write is older, ignore it
                     return Ok(false);
@@ -1528,7 +1507,7 @@ impl Store {
     }
     
     /// Trigger notifications for a write operation
-    async fn trigger_notifications(
+    fn trigger_notifications(
         &mut self,
         entity_id: &EntityId,
         field_type: &FieldType,
@@ -1629,15 +1608,8 @@ impl Store {
                     if let Some(field_map) = self.id_notifications.get_mut(entity_id) {
                         if let Some(sender_map) = field_map.get_mut(config_field_type) {
                             if let Some(senders) = sender_map.get_mut(&config) {
-                                let mut failed_indices = Vec::new();
-                                for (index, sender) in senders.iter().enumerate() {
-                                    if sender.send(notification.clone()).await.is_err() {
-                                        failed_indices.push(index);
-                                    }
-                                }
-                                // Remove failed senders in reverse order to maintain indices
-                                for &index in failed_indices.iter().rev() {
-                                    senders.remove(index);
+                                for sender in senders.iter() {
+                                    sender.borrow_mut().push_back(notification.clone());
                                 }
                             }
                         }
@@ -1651,16 +1623,9 @@ impl Store {
                     if let Some(field_map) = self.type_notifications.get_mut(config_entity_type) {
                         if let Some(sender_map) = field_map.get_mut(config_field_type) {
                             if let Some(senders) = sender_map.get_mut(&config) {
-                                let mut failed_indices = Vec::new();
                                 // Send to all senders for this config
-                                for (index, sender) in senders.iter().enumerate() {
-                                    if sender.send(notification.clone()).await.is_err() {
-                                        failed_indices.push(index);
-                                    }
-                                }
-                                // Remove failed senders in reverse order to maintain indices
-                                for &index in failed_indices.iter().rev() {
-                                    senders.remove(index);
+                                for sender in senders.iter() {
+                                    sender.borrow_mut().push_back(notification.clone());
                                 }
                             }
                         }
@@ -1671,81 +1636,64 @@ impl Store {
     }
 }
 
-#[async_trait]
-impl StoreTrait for AsyncStore {
-    async fn get_entity_schema(&self, entity_type: &EntityType) -> Result<EntitySchema<Single>> {
-        self.inner.get_entity_schema(entity_type)
+impl StoreTrait for Store {
+    fn get_entity_schema(&self, entity_type: &EntityType) -> Result<EntitySchema<Single>> {
+        self.get_entity_schema(entity_type)
     }
 
-    async fn get_complete_entity_schema(&self, entity_type: &EntityType) -> Result<EntitySchema<Complete>> {
-        self.inner.get_complete_entity_schema(entity_type)
+    fn get_complete_entity_schema(&self, entity_type: &EntityType) -> Result<EntitySchema<Complete>> {
+        self.get_complete_entity_schema(entity_type)
     }
 
-    async fn get_field_schema(&self, entity_type: &EntityType, field_type: &FieldType) -> Result<FieldSchema> {
-        self.inner.get_field_schema(entity_type, field_type)
+    fn get_field_schema(&self, entity_type: &EntityType, field_type: &FieldType) -> Result<FieldSchema> {
+        self.get_field_schema(entity_type, field_type)
     }
 
-    async fn set_field_schema(&mut self, entity_type: &EntityType, field_type: &FieldType, schema: FieldSchema) -> Result<()> {
-        self.inner.set_field_schema(entity_type, field_type, schema).await
+    fn set_field_schema(&mut self, entity_type: &EntityType, field_type: &FieldType, schema: FieldSchema) -> Result<()> {
+        self.set_field_schema(entity_type, field_type, schema)
     }
 
-    async fn entity_exists(&self, entity_id: &EntityId) -> bool {
-        self.inner.entity_exists(entity_id)
+    fn entity_exists(&self, entity_id: &EntityId) -> bool {
+        self.entity_exists(entity_id)
     }
 
-    async fn field_exists(&self, entity_type: &EntityType, field_type: &FieldType) -> bool {
-        self.inner.field_exists(entity_type, field_type)
+    fn field_exists(&self, entity_type: &EntityType, field_type: &FieldType) -> bool {
+        self.field_exists(entity_type, field_type)
     }
 
-    async fn perform(&self, requests: Vec<Request>) -> Result<Vec<Request>> {
-        self.inner.perform(requests)
+    fn perform(&self, requests: Vec<Request>) -> Result<Vec<Request>> {
+        self.perform(requests)
     }
 
-    async fn perform_mut(&mut self, requests: Vec<Request>) -> Result<Vec<Request>> {
-        self.inner.perform_mut(requests).await
+    fn perform_mut(&mut self, requests: Vec<Request>) -> Result<Vec<Request>> {
+        self.perform_mut(requests)
     }
 
-    async fn find_entities_paginated(&self, entity_type: &EntityType, page_opts: Option<PageOpts>, filter: Option<String>) -> Result<PageResult<EntityId>> {
-        self.inner.find_entities_paginated(entity_type, page_opts, filter)
+    fn find_entities_paginated(&self, entity_type: &EntityType, page_opts: Option<PageOpts>, filter: Option<String>) -> Result<PageResult<EntityId>> {
+        self.find_entities_paginated(entity_type, page_opts, filter)
     }
 
-    async fn find_entities_exact(&self, entity_type: &EntityType, page_opts: Option<PageOpts>, filter: Option<String>) -> Result<PageResult<EntityId>> {
-        self.inner.find_entities_exact(entity_type, page_opts, filter)
+    fn find_entities_exact(&self, entity_type: &EntityType, page_opts: Option<PageOpts>, filter: Option<String>) -> Result<PageResult<EntityId>> {
+        self.find_entities_exact(entity_type, page_opts, filter)
     }
 
-    async fn find_entities(&self, entity_type: &EntityType, filter: Option<String>) -> Result<Vec<EntityId>> {
-        self.inner.find_entities(entity_type, filter)
+    fn find_entities(&self, entity_type: &EntityType, filter: Option<String>) -> Result<Vec<EntityId>> {
+        self.find_entities(entity_type, filter)
     }
 
-    async fn get_entity_types(&self) -> Result<Vec<EntityType>> {
-        self.inner.get_entity_types()
+    fn get_entity_types(&self) -> Result<Vec<EntityType>> {
+        self.get_entity_types()
     }
 
-    async fn get_entity_types_paginated(&self, page_opts: Option<PageOpts>) -> Result<PageResult<EntityType>> {
-        self.inner.get_entity_types_paginated(page_opts)
+    fn get_entity_types_paginated(&self, page_opts: Option<PageOpts>) -> Result<PageResult<EntityType>> {
+        self.get_entity_types_paginated(page_opts)
     }
 
-    async fn register_notification(&mut self, config: NotifyConfig, sender: NotificationSender) -> Result<()> {
-        self.inner.register_notification(config, sender)
+    fn register_notification(&mut self, config: NotifyConfig, sender: NotificationQueue) -> Result<()> {
+        self.register_notification(config, sender)
     }
 
-    async fn unregister_notification(&mut self, config: &NotifyConfig, sender: &NotificationSender) -> bool {
-        self.inner.unregister_notification(config, sender)
-    }
-}
-
-impl AsyncStore {
-    pub fn new(snowflake: Arc<Snowflake>) -> Self {
-        Self {
-            inner: Store::new(snowflake),
-        }
-    }
-
-    pub fn inner(&self) -> &Store {
-        &self.inner
-    }
-
-    pub fn inner_mut(&mut self) -> &mut Store {
-        &mut self.inner
+    fn unregister_notification(&mut self, config: &NotifyConfig, sender: &NotificationQueue) -> bool {
+        self.unregister_notification(config, sender)
     }
 }

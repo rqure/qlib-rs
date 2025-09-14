@@ -27,7 +27,7 @@ pub use field_schema::{FieldSchema, StorageScope};
 pub use request::{AdjustBehavior, PushCondition, Request};
 use serde::{Deserialize, Serialize};
 pub use snowflake::Snowflake;
-pub use store::{AsyncStore, Store};
+pub use store::{Store};
 pub use store_trait::StoreTrait;
 pub use indirection::{BadIndirectionReason, INDIRECTION_DELIMITER, resolve_indirection, resolve_indirection_async, path_async, path_to_entity_id_async};
 pub use pagination::{PageOpts, PageResult};
@@ -37,7 +37,7 @@ pub use cache::Cache;
 
 pub use store_proxy::{StoreProxy, StoreMessage, extract_message_id, AuthenticationResult};
 pub use value::Value;
-pub use notifications::{NotifyConfig, Notification, NotificationSender, NotificationReceiver, notification_channel, hash_notify_config};
+pub use notifications::{NotifyConfig, Notification, NotificationQueue, hash_notify_config};
 
 pub use utils::{from_base64, to_base64};
 

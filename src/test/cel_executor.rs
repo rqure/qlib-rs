@@ -9,7 +9,7 @@ use crate::expr::CelExecutor;
 use std::sync::Arc;
 
 #[allow(dead_code)]
-async fn setup_test_store_with_entity() -> Result<(Store, EntityId)> {
+fn setup_test_store_with_entity() -> Result<(Store, EntityId)> {
     let mut store = Store::new(Arc::new(Snowflake::new()));
 
     // Create a test entity type with various field types
@@ -108,13 +108,13 @@ async fn setup_test_store_with_entity() -> Result<(Store, EntityId)> {
     );
 
     let requests = vec![sschemaupdate!(schema)];
-    store.perform_mut(requests).await?;
+    store.perform_mut(requests)?;
 
     // Create a test entity
     let create_requests = store.perform_mut(vec![screate!(
         et_test.clone(),
         "test_entity".to_string()
-    )]).await?;
+    )])?;
     
     let entity_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
         id.clone()
@@ -140,20 +140,18 @@ async fn setup_test_store_with_entity() -> Result<(Store, EntityId)> {
         swrite!(entity_id.clone(), FieldType::from("CreatedAt"), stimestamp!(now)),
         swrite!(entity_id.clone(), FieldType::from("Data"), sblob!(test_data)),
     ];
-    store.perform_mut(field_requests).await?;
+    store.perform_mut(field_requests)?;
 
     Ok((store, entity_id))
 }
 
-#[tokio::test]
-async fn test_cel_executor_new() {
+fn test_cel_executor_new() {
     let _executor = CelExecutor::new();
     // Can't directly test the cache since it's private, but we can test behavior
     assert!(true); // Constructor should work without panicking
 }
 
-#[tokio::test]
-async fn test_cel_executor_get_or_compile_basic() -> Result<()> {
+fn test_cel_executor_get_or_compile_basic() -> Result<()> {
     let mut executor = CelExecutor::new();
     
     // Test compiling a simple expression
@@ -175,8 +173,7 @@ async fn test_cel_executor_get_or_compile_basic() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
-async fn test_cel_executor_get_or_compile_with_variables() -> Result<()> {
+fn test_cel_executor_get_or_compile_with_variables() -> Result<()> {
     let mut executor = CelExecutor::new();
     
     // Test expression with variables
@@ -191,8 +188,7 @@ async fn test_cel_executor_get_or_compile_with_variables() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
-async fn test_cel_executor_get_or_compile_invalid_expression() {
+fn test_cel_executor_get_or_compile_invalid_expression() {
     let mut executor = CelExecutor::new();
     
     // Test invalid CEL expression
@@ -206,8 +202,7 @@ async fn test_cel_executor_get_or_compile_invalid_expression() {
     }
 }
 
-#[tokio::test]
-async fn test_cel_executor_remove() -> Result<()> {
+fn test_cel_executor_remove() -> Result<()> {
     let mut executor = CelExecutor::new();
     
     // Compile an expression
@@ -222,10 +217,9 @@ async fn test_cel_executor_remove() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
-async fn test_cel_executor_execute_simple_expression() -> Result<()> {
+fn test_cel_executor_execute_simple_expression() -> Result<()> {
     let mut executor = CelExecutor::new();
-    let (mut store, entity_id) = setup_test_store_with_entity().await?;
+    let (mut store, entity_id) = setup_test_store_with_entity()?;
     
     // Test simple expression without variables
     let result = executor.execute("1 + 1", &entity_id, &mut store)?;
@@ -238,10 +232,9 @@ async fn test_cel_executor_execute_simple_expression() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
-async fn test_cel_executor_execute_with_string_field() -> Result<()> {
+fn test_cel_executor_execute_with_string_field() -> Result<()> {
     let mut executor = CelExecutor::new();
-    let (mut store, entity_id) = setup_test_store_with_entity().await?;
+    let (mut store, entity_id) = setup_test_store_with_entity()?;
     
     // Test expression using string field
     let result = executor.execute("Name + ' is awesome'", &entity_id, &mut store)?;
@@ -254,10 +247,9 @@ async fn test_cel_executor_execute_with_string_field() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
-async fn test_cel_executor_execute_with_int_field() -> Result<()> {
+fn test_cel_executor_execute_with_int_field() -> Result<()> {
     let mut executor = CelExecutor::new();
-    let (mut store, entity_id) = setup_test_store_with_entity().await?;
+    let (mut store, entity_id) = setup_test_store_with_entity()?;
     
     // Test expression using int field
     let result = executor.execute("Age + 10", &entity_id, &mut store)?;
@@ -270,10 +262,9 @@ async fn test_cel_executor_execute_with_int_field() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
-async fn test_cel_executor_execute_with_float_field() -> Result<()> {
+fn test_cel_executor_execute_with_float_field() -> Result<()> {
     let mut executor = CelExecutor::new();
-    let (mut store, entity_id) = setup_test_store_with_entity().await?;
+    let (mut store, entity_id) = setup_test_store_with_entity()?;
     
     // Test expression using float field
     let result = executor.execute("Score * 1.1", &entity_id, &mut store)?;
@@ -289,10 +280,9 @@ async fn test_cel_executor_execute_with_float_field() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
-async fn test_cel_executor_execute_with_bool_field() -> Result<()> {
+fn test_cel_executor_execute_with_bool_field() -> Result<()> {
     let mut executor = CelExecutor::new();
-    let (mut store, entity_id) = setup_test_store_with_entity().await?;
+    let (mut store, entity_id) = setup_test_store_with_entity()?;
     
     // Test expression using bool field
     let result = executor.execute("IsActive && true", &entity_id, &mut store)?;
@@ -305,10 +295,9 @@ async fn test_cel_executor_execute_with_bool_field() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
-async fn test_cel_executor_execute_with_choice_field() -> Result<()> {
+fn test_cel_executor_execute_with_choice_field() -> Result<()> {
     let mut executor = CelExecutor::new();
-    let (mut store, entity_id) = setup_test_store_with_entity().await?;
+    let (mut store, entity_id) = setup_test_store_with_entity()?;
     
     // Test expression using choice field (stored as int)
     let result = executor.execute("Status == 1", &entity_id, &mut store)?;
@@ -321,10 +310,9 @@ async fn test_cel_executor_execute_with_choice_field() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
-async fn test_cel_executor_execute_with_entity_reference_field() -> Result<()> {
+fn test_cel_executor_execute_with_entity_reference_field() -> Result<()> {
     let mut executor = CelExecutor::new();
-    let (mut store, entity_id) = setup_test_store_with_entity().await?;
+    let (mut store, entity_id) = setup_test_store_with_entity()?;
     
     // Test expression using entity reference field
     let result = executor.execute("Manager == 'Manager$123'", &entity_id, &mut store)?;
@@ -337,10 +325,9 @@ async fn test_cel_executor_execute_with_entity_reference_field() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
-async fn test_cel_executor_execute_with_entity_list_field() -> Result<()> {
+fn test_cel_executor_execute_with_entity_list_field() -> Result<()> {
     let mut executor = CelExecutor::new();
-    let (mut store, entity_id) = setup_test_store_with_entity().await?;
+    let (mut store, entity_id) = setup_test_store_with_entity()?;
     
     // Test expression using entity list field
     let result = executor.execute("size(Tags) == 2", &entity_id, &mut store)?;
@@ -353,10 +340,9 @@ async fn test_cel_executor_execute_with_entity_list_field() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
-async fn test_cel_executor_execute_with_blob_field() -> Result<()> {
+fn test_cel_executor_execute_with_blob_field() -> Result<()> {
     let mut executor = CelExecutor::new();
-    let (mut store, entity_id) = setup_test_store_with_entity().await?;
+    let (mut store, entity_id) = setup_test_store_with_entity()?;
     
     // Test expression using blob field (converted to base64)
     // "Hello" in base64 is "SGVsbG8="
@@ -370,10 +356,9 @@ async fn test_cel_executor_execute_with_blob_field() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
-async fn test_cel_executor_execute_with_timestamp_field() -> Result<()> {
+fn test_cel_executor_execute_with_timestamp_field() -> Result<()> {
     let mut executor = CelExecutor::new();
-    let (mut store, entity_id) = setup_test_store_with_entity().await?;
+    let (mut store, entity_id) = setup_test_store_with_entity()?;
     
     // Test expression using timestamp field
     // Just test that we can access the timestamp without error
@@ -387,14 +372,13 @@ async fn test_cel_executor_execute_with_timestamp_field() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
-async fn test_cel_executor_execute_with_entity_id_and_type() -> Result<()> {
+fn test_cel_executor_execute_with_entity_id_and_type() -> Result<()> {
     // Note: EntityId and EntityType are special variables that the CelExecutor
     // should add to the context, but they shouldn't be treated as field references.
     // For now, let's test a different aspect of the executor.
     
     let mut executor = CelExecutor::new();
-    let (mut store, entity_id) = setup_test_store_with_entity().await?;
+    let (mut store, entity_id) = setup_test_store_with_entity()?;
     
     // Test expression that doesn't reference EntityId/EntityType but still uses context
     let result = executor.execute("'TestEntity' == 'TestEntity'", &entity_id, &mut store)?;
@@ -415,10 +399,9 @@ async fn test_cel_executor_execute_with_entity_id_and_type() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
-async fn test_cel_executor_execute_complex_expression() -> Result<()> {
+fn test_cel_executor_execute_complex_expression() -> Result<()> {
     let mut executor = CelExecutor::new();
-    let (mut store, entity_id) = setup_test_store_with_entity().await?;
+    let (mut store, entity_id) = setup_test_store_with_entity()?;
     
     // Test complex expression combining multiple fields
     let result = executor.execute(
@@ -435,8 +418,7 @@ async fn test_cel_executor_execute_complex_expression() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
-async fn test_cel_executor_execute_with_indirection() -> Result<()> {
+fn test_cel_executor_execute_with_indirection() -> Result<()> {
     let mut executor = CelExecutor::new();
     let mut store = Store::new(Arc::new(Snowflake::new()));
 
@@ -490,13 +472,13 @@ async fn test_cel_executor_execute_with_indirection() -> Result<()> {
         sschemaupdate!(dept_schema),
         sschemaupdate!(user_schema)
     ];
-    store.perform_mut(requests).await?;
+    store.perform_mut(requests)?;
 
     // Create department entity
     let create_requests = store.perform_mut(vec![screate!(
         et_department.clone(),
         "Engineering".to_string()
-    )]).await?;
+    )])?;
     let dept_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
         id.clone()
     } else {
@@ -507,7 +489,7 @@ async fn test_cel_executor_execute_with_indirection() -> Result<()> {
     let create_requests = store.perform_mut(vec![screate!(
         et_user.clone(),
         "Alice".to_string()
-    )]).await?;
+    )])?;
     let user_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
         id.clone()
     } else {
@@ -521,7 +503,7 @@ async fn test_cel_executor_execute_with_indirection() -> Result<()> {
         swrite!(user_id.clone(), FieldType::from("Name"), sstr!("Alice")),
         swrite!(user_id.clone(), FieldType::from("Department"), sref!(Some(dept_id))),
     ];
-    store.perform_mut(field_requests).await?;
+    store.perform_mut(field_requests)?;
 
     // Test indirection: Department->Name should resolve to "Engineering"
     // The CEL executor should read the field "Department->Name" via the store's indirection system
@@ -563,8 +545,7 @@ async fn test_cel_executor_execute_with_indirection() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
-async fn test_cel_executor_execute_with_deep_indirection() -> Result<()> {
+fn test_cel_executor_execute_with_deep_indirection() -> Result<()> {
     let mut executor = CelExecutor::new();
     let mut store = Store::new(Arc::new(Snowflake::new()));
 
@@ -641,24 +622,24 @@ async fn test_cel_executor_execute_with_deep_indirection() -> Result<()> {
         sschemaupdate!(dept_schema),
         sschemaupdate!(employee_schema)
     ];
-    store.perform_mut(requests).await?;
+    store.perform_mut(requests)?;
 
     // Create entities
-    let create_requests = store.perform_mut(vec![screate!(et_company.clone(), "TechCorp".to_string())]).await?;
+    let create_requests = store.perform_mut(vec![screate!(et_company.clone(), "TechCorp".to_string())])?;
     let company_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
         id.clone()
     } else {
         panic!("Expected created company ID");
     };
 
-    let create_requests = store.perform_mut(vec![screate!(et_department.clone(), "Engineering".to_string())]).await?;
+    let create_requests = store.perform_mut(vec![screate!(et_department.clone(), "Engineering".to_string())])?;
     let dept_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
         id.clone()
     } else {
         panic!("Expected created department ID");
     };
 
-    let create_requests = store.perform_mut(vec![screate!(et_employee.clone(), "Bob".to_string())]).await?;
+    let create_requests = store.perform_mut(vec![screate!(et_employee.clone(), "Bob".to_string())])?;
     let employee_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
         id.clone()
     } else {
@@ -673,7 +654,7 @@ async fn test_cel_executor_execute_with_deep_indirection() -> Result<()> {
         swrite!(dept_id.clone(), FieldType::from("Company"), sref!(Some(company_id))),
         swrite!(employee_id.clone(), FieldType::from("Name"), sstr!("Bob")),
         swrite!(employee_id.clone(), FieldType::from("Department"), sref!(Some(dept_id))),
-    ]).await?;
+    ])?;
 
     // Test deep indirection: Department->Company->Name should resolve to "TechCorp"
     let result = executor.execute(
@@ -714,8 +695,7 @@ async fn test_cel_executor_execute_with_deep_indirection() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
-async fn test_cel_executor_execute_with_indirection_and_entity_lists() -> Result<()> {
+fn test_cel_executor_execute_with_indirection_and_entity_lists() -> Result<()> {
     let mut executor = CelExecutor::new();
     let mut store = Store::new(Arc::new(Snowflake::new()));
 
@@ -768,17 +748,17 @@ async fn test_cel_executor_execute_with_indirection_and_entity_lists() -> Result
     store.perform_mut(vec![
         sschemaupdate!(project_schema),
         sschemaupdate!(team_schema)
-    ]).await?;
+    ])?;
 
     // Create project entities
-    let create_requests = store.perform_mut(vec![screate!(et_project.clone(), "WebApp".to_string())]).await?;
+    let create_requests = store.perform_mut(vec![screate!(et_project.clone(), "WebApp".to_string())])?;
     let project1_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
         id.clone()
     } else {
         panic!("Expected created project ID");
     };
 
-    let create_requests = store.perform_mut(vec![screate!(et_project.clone(), "MobileApp".to_string())]).await?;
+    let create_requests = store.perform_mut(vec![screate!(et_project.clone(), "MobileApp".to_string())])?;
     let project2_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
         id.clone()
     } else {
@@ -786,7 +766,7 @@ async fn test_cel_executor_execute_with_indirection_and_entity_lists() -> Result
     };
 
     // Create team entity
-    let create_requests = store.perform_mut(vec![screate!(et_team.clone(), "DevTeam".to_string())]).await?;
+    let create_requests = store.perform_mut(vec![screate!(et_team.clone(), "DevTeam".to_string())])?;
     let team_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
         id.clone()
     } else {
@@ -802,7 +782,7 @@ async fn test_cel_executor_execute_with_indirection_and_entity_lists() -> Result
         swrite!(team_id.clone(), FieldType::from("Name"), sstr!("DevTeam")),
         swrite!(team_id.clone(), FieldType::from("Projects"), sreflist![project1_id.clone(), project2_id.clone()]),
     ];
-    store.perform_mut(field_requests).await?;
+    store.perform_mut(field_requests)?;
 
     // Test that we can access the entity list field
     let result = executor.execute("size(Projects) == 2", &team_id, &mut store)?;
@@ -827,8 +807,7 @@ async fn test_cel_executor_execute_with_indirection_and_entity_lists() -> Result
     Ok(())
 }
 
-#[tokio::test]
-async fn test_cel_executor_execute_with_null_entity_reference() -> Result<()> {
+fn test_cel_executor_execute_with_null_entity_reference() -> Result<()> {
     let mut executor = CelExecutor::new();
     let mut store = Store::new(Arc::new(Snowflake::new()));
 
@@ -845,12 +824,12 @@ async fn test_cel_executor_execute_with_null_entity_reference() -> Result<()> {
         }
     );
     
-    store.perform_mut(vec![sschemaupdate!(user_schema)]).await?;
+    store.perform_mut(vec![sschemaupdate!(user_schema)])?;
 
     let create_requests = store.perform_mut(vec![screate!(
         et_user.clone(),
         "User".to_string()
-    )]).await?;
+    )])?;
 
     let user_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
         id.clone()
@@ -869,10 +848,9 @@ async fn test_cel_executor_execute_with_null_entity_reference() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
-async fn test_cel_executor_caching_behavior() -> Result<()> {
+fn test_cel_executor_caching_behavior() -> Result<()> {
     let mut executor = CelExecutor::new();
-    let (mut store, entity_id) = setup_test_store_with_entity().await?;
+    let (mut store, entity_id) = setup_test_store_with_entity()?;
     
     // Execute the same expression multiple times
     let expr = "Age + 10";
@@ -901,10 +879,9 @@ async fn test_cel_executor_caching_behavior() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
-async fn test_cel_executor_execute_runtime_error() -> Result<()> {
+fn test_cel_executor_execute_runtime_error() -> Result<()> {
     let mut executor = CelExecutor::new();
-    let (mut store, entity_id) = setup_test_store_with_entity().await?;
+    let (mut store, entity_id) = setup_test_store_with_entity()?;
     
     // Test expression that causes runtime error (division by zero)
     let result = executor.execute("Age / 0", &entity_id, &mut store);
@@ -919,10 +896,9 @@ async fn test_cel_executor_execute_runtime_error() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
-async fn test_cel_executor_execute_with_missing_field() -> Result<()> {
+fn test_cel_executor_execute_with_missing_field() -> Result<()> {
     let mut executor = CelExecutor::new();
-    let (mut store, entity_id) = setup_test_store_with_entity().await?;
+    let (mut store, entity_id) = setup_test_store_with_entity()?;
     
     // Test expression using non-existent field
     let result = executor.execute("NonExistentField == 'test'", &entity_id, &mut store);
@@ -933,8 +909,7 @@ async fn test_cel_executor_execute_with_missing_field() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
-async fn test_cel_executor_execute_with_mixed_field_access() -> Result<()> {
+fn test_cel_executor_execute_with_mixed_field_access() -> Result<()> {
     let mut executor = CelExecutor::new();
     let mut store = Store::new(Arc::new(Snowflake::new()));
 
@@ -988,13 +963,13 @@ async fn test_cel_executor_execute_with_mixed_field_access() -> Result<()> {
         sschemaupdate!(dept_schema),
         sschemaupdate!(user_schema)
     ];
-    store.perform_mut(requests).await?;
+    store.perform_mut(requests)?;
 
     // Create department entity
     let create_requests = store.perform_mut(vec![screate!(
         et_department.clone(),
         "Sales".to_string()
-    )]).await?;
+    )])?;
     let dept_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
         id.clone()
     } else {
@@ -1005,7 +980,7 @@ async fn test_cel_executor_execute_with_mixed_field_access() -> Result<()> {
     let create_requests = store.perform_mut(vec![screate!(
         et_user.clone(),
         "John".to_string()
-    )]).await?;
+    )])?;
     let user_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
         id.clone()
     } else {
@@ -1019,7 +994,7 @@ async fn test_cel_executor_execute_with_mixed_field_access() -> Result<()> {
         swrite!(user_id.clone(), FieldType::from("Age"), sint!(30)),
         swrite!(user_id.clone(), FieldType::from("Department"), sref!(Some(dept_id))),
     ];
-    store.perform_mut(field_requests).await?;
+    store.perform_mut(field_requests)?;
 
     // Test mixed access: direct fields (Name, Age) and indirect field (Department->Name) in one expression
     let result = executor.execute(

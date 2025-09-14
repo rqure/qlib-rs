@@ -7,9 +7,8 @@ use crate::data::StorageScope;
 #[allow(unused_imports)]
 use std::sync::Arc;
 
-#[tokio::test]
-async fn test_inheritance_in_find_entities() -> Result<()> {
-    let mut store = AsyncStore::new(Arc::new(Snowflake::new()));
+fn test_inheritance_in_find_entities() -> Result<()> {
+    let mut store = Store::new(Arc::new(Snowflake::new()));
 
     // Create base and derived entity types
     let et_animal = EntityType::from("Animal");
@@ -35,7 +34,7 @@ async fn test_inheritance_in_find_entities() -> Result<()> {
         }
     );
     let requests = vec![sschemaupdate!(animal_schema)];
-    store.perform_mut(requests).await?;
+    store.perform_mut(requests)?;
 
     // Mammal schema (inherits from Animal)
     let mut mammal_schema = EntitySchema::<Single>::new(et_mammal.clone(), vec![et_animal.clone()]);
@@ -49,7 +48,7 @@ async fn test_inheritance_in_find_entities() -> Result<()> {
         }
     );
     let requests = vec![sschemaupdate!(mammal_schema)];
-    store.perform_mut(requests).await?;
+    store.perform_mut(requests)?;
 
     // Dog schema (inherits from Mammal)
     let mut dog_schema = EntitySchema::<Single>::new(et_dog.clone(), vec![et_mammal.clone()]);
@@ -63,18 +62,18 @@ async fn test_inheritance_in_find_entities() -> Result<()> {
         }
     );
     let requests = vec![sschemaupdate!(dog_schema)];
-    store.perform_mut(requests).await?;
+    store.perform_mut(requests)?;
 
     // Cat schema (inherits from Mammal)
     let cat_schema = EntitySchema::<Single>::new(et_cat.clone(), vec![et_mammal.clone()]);
     let requests = vec![sschemaupdate!(cat_schema)];
-    store.perform_mut(requests).await?;
+    store.perform_mut(requests)?;
 
     // Create some entities
     let create_requests = store.perform_mut(vec![screate!(
         et_dog.clone(),
         "Buddy".to_string()
-    )]).await?;
+    )])?;
     let dog1_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
         id.clone()
     } else {
@@ -85,7 +84,7 @@ async fn test_inheritance_in_find_entities() -> Result<()> {
     let create_requests = store.perform_mut(vec![screate!(
         et_dog.clone(),
         "Rex".to_string()
-    )]).await?;
+    )])?;
     let dog2_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
         id.clone()
     } else {
@@ -96,7 +95,7 @@ async fn test_inheritance_in_find_entities() -> Result<()> {
     let create_requests = store.perform_mut(vec![screate!(
         et_cat.clone(),
         "Whiskers".to_string()
-    )]).await?;
+    )])?;
     let cat1_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
         id.clone()
     } else {
@@ -105,20 +104,20 @@ async fn test_inheritance_in_find_entities() -> Result<()> {
     let cat1_ref = cat1_id.clone();
 
     // Test: Finding Dog entities should return only dogs
-    let dogs = store.find_entities(&et_dog, None).await?;
+    let dogs = store.find_entities(&et_dog, None)?;
     assert_eq!(dogs.len(), 2);
     assert!(dogs.contains(&dog1_ref));
     assert!(dogs.contains(&dog2_ref));
 
     // Test: Finding Mammal entities should return dogs and cats (inheritance)
-    let mammals = store.find_entities(&et_mammal, None).await?;
+    let mammals = store.find_entities(&et_mammal, None)?;
     assert_eq!(mammals.len(), 3);
     assert!(mammals.contains(&dog1_ref));
     assert!(mammals.contains(&dog2_ref));
     assert!(mammals.contains(&cat1_ref));
 
     // Test: Finding Animal entities should return all (full inheritance chain)
-    let animals = store.find_entities(&et_animal, None).await?;
+    let animals = store.find_entities(&et_animal, None)?;
     assert_eq!(animals.len(), 3);
     assert!(animals.contains(&dog1_ref));
     assert!(animals.contains(&dog2_ref));
@@ -127,26 +126,25 @@ async fn test_inheritance_in_find_entities() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
-async fn test_inheritance_with_direct_instances() -> Result<()> {
-    let mut store = AsyncStore::new(Arc::new(Snowflake::new()));
+fn test_inheritance_with_direct_instances() -> Result<()> {
+    let mut store = Store::new(Arc::new(Snowflake::new()));
 
     let et_animal = EntityType::from("Animal");
     let et_mammal = EntityType::from("Mammal");
 
     // Create base Animal schema
     let animal_schema = EntitySchema::<Single>::new(et_animal.clone(), vec![]);
-    store.perform_mut(vec![sschemaupdate!(animal_schema)]).await?;
+    store.perform_mut(vec![sschemaupdate!(animal_schema)])?;
 
     // Create Mammal schema that inherits from Animal
     let mammal_schema = EntitySchema::<Single>::new(et_mammal.clone(), vec![et_animal.clone()]);
-    store.perform_mut(vec![sschemaupdate!(mammal_schema)]).await?;
+    store.perform_mut(vec![sschemaupdate!(mammal_schema)])?;
 
     // Create direct instances of both types
     let create_requests = store.perform_mut(vec![screate!(
         et_animal.clone(),
         "Generic Animal".to_string()
-    )]).await?;
+    )])?;
     let animal1_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
         id.clone()
     } else {
@@ -157,7 +155,7 @@ async fn test_inheritance_with_direct_instances() -> Result<()> {
     let create_requests = store.perform_mut(vec![screate!(
         et_mammal.clone(),
         "Generic Mammal".to_string()
-    )]).await?;
+    )])?;
     let mammal1_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
         id.clone()
     } else {
@@ -166,40 +164,39 @@ async fn test_inheritance_with_direct_instances() -> Result<()> {
     let mammal1_ref = mammal1_id.clone();
 
     // Test: Finding Animal entities should return both (mammal inherits from animal)
-    let animals = store.find_entities(&et_animal, None).await?;
+    let animals = store.find_entities(&et_animal, None)?;
     assert_eq!(animals.len(), 2);
     assert!(animals.contains(&animal1_ref));
     assert!(animals.contains(&mammal1_ref));
 
     // Test: Finding Mammal entities should return only the mammal
-    let mammals = store.find_entities(&et_mammal, None).await?;
+    let mammals = store.find_entities(&et_mammal, None)?;
     assert_eq!(mammals.len(), 1);
     assert!(mammals.contains(&mammal1_ref));
 
     Ok(())
 }
 
-#[tokio::test]
-async fn test_circular_inheritance_protection() -> Result<()> {
-    let mut store = AsyncStore::new(Arc::new(Snowflake::new()));
+fn test_circular_inheritance_protection() -> Result<()> {
+    let mut store = Store::new(Arc::new(Snowflake::new()));
 
     let et_a = EntityType::from("TypeA");
     let et_b = EntityType::from("TypeB");
 
     // Create TypeA
     let schema_a: EntitySchema<Single> = EntitySchema::<Single>::new(et_a.clone(), vec![]);
-    store.perform_mut(vec![sschemaupdate!(schema_a)]).await?;
+    store.perform_mut(vec![sschemaupdate!(schema_a)])?;
 
     // Create TypeB that inherits from TypeA
     let schema_b = EntitySchema::<Single>::new(et_b.clone(), vec![et_a.clone()]);
-    store.perform_mut(vec![sschemaupdate!(schema_b)]).await?;
+    store.perform_mut(vec![sschemaupdate!(schema_b)])?;
 
     // Try to make TypeA inherit from TypeB (should fail or be ignored)
     let circular_schema_a = EntitySchema::<Single>::new(et_a.clone(), vec![et_b.clone()]);
     
     // This should either fail or the system should handle it gracefully
     let requests = vec![sschemaupdate!(circular_schema_a)];
-    let result = store.perform_mut(requests).await;
+    let result = store.perform_mut(requests);
     
     // The test passes if either:
     // 1. The operation fails (returns an error)
@@ -211,8 +208,8 @@ async fn test_circular_inheritance_protection() -> Result<()> {
             store.perform_mut(vec![screate!(
                 et_b.clone(),
                 "Test B".to_string()
-            )]).await?;
-            let entities_a = store.find_entities(&et_a, None).await?;
+            )])?;
+            let entities_a = store.find_entities(&et_a, None)?;
             
             // Should not crash or loop infinitely
             assert!(entities_a.len() >= 1);
@@ -226,9 +223,8 @@ async fn test_circular_inheritance_protection() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
-async fn test_multi_inheritance() -> Result<()> {
-    let mut store = AsyncStore::new(Arc::new(Snowflake::new()));
+fn test_multi_inheritance() -> Result<()> {
+    let mut store = Store::new(Arc::new(Snowflake::new()));
 
     // Create base types
     let et_flyable = EntityType::from("Flyable");
@@ -255,7 +251,7 @@ async fn test_multi_inheritance() -> Result<()> {
             storage_scope: StorageScope::Runtime,
         }
     );
-    store.perform_mut(vec![sschemaupdate!(flyable_schema)]).await?;
+    store.perform_mut(vec![sschemaupdate!(flyable_schema)])?;
 
     // Create Mammal schema
     let mut mammal_schema = EntitySchema::<Single>::new(et_mammal.clone(), vec![]);
@@ -277,7 +273,7 @@ async fn test_multi_inheritance() -> Result<()> {
             storage_scope: StorageScope::Runtime,
         }
     );
-    store.perform_mut(vec![sschemaupdate!(mammal_schema)]).await?;
+    store.perform_mut(vec![sschemaupdate!(mammal_schema)])?;
 
     // Create Bat schema that inherits from BOTH Flyable and Mammal
     let mut bat_schema = EntitySchema::<Single>::new(et_bat.clone(), vec![et_flyable.clone(), et_mammal.clone()]);
@@ -290,13 +286,13 @@ async fn test_multi_inheritance() -> Result<()> {
             storage_scope: StorageScope::Runtime,
         }
     );
-    store.perform_mut(vec![sschemaupdate!(bat_schema)]).await?;
+    store.perform_mut(vec![sschemaupdate!(bat_schema)])?;
 
     // Create a bat entity
     let create_requests = store.perform_mut(vec![screate!(
         et_bat.clone(),
         "Vampire Bat".to_string()
-    )]).await?;
+    )])?;
     let bat_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
         id.clone()
     } else {
@@ -318,17 +314,17 @@ async fn test_multi_inheritance() -> Result<()> {
     assert!(complete_schema.fields.contains_key(&FieldType::from("EcholocationRange")));
 
     // Test inheritance lookup - searching for Flyable should find bats
-    let flyable_entities = store.find_entities(&et_flyable, None).await?;
+    let flyable_entities = store.find_entities(&et_flyable, None)?;
     assert_eq!(flyable_entities.len(), 1);
     assert!(flyable_entities.contains(&bat_id));
 
     // Test inheritance lookup - searching for Mammal should find bats
-    let mammal_entities = store.find_entities(&et_mammal, None).await?;
+    let mammal_entities = store.find_entities(&et_mammal, None)?;
     assert_eq!(mammal_entities.len(), 1);
     assert!(mammal_entities.contains(&bat_id));
 
     // Test inheritance lookup - searching for Bat should find bats
-    let bat_entities = store.find_entities(&et_bat, None).await?;
+    let bat_entities = store.find_entities(&et_bat, None)?;
     assert_eq!(bat_entities.len(), 1);
     assert!(bat_entities.contains(&bat_id));
 

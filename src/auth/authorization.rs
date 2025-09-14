@@ -1,4 +1,4 @@
-use crate::{ft, AsyncStore, Cache, CelExecutor, EntityId, Error, FieldType, Result, Value};
+use crate::{ft, Store, Cache, CelExecutor, EntityId, Error, FieldType, Result, Value};
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 #[allow(dead_code)]
@@ -9,8 +9,8 @@ pub enum AuthorizationScope {
 }
 
 #[allow(dead_code)]
-pub async fn get_scope(
-    store: &AsyncStore,
+pub fn get_scope(
+    store: &Store,
     executor: &mut CelExecutor,
     permission_cache: &Cache,
     subject_entity_id: &EntityId,
@@ -21,7 +21,6 @@ pub async fn get_scope(
 
     let entity_types = {
         let mut entity_types = store
-            .inner()
             .get_parent_types(resource_entity_id.get_type());
         entity_types.push(resource_entity_id.get_type().clone());
         entity_types
@@ -56,7 +55,7 @@ pub async fn get_scope(
                 let result = executor.execute(
                     &condition.as_str(),
                     &subject_entity_id,
-                    store.inner(),
+                    store,
                 );
 
                 if let Ok(result) = result {

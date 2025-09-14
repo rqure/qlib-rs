@@ -10,9 +10,8 @@ use crate::auth::{authenticate_user, find_user_by_name, create_user, set_user_pa
 #[allow(unused_imports)]
 use std::sync::Arc;
 
-#[tokio::test]
-async fn test_create_and_authenticate_user() -> Result<()> {
-    let mut store = AsyncStore::new(Arc::new(Snowflake::new()));
+fn test_create_and_authenticate_user() -> Result<()> {
+    let mut store = Store::new(Arc::new(Snowflake::new()));
     
     // Create the Object entity schema with Name field first
     let mut object_schema = EntitySchema::<Single>::new(EntityType::from("Object"), vec![]);
@@ -26,7 +25,7 @@ async fn test_create_and_authenticate_user() -> Result<()> {
         }
     );
     let requests = vec![sschemaupdate!(object_schema)];
-    store.perform_mut(requests).await?;
+    store.perform_mut(requests)?;
     
     // Create the Subject entity schema with required authentication fields
     let mut subject_schema = EntitySchema::<Single>::new(EntityType::from("Subject"), vec![EntityType::from("Object")]);
@@ -86,12 +85,12 @@ async fn test_create_and_authenticate_user() -> Result<()> {
         }
     );
     let requests = vec![sschemaupdate!(subject_schema)];
-    store.perform_mut(requests).await?;
+    store.perform_mut(requests)?;
     
     // Create the User entity schema (inheriting from Subject)
     let user_schema = EntitySchema::<Single>::new(EntityType::from("User"), vec![EntityType::from("Subject")]);
     let requests = vec![sschemaupdate!(user_schema)];
-    store.perform_mut(requests).await?;
+    store.perform_mut(requests)?;
     
     // Create an object entity to serve as parent
     let parent_id = EntityId::new("Object", 1);
@@ -103,38 +102,37 @@ async fn test_create_and_authenticate_user() -> Result<()> {
         timestamp: None,
         originator: None,
     }];
-    store.perform_mut(create_requests).await?;
+    store.perform_mut(create_requests)?;
     
     // Create a test user
     let username = "testuser";
     let password = "TestPassword123!"; // Meet password complexity requirements
     
-    let user_id = create_user(&mut store, username, AuthMethod::Native, &parent_id).await?;
+    let user_id = create_user(&mut store, username, AuthMethod::Native, &parent_id)?;
     println!("Created user with ID: {}", user_id);
     
     // Set the user password
     let auth_config = AuthConfig::default();
-    set_user_password(&mut store, &user_id, password, &auth_config).await?;
+    set_user_password(&mut store, &user_id, password, &auth_config)?;
     
     // Test finding the user by name
-    let found_user = find_user_by_name(&mut store, username).await?;
+    let found_user = find_user_by_name(&mut store, username)?;
     assert!(found_user.is_some());
     assert_eq!(found_user.unwrap(), user_id);
     
     // Test authentication
-    let authenticated_user = authenticate_user(&mut store, username, password, &auth_config).await?;
+    let authenticated_user = authenticate_user(&mut store, username, password, &auth_config)?;
     assert_eq!(authenticated_user, user_id);
     
     // Test authentication with wrong password
-    let wrong_auth = authenticate_user(&mut store, username, "wrongpassword", &auth_config).await;
+    let wrong_auth = authenticate_user(&mut store, username, "wrongpassword", &auth_config);
     assert!(wrong_auth.is_err());
     
     Ok(())
 }
 
-#[tokio::test]
-async fn test_authentication_with_factory_restore_format() -> Result<()> {
-    let mut store = AsyncStore::new(Arc::new(Snowflake::new()));
+fn test_authentication_with_factory_restore_format() -> Result<()> {
+    let mut store = Store::new(Arc::new(Snowflake::new()));
     
     // Create schemas as they would be loaded from factory restore
     // (this should match what's in base-topology.json)
@@ -151,7 +149,7 @@ async fn test_authentication_with_factory_restore_format() -> Result<()> {
         }
     );
     let requests = vec![sschemaupdate!(object_schema)];
-    store.perform_mut(requests).await?;
+    store.perform_mut(requests)?;
     
     // Create Subject schema
     let mut subject_schema = EntitySchema::<Single>::new(EntityType::from("Subject"), vec![EntityType::from("Object")]);
@@ -211,12 +209,12 @@ async fn test_authentication_with_factory_restore_format() -> Result<()> {
         }
     );
     let requests = vec![sschemaupdate!(subject_schema)];
-    store.perform_mut(requests).await?;
+    store.perform_mut(requests)?;
     
     // Create User schema
     let user_schema = EntitySchema::<Single>::new(EntityType::from("User"), vec![EntityType::from("Subject")]);
     let requests = vec![sschemaupdate!(user_schema)];
-    store.perform_mut(requests).await?;
+    store.perform_mut(requests)?;
     
     // Create a user entity as it would be created by factory restore
     let username = "qei";
@@ -235,7 +233,7 @@ async fn test_authentication_with_factory_restore_format() -> Result<()> {
         timestamp: None,
         originator: None,
     }];
-    store.perform_mut(create_requests).await?;
+    store.perform_mut(create_requests)?;
     
     // Set the user fields as factory restore would
     let auth_config = AuthConfig::default();
@@ -273,16 +271,16 @@ async fn test_authentication_with_factory_restore_format() -> Result<()> {
             originator: None,
         },
     ];
-    store.perform_mut(field_requests).await?;
+    store.perform_mut(field_requests)?;
     
     // Test finding the user by name
-    let found_user = find_user_by_name(&mut store, username).await?;
+    let found_user = find_user_by_name(&mut store, username)?;
     assert!(found_user.is_some(), "Should find user by name");
     assert_eq!(found_user.unwrap(), user_id, "Should return correct user ID");
     
     // Test authentication
     let auth_config = AuthConfig::default();
-    let authenticated_user = authenticate_user(&mut store, username, password, &auth_config).await?;
+    let authenticated_user = authenticate_user(&mut store, username, password, &auth_config)?;
     assert_eq!(authenticated_user, user_id, "Authentication should succeed and return correct user ID");
     
     Ok(())

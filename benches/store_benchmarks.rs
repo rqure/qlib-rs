@@ -5,7 +5,7 @@ use std::sync::Arc;
 use tokio::runtime::Runtime;
 
 // Helper to create an entity schema with basic fields
-async fn create_entity_schema(store: &mut AsyncStore, entity_type: &EntityType) -> Result<()> {
+fn create_entity_schema(store: &mut Store, entity_type: &EntityType) -> Result<()> {
     let mut schema = EntitySchema::<Single>::new(entity_type.clone(), vec![]);
     let ft_name = FieldType::from("Name");
     let ft_parent = FieldType::from("Parent");
@@ -49,7 +49,7 @@ async fn create_entity_schema(store: &mut AsyncStore, entity_type: &EntityType) 
     });
 
     let requests = vec![sschemaupdate!(schema)];
-    store.perform_mut(requests).await?;
+    store.perform_mut(requests)?;
     Ok(())
 }
 
@@ -64,17 +64,17 @@ fn bench_entity_creation(c: &mut Criterion) {
         group.bench_with_input(BenchmarkId::new("batch_create", batch_size), batch_size, |b, &batch_size| {
             b.iter(|| {
                 rt.block_on(async {
-                    let mut store = AsyncStore::new(Arc::new(Snowflake::new()));
+                    let mut store = Store::new(Arc::new(Snowflake::new()));
                     let et_user = EntityType::from("User");
                     
-                    create_entity_schema(&mut store, &et_user).await.unwrap();
+                    create_entity_schema(&mut store, &et_user).unwrap();
                     
                     let mut create_requests = Vec::new();
                     for i in 0..batch_size {
                         create_requests.push(screate!(et_user.clone(), format!("User{}", i)));
                     }
                     
-                    black_box(store.perform_mut(create_requests).await.unwrap());
+                    black_box(store.perform_mut(create_requests).unwrap());
                 })
             })
         });
@@ -90,16 +90,16 @@ fn bench_field_operations(c: &mut Criterion) {
     
     // Pre-create a store with entities for field operations
     let (mut store, entity_ids) = rt.block_on(async {
-        let mut store = AsyncStore::new(Arc::new(Snowflake::new()));
+        let mut store = Store::new(Arc::new(Snowflake::new()));
         let et_user = EntityType::from("User");
         
-        create_entity_schema(&mut store, &et_user).await.unwrap();
+        create_entity_schema(&mut store, &et_user).unwrap();
         
         let mut create_requests = Vec::new();
         for i in 0..1000 {
             create_requests.push(screate!(et_user.clone(), format!("User{}", i)));
         }
-        let create_requests = store.perform_mut(create_requests).await.unwrap();
+        let create_requests = store.perform_mut(create_requests).unwrap();
         
         let entity_ids: Vec<EntityId> = create_requests
             .iter()
@@ -122,7 +122,7 @@ fn bench_field_operations(c: &mut Criterion) {
                     for (i, entity_id) in entity_subset.iter().enumerate() {
                         write_requests.push(swrite!(entity_id.clone(), "Score".into(), sint!(i as i64)));
                     }
-                    black_box(store.perform_mut(write_requests).await.unwrap());
+                    black_box(store.perform_mut(write_requests).unwrap());
                 })
             })
         });
@@ -136,7 +136,7 @@ fn bench_field_operations(c: &mut Criterion) {
                     for entity_id in &entity_subset {
                         read_requests.push(sread!(entity_id.clone(), "Name".into()));
                     }
-                    black_box(store.perform_mut(read_requests).await.unwrap());
+                    black_box(store.perform_mut(read_requests).unwrap());
                 })
             })
         });
@@ -155,16 +155,16 @@ fn bench_entity_search(c: &mut Criterion) {
         
         group.bench_with_input(BenchmarkId::new("find_entities", dataset_size), dataset_size, |b, &dataset_size| {
             let store = rt.block_on(async {
-                let mut store = AsyncStore::new(Arc::new(Snowflake::new()));
+                let mut store = Store::new(Arc::new(Snowflake::new()));
                 let et_user = EntityType::from("User");
                 
-                create_entity_schema(&mut store, &et_user).await.unwrap();
+                create_entity_schema(&mut store, &et_user).unwrap();
                 
                 let mut create_requests = Vec::new();
                 for i in 0..dataset_size {
                     create_requests.push(screate!(et_user.clone(), format!("User{:04}", i)));
                 }
-                store.perform_mut(create_requests).await.unwrap();
+                store.perform_mut(create_requests).unwrap();
                 
                 store
             });
@@ -172,23 +172,23 @@ fn bench_entity_search(c: &mut Criterion) {
             b.iter(|| {
                 rt.block_on(async {
                     let et_user = EntityType::from("User");
-                    black_box(store.find_entities(&et_user, None).await.unwrap());
+                    black_box(store.find_entities(&et_user, None).unwrap());
                 })
             })
         });
         
         group.bench_with_input(BenchmarkId::new("find_entities_paginated", dataset_size), dataset_size, |b, &dataset_size| {
             let store = rt.block_on(async {
-                let mut store = AsyncStore::new(Arc::new(Snowflake::new()));
+                let mut store = Store::new(Arc::new(Snowflake::new()));
                 let et_user = EntityType::from("User");
                 
-                create_entity_schema(&mut store, &et_user).await.unwrap();
+                create_entity_schema(&mut store, &et_user).unwrap();
                 
                 let mut create_requests = Vec::new();
                 for i in 0..dataset_size {
                     create_requests.push(screate!(et_user.clone(), format!("User{:04}", i)));
                 }
-                store.perform_mut(create_requests).await.unwrap();
+                store.perform_mut(create_requests).unwrap();
                 
                 store
             });
@@ -197,7 +197,7 @@ fn bench_entity_search(c: &mut Criterion) {
                 rt.block_on(async {
                     let et_user = EntityType::from("User");
                     let page_opts = PageOpts::new(100, None);
-                    black_box(store.find_entities_paginated(&et_user, Some(page_opts), None).await.unwrap());
+                    black_box(store.find_entities_paginated(&et_user, Some(page_opts), None).unwrap());
                 })
             })
         });
@@ -213,13 +213,13 @@ fn bench_inheritance_operations(c: &mut Criterion) {
     
     // Create inheritance hierarchy: Entity -> User -> AdminUser
     let store = rt.block_on(async {
-        let mut store = AsyncStore::new(Arc::new(Snowflake::new()));
+        let mut store = Store::new(Arc::new(Snowflake::new()));
         
         let et_entity = EntityType::from("Entity");
         let et_user = EntityType::from("User");
         let et_admin = EntityType::from("AdminUser");
         
-        create_entity_schema(&mut store, &et_entity).await.unwrap();
+        create_entity_schema(&mut store, &et_entity).unwrap();
         
         // User inherits from Entity
         let mut user_schema = EntitySchema::<Single>::new(et_user.clone(), vec![et_entity.clone()]);
@@ -233,7 +233,7 @@ fn bench_inheritance_operations(c: &mut Criterion) {
             }
         );
         let requests = vec![sschemaupdate!(user_schema)];
-        store.perform_mut(requests).await.unwrap();
+        store.perform_mut(requests).unwrap();
         
         // AdminUser inherits from User
         let mut admin_schema = EntitySchema::<Single>::new(et_admin.clone(), vec![et_user.clone()]);
@@ -247,7 +247,7 @@ fn bench_inheritance_operations(c: &mut Criterion) {
             }
         );
         let requests = vec![sschemaupdate!(admin_schema)];
-        store.perform_mut(requests).await.unwrap();
+        store.perform_mut(requests).unwrap();
         
         // Create entities
         let mut create_requests = Vec::new();
@@ -256,7 +256,7 @@ fn bench_inheritance_operations(c: &mut Criterion) {
             create_requests.push(screate!(et_user.clone(), format!("User{}", i)));
             create_requests.push(screate!(et_admin.clone(), format!("Admin{}", i)));
         }
-        store.perform_mut(create_requests).await.unwrap();
+        store.perform_mut(create_requests).unwrap();
         
         store
     });
@@ -265,7 +265,7 @@ fn bench_inheritance_operations(c: &mut Criterion) {
         b.iter(|| {
             rt.block_on(async {
                 let et_entity = EntityType::from("Entity");
-                black_box(store.find_entities(&et_entity, None).await.unwrap());
+                black_box(store.find_entities(&et_entity, None).unwrap());
             })
         })
     });
@@ -274,7 +274,7 @@ fn bench_inheritance_operations(c: &mut Criterion) {
         b.iter(|| {
             rt.block_on(async {
                 let et_entity = EntityType::from("Entity");
-                black_box(store.find_entities_exact(&et_entity, None, None).await.unwrap());
+                black_box(store.find_entities_exact(&et_entity, None, None).unwrap());
             })
         })
     });
@@ -283,7 +283,7 @@ fn bench_inheritance_operations(c: &mut Criterion) {
         b.iter(|| {
             rt.block_on(async {
                 let et_admin = EntityType::from("AdminUser");
-                black_box(store.get_complete_entity_schema(&et_admin).await.unwrap());
+                black_box(store.get_complete_entity_schema(&et_admin).unwrap());
             })
         })
     });
@@ -298,16 +298,16 @@ fn bench_pagination(c: &mut Criterion) {
     
     // Create a large dataset
     let store = rt.block_on(async {
-        let mut store = AsyncStore::new(Arc::new(Snowflake::new()));
+        let mut store = Store::new(Arc::new(Snowflake::new()));
         let et_user = EntityType::from("User");
         
-        create_entity_schema(&mut store, &et_user).await.unwrap();
+        create_entity_schema(&mut store, &et_user).unwrap();
         
         let mut create_requests = Vec::new();
         for i in 0..10000 {
             create_requests.push(screate!(et_user.clone(), format!("User{:05}", i)));
         }
-        store.perform_mut(create_requests).await.unwrap();
+        store.perform_mut(create_requests).unwrap();
         
         store
     });
@@ -318,7 +318,7 @@ fn bench_pagination(c: &mut Criterion) {
                 rt.block_on(async {
                     let et_user = EntityType::from("User");
                     let page_opts = PageOpts::new(page_size, None);
-                    black_box(store.find_entities_paginated(&et_user, Some(page_opts), None).await.unwrap());
+                    black_box(store.find_entities_paginated(&et_user, Some(page_opts), None).unwrap());
                 })
             })
         });
@@ -335,19 +335,19 @@ fn bench_schema_operations(c: &mut Criterion) {
     group.bench_function("schema_creation", |b| {
         b.iter(|| {
             rt.block_on(async {
-                let mut store = AsyncStore::new(Arc::new(Snowflake::new()));
+                let mut store = Store::new(Arc::new(Snowflake::new()));
                 let et_test = EntityType::from("TestEntity");
-                black_box(create_entity_schema(&mut store, &et_test).await.unwrap());
+                black_box(create_entity_schema(&mut store, &et_test).unwrap());
             })
         })
     });
     
     // Pre-create a store with schemas for retrieval benchmarks
     let store = rt.block_on(async {
-        let mut store = AsyncStore::new(Arc::new(Snowflake::new()));
+        let mut store = Store::new(Arc::new(Snowflake::new()));
         for i in 0..100 {
             let et = EntityType::from(format!("TestEntity{}", i));
-            create_entity_schema(&mut store, &et).await.unwrap();
+            create_entity_schema(&mut store, &et).unwrap();
         }
         store
     });
@@ -356,7 +356,7 @@ fn bench_schema_operations(c: &mut Criterion) {
         b.iter(|| {
             rt.block_on(async {
                 let et_test = EntityType::from("TestEntity50");
-                black_box(store.get_entity_schema(&et_test).await.unwrap());
+                black_box(store.get_entity_schema(&et_test).unwrap());
             })
         })
     });
@@ -365,7 +365,7 @@ fn bench_schema_operations(c: &mut Criterion) {
         b.iter(|| {
             rt.block_on(async {
                 let et_test = EntityType::from("TestEntity50");
-                black_box(store.get_complete_entity_schema(&et_test).await.unwrap());
+                black_box(store.get_complete_entity_schema(&et_test).unwrap());
             })
         })
     });

@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use crate::{
-    data::StoreTrait, EntityId, EntityType, FieldType, Notification, NotificationReceiver, NotificationSender, NotifyConfig, Request, Value
+    data::StoreTrait, EntityId, EntityType, FieldType, Notification, NotificationQueue, NotifyConfig, Request, Value
 };
 
 #[derive(Debug)]
@@ -19,16 +19,16 @@ pub struct Cache {
     // For instance, an entity with a specific ID may have different values for the other fields.
     pub fields_by_entity_id: HashMap<EntityId, HashMap<FieldType, Value>>,
 
-    pub sender: NotificationSender,
+    pub sender: NotificationQueue,
 }
 
 impl Cache {
-    pub async fn new(
+    pub fn new(
         store: &mut impl StoreTrait,
         entity_type: EntityType,
         index_fields: Vec<FieldType>,
         other_fields: Vec<FieldType>,
-    ) -> crate::Result<(Self, NotificationReceiver)> {
+    ) -> crate::Result<(Self, NotificationQueue)> {
         let (sender, receiver) = crate::notification_channel();
 
         // Register notifications for all fields
@@ -41,7 +41,7 @@ impl Cache {
                     context: vec![],
                 },
                 sender.clone(),
-            ).await?;
+            )?;
         }
 
         for field in other_fields.iter() {
@@ -53,14 +53,14 @@ impl Cache {
                     context: vec![],
                 },
                 sender.clone(),
-            ).await?;
+            )?;
         }
 
         // Read initial values from the store
         let mut entity_ids_by_index_fields = HashMap::new();
         let mut fields_by_entity_id = HashMap::new();
 
-        let entity_ids = store.find_entities(&entity_type, None).await?;
+        let entity_ids = store.find_entities(&entity_type, None)?;
         for entity_id in entity_ids {
             let mut reqs = Vec::new();
             for field in index_fields.iter() {
@@ -71,7 +71,7 @@ impl Cache {
                 reqs.push(crate::sread!(entity_id.clone(), field.clone()));
             }
 
-            let reqs = store.perform_mut(reqs).await?;
+            let reqs = store.perform_mut(reqs)?;
 
             let index_key = reqs[..index_fields.len()]
                 .iter()
@@ -197,7 +197,7 @@ impl Cache {
         });
     }
 
-    pub fn get_config_sender(&self) -> (Vec<NotifyConfig>, Option<NotificationSender>) {
+    pub fn get_config_sender(&self) -> (Vec<NotifyConfig>, Option<NotificationQueue>) {
         let sender = &self.sender;
         let mut configs = Vec::new();
 

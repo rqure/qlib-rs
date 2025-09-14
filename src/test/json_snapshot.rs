@@ -9,14 +9,13 @@ use crate::data::StorageScope;
 use crate::StoreTrait;
 
 #[allow(unused_imports)]
-use crate::{restore_json_snapshot, screate, sschemaupdate, swrite, take_json_snapshot, EntitySchema, EntityType, FieldSchema, FieldType, Request, Single, Snowflake, AsyncStore, Value};
+use crate::{restore_json_snapshot, screate, sschemaupdate, swrite, take_json_snapshot, EntitySchema, EntityType, FieldSchema, FieldType, Request, Single, Snowflake, Store, Value};
 
 
-#[tokio::test]
-async fn test_json_snapshot_functionality() {
+fn test_json_snapshot_functionality() {
     // Create a new store
     let snowflake = Arc::new(Snowflake::new());
-    let mut store = AsyncStore::new(snowflake.clone());
+    let mut store = Store::new(snowflake.clone());
 
     // Define schemas as per the example
     let mut object_schema = EntitySchema::<Single>::new("Object", vec![]);
@@ -136,7 +135,7 @@ async fn test_json_snapshot_functionality() {
         sschemaupdate!(machine_schema),
         sschemaupdate!(sensor_schema),
         sschemaupdate!(temp_sensor_schema),
-    ]).await.unwrap();
+    ]).unwrap();
 
     // Create entities - let the store generate IDs
     let create_requests = store.perform_mut(vec![
@@ -148,7 +147,7 @@ async fn test_json_snapshot_functionality() {
             timestamp: None,
             originator: None,
         },
-    ]).await.unwrap();
+    ]).unwrap();
     
     // Get the actual created root ID
     let root_id = if let Some(Request::Create { created_entity_id: Some(ref id), .. }) = create_requests.first() {
@@ -159,7 +158,7 @@ async fn test_json_snapshot_functionality() {
 
     let machine_create_requests = store.perform_mut(vec![
         screate!(EntityType::from("Machine"), "Server1".to_string(), root_id.clone()),
-    ]).await.unwrap();
+    ]).unwrap();
     
     // Get the actual created machine ID
     let machine_id = if let Some(Request::Create { created_entity_id: Some(ref id), .. }) = machine_create_requests.first() {
@@ -170,7 +169,7 @@ async fn test_json_snapshot_functionality() {
 
     let sensor_create_requests = store.perform_mut(vec![
         screate!(EntityType::from("TemperatureSensor"), "IntakeTemp".to_string(), machine_id.clone()),
-    ]).await.unwrap();
+    ]).unwrap();
     
     // Get the actual created sensor ID
     let sensor_id = if let Some(Request::Create { created_entity_id: Some(ref id), .. }) = sensor_create_requests.first() {
@@ -193,10 +192,10 @@ async fn test_json_snapshot_functionality() {
         swrite!(sensor_id.clone(), FieldType::from("CurrentValue"), Some(Value::Float(72.5))),
         swrite!(sensor_id.clone(), FieldType::from("Unit"), Some(Value::String("C".to_string()))),
         swrite!(sensor_id.clone(), FieldType::from("CalibrationOffset"), Some(Value::Float(0.5))),
-    ]).await.unwrap();
+    ]).unwrap();
 
     // Take JSON snapshot
-    let snapshot = take_json_snapshot(&mut store).await.unwrap();
+    let snapshot = take_json_snapshot(&mut store).unwrap();
     
     // Verify the snapshot structure matches the expected format
     assert_eq!(snapshot.schemas.len(), 5);
@@ -236,11 +235,10 @@ async fn test_json_snapshot_functionality() {
     println!("JSON Snapshot:\n{}", json_str);
 }
 
-#[tokio::test]
-async fn test_json_snapshot_restore() {
+fn test_json_snapshot_restore() {
     // Create and populate the first store
     let snowflake1 = Arc::new(Snowflake::new());
-    let mut store1 = AsyncStore::new(snowflake1.clone());
+    let mut store1 = Store::new(snowflake1.clone());
 
     // Define schemas
     let mut object_schema = EntitySchema::<Single>::new("Object", vec![]);
@@ -299,7 +297,7 @@ async fn test_json_snapshot_restore() {
         sschemaupdate!(object_schema),
         sschemaupdate!(root_schema),
         sschemaupdate!(document_schema),
-    ]).await.unwrap();
+    ]).unwrap();
 
     // Create entities in store1
     let create_requests = store1.perform_mut(vec![
@@ -311,7 +309,7 @@ async fn test_json_snapshot_restore() {
             timestamp: None,
             originator: None,
         },
-    ]).await.unwrap();
+    ]).unwrap();
     
     let root_id = if let Some(Request::Create { created_entity_id: Some(ref id), .. }) = create_requests.first() {
         id.clone()
@@ -321,7 +319,7 @@ async fn test_json_snapshot_restore() {
 
     let doc_create_requests = store1.perform_mut(vec![
         screate!(EntityType::from("Document"), "TestDoc".to_string(), root_id.clone()),
-    ]).await.unwrap();
+    ]).unwrap();
     
     let doc_id = if let Some(Request::Create { created_entity_id: Some(ref id), .. }) = doc_create_requests.first() {
         id.clone()
@@ -338,20 +336,20 @@ async fn test_json_snapshot_restore() {
         swrite!(doc_id.clone(), FieldType::from("Name"), Some(Value::String("TestDoc".to_string()))),
         swrite!(doc_id.clone(), FieldType::from("Description"), Some(Value::String("Test document".to_string()))),
         swrite!(doc_id.clone(), FieldType::from("Content"), Some(Value::String("Hello, World!".to_string()))),
-    ]).await.unwrap();
+    ]).unwrap();
 
     // Take JSON snapshot from store1
-    let snapshot = take_json_snapshot(&mut store1).await.unwrap();
+    let snapshot = take_json_snapshot(&mut store1).unwrap();
 
     // Create a new empty store
     let snowflake2 = Arc::new(Snowflake::new());
-    let mut store2 = AsyncStore::new(snowflake2.clone());
+    let mut store2 = Store::new(snowflake2.clone());
 
     // Restore the snapshot to store2
-    restore_json_snapshot(&mut store2, &snapshot).await.unwrap();
+    restore_json_snapshot(&mut store2, &snapshot).unwrap();
 
     // Verify that store2 now contains the same data
-    let entities = store2.find_entities(&EntityType::from("Root"), None).await.unwrap();
+    let entities = store2.find_entities(&EntityType::from("Root"), None).unwrap();
     assert_eq!(entities.len(), 1);
     
     let root_id_restored = &entities[0];
@@ -362,7 +360,7 @@ async fn test_json_snapshot_restore() {
         crate::sread!(root_id_restored.clone(), FieldType::from("Description")),
         crate::sread!(root_id_restored.clone(), FieldType::from("Status")),
         crate::sread!(root_id_restored.clone(), FieldType::from("Children")),
-    ]).await.unwrap();
+    ]).unwrap();
     
     if let Some(Request::Read { value: Some(Value::String(name)), .. }) = read_requests.get(0) {
         assert_eq!(name, "TestRoot");
@@ -390,7 +388,7 @@ async fn test_json_snapshot_restore() {
         let doc_read_requests = store2.perform_mut(vec![
             crate::sread!(doc_id_restored.clone(), FieldType::from("Name")),
             crate::sread!(doc_id_restored.clone(), FieldType::from("Content")),
-        ]).await.unwrap();
+        ]).unwrap();
         
         if let Some(Request::Read { value: Some(Value::String(doc_name)), .. }) = doc_read_requests.get(0) {
             assert_eq!(doc_name, "TestDoc");
@@ -410,13 +408,12 @@ async fn test_json_snapshot_restore() {
     println!("JSON snapshot restore test passed successfully!");
 }
 
-#[tokio::test]
-async fn test_json_snapshot_path_resolution() {
+fn test_json_snapshot_path_resolution() {
     // This test ensures that normal entity references (not Children) show paths
     // while Children fields show nested entity objects
     
     let snowflake = Arc::new(Snowflake::new());
-    let mut store = AsyncStore::new(snowflake.clone());
+    let mut store = Store::new(snowflake.clone());
 
     // Define schemas
     let mut object_schema = EntitySchema::<Single>::new("Object", vec![]);
@@ -478,12 +475,12 @@ async fn test_json_snapshot_path_resolution() {
         sschemaupdate!(root_schema),
         sschemaupdate!(folder_schema),
         sschemaupdate!(file_schema),
-    ]).await.unwrap();
+    ]).unwrap();
 
     // Create entities - start with a Root entity
     let root_create = store.perform_mut(vec![
         screate!(EntityType::from("Root"), "Root".to_string()),
-    ]).await.unwrap();
+    ]).unwrap();
     let root_id = if let Some(Request::Create { created_entity_id: Some(ref id), .. }) = root_create.first() {
         id.clone()
     } else {
@@ -492,7 +489,7 @@ async fn test_json_snapshot_path_resolution() {
 
     let folder_create = store.perform_mut(vec![
         screate!(EntityType::from("Folder"), "Documents".to_string(), root_id.clone()),
-    ]).await.unwrap();
+    ]).unwrap();
     let folder_id = if let Some(Request::Create { created_entity_id: Some(ref id), .. }) = folder_create.first() {
         id.clone()
     } else {
@@ -501,7 +498,7 @@ async fn test_json_snapshot_path_resolution() {
 
     let file_create = store.perform_mut(vec![
         screate!(EntityType::from("File"), "test.txt".to_string(), folder_id.clone()),
-    ]).await.unwrap();
+    ]).unwrap();
     let file_id = if let Some(Request::Create { created_entity_id: Some(ref id), .. }) = file_create.first() {
         id.clone()
     } else {
@@ -522,10 +519,10 @@ async fn test_json_snapshot_path_resolution() {
         // Set up Parent chain for path resolution (used by spath! macro)
         swrite!(folder_id.clone(), FieldType::from("Parent"), Some(Value::EntityReference(Some(root_id.clone())))),
         swrite!(file_id.clone(), FieldType::from("Parent"), Some(Value::EntityReference(Some(folder_id.clone())))),
-    ]).await.unwrap();
+    ]).unwrap();
 
     // Take snapshot
-    let snapshot = take_json_snapshot(&mut store).await.unwrap();
+    let snapshot = take_json_snapshot(&mut store).unwrap();
     
     println!("Generated JSON snapshot with path resolution:");
     println!("{}", serde_json::to_string_pretty(&snapshot).unwrap());
@@ -556,12 +553,11 @@ async fn test_json_snapshot_path_resolution() {
     println!("Path resolution test completed successfully!");
 }
 
-#[tokio::test]
-async fn test_json_snapshot_storage_scope() {
+fn test_json_snapshot_storage_scope() {
     // Test that storage scope is properly preserved in JSON snapshots
     
     let snowflake = Arc::new(Snowflake::new());
-    let mut store = AsyncStore::new(snowflake.clone());
+    let mut store = Store::new(snowflake.clone());
 
     // Define schemas with different storage scopes
     let mut object_schema = EntitySchema::<Single>::new("Object", vec![]);
@@ -599,15 +595,15 @@ async fn test_json_snapshot_storage_scope() {
     store.perform_mut(vec![
         sschemaupdate!(object_schema),
         sschemaupdate!(root_schema),
-    ]).await.unwrap();
+    ]).unwrap();
 
     // Create a root entity
     store.perform_mut(vec![
         screate!(EntityType::from("Root"), "TestRoot".to_string()),
-    ]).await.unwrap();
+    ]).unwrap();
 
     // Take JSON snapshot
-    let snapshot = take_json_snapshot(&mut store).await.unwrap();
+    let snapshot = take_json_snapshot(&mut store).unwrap();
     
     // Verify the schema in the snapshot has the correct storage scopes
     let root_schema = snapshot.schemas.iter()
@@ -649,13 +645,12 @@ async fn test_json_snapshot_storage_scope() {
     println!("Storage scope test completed successfully!");
 }
 
-#[tokio::test]
-async fn test_json_snapshot_entity_list_paths() {
+fn test_json_snapshot_entity_list_paths() {
     // Test that EntityList fields with paths are properly handled during restore
     // This reproduces the CandidateList issue from base-topology.json
     
     let snowflake = Arc::new(Snowflake::new());
-    let mut store = AsyncStore::new(snowflake.clone());
+    let mut store = Store::new(snowflake.clone());
 
     // Define schemas similar to the base topology
     let mut object_schema = EntitySchema::<Single>::new("Object", vec![]);
@@ -709,12 +704,12 @@ async fn test_json_snapshot_entity_list_paths() {
         sschemaupdate!(machine_schema),
         sschemaupdate!(service_schema),
         sschemaupdate!(fault_tolerance_schema),
-    ]).await.unwrap();
+    ]).unwrap();
 
     // Create the entity structure from base-topology.json
     let create_requests = store.perform_mut(vec![
         screate!(EntityType::from("Root"), "QOS".to_string()),
-    ]).await.unwrap();
+    ]).unwrap();
     let root_id = if let Some(Request::Create { created_entity_id: Some(ref id), .. }) = create_requests.first() {
         id.clone()
     } else {
@@ -722,14 +717,14 @@ async fn test_json_snapshot_entity_list_paths() {
     };
 
     // Create machines
-    let machine_a_create = store.perform_mut(vec![screate!(EntityType::from("Machine"), "qos-a".to_string(), root_id.clone())]).await.unwrap();
+    let machine_a_create = store.perform_mut(vec![screate!(EntityType::from("Machine"), "qos-a".to_string(), root_id.clone())]).unwrap();
     let machine_a_id = if let Some(Request::Create { created_entity_id: Some(ref id), .. }) = machine_a_create.first() {
         id.clone()
     } else {
         panic!("Failed to get created machine A entity ID");
     };
 
-    let machine_b_create = store.perform_mut(vec![screate!(EntityType::from("Machine"), "qos-b".to_string(), root_id.clone())]).await.unwrap();
+    let machine_b_create = store.perform_mut(vec![screate!(EntityType::from("Machine"), "qos-b".to_string(), root_id.clone())]).unwrap();
     let machine_b_id = if let Some(Request::Create { created_entity_id: Some(ref id), .. }) = machine_b_create.first() {
         id.clone()
     } else {
@@ -737,14 +732,14 @@ async fn test_json_snapshot_entity_list_paths() {
     };
 
     // Create services
-    let service_a_create = store.perform_mut(vec![screate!(EntityType::from("Service"), "qcore".to_string(), machine_a_id.clone())]).await.unwrap();
+    let service_a_create = store.perform_mut(vec![screate!(EntityType::from("Service"), "qcore".to_string(), machine_a_id.clone())]).unwrap();
     let service_a_id = if let Some(Request::Create { created_entity_id: Some(ref id), .. }) = service_a_create.first() {
         id.clone()
     } else {
         panic!("Failed to get created service A entity ID");
     };
 
-    let service_b_create = store.perform_mut(vec![screate!(EntityType::from("Service"), "qcore".to_string(), machine_b_id.clone())]).await.unwrap();
+    let service_b_create = store.perform_mut(vec![screate!(EntityType::from("Service"), "qcore".to_string(), machine_b_id.clone())]).unwrap();
     let service_b_id = if let Some(Request::Create { created_entity_id: Some(ref id), .. }) = service_b_create.first() {
         id.clone()
     } else {
@@ -752,7 +747,7 @@ async fn test_json_snapshot_entity_list_paths() {
     };
 
     // Create fault tolerance entity
-    let ft_create = store.perform_mut(vec![screate!(EntityType::from("FaultTolerance"), "qcore".to_string(), root_id.clone())]).await.unwrap();
+    let ft_create = store.perform_mut(vec![screate!(EntityType::from("FaultTolerance"), "qcore".to_string(), root_id.clone())]).unwrap();
     let ft_id = if let Some(Request::Create { created_entity_id: Some(ref id), .. }) = ft_create.first() {
         id.clone()
     } else {
@@ -775,10 +770,10 @@ async fn test_json_snapshot_entity_list_paths() {
         
         // Set up CandidateList with entity references (not paths yet)
         swrite!(ft_id.clone(), FieldType::from("CandidateList"), Some(Value::EntityList(vec![service_a_id.clone(), service_b_id.clone()]))),
-    ]).await.unwrap();
+    ]).unwrap();
 
     // Take a snapshot
-    let snapshot = take_json_snapshot(&mut store).await.unwrap();
+    let snapshot = take_json_snapshot(&mut store).unwrap();
     
     println!("Generated snapshot:");
     println!("{}", serde_json::to_string_pretty(&snapshot).unwrap());
@@ -798,24 +793,24 @@ async fn test_json_snapshot_entity_list_paths() {
     // Now test the problematic restore operation
     // Create a new store and try to restore the snapshot
     let snowflake2 = Arc::new(Snowflake::new());
-    let mut store2 = AsyncStore::new(snowflake2.clone());
+    let mut store2 = Store::new(snowflake2.clone());
 
     // This should fail because json_value_to_value can't handle paths in EntityList
-    let restore_result = restore_json_snapshot(&mut store2, &snapshot).await;
+    let restore_result = restore_json_snapshot(&mut store2, &snapshot);
     
     match restore_result {
         Ok(()) => {
             println!("Restore succeeded - checking if CandidateList was set correctly");
             
             // Find the FaultTolerance entity in the restored store
-            let ft_entities = store2.find_entities(&EntityType::from("FaultTolerance"), None).await.unwrap();
+            let ft_entities = store2.find_entities(&EntityType::from("FaultTolerance"), None).unwrap();
             assert_eq!(ft_entities.len(), 1);
             let restored_ft_id = &ft_entities[0];
             
             // Check if CandidateList was restored correctly
             let read_requests = store2.perform_mut(vec![
                 crate::sread!(restored_ft_id.clone(), FieldType::from("CandidateList")),
-            ]).await.unwrap();
+            ]).unwrap();
             
             if let Some(Request::Read { value: Some(Value::EntityList(candidates)), .. }) = read_requests.get(0) {
                 assert_eq!(candidates.len(), 2, "CandidateList should have 2 entities");

@@ -11,10 +11,8 @@ default = []
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
 uuid = { version = "1.0", features = ["v4", "serde"] }
-tokio = { version = "1.0", features = ["full"] }
 tokio-tungstenite = { version = "0.21" }
 serde_json = { version = "1.0" }
-async-trait = { version = "0.1" }
 futures-util = "0.3.31"
 log = "0.4"
 argon2 = "0.5.3"
@@ -27,6 +25,7 @@ itertools = "0.14.0"
 time = { version = "0.3.42", features = ["serde"] }
 lru = "0.12"
 ahash = { version = "0.8", features = ["serde"] }
+crossbeam = "0.8.4"
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }

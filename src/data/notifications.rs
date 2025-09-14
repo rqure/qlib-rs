@@ -1,7 +1,9 @@
+use std::cell::RefCell;
+use std::collections::VecDeque;
 use std::collections::{BTreeMap, hash_map::DefaultHasher};
 use std::hash::{Hash, Hasher};
+use std::rc::Rc;
 use serde::{Deserialize, Serialize};
-use tokio::sync::mpsc::{Receiver, Sender};
 
 use crate::{EntityId, EntityType, FieldType, Request};
 
@@ -30,15 +32,7 @@ pub struct Notification {
 }
 
 /// Notification sender type for sending notifications to a specific channel
-pub type NotificationSender = Sender<Notification>;
-
-/// Notification receiver type for receiving notifications from a specific channel
-pub type NotificationReceiver = Receiver<Notification>;
-
-/// Create a new notification channel pair
-pub fn notification_channel() -> (NotificationSender, NotificationReceiver) {
-    tokio::sync::mpsc::channel::<Notification>(8192)
-}
+pub type NotificationQueue = Rc<RefCell<VecDeque<Notification>>>;
 
 /// Calculate a hash for a NotifyConfig for fast lookup
 pub fn hash_notify_config(config: &NotifyConfig) -> u64 {

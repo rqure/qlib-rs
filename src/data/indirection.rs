@@ -37,7 +37,7 @@ impl std::fmt::Display for BadIndirectionReason {
     }
 }
 
-pub async fn resolve_indirection_async<T: StoreTrait>(
+pub fn resolve_indirection_async<T: StoreTrait>(
     store: &mut T,
     entity_id: &EntityId,
     field_type: &FieldType,
@@ -68,7 +68,7 @@ pub async fn resolve_indirection_async<T: StoreTrait>(
             let prev_field = &fields[i - 1];
 
             let reqs = vec![crate::sread!(current_entity_id.clone(), prev_field.clone())];
-            let reqs = store.perform_mut(reqs).await?;
+            let reqs = store.perform_mut(reqs)?;
 
             if let crate::Request::Read { value, .. } = &reqs[0] {
                 if let Some(crate::Value::EntityList(entities)) = value {
@@ -103,7 +103,7 @@ pub async fn resolve_indirection_async<T: StoreTrait>(
         // Normal field resolution
         let reqs = vec![crate::sread!(current_entity_id.clone(), field.clone())];
 
-        let reqs = match store.perform_mut(reqs).await {
+        let reqs = match store.perform_mut(reqs) {
             Ok(reqs) => reqs,
             Err(e) => {
                 return Err(crate::Error::BadIndirection(
@@ -119,7 +119,7 @@ pub async fn resolve_indirection_async<T: StoreTrait>(
                 match reference {
                     Some(ref_id) => {
                         // Check if the reference is valid
-                        if !store.entity_exists(ref_id).await {
+                        if !store.entity_exists(ref_id) {
                             return Err(crate::Error::BadIndirection(
                                 current_entity_id.clone(),
                                 field_type.clone(),
@@ -328,8 +328,8 @@ pub fn resolve_indirection(
 }
 
 /// Resolve an entity ID to its path by traversing up the parent chain
-/// This works with both AsyncStore and StoreProxy since they have the same method signatures
-pub async fn path_async<T: StoreTrait>(store: &mut T, entity_id: &EntityId) -> Result<String> {
+/// This works with both Store and StoreProxy since they have the same method signatures
+pub fn path_async<T: StoreTrait>(store: &mut T, entity_id: &EntityId) -> Result<String> {
     let mut path_parts = Vec::new();
     let mut current_id = entity_id.clone();
     let mut visited = std::collections::HashSet::new();
@@ -354,7 +354,7 @@ pub async fn path_async<T: StoreTrait>(store: &mut T, entity_id: &EntityId) -> R
             crate::FieldType::from("Name")
         )];
 
-        let entity_name = if let Ok(reqs) = store.perform_mut(name_requests).await {
+        let entity_name = if let Ok(reqs) = store.perform_mut(name_requests) {
             if let crate::Request::Read {
                 value: Some(crate::Value::String(name)),
                 ..
@@ -378,7 +378,7 @@ pub async fn path_async<T: StoreTrait>(store: &mut T, entity_id: &EntityId) -> R
             crate::FieldType::from("Parent")
         )];
 
-        if let Ok(reqs) = store.perform_mut(parent_requests).await {
+        if let Ok(reqs) = store.perform_mut(parent_requests) {
             if let crate::Request::Read {
                 value: Some(crate::Value::EntityReference(Some(parent_id))),
                 ..
@@ -401,8 +401,8 @@ pub async fn path_async<T: StoreTrait>(store: &mut T, entity_id: &EntityId) -> R
 }
 
 /// Resolve a path to an entity ID by traversing down from the root
-/// This works with both AsyncStore and StoreProxy since they have the same method signatures
-pub async fn path_to_entity_id_async<T: StoreTrait>(store: &mut T, path: &str) -> Result<EntityId> {
+/// This works with both Store and StoreProxy since they have the same method signatures
+pub fn path_to_entity_id_async<T: StoreTrait>(store: &mut T, path: &str) -> Result<EntityId> {
     if path.is_empty() {
         return Err(crate::Error::InvalidFieldValue("Empty path".to_string()));
     }
@@ -410,7 +410,7 @@ pub async fn path_to_entity_id_async<T: StoreTrait>(store: &mut T, path: &str) -
     let path_parts: Vec<&str> = path.split('/').collect();
     
     // Start by finding the root entity with the first part of the path
-    let root_entities = store.find_entities(&crate::EntityType::from("Root"), None).await?;
+    let root_entities = store.find_entities(&crate::EntityType::from("Root"), None)?;
     let mut current_entity_id = None;
     
     // Find the root entity that matches the first path part
@@ -420,7 +420,7 @@ pub async fn path_to_entity_id_async<T: StoreTrait>(store: &mut T, path: &str) -
             crate::FieldType::from("Name")
         )];
         
-        if let Ok(reqs) = store.perform_mut(name_requests).await {
+        if let Ok(reqs) = store.perform_mut(name_requests) {
             if let crate::Request::Read {
                 value: Some(crate::Value::String(name)),
                 ..
@@ -445,7 +445,7 @@ pub async fn path_to_entity_id_async<T: StoreTrait>(store: &mut T, path: &str) -
             crate::FieldType::from("Children")
         )];
         
-        if let Ok(reqs) = store.perform_mut(children_requests).await {
+        if let Ok(reqs) = store.perform_mut(children_requests) {
             if let crate::Request::Read {
                 value: Some(crate::Value::EntityList(children)),
                 ..
@@ -458,7 +458,7 @@ pub async fn path_to_entity_id_async<T: StoreTrait>(store: &mut T, path: &str) -
                         crate::FieldType::from("Name")
                     )];
                     
-                    if let Ok(reqs) = store.perform_mut(child_name_requests).await {
+                    if let Ok(reqs) = store.perform_mut(child_name_requests) {
                         if let crate::Request::Read {
                             value: Some(crate::Value::String(child_name)),
                             ..
