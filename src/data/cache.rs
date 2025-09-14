@@ -114,7 +114,7 @@ impl Cache {
             other_fields,
             entity_ids_by_index_fields,
             fields_by_entity_id,
-            notify_queue: queue
+            notify_queue: queue.clone()
         }, queue))
     }
 }
