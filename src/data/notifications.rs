@@ -32,7 +32,22 @@ pub struct Notification {
 }
 
 /// Notification sender type for sending notifications to a specific channel
-pub type NotificationQueue = Rc<RefCell<VecDeque<Notification>>>;
+#[derive(Clone, Debug)]
+pub struct NotificationQueue(Rc<RefCell<VecDeque<Notification>>>);
+
+impl NotificationQueue {
+    pub fn new() -> Self {
+        NotificationQueue(Rc::new(RefCell::new(VecDeque::new())))
+    }
+
+    pub fn push(&self, notification: Notification) {
+        self.0.borrow_mut().push_back(notification);
+    }
+
+    pub fn pop(&self) -> Option<Notification> {
+        self.0.borrow_mut().pop_front()
+    }
+}
 
 /// Calculate a hash for a NotifyConfig for fast lookup
 pub fn hash_notify_config(config: &NotifyConfig) -> u64 {

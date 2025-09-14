@@ -5,7 +5,7 @@ pub mod expr;
 
 pub use data::{
     BadIndirectionReason, Store, PageOpts,
-    PageResult, NotificationQueue, NotificationReceiver, notification_channel, hash_notify_config, Snapshot, EntityId, EntitySchema, Single, Complete, 
+    PageResult, NotificationQueue, hash_notify_config, Snapshot, EntityId, EntitySchema, Single, Complete, 
     Field, FieldSchema, AdjustBehavior, PushCondition, Request, Snowflake, 
     StoreProxy, StoreMessage, extract_message_id, Value, INDIRECTION_DELIMITER, NotifyConfig, Notification,
     AuthenticationResult,
@@ -13,7 +13,7 @@ pub use data::{
     restore_entity_recursive, factory_restore_json_snapshot, restore_json_snapshot_via_proxy,
     EntityType, FieldType, Timestamp, now, epoch, nanos_to_timestamp, secs_to_timestamp, 
     millis_to_timestamp, micros_to_timestamp, ft, et, Cache, resolve_indirection, resolve_indirection_async, path_async, path_to_entity_id_async,
-    StoreTrait, Store, from_base64, to_base64,
+    StoreTrait, from_base64, to_base64,
 };
 
 pub use auth::{

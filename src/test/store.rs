@@ -1,5 +1,5 @@
 use crate::*;
-use crate::data::{EntityType, StoreTrait, StorageScope};
+use crate::data::{EntityType, StorageScope};
 use std::sync::Arc;
 
 // Helper to create an entity schema with basic fields

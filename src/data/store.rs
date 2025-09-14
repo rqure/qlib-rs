@@ -1606,10 +1606,10 @@ impl Store {
                     ..
                 } => {
                     if let Some(field_map) = self.id_notifications.get_mut(entity_id) {
-                        if let Some(sender_map) = field_map.get_mut(config_field_type) {
-                            if let Some(senders) = sender_map.get_mut(&config) {
-                                for sender in senders.iter() {
-                                    sender.borrow_mut().push_back(notification.clone());
+                        if let Some(queue_map) = field_map.get_mut(config_field_type) {
+                            if let Some(queues) = queue_map.get_mut(&config) {
+                                for queue in queues.iter() {
+                                    queue.push(notification.clone());
                                 }
                             }
                         }
@@ -1621,11 +1621,11 @@ impl Store {
                     ..
                 } => {
                     if let Some(field_map) = self.type_notifications.get_mut(config_entity_type) {
-                        if let Some(sender_map) = field_map.get_mut(config_field_type) {
-                            if let Some(senders) = sender_map.get_mut(&config) {
+                        if let Some(queue_map) = field_map.get_mut(config_field_type) {
+                            if let Some(queues) = queue_map.get_mut(&config) {
                                 // Send to all senders for this config
-                                for sender in senders.iter() {
-                                    sender.borrow_mut().push_back(notification.clone());
+                                for queue in queues.iter() {
+                                    queue.push(notification.clone());
                                 }
                             }
                         }

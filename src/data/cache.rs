@@ -19,7 +19,7 @@ pub struct Cache {
     // For instance, an entity with a specific ID may have different values for the other fields.
     pub fields_by_entity_id: HashMap<EntityId, HashMap<FieldType, Value>>,
 
-    pub sender: NotificationQueue,
+    pub notify_queue: NotificationQueue,
 }
 
 impl Cache {
@@ -29,7 +29,7 @@ impl Cache {
         index_fields: Vec<FieldType>,
         other_fields: Vec<FieldType>,
     ) -> crate::Result<(Self, NotificationQueue)> {
-        let (sender, receiver) = crate::notification_channel();
+        let queue = crate::NotificationQueue::new();
 
         // Register notifications for all fields
         for field in index_fields.iter() {
@@ -40,7 +40,7 @@ impl Cache {
                     trigger_on_change: true,
                     context: vec![],
                 },
-                sender.clone(),
+                queue.clone(),
             )?;
         }
 
@@ -52,7 +52,7 @@ impl Cache {
                     trigger_on_change: true,
                     context: vec![],
                 },
-                sender.clone(),
+                queue.clone(),
             )?;
         }
 
@@ -114,8 +114,8 @@ impl Cache {
             other_fields,
             entity_ids_by_index_fields,
             fields_by_entity_id,
-            sender
-        }, receiver))
+            notify_queue: queue
+        }, queue))
     }
 }
 
@@ -198,7 +198,7 @@ impl Cache {
     }
 
     pub fn get_config_sender(&self) -> (Vec<NotifyConfig>, Option<NotificationQueue>) {
-        let sender = &self.sender;
+        let sender = &self.notify_queue;
         let mut configs = Vec::new();
 
         // Unregister notifications for index fields
