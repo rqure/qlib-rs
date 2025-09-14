@@ -23,7 +23,7 @@ pub struct Store {
     /// This cache is invalidated whenever schemas are updated or inheritance map is rebuilt
     complete_entity_schema_cache: AHashMap<EntityType, EntitySchema<Complete>>,
 
-    snowflake: Arc<Snowflake>,
+    snowflake: Snowflake,
 
     /// Cached CEL executor for filter expressions
     /// This is wrapped in Arc<Mutex<>> for thread-safe access with interior mutability
@@ -1045,8 +1045,8 @@ impl Store {
 
         removed_any
     }
-    
-    pub fn new(snowflake: Arc<Snowflake>) -> Self {
+
+    pub fn new(snowflake: Snowflake) -> Self {
         Store {
             schemas: AHashMap::new(),
             entities: AHashMap::new(),
@@ -1082,7 +1082,7 @@ impl Store {
     }
 
     /// Get a reference to the snowflake generator
-    pub fn get_snowflake(&self) -> &Arc<Snowflake> {
+    pub fn get_snowflake(&self) -> &Snowflake {
         &self.snowflake
     }
 

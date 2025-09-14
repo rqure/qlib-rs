@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 
 use crate::{
-    EntityId, EntitySchema, EntityType, FieldSchema, FieldType, Single, Value, Error, Result
+    EntityId, EntitySchema, EntityType, Error, FieldSchema, FieldType, Result, Single, Snowflake, Store, Value
 };
 use crate::data::{StoreTrait, StorageScope};
 
@@ -791,9 +791,6 @@ pub fn factory_restore_json_snapshot(
     data_dir: std::path::PathBuf,
     machine_id: String,
 ) -> Result<()> {
-    use crate::{Snowflake, Store};
-    use std::sync::Arc;
-
     // Create the directory structure
     let machine_data_dir = data_dir.join(&machine_id);
     let snapshots_dir = machine_data_dir.join("snapshots");
@@ -813,7 +810,7 @@ pub fn factory_restore_json_snapshot(
         .map_err(|e| crate::Error::StoreProxyError(format!("Failed to clear WAL directory: {}", e)))?;
 
     // Create a temporary Store instance and restore the JSON snapshot into it
-    let snowflake = Arc::new(Snowflake::new());
+    let snowflake = Snowflake::new();
     let mut temp_store = Store::new(snowflake);
     
     // Restore the JSON snapshot into the temporary store

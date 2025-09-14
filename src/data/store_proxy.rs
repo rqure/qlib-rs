@@ -1,8 +1,9 @@
-use futures_util::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::rc::Rc;
+use std::cell::RefCell;
 use uuid::Uuid;
+use tungstenite::{connect, Message, WebSocket, Error as WsError};
 
 use crate::{
     Complete, EntityId, EntitySchema, EntityType, Error, FieldSchema, FieldType, Notification, NotificationQueue, NotifyConfig, hash_notify_config, PageOpts, PageResult, Request, Result, Single
@@ -183,15 +184,14 @@ pub fn extract_message_id(message: &StoreMessage) -> Option<String> {
     }
 }
 
-type WsStream =
-    tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
+type WsConnection = WebSocket<tungstenite::stream::MaybeTlsStream<std::net::TcpStream>>;
 
 #[derive(Debug)]
 pub struct StoreProxy {
-    sender: Arc<Mutex<futures_util::stream::SplitSink<WsStream, Message>>>,
-    pending_requests: Arc<Mutex<HashMap<String, oneshot::Sender<serde_json::Value>>>>,
+    websocket: Rc<RefCell<WsConnection>>,
+    pending_requests: Rc<RefCell<HashMap<String, serde_json::Value>>>,
     // Map from config hash to list of notification senders
-    notification_configs: Arc<Mutex<HashMap<u64, Vec<NotificationQueue>>>>,
+    notification_configs: Rc<RefCell<HashMap<u64, Vec<NotificationQueue>>>>,
     // Authentication state - set once during connection
     authenticated_subject: Option<EntityId>,
 }
@@ -204,14 +204,9 @@ impl StoreProxy {
         subject_name: &str,
         credential: &str,
     ) -> Result<Self> {
-        // Connect to WebSocket
-        let (ws_stream, _) = connect_async(url)
+        // Parse URL and connect to WebSocket
+        let (mut websocket, _) = connect(url)
             .map_err(|e| Error::StoreProxyError(format!("Failed to connect: {}", e)))?;
-
-        let (sender, mut receiver) = ws_stream.split();
-        let sender = Arc::new(Mutex::new(sender));
-        let pending_requests = Arc::new(Mutex::new(HashMap::new()));
-        let notification_configs = Arc::new(Mutex::new(HashMap::new()));
 
         // Send authentication message immediately
         let auth_request = StoreMessage::Authenticate {
@@ -223,12 +218,11 @@ impl StoreProxy {
         let auth_message = serde_json::to_string(&auth_request)
             .map_err(|e| Error::StoreProxyError(format!("Failed to serialize auth request: {}", e)))?;
 
-        sender.lock().send(Message::Text(auth_message))
+        websocket.send(Message::Text(auth_message.into()))
             .map_err(|e| Error::StoreProxyError(format!("Failed to send auth message: {}", e)))?;
 
         // Wait for authentication response
-        let auth_response = receiver.next()
-            .ok_or_else(|| Error::StoreProxyError("Connection closed during authentication".to_string()))?
+        let auth_response = websocket.read()
             .map_err(|e| Error::StoreProxyError(format!("WebSocket error during auth: {}", e)))?;
 
         let auth_response_text = match auth_response {
@@ -250,15 +244,13 @@ impl StoreProxy {
             _ => return Err(Error::StoreProxyError("Unexpected response to authentication".to_string())),
         };
 
-        // Start background task to handle incoming messages
-        let pending_requests_clone = pending_requests.clone();
-        let notification_configs_clone = notification_configs.clone();
-        tokio::spawn(async move {
-            StoreProxy::handle_incoming_messages(receiver, pending_requests_clone, notification_configs_clone);
-        });
+        // Create single-threaded collections
+        let websocket = Rc::new(RefCell::new(websocket));
+        let pending_requests = Rc::new(RefCell::new(HashMap::new()));
+        let notification_configs = Rc::new(RefCell::new(HashMap::new()));
 
         Ok(StoreProxy {
-            sender,
+            websocket,
             pending_requests,
             notification_configs,
             authenticated_subject: Some(authenticated_subject),
@@ -266,52 +258,33 @@ impl StoreProxy {
     }
 
     /// Handle incoming messages from the WebSocket
-    fn handle_incoming_messages(
-        mut receiver: futures_util::stream::SplitStream<WsStream>,
-        pending_requests: Arc<Mutex<HashMap<String, oneshot::Sender<serde_json::Value>>>>,
-        notification_configs: Arc<Mutex<HashMap<u64, Vec<NotificationQueue>>>>,
-    ) {
-        while let Some(message) = receiver.next() {
-            match message {
-                Ok(Message::Text(text)) => {
-                    if let Ok(store_message) = serde_json::from_str::<StoreMessage>(&text) {
-                        match store_message {
-                            StoreMessage::Notification { notification } => {
-                                // Handle notification
-                                let config_hash = notification.config_hash;
-                                let configs = notification_configs.lock();
-                                if let Some(senders) = configs.get(&config_hash) {
-                                    for sender in senders {
-                                        if let Err(_) = sender.send(notification.clone()) {
-                                            // do nothing
-                                        }
-                                    }
-                                }
-                            }
-                            _ => {
-                                // Handle response to pending request
-                                if let Some(id) = extract_message_id(&store_message) {
-                                    let mut pending = pending_requests.lock();
-                                    if let Some(sender) = pending.remove(&id) {
-                                        let response_json = serde_json::to_value(store_message).unwrap_or_default();
-                                        if let Err(_) = sender.send(response_json) {
-                                            // do nothing
-                                        }
-                                    }
-                                }
-                            }
+    /// This is called synchronously to process messages as they arrive
+    fn handle_incoming_message(
+        &self,
+        message_text: &str,
+    ) -> std::result::Result<(), String> {
+        if let Ok(store_message) = serde_json::from_str::<StoreMessage>(message_text) {
+            match store_message {
+                StoreMessage::Notification { notification } => {
+                    // Handle notification
+                    let config_hash = notification.config_hash;
+                    let configs = self.notification_configs.borrow();
+                    if let Some(senders) = configs.get(&config_hash) {
+                        for sender in senders {
+                            sender.push(notification.clone());
                         }
                     }
                 }
-                Ok(Message::Close(_)) => {
-                    break;
+                _ => {
+                    // Handle response to pending request
+                    if let Some(id) = extract_message_id(&store_message) {
+                        let response_json = serde_json::to_value(store_message).unwrap_or_default();
+                        self.pending_requests.borrow_mut().insert(id, response_json);
+                    }
                 }
-                Err(_) => {
-                    break;
-                }
-                _ => {} // Ignore other message types
             }
         }
+        Ok(())
     }
 
     /// Send a request and wait for response
@@ -319,22 +292,44 @@ impl StoreProxy {
         let id = extract_message_id(&request)
             .ok_or_else(|| Error::StoreProxyError("Request missing ID".to_string()))?;
 
-        let (tx, rx) = tokio::sync::oneshot::channel::<serde_json::Value>();
-        self.pending_requests.lock().insert(id.clone(), tx);
-
         let message_text = serde_json::to_string(&request)
             .map_err(|e| Error::StoreProxyError(format!("Failed to serialize request: {}", e)))?;
 
-        self.sender.lock().send(Message::Text(message_text))
+        // Send message
+        self.websocket.borrow_mut().send(Message::Text(message_text.into()))
             .map_err(|e| Error::StoreProxyError(format!("Failed to send message: {}", e)))?;
 
-        let response_json = rx
-            .map_err(|_| Error::StoreProxyError("Request timeout or connection closed".to_string()))?;
+        // Wait for response by polling the WebSocket until we get our response
+        loop {
+            // Check if we already have the response
+            if let Some(response_json) = self.pending_requests.borrow_mut().remove(&id) {
+                let response: StoreMessage = serde_json::from_value(response_json)
+                    .map_err(|e| Error::StoreProxyError(format!("Failed to parse response: {}", e)))?;
+                return Ok(response);
+            }
 
-        let response: StoreMessage = serde_json::from_value(response_json)
-            .map_err(|e| Error::StoreProxyError(format!("Failed to parse response: {}", e)))?;
-
-        Ok(response)
+            // Read next message from WebSocket
+            match self.websocket.borrow_mut().read() {
+                Ok(Message::Text(text)) => {
+                    if let Err(_) = self.handle_incoming_message(&text) {
+                        // Handle error if needed
+                    }
+                }
+                Ok(Message::Close(_)) => {
+                    return Err(Error::StoreProxyError("Connection closed".to_string()));
+                }
+                Ok(_) => {
+                    // Ignore other message types
+                }
+                Err(WsError::Io(ref e)) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                    // No message available, continue loop
+                    continue;
+                }
+                Err(e) => {
+                    return Err(Error::StoreProxyError(format!("WebSocket error: {}", e)));
+                }
+            }
+        }
     }
 
     /// Get the authenticated subject ID
@@ -627,7 +622,7 @@ impl StoreProxy {
                     Ok(_) => {
                         // Store the sender locally so we can forward notifications
                         let config_hash = hash_notify_config(&config);
-                        let mut configs = self.notification_configs.lock();
+                        let mut configs = self.notification_configs.borrow_mut();
                         configs.entry(config_hash).or_insert_with(Vec::new).push(sender);
                         Ok(())
                     }
@@ -643,7 +638,7 @@ impl StoreProxy {
    pub fn unregister_notification(&mut self, target_config: &NotifyConfig, sender: &NotificationQueue) -> bool {
         // First remove the sender from local mapping
         let config_hash = hash_notify_config(target_config);
-        let mut configs = self.notification_configs.lock();
+        let mut configs = self.notification_configs.borrow_mut();
         let mut removed_locally = false;
         
         if let Some(senders) = configs.get_mut(&config_hash) {

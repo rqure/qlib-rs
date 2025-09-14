@@ -7,8 +7,9 @@ use crate::data::StorageScope;
 #[allow(unused_imports)]
 use std::sync::Arc;
 
+#[test]
 fn test_inheritance_in_find_entities() -> Result<()> {
-    let mut store = Store::new(Arc::new(Snowflake::new()));
+    let mut store = Store::new(Snowflake::new());
 
     // Create base and derived entity types
     let et_animal = EntityType::from("Animal");
@@ -126,8 +127,9 @@ fn test_inheritance_in_find_entities() -> Result<()> {
     Ok(())
 }
 
+#[test]
 fn test_inheritance_with_direct_instances() -> Result<()> {
-    let mut store = Store::new(Arc::new(Snowflake::new()));
+    let mut store = Store::new(Snowflake::new());
 
     let et_animal = EntityType::from("Animal");
     let et_mammal = EntityType::from("Mammal");
@@ -177,8 +179,9 @@ fn test_inheritance_with_direct_instances() -> Result<()> {
     Ok(())
 }
 
+#[test]
 fn test_circular_inheritance_protection() -> Result<()> {
-    let mut store = Store::new(Arc::new(Snowflake::new()));
+    let mut store = Store::new(Snowflake::new());
 
     let et_a = EntityType::from("TypeA");
     let et_b = EntityType::from("TypeB");
@@ -223,8 +226,9 @@ fn test_circular_inheritance_protection() -> Result<()> {
     Ok(())
 }
 
+#[test]
 fn test_multi_inheritance() -> Result<()> {
-    let mut store = Store::new(Arc::new(Snowflake::new()));
+    let mut store = Store::new(Snowflake::new());
 
     // Create base types
     let et_flyable = EntityType::from("Flyable");

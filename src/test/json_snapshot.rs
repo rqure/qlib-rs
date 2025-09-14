@@ -1,8 +1,5 @@
 
 #[allow(unused_imports)]
-use std::sync::Arc;
-
-#[allow(unused_imports)]
 use crate::data::StorageScope;
 
 #[allow(unused_imports)]
@@ -12,10 +9,10 @@ use crate::StoreTrait;
 use crate::{restore_json_snapshot, screate, sschemaupdate, swrite, take_json_snapshot, EntitySchema, EntityType, FieldSchema, FieldType, Request, Single, Snowflake, Store, Value};
 
 
+#[test]
 fn test_json_snapshot_functionality() {
     // Create a new store
-    let snowflake = Arc::new(Snowflake::new());
-    let mut store = Store::new(snowflake.clone());
+    let mut store = Store::new(Snowflake::new());
 
     // Define schemas as per the example
     let mut object_schema = EntitySchema::<Single>::new("Object", vec![]);
@@ -235,10 +232,10 @@ fn test_json_snapshot_functionality() {
     println!("JSON Snapshot:\n{}", json_str);
 }
 
+#[test]
 fn test_json_snapshot_restore() {
     // Create and populate the first store
-    let snowflake1 = Arc::new(Snowflake::new());
-    let mut store1 = Store::new(snowflake1.clone());
+    let mut store1 = Store::new(Snowflake::new());
 
     // Define schemas
     let mut object_schema = EntitySchema::<Single>::new("Object", vec![]);
@@ -342,8 +339,7 @@ fn test_json_snapshot_restore() {
     let snapshot = take_json_snapshot(&mut store1).unwrap();
 
     // Create a new empty store
-    let snowflake2 = Arc::new(Snowflake::new());
-    let mut store2 = Store::new(snowflake2.clone());
+    let mut store2 = Store::new(Snowflake::new());
 
     // Restore the snapshot to store2
     restore_json_snapshot(&mut store2, &snapshot).unwrap();
@@ -408,12 +404,11 @@ fn test_json_snapshot_restore() {
     println!("JSON snapshot restore test passed successfully!");
 }
 
+#[test]
 fn test_json_snapshot_path_resolution() {
     // This test ensures that normal entity references (not Children) show paths
     // while Children fields show nested entity objects
-    
-    let snowflake = Arc::new(Snowflake::new());
-    let mut store = Store::new(snowflake.clone());
+    let mut store = Store::new(Snowflake::new());
 
     // Define schemas
     let mut object_schema = EntitySchema::<Single>::new("Object", vec![]);
@@ -553,11 +548,12 @@ fn test_json_snapshot_path_resolution() {
     println!("Path resolution test completed successfully!");
 }
 
+#[test]
 fn test_json_snapshot_storage_scope() {
     // Test that storage scope is properly preserved in JSON snapshots
     
-    let snowflake = Arc::new(Snowflake::new());
-    let mut store = Store::new(snowflake.clone());
+    let snowflake = Snowflake::new();
+    let mut store = Store::new(snowflake);
 
     // Define schemas with different storage scopes
     let mut object_schema = EntitySchema::<Single>::new("Object", vec![]);
@@ -645,12 +641,13 @@ fn test_json_snapshot_storage_scope() {
     println!("Storage scope test completed successfully!");
 }
 
+#[test]
 fn test_json_snapshot_entity_list_paths() {
     // Test that EntityList fields with paths are properly handled during restore
     // This reproduces the CandidateList issue from base-topology.json
     
-    let snowflake = Arc::new(Snowflake::new());
-    let mut store = Store::new(snowflake.clone());
+    let snowflake = Snowflake::new();
+    let mut store = Store::new(snowflake);
 
     // Define schemas similar to the base topology
     let mut object_schema = EntitySchema::<Single>::new("Object", vec![]);
@@ -792,8 +789,8 @@ fn test_json_snapshot_entity_list_paths() {
 
     // Now test the problematic restore operation
     // Create a new store and try to restore the snapshot
-    let snowflake2 = Arc::new(Snowflake::new());
-    let mut store2 = Store::new(snowflake2.clone());
+    let snowflake2 = Snowflake::new();
+    let mut store2 = Store::new(snowflake2);
 
     // This should fail because json_value_to_value can't handle paths in EntityList
     let restore_result = restore_json_snapshot(&mut store2, &snapshot);

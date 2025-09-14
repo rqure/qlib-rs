@@ -10,7 +10,7 @@ use std::sync::Arc;
 
 #[allow(dead_code)]
 fn setup_test_store_with_entity() -> Result<(Store, EntityId)> {
-    let mut store = Store::new(Arc::new(Snowflake::new()));
+    let mut store = Store::new(Snowflake::new());
 
     // Create a test entity type with various field types
     let et_test = EntityType::from("TestEntity");
@@ -145,12 +145,14 @@ fn setup_test_store_with_entity() -> Result<(Store, EntityId)> {
     Ok((store, entity_id))
 }
 
+#[test]
 fn test_cel_executor_new() {
     let _executor = CelExecutor::new();
     // Can't directly test the cache since it's private, but we can test behavior
     assert!(true); // Constructor should work without panicking
 }
 
+#[test]
 fn test_cel_executor_get_or_compile_basic() -> Result<()> {
     let mut executor = CelExecutor::new();
     
@@ -173,6 +175,7 @@ fn test_cel_executor_get_or_compile_basic() -> Result<()> {
     Ok(())
 }
 
+#[test]
 fn test_cel_executor_get_or_compile_with_variables() -> Result<()> {
     let mut executor = CelExecutor::new();
     
@@ -188,6 +191,7 @@ fn test_cel_executor_get_or_compile_with_variables() -> Result<()> {
     Ok(())
 }
 
+#[test]
 fn test_cel_executor_get_or_compile_invalid_expression() {
     let mut executor = CelExecutor::new();
     
@@ -202,6 +206,7 @@ fn test_cel_executor_get_or_compile_invalid_expression() {
     }
 }
 
+#[test]
 fn test_cel_executor_remove() -> Result<()> {
     let mut executor = CelExecutor::new();
     
@@ -217,6 +222,7 @@ fn test_cel_executor_remove() -> Result<()> {
     Ok(())
 }
 
+#[test]
 fn test_cel_executor_execute_simple_expression() -> Result<()> {
     let mut executor = CelExecutor::new();
     let (mut store, entity_id) = setup_test_store_with_entity()?;
@@ -232,6 +238,7 @@ fn test_cel_executor_execute_simple_expression() -> Result<()> {
     Ok(())
 }
 
+#[test]
 fn test_cel_executor_execute_with_string_field() -> Result<()> {
     let mut executor = CelExecutor::new();
     let (mut store, entity_id) = setup_test_store_with_entity()?;
@@ -247,6 +254,7 @@ fn test_cel_executor_execute_with_string_field() -> Result<()> {
     Ok(())
 }
 
+#[test]
 fn test_cel_executor_execute_with_int_field() -> Result<()> {
     let mut executor = CelExecutor::new();
     let (mut store, entity_id) = setup_test_store_with_entity()?;
@@ -262,6 +270,7 @@ fn test_cel_executor_execute_with_int_field() -> Result<()> {
     Ok(())
 }
 
+#[test]
 fn test_cel_executor_execute_with_float_field() -> Result<()> {
     let mut executor = CelExecutor::new();
     let (mut store, entity_id) = setup_test_store_with_entity()?;
@@ -280,6 +289,7 @@ fn test_cel_executor_execute_with_float_field() -> Result<()> {
     Ok(())
 }
 
+#[test]
 fn test_cel_executor_execute_with_bool_field() -> Result<()> {
     let mut executor = CelExecutor::new();
     let (mut store, entity_id) = setup_test_store_with_entity()?;
@@ -295,6 +305,7 @@ fn test_cel_executor_execute_with_bool_field() -> Result<()> {
     Ok(())
 }
 
+#[test]
 fn test_cel_executor_execute_with_choice_field() -> Result<()> {
     let mut executor = CelExecutor::new();
     let (mut store, entity_id) = setup_test_store_with_entity()?;
@@ -310,6 +321,7 @@ fn test_cel_executor_execute_with_choice_field() -> Result<()> {
     Ok(())
 }
 
+#[test]
 fn test_cel_executor_execute_with_entity_reference_field() -> Result<()> {
     let mut executor = CelExecutor::new();
     let (mut store, entity_id) = setup_test_store_with_entity()?;
@@ -325,6 +337,7 @@ fn test_cel_executor_execute_with_entity_reference_field() -> Result<()> {
     Ok(())
 }
 
+#[test]
 fn test_cel_executor_execute_with_entity_list_field() -> Result<()> {
     let mut executor = CelExecutor::new();
     let (mut store, entity_id) = setup_test_store_with_entity()?;
@@ -340,6 +353,7 @@ fn test_cel_executor_execute_with_entity_list_field() -> Result<()> {
     Ok(())
 }
 
+#[test]
 fn test_cel_executor_execute_with_blob_field() -> Result<()> {
     let mut executor = CelExecutor::new();
     let (mut store, entity_id) = setup_test_store_with_entity()?;
@@ -356,6 +370,7 @@ fn test_cel_executor_execute_with_blob_field() -> Result<()> {
     Ok(())
 }
 
+#[test]
 fn test_cel_executor_execute_with_timestamp_field() -> Result<()> {
     let mut executor = CelExecutor::new();
     let (mut store, entity_id) = setup_test_store_with_entity()?;
@@ -372,6 +387,7 @@ fn test_cel_executor_execute_with_timestamp_field() -> Result<()> {
     Ok(())
 }
 
+#[test]
 fn test_cel_executor_execute_with_entity_id_and_type() -> Result<()> {
     // Note: EntityId and EntityType are special variables that the CelExecutor
     // should add to the context, but they shouldn't be treated as field references.
@@ -399,6 +415,7 @@ fn test_cel_executor_execute_with_entity_id_and_type() -> Result<()> {
     Ok(())
 }
 
+#[test]
 fn test_cel_executor_execute_complex_expression() -> Result<()> {
     let mut executor = CelExecutor::new();
     let (mut store, entity_id) = setup_test_store_with_entity()?;
@@ -418,9 +435,10 @@ fn test_cel_executor_execute_complex_expression() -> Result<()> {
     Ok(())
 }
 
+#[test]
 fn test_cel_executor_execute_with_indirection() -> Result<()> {
     let mut executor = CelExecutor::new();
-    let mut store = Store::new(Arc::new(Snowflake::new()));
+    let mut store = Store::new(Snowflake::new());
 
     // Create entities for indirection test
     let et_user = EntityType::from("User");
@@ -545,9 +563,10 @@ fn test_cel_executor_execute_with_indirection() -> Result<()> {
     Ok(())
 }
 
+#[test]
 fn test_cel_executor_execute_with_deep_indirection() -> Result<()> {
     let mut executor = CelExecutor::new();
-    let mut store = Store::new(Arc::new(Snowflake::new()));
+    let mut store = Store::new(Snowflake::new());
 
     // Create a deeper indirection chain: Employee -> Department -> Company
     let et_company = EntityType::from("Company");
@@ -695,9 +714,10 @@ fn test_cel_executor_execute_with_deep_indirection() -> Result<()> {
     Ok(())
 }
 
+#[test]
 fn test_cel_executor_execute_with_indirection_and_entity_lists() -> Result<()> {
     let mut executor = CelExecutor::new();
-    let mut store = Store::new(Arc::new(Snowflake::new()));
+    let mut store = Store::new(Snowflake::new());
 
     // Create schema for testing indirection with entity lists
     let et_team = EntityType::from("Team");
@@ -807,9 +827,10 @@ fn test_cel_executor_execute_with_indirection_and_entity_lists() -> Result<()> {
     Ok(())
 }
 
+#[test]
 fn test_cel_executor_execute_with_null_entity_reference() -> Result<()> {
     let mut executor = CelExecutor::new();
-    let mut store = Store::new(Arc::new(Snowflake::new()));
+    let mut store = Store::new(Snowflake::new());
 
     // Create entity with null entity reference
     let et_user = EntityType::from("User");
@@ -848,6 +869,7 @@ fn test_cel_executor_execute_with_null_entity_reference() -> Result<()> {
     Ok(())
 }
 
+#[test]
 fn test_cel_executor_caching_behavior() -> Result<()> {
     let mut executor = CelExecutor::new();
     let (mut store, entity_id) = setup_test_store_with_entity()?;
@@ -879,6 +901,7 @@ fn test_cel_executor_caching_behavior() -> Result<()> {
     Ok(())
 }
 
+#[test]
 fn test_cel_executor_execute_runtime_error() -> Result<()> {
     let mut executor = CelExecutor::new();
     let (mut store, entity_id) = setup_test_store_with_entity()?;
@@ -896,6 +919,7 @@ fn test_cel_executor_execute_runtime_error() -> Result<()> {
     Ok(())
 }
 
+#[test]
 fn test_cel_executor_execute_with_missing_field() -> Result<()> {
     let mut executor = CelExecutor::new();
     let (mut store, entity_id) = setup_test_store_with_entity()?;
@@ -909,9 +933,10 @@ fn test_cel_executor_execute_with_missing_field() -> Result<()> {
     Ok(())
 }
 
+#[test]
 fn test_cel_executor_execute_with_mixed_field_access() -> Result<()> {
     let mut executor = CelExecutor::new();
-    let mut store = Store::new(Arc::new(Snowflake::new()));
+    let mut store = Store::new(Snowflake::new());
 
     // Create entities for mixed field access test
     let et_user = EntityType::from("User");

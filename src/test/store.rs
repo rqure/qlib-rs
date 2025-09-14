@@ -1,6 +1,5 @@
 use crate::*;
 use crate::data::{EntityType, StorageScope};
-use std::sync::Arc;
 
 // Helper to create an entity schema with basic fields
 fn create_entity_schema(store: &mut Store, entity_type: &EntityType) -> Result<()> {
@@ -43,7 +42,7 @@ fn create_entity_schema(store: &mut Store, entity_type: &EntityType) -> Result<(
 // Helper to set up a basic database structure for testing
 #[allow(dead_code)]
 fn setup_test_database() -> Result<Store> {
-    let mut store = Store::new(Arc::new(Snowflake::new()));
+    let mut store = Store::new(Snowflake::new());
 
     let et_root = EntityType::from("Root");
     let et_folder = EntityType::from("Folder");
@@ -58,6 +57,7 @@ fn setup_test_database() -> Result<Store> {
     Ok(store)
 }
 
+#[test]
 fn test_create_entity_hierarchy() -> Result<()> {
     let mut store = setup_test_database()?;
 
@@ -157,6 +157,7 @@ fn test_create_entity_hierarchy() -> Result<()> {
     Ok(())
 }
 
+#[test]
 fn test_field_operations() -> Result<()> {
     let mut store = setup_test_database()?;
 
@@ -221,6 +222,7 @@ fn test_field_operations() -> Result<()> {
     Ok(())
 }
 
+#[test]
 fn test_indirection_resolution() -> Result<()> {
     let mut store = setup_test_database()?;
 
@@ -287,6 +289,7 @@ fn test_indirection_resolution() -> Result<()> {
     Ok(())
 }
 
+#[test]
 fn test_entity_deletion() -> Result<()> {
     let mut store = setup_test_database()?;
 
@@ -343,7 +346,8 @@ fn test_entity_deletion() -> Result<()> {
 
     Ok(())
 }
- 
+
+#[test]
 fn test_entity_listing_with_pagination() -> Result<()> {
     let mut store = setup_test_database()?;
 
@@ -377,6 +381,7 @@ fn test_entity_listing_with_pagination() -> Result<()> {
     Ok(())
 }
 
+#[test]
 fn test_cel_filtering_parameters() -> Result<()> {
     let mut store = setup_test_database()?;
     
@@ -410,9 +415,10 @@ fn test_cel_filtering_parameters() -> Result<()> {
     Ok(())
 }
 
+#[test]
 fn test_find_entities_comprehensive() -> Result<()> {
     // Create a fresh store without using setup_test_database
-    let mut store = Store::new(Arc::new(Snowflake::new()));
+    let mut store = Store::new(Snowflake::new());
     
     let et_user = EntityType::from("User");
     
@@ -487,8 +493,9 @@ fn test_find_entities_comprehensive() -> Result<()> {
     Ok(())
 }
 
+#[test]
 fn test_find_entities_pagination() -> Result<()> {
-    let mut store = Store::new(Arc::new(Snowflake::new()));
+    let mut store = Store::new(Snowflake::new());
     
     let et_user = EntityType::from("User");
     
@@ -564,8 +571,9 @@ fn test_find_entities_pagination() -> Result<()> {
     Ok(())
 }
 
+#[test]
 fn test_find_entities_inheritance() -> Result<()> {
-    let mut store = Store::new(Arc::new(Snowflake::new()));
+    let mut store = Store::new(Snowflake::new());
     
     // Create inheritance hierarchy: Animal -> Mammal -> Dog/Cat
     let et_animal = EntityType::from("Animal");
@@ -698,6 +706,7 @@ fn test_find_entities_inheritance() -> Result<()> {
     Ok(())
 }
 
+#[test]
 fn test_find_entities_nonexistent_types() -> Result<()> {
     let store = setup_test_database()?;
     
@@ -720,8 +729,9 @@ fn test_find_entities_nonexistent_types() -> Result<()> {
     Ok(())
 }
 
+#[test]
 fn test_find_entities_cel_edge_cases() -> Result<()> {
-    let mut store = Store::new(Arc::new(Snowflake::new()));
+    let mut store = Store::new(Snowflake::new());
     
     let et_user = EntityType::from("User");
     
@@ -764,8 +774,9 @@ fn test_find_entities_cel_edge_cases() -> Result<()> {
     Ok(())
 }
 
+#[test]
 fn test_complete_entity_schema_caching() -> Result<()> {
-    let mut store = Store::new(Arc::new(Snowflake::new()));
+    let mut store = Store::new(Snowflake::new());
     
     // Create base entity type
     let et_base = EntityType::from("BaseEntity");
