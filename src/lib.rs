@@ -1,5 +1,6 @@
 pub mod data;
 pub mod auth;
+pub mod protocol;
 mod test;
 pub mod expr;
 
@@ -20,6 +21,11 @@ pub use auth::{
     AuthConfig, AuthMethod,
     authenticate_user, find_user_by_name, create_user, set_user_password,
     change_password, validate_password, hash_password, verify_password,
+};
+
+pub use protocol::{
+    MessageHeader, MessageType, ProtocolMessage, ProtocolCodec, MessageBuffer, 
+    encode_store_message,
 };
 
 pub use expr::CelExecutor;

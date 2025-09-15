@@ -2,16 +2,19 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::rc::Rc;
 use std::cell::RefCell;
+use std::net::TcpStream;
+use std::io::{Read, Write};
 use uuid::Uuid;
-use tungstenite::{connect, Message, WebSocket, Error as WsError};
+use anyhow;
 
 use crate::{
     Complete, EntityId, EntitySchema, EntityType, Error, FieldSchema, FieldType, Notification, NotificationQueue, NotifyConfig, hash_notify_config, PageOpts, PageResult, Request, Result, Single
 };
 use crate::data::StoreTrait;
+use crate::protocol::{MessageBuffer, encode_store_message};
 
 /// Result of authentication attempt
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AuthenticationResult {
     /// The authenticated subject ID
     pub subject_id: EntityId,
@@ -19,9 +22,9 @@ pub struct AuthenticationResult {
     pub subject_type: String,
 }
 
-/// WebSocket message types for Store proxy communication
-/// These messages are compatible with the qcore-rs WebSocketMessage format
-#[derive(Debug, Serialize, Deserialize)]
+/// TCP message types for Store proxy communication
+/// These messages are compatible with the qcore-rs protocol
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum StoreMessage {
     // Authentication messages - MUST be first message from client
     Authenticate {
@@ -184,11 +187,50 @@ pub fn extract_message_id(message: &StoreMessage) -> Option<String> {
     }
 }
 
-type WsConnection = WebSocket<tungstenite::stream::MaybeTlsStream<std::net::TcpStream>>;
+/// TCP connection with message buffering
+#[derive(Debug)]
+pub struct TcpConnection {
+    stream: TcpStream,
+    message_buffer: MessageBuffer,
+}
+
+impl TcpConnection {
+    pub fn new(stream: TcpStream) -> Self {
+        Self {
+            stream,
+            message_buffer: MessageBuffer::new(),
+        }
+    }
+    
+    pub fn send_message(&mut self, message: &StoreMessage) -> anyhow::Result<()> {
+        let encoded = encode_store_message(message)?;
+        self.stream.write_all(&encoded)?;
+        self.stream.flush()?;
+        Ok(())
+    }
+    
+    pub fn try_receive_message(&mut self) -> anyhow::Result<Option<StoreMessage>> {
+        // Try to read more data
+        let mut buffer = [0u8; 8192];
+        match self.stream.read(&mut buffer) {
+            Ok(0) => return Err(anyhow::anyhow!("Connection closed")),
+            Ok(bytes_read) => {
+                self.message_buffer.add_data(&buffer[..bytes_read]);
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                // No data available right now
+            }
+            Err(e) => return Err(anyhow::anyhow!("TCP read error: {}", e)),
+        }
+        
+        // Try to decode a message
+        self.message_buffer.try_decode_store_message()
+    }
+}
 
 #[derive(Debug)]
 pub struct StoreProxy {
-    websocket: Rc<RefCell<WsConnection>>,
+    tcp_connection: Rc<RefCell<TcpConnection>>,
     pending_requests: Rc<RefCell<HashMap<String, serde_json::Value>>>,
     // Map from config hash to list of notification senders
     notification_configs: Rc<RefCell<HashMap<u64, Vec<NotificationQueue>>>>,
@@ -197,16 +239,22 @@ pub struct StoreProxy {
 }
 
 impl StoreProxy {
-    /// Connect to WebSocket server and authenticate immediately
+    /// Connect to TCP server and authenticate immediately
     /// If authentication fails, the connection will be closed by the server
     pub fn connect_and_authenticate(
-        url: &str,
+        address: &str,
         subject_name: &str,
         credential: &str,
     ) -> Result<Self> {
-        // Parse URL and connect to WebSocket
-        let (mut websocket, _) = connect(url)
-            .map_err(|e| Error::StoreProxyError(format!("Failed to connect: {}", e)))?;
+        // Connect to TCP server
+        let stream = TcpStream::connect(address)
+            .map_err(|e| Error::StoreProxyError(format!("Failed to connect to {}: {}", address, e)))?;
+        
+        // Set to non-blocking for message handling
+        stream.set_nonblocking(true)
+            .map_err(|e| Error::StoreProxyError(format!("Failed to set non-blocking: {}", e)))?;
+
+        let mut tcp_connection = TcpConnection::new(stream);
 
         // Send authentication message immediately
         let auth_request = StoreMessage::Authenticate {
@@ -215,24 +263,21 @@ impl StoreProxy {
             credential: credential.to_string(),
         };
 
-        let auth_message = serde_json::to_string(&auth_request)
-            .map_err(|e| Error::StoreProxyError(format!("Failed to serialize auth request: {}", e)))?;
-
-        websocket.send(Message::Text(auth_message.into()))
+        tcp_connection.send_message(&auth_request)
             .map_err(|e| Error::StoreProxyError(format!("Failed to send auth message: {}", e)))?;
 
         // Wait for authentication response
-        let auth_response = websocket.read()
-            .map_err(|e| Error::StoreProxyError(format!("WebSocket error during auth: {}", e)))?;
-
-        let auth_response_text = match auth_response {
-            Message::Text(text) => text,
-            Message::Close(_) => return Err(Error::StoreProxyError("Authentication failed - connection closed".to_string())),
-            _ => return Err(Error::StoreProxyError("Unexpected message type during authentication".to_string())),
+        let auth_result = loop {
+            match tcp_connection.try_receive_message() {
+                Ok(Some(message)) => break message,
+                Ok(None) => {
+                    // No message yet, continue waiting
+                    std::thread::sleep(std::time::Duration::from_millis(10));
+                    continue;
+                }
+                Err(e) => return Err(Error::StoreProxyError(format!("TCP error during auth: {}", e))),
+            }
         };
-
-        let auth_result: StoreMessage = serde_json::from_str(&auth_response_text)
-            .map_err(|e| Error::StoreProxyError(format!("Failed to parse auth response: {}", e)))?;
 
         let authenticated_subject = match auth_result {
             StoreMessage::AuthenticateResponse { response, .. } => {
@@ -245,42 +290,40 @@ impl StoreProxy {
         };
 
         // Create single-threaded collections
-        let websocket = Rc::new(RefCell::new(websocket));
+        let tcp_connection = Rc::new(RefCell::new(tcp_connection));
         let pending_requests = Rc::new(RefCell::new(HashMap::new()));
         let notification_configs = Rc::new(RefCell::new(HashMap::new()));
 
         Ok(StoreProxy {
-            websocket,
+            tcp_connection,
             pending_requests,
             notification_configs,
             authenticated_subject: Some(authenticated_subject),
         })
     }
 
-    /// Handle incoming messages from the WebSocket
+    /// Handle incoming messages from the TCP connection
     /// This is called synchronously to process messages as they arrive
     fn handle_incoming_message(
         &self,
-        message_text: &str,
+        store_message: &StoreMessage,
     ) -> std::result::Result<(), String> {
-        if let Ok(store_message) = serde_json::from_str::<StoreMessage>(message_text) {
-            match store_message {
-                StoreMessage::Notification { notification } => {
-                    // Handle notification
-                    let config_hash = notification.config_hash;
-                    let configs = self.notification_configs.borrow();
-                    if let Some(senders) = configs.get(&config_hash) {
-                        for sender in senders {
-                            sender.push(notification.clone());
-                        }
+        match store_message {
+            StoreMessage::Notification { notification } => {
+                // Handle notification
+                let config_hash = notification.config_hash;
+                let configs = self.notification_configs.borrow();
+                if let Some(senders) = configs.get(&config_hash) {
+                    for sender in senders {
+                        sender.push(notification.clone());
                     }
                 }
-                _ => {
-                    // Handle response to pending request
-                    if let Some(id) = extract_message_id(&store_message) {
-                        let response_json = serde_json::to_value(store_message).unwrap_or_default();
-                        self.pending_requests.borrow_mut().insert(id, response_json);
-                    }
+            }
+            _ => {
+                // Handle response to pending request
+                if let Some(id) = extract_message_id(store_message) {
+                    let response_json = serde_json::to_value(store_message).unwrap_or_default();
+                    self.pending_requests.borrow_mut().insert(id, response_json);
                 }
             }
         }
@@ -292,14 +335,11 @@ impl StoreProxy {
         let id = extract_message_id(&request)
             .ok_or_else(|| Error::StoreProxyError("Request missing ID".to_string()))?;
 
-        let message_text = serde_json::to_string(&request)
-            .map_err(|e| Error::StoreProxyError(format!("Failed to serialize request: {}", e)))?;
-
         // Send message
-        self.websocket.borrow_mut().send(Message::Text(message_text.into()))
+        self.tcp_connection.borrow_mut().send_message(&request)
             .map_err(|e| Error::StoreProxyError(format!("Failed to send message: {}", e)))?;
 
-        // Wait for response by polling the WebSocket until we get our response
+        // Wait for response by polling the TCP connection until we get our response
         loop {
             // Check if we already have the response
             if let Some(response_json) = self.pending_requests.borrow_mut().remove(&id) {
@@ -308,25 +348,20 @@ impl StoreProxy {
                 return Ok(response);
             }
 
-            // Read next message from WebSocket
-            match self.websocket.borrow_mut().read() {
-                Ok(Message::Text(text)) => {
-                    if let Err(_) = self.handle_incoming_message(&text) {
+            // Read next message from TCP connection
+            match self.tcp_connection.borrow_mut().try_receive_message() {
+                Ok(Some(message)) => {
+                    if let Err(_) = self.handle_incoming_message(&message) {
                         // Handle error if needed
                     }
                 }
-                Ok(Message::Close(_)) => {
-                    return Err(Error::StoreProxyError("Connection closed".to_string()));
-                }
-                Ok(_) => {
-                    // Ignore other message types
-                }
-                Err(WsError::Io(ref e)) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                Ok(None) => {
                     // No message available, continue loop
+                    std::thread::sleep(std::time::Duration::from_millis(1));
                     continue;
                 }
                 Err(e) => {
-                    return Err(Error::StoreProxyError(format!("WebSocket error: {}", e)));
+                    return Err(Error::StoreProxyError(format!("TCP error: {}", e)));
                 }
             }
         }
