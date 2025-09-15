@@ -266,8 +266,15 @@ impl StoreProxy {
         tcp_connection.send_message(&auth_request)
             .map_err(|e| Error::StoreProxyError(format!("Failed to send auth message: {}", e)))?;
 
-        // Wait for authentication response
+        // Wait for authentication response with timeout
+        let auth_start = std::time::Instant::now();
+        let auth_timeout = std::time::Duration::from_secs(5); // 5 second timeout
+        
         let auth_result = loop {
+            if auth_start.elapsed() > auth_timeout {
+                return Err(Error::StoreProxyError("Authentication timeout".to_string()));
+            }
+            
             match tcp_connection.try_receive_message() {
                 Ok(Some(message)) => break message,
                 Ok(None) => {
