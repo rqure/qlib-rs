@@ -215,3 +215,28 @@ impl Request {
         }
     }
 }
+
+impl std::fmt::Display for Request {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Request::Read { entity_id, field_type, value, write_time, writer_id } => {
+                write!(f, "Read Request - Entity ID: {}, Field Type: {}, Value: {:?}, Write Time: {:?}, Writer ID: {:?}", entity_id, field_type, value, write_time, writer_id)
+            }
+            Request::Write { entity_id, field_type, value, push_condition, adjust_behavior, write_time, writer_id, originator } => {
+                write!(f, "Write Request - Entity ID: {}, Field Type: {}, Value: {:?}, Push Condition: {:?}, Adjust Behavior: {}, Write Time: {:?}, Writer ID: {:?}, Originator: {:?}", entity_id, field_type, value, push_condition, adjust_behavior, write_time, writer_id, originator)
+            }
+            Request::Create { entity_type, parent_id, name, created_entity_id, timestamp, originator } => {
+                write!(f, "Create Request - Entity Type: {}, Parent ID: {:?}, Name: {}, Created Entity ID: {:?}, Timestamp: {:?}, Originator: {:?}", entity_type, parent_id, name, created_entity_id, timestamp, originator)
+            }
+            Request::Delete { entity_id, timestamp, originator } => {
+                write!(f, "Delete Request - Entity ID: {}, Timestamp: {:?}, Originator: {:?}", entity_id, timestamp, originator)
+            }
+            Request::SchemaUpdate { schema, timestamp, originator } => {
+                write!(f, "Schema Update Request - Schema: {:?}, Timestamp: {:?}, Originator: {:?}", schema, timestamp, originator)
+            }
+            Request::Snapshot { snapshot_counter, timestamp, originator } => {
+                write!(f, "Snapshot Request - Snapshot Counter: {}, Timestamp: {:?}, Originator: {:?}", snapshot_counter, timestamp, originator)
+            }
+        }
+    }
+}
