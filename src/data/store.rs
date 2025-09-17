@@ -1,5 +1,5 @@
 use std::{mem::discriminant, sync::{Arc, Mutex}};
-use ahash::AHashMap;
+use rustc_hash::FxHashMap;
 use crossbeam::queue::SegQueue;
 use itertools::Itertools;
 
@@ -10,18 +10,18 @@ use crate::{
 };
 
 pub struct Store {
-    schemas: AHashMap<EntityType, EntitySchema<Single>>,
-    entities: AHashMap<EntityType, Vec<EntityId>>,
+    schemas: FxHashMap<EntityType, EntitySchema<Single>>,
+    entities: FxHashMap<EntityType, Vec<EntityId>>,
     types: Vec<EntityType>,
-    fields: AHashMap<(EntityId, FieldType), Field>,
+    fields: FxHashMap<(EntityId, FieldType), Field>,
 
     /// Maps parent types to all their derived types (including direct and indirect children)
     /// This allows fast lookup of all entity types that inherit from a given parent type
-    inheritance_map: AHashMap<EntityType, Vec<EntityType>>,
+    inheritance_map: FxHashMap<EntityType, Vec<EntityType>>,
 
     /// Cache for complete entity schemas to avoid rebuilding inheritance chains repeatedly
     /// This cache is invalidated whenever schemas are updated or inheritance map is rebuilt
-    complete_entity_schema_cache: AHashMap<EntityType, EntitySchema<Complete>>,
+    complete_entity_schema_cache: FxHashMap<EntityType, EntitySchema<Complete>>,
 
     snowflake: Snowflake,
 
@@ -32,12 +32,12 @@ pub struct Store {
     /// Notification senders indexed by entity ID and field type
     /// Each config can have multiple senders
     id_notifications:
-        AHashMap<EntityId, AHashMap<FieldType, AHashMap<NotifyConfig, Vec<NotificationQueue>>>>,
+        FxHashMap<EntityId, FxHashMap<FieldType, FxHashMap<NotifyConfig, Vec<NotificationQueue>>>>,
 
     /// Notification senders indexed by entity type and field type
     /// Each config can have multiple senders
     type_notifications:
-        AHashMap<EntityType, AHashMap<FieldType, AHashMap<NotifyConfig, Vec<NotificationQueue>>>>,
+        FxHashMap<EntityType, FxHashMap<FieldType, FxHashMap<NotifyConfig, Vec<NotificationQueue>>>>,
 
     pub write_queue: SegQueue<Request>,
 
@@ -948,9 +948,9 @@ impl Store {
                 let senders = self
                     .id_notifications
                     .entry(entity_id.clone())
-                    .or_insert_with(AHashMap::new)
+                    .or_insert_with(FxHashMap::default)
                     .entry(field_type.clone())
-                    .or_insert_with(AHashMap::new)
+                    .or_insert_with(FxHashMap::default)
                     .entry(config.clone())
                     .or_insert_with(Vec::new);
                 senders.push(sender);
@@ -963,9 +963,9 @@ impl Store {
                 let senders = self
                     .type_notifications
                     .entry(EntityType::from(entity_type.clone()))
-                    .or_insert_with(AHashMap::new)
+                    .or_insert_with(FxHashMap::default)
                     .entry(field_type.clone())
-                    .or_insert_with(AHashMap::new)
+                    .or_insert_with(FxHashMap::default)
                     .entry(config.clone())
                     .or_insert_with(Vec::new);
                 senders.push(sender);
@@ -1048,15 +1048,15 @@ impl Store {
 
     pub fn new(snowflake: Snowflake) -> Self {
         Store {
-            schemas: AHashMap::new(),
-            entities: AHashMap::new(),
+            schemas: FxHashMap::default(),
+            entities: FxHashMap::default(),
             types: Vec::new(),
-            fields: AHashMap::new(),
-            inheritance_map: AHashMap::new(),
-            complete_entity_schema_cache: AHashMap::new(),
+            fields: FxHashMap::default(),
+            inheritance_map: FxHashMap::default(),
+            complete_entity_schema_cache: FxHashMap::default(),
             snowflake,
-            id_notifications: AHashMap::new(),
-            type_notifications: AHashMap::new(),
+            id_notifications: FxHashMap::default(),
+            type_notifications: FxHashMap::default(),
             write_queue: SegQueue::new(),
             notifications_disabled: false,
             default_writer_id: None,
@@ -1065,17 +1065,17 @@ impl Store {
     }
 
     /// Get a reference to the schemas map
-    pub fn get_schemas(&self) -> &AHashMap<EntityType, EntitySchema<Single>> {
+    pub fn get_schemas(&self) -> &FxHashMap<EntityType, EntitySchema<Single>> {
         &self.schemas
     }
 
     /// Get a reference to the fields map (converts to nested structure for compatibility)
-    pub fn get_fields(&self) -> AHashMap<EntityId, AHashMap<FieldType, Field>> {
-        let mut nested_fields = AHashMap::new();
+    pub fn get_fields(&self) -> FxHashMap<EntityId, FxHashMap<FieldType, Field>> {
+        let mut nested_fields = FxHashMap::default();
         for ((entity_id, field_type), field) in &self.fields {
             nested_fields
                 .entry(entity_id.clone())
-                .or_insert_with(AHashMap::new)
+                .or_insert_with(FxHashMap::default)
                 .insert(field_type.clone(), field.clone());
         }
         nested_fields
@@ -1356,23 +1356,25 @@ impl Store {
 
     /// Take a snapshot of the current store state
     pub fn take_snapshot(&self) -> Snapshot {
-        Snapshot {
-            schemas: self.schemas.clone(),
-            entities: self.entities.clone(),
-            types: self.types.clone(),
-            fields: self.get_fields(),
-        }
+        Snapshot::from_fx_hashmaps(
+            self.schemas.clone(),
+            self.entities.clone(),
+            self.types.clone(),
+            self.get_fields(),
+        )
     }
 
     /// Restore the store state from a snapshot
     pub fn restore_snapshot(&mut self, snapshot: Snapshot) {
-        self.schemas = snapshot.schemas;
-        self.entities = snapshot.entities;
-        self.types = snapshot.types;
+        let (schemas, entities, types, flat_fields) = snapshot.to_fx_hashmaps();
+        
+        self.schemas = schemas;
+        self.entities = entities;
+        self.types = types;
         
         // Convert nested fields structure to flattened structure
         self.fields.clear();
-        for (entity_id, entity_fields) in snapshot.fields {
+        for (entity_id, entity_fields) in flat_fields {
             for (field_type, field) in entity_fields {
                 self.fields.insert((entity_id.clone(), field_type), field);
             }
