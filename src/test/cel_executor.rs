@@ -10,7 +10,7 @@ use std::sync::Arc;
 
 #[allow(dead_code)]
 fn setup_test_store_with_entity() -> Result<(Store, EntityId)> {
-    let mut store = Store::new(Snowflake::new());
+    let mut store = Store::new();
 
     // Create a test entity type with various field types
     let et_test = EntityType::from("TestEntity");
@@ -438,7 +438,7 @@ fn test_cel_executor_execute_complex_expression() -> Result<()> {
 #[test]
 fn test_cel_executor_execute_with_indirection() -> Result<()> {
     let mut executor = CelExecutor::new();
-    let mut store = Store::new(Snowflake::new());
+    let mut store = Store::new();
 
     // Create entities for indirection test
     let et_user = EntityType::from("User");
@@ -566,7 +566,7 @@ fn test_cel_executor_execute_with_indirection() -> Result<()> {
 #[test]
 fn test_cel_executor_execute_with_deep_indirection() -> Result<()> {
     let mut executor = CelExecutor::new();
-    let mut store = Store::new(Snowflake::new());
+    let mut store = Store::new();
 
     // Create a deeper indirection chain: Employee -> Department -> Company
     let et_company = EntityType::from("Company");
@@ -717,7 +717,7 @@ fn test_cel_executor_execute_with_deep_indirection() -> Result<()> {
 #[test]
 fn test_cel_executor_execute_with_indirection_and_entity_lists() -> Result<()> {
     let mut executor = CelExecutor::new();
-    let mut store = Store::new(Snowflake::new());
+    let mut store = Store::new();
 
     // Create schema for testing indirection with entity lists
     let et_team = EntityType::from("Team");
@@ -830,7 +830,7 @@ fn test_cel_executor_execute_with_indirection_and_entity_lists() -> Result<()> {
 #[test]
 fn test_cel_executor_execute_with_null_entity_reference() -> Result<()> {
     let mut executor = CelExecutor::new();
-    let mut store = Store::new(Snowflake::new());
+    let mut store = Store::new();
 
     // Create entity with null entity reference
     let et_user = EntityType::from("User");
@@ -936,7 +936,7 @@ fn test_cel_executor_execute_with_missing_field() -> Result<()> {
 #[test]
 fn test_cel_executor_execute_with_mixed_field_access() -> Result<()> {
     let mut executor = CelExecutor::new();
-    let mut store = Store::new(Snowflake::new());
+    let mut store = Store::new();
 
     // Create entities for mixed field access test
     let et_user = EntityType::from("User");

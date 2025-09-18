@@ -9,7 +9,7 @@ use crate::auth::{authenticate_user, find_user_by_name, create_user, set_user_pa
 
 #[test]
 fn test_create_and_authenticate_user() -> Result<()> {
-    let mut store = Store::new(Snowflake::new());
+    let mut store = Store::new();
     
     // Create the Object entity schema with Name field first
     let mut object_schema = EntitySchema::<Single>::new(EntityType::from("Object"), vec![]);
@@ -131,7 +131,7 @@ fn test_create_and_authenticate_user() -> Result<()> {
 
 #[test]
 fn test_authentication_with_factory_restore_format() -> Result<()> {
-    let mut store = Store::new(Snowflake::new());
+    let mut store = Store::new();
     
     // Create schemas as they would be loaded from factory restore
     // (this should match what's in base-topology.json)

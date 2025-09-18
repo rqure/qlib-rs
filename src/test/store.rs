@@ -42,7 +42,7 @@ fn create_entity_schema(store: &mut Store, entity_type: EntityType) -> Result<()
 // Helper to set up a basic database structure for testing
 #[allow(dead_code)]
 fn setup_test_database() -> Result<Store> {
-    let mut store = Store::new(Snowflake::new());
+    let mut store = Store::new();
 
     let et_root = EntityType::from("Root");
     let et_folder = EntityType::from("Folder");
@@ -418,7 +418,7 @@ fn test_cel_filtering_parameters() -> Result<()> {
 #[test]
 fn test_find_entities_comprehensive() -> Result<()> {
     // Create a fresh store without using setup_test_database
-    let mut store = Store::new(Snowflake::new());
+    let mut store = Store::new();
     
     let et_user = EntityType::from("User");
     
@@ -495,7 +495,7 @@ fn test_find_entities_comprehensive() -> Result<()> {
 
 #[test]
 fn test_find_entities_pagination() -> Result<()> {
-    let mut store = Store::new(Snowflake::new());
+    let mut store = Store::new();
     
     let et_user = EntityType::from("User");
     
@@ -573,7 +573,7 @@ fn test_find_entities_pagination() -> Result<()> {
 
 #[test]
 fn test_find_entities_inheritance() -> Result<()> {
-    let mut store = Store::new(Snowflake::new());
+    let mut store = Store::new();
     
     // Create inheritance hierarchy: Animal -> Mammal -> Dog/Cat
     let et_animal = EntityType::from("Animal");
@@ -731,7 +731,7 @@ fn test_find_entities_nonexistent_types() -> Result<()> {
 
 #[test]
 fn test_find_entities_cel_edge_cases() -> Result<()> {
-    let mut store = Store::new(Snowflake::new());
+    let mut store = Store::new();
     
     let et_user = EntityType::from("User");
     
@@ -776,7 +776,7 @@ fn test_find_entities_cel_edge_cases() -> Result<()> {
 
 #[test]
 fn test_complete_entity_schema_caching() -> Result<()> {
-    let mut store = Store::new(Snowflake::new());
+    let mut store = Store::new();
     
     // Create base entity type
     let et_base = EntityType::from("BaseEntity");

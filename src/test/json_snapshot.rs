@@ -552,8 +552,7 @@ fn test_json_snapshot_path_resolution() {
 fn test_json_snapshot_storage_scope() {
     // Test that storage scope is properly preserved in JSON snapshots
     
-    let snowflake = Snowflake::new();
-    let mut store = Store::new(snowflake);
+    let mut store = Store::new();
 
     // Define schemas with different storage scopes
     let mut object_schema = EntitySchema::<Single>::new("Object", vec![]);
@@ -646,8 +645,7 @@ fn test_json_snapshot_entity_list_paths() {
     // Test that EntityList fields with paths are properly handled during restore
     // This reproduces the CandidateList issue from base-topology.json
     
-    let snowflake = Snowflake::new();
-    let mut store = Store::new(snowflake);
+    let mut store = Store::new();
 
     // Define schemas similar to the base topology
     let mut object_schema = EntitySchema::<Single>::new("Object", vec![]);
@@ -789,7 +787,6 @@ fn test_json_snapshot_entity_list_paths() {
 
     // Now test the problematic restore operation
     // Create a new store and try to restore the snapshot
-    let snowflake2 = Snowflake::new();
     let mut store2 = Store::new(snowflake2);
 
     // This should fail because json_value_to_value can't handle paths in EntityList
