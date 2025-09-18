@@ -2,62 +2,19 @@ use crate::data::EntityType;
 use serde::{Deserialize, Serialize};
 
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct EntityId {
-    typ: EntityType,
-    id: u64,
-}
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Ord, PartialOrd)]
+pub struct EntityId(pub u64);
 
 impl EntityId {
-    const SEPARATOR: &str = "$";
-
-    pub fn new(typ: impl Into<EntityType>, id: u64) -> Self {
-        Self {
-            typ: typ.into(),
-            id,
-        }
+    pub fn new(entity_type: EntityType, id: u32) -> Self {
+        EntityId(((entity_type.0 as u64) << 32) | (id as u64))
     }
 
-    pub fn get_type(&self) -> &EntityType {
-        &self.typ
+    pub fn extract_id(&self) -> u32 {
+        (self.0 & 0xFFFFFFFF) as u32
     }
 
-    pub fn get_id(&self) -> String {
-        format!("{}{}{}", self.get_type(), EntityId::SEPARATOR, self.id)
-    }
-}
-
-impl TryFrom<&str> for EntityId {
-    type Error = String;
-
-    fn try_from(value: &str) -> Result<Self, Self::Error> {
-        let parts: Vec<&str> = value.split(&EntityId::SEPARATOR).collect();
-
-        if parts.len() == 2 {
-            // Parse as "type$id" format
-            let typ = parts[0].to_string();
-            let id = parts[1].parse::<u64>().map_err(|e| format!("Invalid id: {}", e))?;
-            Ok(EntityId { typ: typ.into(), id })
-        } else {
-            Err(format!("Invalid EntityId format, expected 'type{}id'", EntityId::SEPARATOR))
-        }
-    }
-}
-
-impl Into<String> for EntityId {
-    fn into(self) -> String {
-        self.get_id()
-    }
-}
-
-impl std::fmt::Display for EntityId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.get_id())
-    }
-}
-
-impl AsRef<EntityId> for EntityId {
-    fn as_ref(&self) -> &EntityId {
-        self
+    pub fn extract_type(&self) -> EntityType {
+        EntityType((self.0 >> 32) as u32)
     }
 }

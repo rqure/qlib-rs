@@ -7,13 +7,13 @@ pub mod expr;
 pub use data::{
     BadIndirectionReason, Store, PageOpts,
     PageResult, NotificationQueue, hash_notify_config, Snapshot, EntityId, EntitySchema, Single, Complete, 
-    Field, FieldSchema, AdjustBehavior, PushCondition, Request, Snowflake, 
+    Field, FieldSchema, AdjustBehavior, PushCondition, Request, 
     StoreProxy, StoreMessage, extract_message_id, Value, INDIRECTION_DELIMITER, NotifyConfig, Notification,
     AuthenticationResult,
     JsonSnapshot, JsonEntitySchema, JsonEntity, value_to_json_value, json_value_to_value, value_to_json_value_with_paths, build_json_entity_tree, take_json_snapshot, restore_json_snapshot,
     restore_entity_recursive, factory_restore_json_snapshot, restore_json_snapshot_via_proxy,
     EntityType, FieldType, Timestamp, now, epoch, nanos_to_timestamp, secs_to_timestamp, 
-    millis_to_timestamp, micros_to_timestamp, ft, et, Cache, resolve_indirection, resolve_indirection_async, path_async, path_to_entity_id_async,
+    millis_to_timestamp, micros_to_timestamp, ft, et, Cache, resolve_indirection, path, path_to_entity_id,
     StoreTrait, from_base64, to_base64,
 };
 
@@ -35,12 +35,15 @@ pub type Result<T> = std::result::Result<T, Error>;
 #[derive(Debug, Clone)]
 pub enum Error {
     // Store related errors
-    BadIndirection(EntityId, FieldType, BadIndirectionReason),
+    BadIndirection(EntityId, Vec<FieldType>, BadIndirectionReason),
     EntityAlreadyExists(EntityId),
     EntityNotFound(EntityId),
+    EntityNameNotFound(String),
     EntityTypeNotFound(EntityType),
+    EntityTypeStrNotFound(String),
     CacheFieldNotFound(FieldType),
-    FieldNotFound(EntityId, FieldType),
+    FieldTypeNotFound(EntityId, FieldType),
+    FieldTypeStrNotFound(String),
     InvalidFieldType(String),
     InvalidFieldValue(String),
     InvalidNotifyConfig(String),
@@ -71,18 +74,21 @@ impl std::error::Error for Error {}
 impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Error::BadIndirection(id, field, reason) => write!(f, "Bad indirection for {}.{}: {}", id, field, reason),
-            Error::EntityAlreadyExists(id) => write!(f, "Entity already exists: {}", id),
-            Error::EntityNotFound(id) => write!(f, "Entity not found: {}", id),
-            Error::EntityTypeNotFound(et) => write!(f, "Entity type not found: {}", et),
-            Error::CacheFieldNotFound(field) => write!(f, "Cache field not found: {}", field),
-            Error::FieldNotFound(id, field) => write!(f, "Field not found for {}: {}", id, field),
+            Error::BadIndirection(id, field, reason) => write!(f, "Bad indirection for {:?}.{:?}: {}", id, field, reason),
+            Error::EntityAlreadyExists(id) => write!(f, "Entity already exists: {:?}", id),
+            Error::EntityNotFound(id) => write!(f, "Entity not found: {:?}", id),
+            Error::EntityNameNotFound(name) => write!(f, "Entity name not found: {}", name),
+            Error::EntityTypeNotFound(et) => write!(f, "Entity type not found: {:?}", et),
+            Error::EntityTypeStrNotFound(et) => write!(f, "Entity type not found: {}", et),
+            Error::CacheFieldNotFound(field) => write!(f, "Cache field not found: {:?}", field),
+            Error::FieldTypeNotFound(id, field) => write!(f, "Field not found for {:?}: {:?}", id, field),
+            Error::FieldTypeStrNotFound(field) => write!(f, "Field not found: {}", field),
             Error::InvalidFieldType(msg) => write!(f, "Invalid field type: {}", msg),
             Error::InvalidFieldValue(msg) => write!(f, "Invalid field value: {}", msg),
             Error::InvalidNotifyConfig(msg) => write!(f, "Invalid notification config: {}", msg),
-            Error::UnsupportedAdjustBehavior(id, field, behavior) => write!(f, "Unsupported adjust behavior {} for {}.{}", behavior, id, field),
+            Error::UnsupportedAdjustBehavior(id, field, behavior) => write!(f, "Unsupported adjust behavior {:?} for {:?}.{:?}", behavior, id, field),
             Error::InvalidRequest(msg) => write!(f, "Invalid request: {}", msg),
-            Error::ValueTypeMismatch(id, field, got, expected) => write!(f, "Value type mismatch for {}.{}: got value type {:?}, expected value type {:?}", id, field, got, expected),
+            Error::ValueTypeMismatch(id, field, got, expected) => write!(f, "Value type mismatch for {:?}.{:?}: got value type {:?}, expected value type {:?}", id, field, got, expected),
             Error::BadValueCast(got, expected) => write!(f, "Bad value cast: got value type {:?}, expected value type {:?}", got, expected),
             Error::InvalidCredentials => write!(f, "Invalid credentials"),
             Error::AccountDisabled => write!(f, "Account is disabled"),
@@ -108,10 +114,10 @@ impl std::fmt::Display for Error {
 /// * `field_type` - The field type to read
 #[macro_export]
 macro_rules! sread {
-    ($entity_id:expr, $field_type:expr) => {
+    ($entity_id:expr, $field_types:expr) => {
         $crate::Request::Read {
             entity_id: $entity_id,
-            field_type: $field_type,
+            field_types: $field_types,
             value: None,
             write_time: None,
             writer_id: None,
@@ -132,10 +138,10 @@ macro_rules! sread {
 #[macro_export]
 macro_rules! swrite {
     // Basic version with no value: handle Some/None
-    ($entity_id:expr, $field_type:expr) => {
+    ($entity_id:expr, $field_types:expr) => {
         $crate::Request::Write {
             entity_id: $entity_id,
-            field_type: $field_type,
+            field_types: $field_types,
             value: None,
             push_condition: $crate::PushCondition::Always,
             adjust_behavior: $crate::AdjustBehavior::Set,
@@ -146,10 +152,10 @@ macro_rules! swrite {
     };
 
     // Basic version with just value: handle Some/None
-    ($entity_id:expr, $field_type:expr, $value:expr) => {
+    ($entity_id:expr, $field_types:expr, $value:expr) => {
         $crate::Request::Write {
             entity_id: $entity_id,
-            field_type: $field_type,
+            field_types: $field_types,
             value: $value,
             push_condition: $crate::PushCondition::Always,
             adjust_behavior: $crate::AdjustBehavior::Set,
@@ -160,10 +166,10 @@ macro_rules! swrite {
     };
 
     // With write option
-    ($entity_id:expr, $field_type:expr, $value:expr, $push_condition:expr) => {
+    ($entity_id:expr, $field_types:expr, $value:expr, $push_condition:expr) => {
         $crate::Request::Write {
             entity_id: $entity_id,
-            field_type: $field_type,
+            field_types: $field_types,
             value: $value,
             push_condition: $push_condition,
             adjust_behavior: $crate::AdjustBehavior::Set,
@@ -174,10 +180,10 @@ macro_rules! swrite {
     };
 
     // With write option and write time
-    ($entity_id:expr, $field_type:expr, $value:expr, $push_condition:expr, $write_time:expr) => {
+    ($entity_id:expr, $field_types:expr, $value:expr, $push_condition:expr, $write_time:expr) => {
         $crate::Request::Write {
             entity_id: $entity_id,
-            field_type: $field_type,
+            field_types: $field_types,
             value: $value,
             push_condition: $push_condition,
             adjust_behavior: $crate::AdjustBehavior::Set,
@@ -188,10 +194,10 @@ macro_rules! swrite {
     };
 
     // With write option, write time, and writer ID
-    ($entity_id:expr, $field_type:expr, $value:expr, $push_condition:expr, $write_time:expr, $writer_id:expr) => {
+    ($entity_id:expr, $field_types:expr, $value:expr, $push_condition:expr, $write_time:expr, $writer_id:expr) => {
         $crate::Request::Write {
             entity_id: $entity_id,
-            field_type: $field_type,
+            field_types: $field_types,
             value: $value,
             push_condition: $push_condition,
             adjust_behavior: $crate::AdjustBehavior::Set,
@@ -218,10 +224,10 @@ macro_rules! swrite {
 #[macro_export]
 macro_rules! sadd {
     // Basic version with just value
-    ($entity_id:expr, $field_type:expr, $value:expr) => {
+    ($entity_id:expr, $field_types:expr, $value:expr) => {
         $crate::Request::Write {
             entity_id: $entity_id,
-            field_type: $field_type,
+            field_types: $field_types,
             value: $value,
             push_condition: $crate::PushCondition::Always,
             adjust_behavior: $crate::AdjustBehavior::Add,
@@ -232,10 +238,10 @@ macro_rules! sadd {
     };
 
     // With write option
-    ($entity_id:expr, $field_type:expr, $value:expr, $push_condition:expr) => {
+    ($entity_id:expr, $field_types:expr, $value:expr, $push_condition:expr) => {
         $crate::Request::Write {
             entity_id: $entity_id,
-            field_type: $field_type,
+            field_types: $field_types,
             value: $value,
             push_condition: $push_condition,
             adjust_behavior: $crate::AdjustBehavior::Add,
@@ -246,10 +252,10 @@ macro_rules! sadd {
     };
 
     // With write option and write time
-    ($entity_id:expr, $field_type:expr, $value:expr, $push_condition:expr, $write_time:expr) => {
+    ($entity_id:expr, $field_types:expr, $value:expr, $push_condition:expr, $write_time:expr) => {
         $crate::Request::Write {
             entity_id: $entity_id,
-            field_type: $field_type,
+            field_types: $field_types,
             value: $value,
             push_condition: $push_condition,
             adjust_behavior: $crate::AdjustBehavior::Add,
@@ -260,10 +266,10 @@ macro_rules! sadd {
     };
 
     // With write option, write time, and writer ID
-    ($entity_id:expr, $field_type:expr, $value:expr, $push_condition:expr, $write_time:expr, $writer_id:expr) => {
+    ($entity_id:expr, $field_types:expr, $value:expr, $push_condition:expr, $write_time:expr, $writer_id:expr) => {
         $crate::Request::Write {
             entity_id: $entity_id,
-            field_type: $field_type,
+            field_types: $field_types,
             value: $value,
             push_condition: $push_condition,
             adjust_behavior: $crate::AdjustBehavior::Add,
@@ -290,10 +296,10 @@ macro_rules! sadd {
 #[macro_export]
 macro_rules! ssub {
     // Basic version with just value
-    ($entity_id:expr, $field_type:expr, $value:expr) => {
+    ($entity_id:expr, $field_types:expr, $value:expr) => {
         $crate::Request::Write {
             entity_id: $entity_id,
-            field_type: $field_type,
+            field_types: $field_types,
             value: $value,
             push_condition: $crate::PushCondition::Always,
             adjust_behavior: $crate::AdjustBehavior::Subtract,
@@ -304,10 +310,10 @@ macro_rules! ssub {
     };
 
     // With write option
-    ($entity_id:expr, $field_type:expr, $value:expr, $push_condition:expr) => {
+    ($entity_id:expr, $field_types:expr, $value:expr, $push_condition:expr) => {
         $crate::Request::Write {
             entity_id: $entity_id,
-            field_type: $field_type,
+            field_types: $field_types,
             value: $value,
             push_condition: $push_condition,
             adjust_behavior: $crate::AdjustBehavior::Subtract,
@@ -318,10 +324,10 @@ macro_rules! ssub {
     };
 
     // With write option and write time
-    ($entity_id:expr, $field_type:expr, $value:expr, $push_condition:expr, $write_time:expr) => {
+    ($entity_id:expr, $field_types:expr, $value:expr, $push_condition:expr, $write_time:expr) => {
         $crate::Request::Write {
             entity_id: $entity_id,
-            field_type: $field_type,
+            field_types: $field_types,
             value: $value,
             push_condition: $push_condition,
             adjust_behavior: $crate::AdjustBehavior::Subtract,
@@ -332,10 +338,10 @@ macro_rules! ssub {
     };
 
     // With write option, write time, and writer ID
-    ($entity_id:expr, $field_type:expr, $value:expr, $push_condition:expr, $write_time:expr, $writer_id:expr) => {
+    ($entity_id:expr, $field_types:expr, $value:expr, $push_condition:expr, $write_time:expr, $writer_id:expr) => {
         $crate::Request::Write {
             entity_id: $entity_id,
-            field_type: $field_type,
+            field_types: $field_types,
             value: $value,
             push_condition: $push_condition,
             adjust_behavior: $crate::AdjustBehavior::Subtract,

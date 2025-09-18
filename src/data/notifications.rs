@@ -13,13 +13,13 @@ pub enum NotifyConfig {
         entity_id: EntityId,
         field_type: FieldType,
         trigger_on_change: bool, // Notification will always trigger on write, but can be configured to trigger on change instead
-        context: Vec<FieldType>, // Context fields to include in the notification (these fields are relative to the entity with indirection support)
+        context: Vec<Vec<FieldType>>, // Context fields to include in the notification (these fields are relative to the entity with indirection support)
     },
     EntityType {
         entity_type: EntityType,
         field_type: FieldType,
         trigger_on_change: bool, // Notification will always trigger on write, but can be configured to trigger on change instead
-        context: Vec<FieldType>, // Context fields to include in the notification (these fields are relative to the entity with indirection support)
+        context: Vec<Vec<FieldType>>, // Context fields to include in the notification (these fields are relative to the entity with indirection support)
     }
 }
 
@@ -27,7 +27,7 @@ pub enum NotifyConfig {
 pub struct Notification {
     pub current: Request,   // Request::Read with current field value and metadata
     pub previous: Request,  // Request::Read with previous field value and metadata
-    pub context: BTreeMap<FieldType, Request>, // Context fields as Request::Read (no Option since we'll include failed reads as well)
+    pub context: BTreeMap<Vec<FieldType>, Request>, // Context fields as Request::Read (no Option since we'll include failed reads as well)
     pub config_hash: u64,  // Hash of the NotifyConfig that triggered this notification
 }
 

@@ -345,7 +345,7 @@ fn test_json_snapshot_restore() {
     restore_json_snapshot(&mut store2, &snapshot).unwrap();
 
     // Verify that store2 now contains the same data
-    let entities = store2.find_entities(&EntityType::from("Root"), None).unwrap();
+    let entities = store2.find_entities(EntityType::from("Root"), None).unwrap();
     assert_eq!(entities.len(), 1);
     
     let root_id_restored = &entities[0];
@@ -632,10 +632,10 @@ fn test_json_snapshot_storage_scope() {
     let recreated_schema = root_schema.to_entity_schema().unwrap();
     
     // Verify storage scopes are preserved
-    let config_field_schema = recreated_schema.fields.get(&FieldType::from("ConfigField")).unwrap();
+    let config_field_schema = recreated_schema.fields.get(FieldType::from("ConfigField")).unwrap();
     assert_eq!(*config_field_schema.storage_scope(), StorageScope::Configuration);
     
-    let runtime_field_schema = recreated_schema.fields.get(&FieldType::from("RuntimeField")).unwrap();
+    let runtime_field_schema = recreated_schema.fields.get(FieldType::from("RuntimeField")).unwrap();
     assert_eq!(*runtime_field_schema.storage_scope(), StorageScope::Runtime);
 
     println!("Storage scope test completed successfully!");
@@ -800,7 +800,7 @@ fn test_json_snapshot_entity_list_paths() {
             println!("Restore succeeded - checking if CandidateList was set correctly");
             
             // Find the FaultTolerance entity in the restored store
-            let ft_entities = store2.find_entities(&EntityType::from("FaultTolerance"), None).unwrap();
+            let ft_entities = store2.find_entities(EntityType::from("FaultTolerance"), None).unwrap();
             assert_eq!(ft_entities.len(), 1);
             let restored_ft_id = &ft_entities[0];
             

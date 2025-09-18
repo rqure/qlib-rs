@@ -8,29 +8,37 @@ use crate::{
 /// Async trait defining the common interface for store implementations
 /// This allows different store implementations to be used interchangeably
 pub trait StoreTrait {
+    fn get_entity_type(&self, name: &str) -> Result<EntityType>;
+
+    fn resolve_entity_type(&self, entity_type: EntityType) -> Result<String>;
+
+    fn get_field_type(&self, name: &str) -> Result<FieldType>;
+
+    fn resolve_field_type(&self, field_type: FieldType) -> Result<String>;
+
     /// Get the schema for a specific entity type
-    fn get_entity_schema(&self, entity_type: &EntityType) -> Result<EntitySchema<Single>>;
+    fn get_entity_schema(&self, entity_type: EntityType) -> Result<EntitySchema<Single>>;
 
     /// Get the complete schema for a specific entity type (including inherited fields)
-    fn get_complete_entity_schema(&self, entity_type: &EntityType) -> Result<EntitySchema<Complete>>;
+    fn get_complete_entity_schema(&self, entity_type: EntityType) -> Result<EntitySchema<Complete>>;
 
     /// Get the schema for a specific field
-    fn get_field_schema(&self, entity_type: &EntityType, field_type: &FieldType) -> Result<FieldSchema>;
+    fn get_field_schema(&self, entity_type: EntityType, field_type: FieldType) -> Result<FieldSchema>;
 
     /// Set or update the schema for a specific field
-    fn set_field_schema(&mut self, entity_type: &EntityType, field_type: &FieldType, schema: FieldSchema) -> Result<()>;
+    fn set_field_schema(&mut self, entity_type: EntityType, field_type: FieldType, schema: FieldSchema) -> Result<()>;
 
     /// Check if an entity exists
-    fn entity_exists(&self, entity_id: &EntityId) -> bool;
+    fn entity_exists(&self, entity_id: EntityId) -> bool;
 
     /// Check if a field type exists for an entity type
-    fn field_exists(&self, entity_type: &EntityType, field_type: &FieldType) -> bool;
+    fn field_exists(&self, entity_type: EntityType, field_type: FieldType) -> bool;
 
     /// Perform a batch of requests
     fn perform(&self, requests: Vec<Request>) -> Result<Vec<Request>>;
     fn perform_mut(&mut self, requests: Vec<Request>) -> Result<Vec<Request>>;
 
-    fn perform_map(&self, requests: Vec<Request>) -> Result<HashMap<FieldType, Request>> {
+    fn perform_map(&self, requests: Vec<Request>) -> Result<HashMap<Vec<FieldType>, Request>> {
         let updated_requests = self.perform(requests)?;
 
         let mut result_map = HashMap::new();
@@ -44,13 +52,13 @@ pub trait StoreTrait {
     }
 
     /// Find entities of a specific type with pagination (includes inherited types)
-    fn find_entities_paginated(&self, entity_type: &EntityType, page_opts: Option<PageOpts>, filter: Option<String>) -> Result<PageResult<EntityId>>;
+    fn find_entities_paginated(&self, entity_type: EntityType, page_opts: Option<PageOpts>, filter: Option<String>) -> Result<PageResult<EntityId>>;
 
     /// Find entities of exactly the specified type (no inheritance) with pagination
-    fn find_entities_exact(&self, entity_type: &EntityType, page_opts: Option<PageOpts>, filter: Option<String>) -> Result<PageResult<EntityId>>;
+    fn find_entities_exact(&self, entity_type: EntityType, page_opts: Option<PageOpts>, filter: Option<String>) -> Result<PageResult<EntityId>>;
 
     /// Find all entities of a specific type (includes inherited types)
-    fn find_entities(&self, entity_type: &EntityType, filter: Option<String>) -> Result<Vec<EntityId>>;
+    fn find_entities(&self, entity_type: EntityType, filter: Option<String>) -> Result<Vec<EntityId>>;
 
     /// Get all entity types
     fn get_entity_types(&self) -> Result<Vec<EntityType>>;

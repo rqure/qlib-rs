@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 
 use crate::{
-    EntityId, EntitySchema, EntityType, Error, FieldSchema, FieldType, Result, Single, Snowflake, Store, Value
+    EntityId, EntitySchema, EntityType, Error, FieldSchema, FieldType, Result, Single, Store, Value
 };
 use crate::data::{StoreTrait, StorageScope};
 
@@ -305,7 +305,7 @@ pub fn value_to_json_value_with_paths<T: StoreTrait>(
         Value::EntityList(v) => {
             let mut path_array = Vec::new();
             for entity_id in v {
-                match crate::path_async(store, entity_id) {
+                match crate::path(store, entity_id) {
                     Ok(path) => path_array.push(JsonValue::String(path)),
                     Err(_) => path_array.push(JsonValue::String(entity_id.get_id())),
                 }
@@ -314,7 +314,7 @@ pub fn value_to_json_value_with_paths<T: StoreTrait>(
         },
         Value::EntityReference(v) => {
             if let Some(entity_id) = v {
-                match crate::path_async(store, entity_id) {
+                match crate::path(store, entity_id) {
                     Ok(path) => JsonValue::String(path),
                     Err(_) => JsonValue::String(entity_id.get_id()),
                 }
@@ -434,7 +434,7 @@ pub fn json_value_to_value_with_resolution<T: StoreTrait>(
                             resolved_ids.push(entity_id);
                         } else {
                             // Try to resolve as path
-                            match crate::path_to_entity_id_async(store, s) {
+                            match crate::path_to_entity_id(store, s) {
                                 Ok(entity_id) => resolved_ids.push(entity_id),
                                 Err(_) => {
                                     // Skip invalid paths/IDs
@@ -457,7 +457,7 @@ pub fn json_value_to_value_with_resolution<T: StoreTrait>(
                     Some(entity_id)
                 } else {
                     // Try to resolve as path
-                    match crate::path_to_entity_id_async(store, id_str) {
+                    match crate::path_to_entity_id(store, id_str) {
                         Ok(entity_id) => Some(entity_id),
                         Err(_) => None,
                     }
@@ -489,7 +489,7 @@ pub fn take_json_snapshot<T: StoreTrait>(store: &mut T) -> Result<JsonSnapshot> 
     json_schemas.sort_by(|a, b| a.entity_type.cmp(&b.entity_type));
 
     // Find the Root entity
-    let root_entities = store.find_entities(&EntityType::from("Root"), None)?;
+    let root_entities = store.find_entities(EntityType::from("Root"), None)?;
     let root_entity_id = root_entities.first()
         .ok_or_else(|| Error::EntityNotFound(EntityId::new("Root", 0)))?;
 
@@ -506,10 +506,10 @@ pub fn take_json_snapshot<T: StoreTrait>(store: &mut T) -> Result<JsonSnapshot> 
 /// This function works with any type implementing StoreTrait
 pub fn build_json_entity_tree<T: StoreTrait>(
     store: &mut T,
-    entity_id: &EntityId,
+    entity_id: EntityId,
 ) -> Result<JsonEntity> {
     if !store.entity_exists(entity_id) {
-        return Err(Error::EntityNotFound(entity_id.clone()));
+        return Err(Error::EntityNotFound(entity_id));
     }
 
     let entity_type = entity_id.get_type();
@@ -534,8 +534,8 @@ pub fn build_json_entity_tree<T: StoreTrait>(
     for (field_type, field_schema) in schema_fields {
         // Create a read request
         let read_requests = vec![crate::Request::Read {
-            entity_id: entity_id.clone(),
-            field_type: field_type.clone(),
+            entity_id: entity_id,
+            field_types: field_type,
             value: None,
             write_time: None,
             writer_id: None,
@@ -716,8 +716,8 @@ pub fn restore_entity_recursive<T: StoreTrait>(
             match value_result {
                 Ok(value) => {
                     write_requests.push(crate::Request::Write {
-                        entity_id: entity_id.clone(),
-                        field_type: field_type.clone(),
+                        entity_id: entity_id,
+                        field_types: field_type,
                         value: Some(value),
                         push_condition: crate::PushCondition::Always,
                         adjust_behavior: crate::AdjustBehavior::Set,
@@ -743,7 +743,7 @@ pub fn restore_entity_recursive<T: StoreTrait>(
             let mut child_ids = Vec::new();
             for child_json in children_array {
                 if let Ok(child_entity) = serde_json::from_value::<JsonEntity>(child_json.clone()) {
-                    let child_id = restore_entity_recursive(store, &child_entity, Some(entity_id.clone()))?;
+                    let child_id = restore_entity_recursive(store, &child_entity, Some(entity_id))?;
                     child_ids.push(child_id);
                 }
             }
@@ -751,8 +751,8 @@ pub fn restore_entity_recursive<T: StoreTrait>(
             // Update the Children field with the created child IDs
             if !child_ids.is_empty() {
                 let children_write_requests = vec![crate::Request::Write {
-                    entity_id: entity_id.clone(),
-                    field_type: crate::FieldType::from("Children"),
+                    entity_id: entity_id,
+                    field_types: crate::FieldType::from("Children"),
                     value: Some(crate::Value::EntityList(child_ids)),
                     push_condition: crate::PushCondition::Always,
                     adjust_behavior: crate::AdjustBehavior::Set,
@@ -810,8 +810,7 @@ pub fn factory_restore_json_snapshot(
         .map_err(|e| crate::Error::StoreProxyError(format!("Failed to clear WAL directory: {}", e)))?;
 
     // Create a temporary Store instance and restore the JSON snapshot into it
-    let snowflake = Snowflake::new();
-    let mut temp_store = Store::new(snowflake);
+    let mut temp_store = Store::new();
     
     // Restore the JSON snapshot into the temporary store
     restore_json_snapshot(&mut temp_store, json_snapshot)?;
@@ -959,8 +958,8 @@ fn apply_entity_diff_recursive<'a>(
             let mut found_entity_id = None;
             for entity_id in &entities {
                 let read_requests = vec![crate::Request::Read {
-                    entity_id: entity_id.clone(),
-                    field_type: crate::FieldType::from("Name".to_string()),
+                    entity_id: entity_id,
+                    field_types: crate::FieldType::from("Name".to_string()),
                     value: None,
                     write_time: None,
                     writer_id: None,
@@ -969,7 +968,7 @@ fn apply_entity_diff_recursive<'a>(
                 if let Ok(read_requests) = store.perform_mut(read_requests) {
                     if let Some(crate::Request::Read { value: Some(crate::Value::String(name)), .. }) = read_requests.first() {
                         if name == target_name {
-                            found_entity_id = Some(entity_id.clone());
+                            found_entity_id = Some(entity_id);
                             break;
                         }
                     }
@@ -1005,8 +1004,8 @@ fn apply_entity_diff_recursive<'a>(
             if matches!(field_schema.storage_scope(), crate::data::StorageScope::Configuration) {
                 if let Ok(value) = json_value_to_value(json_value, field_schema) {
                     write_requests.push(crate::Request::Write {
-                        entity_id: entity_id.clone(),
-                        field_type,
+                        entity_id: entity_id,
+                        field_types: field_type,
                         value: Some(value),
                         push_condition: crate::PushCondition::Always,
                         adjust_behavior: crate::AdjustBehavior::Set,
@@ -1047,7 +1046,7 @@ fn apply_entity_diff_recursive<'a>(
                         store, 
                         current_child_entity.as_ref(), 
                         &child_entity, 
-                        Some(entity_id.clone())
+                        Some(entity_id)
                     )?;
                     child_ids.push(child_id);
                 }
@@ -1056,8 +1055,8 @@ fn apply_entity_diff_recursive<'a>(
             // Update the Children field
             if !child_ids.is_empty() {
                 let children_write_requests = vec![crate::Request::Write {
-                    entity_id: entity_id.clone(),
-                    field_type: crate::FieldType::from("Children".to_string()),
+                    entity_id: entity_id,
+                    field_types: crate::FieldType::from("Children".to_string()),
                     value: Some(crate::Value::EntityList(child_ids)),
                     push_condition: crate::PushCondition::Always,
                     adjust_behavior: crate::AdjustBehavior::Set,

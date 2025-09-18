@@ -64,11 +64,11 @@ impl Cache {
         for entity_id in entity_ids {
             let mut reqs = Vec::new();
             for field in index_fields.iter() {
-                reqs.push(crate::sread!(entity_id.clone(), field.clone()));
+                reqs.push(crate::sread!(entity_id, field.clone()));
             }
             
             for field in other_fields.iter() {
-                reqs.push(crate::sread!(entity_id.clone(), field.clone()));
+                reqs.push(crate::sread!(entity_id, field.clone()));
             }
 
             let reqs = store.perform_mut(reqs)?;
@@ -82,7 +82,7 @@ impl Cache {
                 .iter()
                 .filter_map(|req| {
                     if let (Some(field_type), Some(value)) = (req.field_type(), req.value()) {
-                        Some((field_type.clone(), value.clone()))
+                        Some((field_type, value.clone()))
                     } else {
                         None
                     }
@@ -92,7 +92,7 @@ impl Cache {
                         .iter()
                         .filter_map(|req| {
                             if let (Some(field_type), Some(value)) = (req.field_type(), req.value()) {
-                                Some((field_type.clone(), value.clone()))
+                                Some((field_type, value.clone()))
                             } else {
                                 None
                             }
@@ -103,7 +103,7 @@ impl Cache {
             entity_ids_by_index_fields
                 .entry(index_key)
                 .or_insert_with(Vec::new)
-                .push(entity_id.clone());
+                .push(entity_id);
 
             fields_by_entity_id.insert(entity_id, all_fields);
         }
@@ -122,13 +122,13 @@ impl Cache {
 impl Cache {
     pub fn process_notification(&mut self, notification: Notification) {
         // Extract entity_id and field_type from the current request
-        if let Request::Read { entity_id, field_type, value: current_value, .. } = &notification.current {
+        if let Request::Read { entity_id, field_types: field_type, value: current_value, .. } = &notification.current {
             if let Request::Read { value: previous_value, .. } = &notification.previous {
                 if let Some(curr_val) = current_value {
                     self.fields_by_entity_id
-                        .entry(entity_id.clone())
+                        .entry(entity_id)
                         .or_default()
-                        .insert(field_type.clone(), curr_val.clone());
+                        .insert(field_type, curr_val.clone());
                 }
 
                 // If the field type is one of the index fields, we need to update the index
@@ -145,7 +145,7 @@ impl Cache {
                         self.entity_ids_by_index_fields
                             .entry(new_index_key)
                             .or_insert_with(Vec::new)
-                            .push(entity_id.clone());
+                            .push(entity_id);
                     }
                 }
             }
@@ -154,8 +154,8 @@ impl Cache {
 
     fn make_index_key(
         &self,
-        entity_id: &EntityId,
-        field_type: &FieldType,
+        entity_id: EntityId,
+        field_type: FieldType,
         value: &Value,
     ) -> Vec<Value> {
         let mut index_key = Vec::new();

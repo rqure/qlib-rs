@@ -1,4 +1,4 @@
-use crate::{data::{FieldType, Timestamp}, EntityId, Value};
+use crate::{data::{FieldType, Timestamp}, EntityId, StoreTrait, Value};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -8,76 +8,76 @@ pub enum StorageScope {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub enum FieldSchema {
+pub enum FieldSchema<T=FieldType> {
     Blob {
-        field_type: FieldType,
+        field_type: T,
         default_value: Vec<u8>,
         rank: i64,
         storage_scope: StorageScope,
     },
     Bool {
-        field_type: FieldType,
+        field_type: T,
         default_value: bool,
         rank: i64,
         storage_scope: StorageScope,
     },
     Choice {
-        field_type: FieldType,
+        field_type: T,
         default_value: i64,
         rank: i64,
         choices: Vec<String>,
         storage_scope: StorageScope,
     },
     EntityList {
-        field_type: FieldType,
+        field_type: T,
         default_value: Vec<EntityId>,
         rank: i64,
         storage_scope: StorageScope,
     },
     EntityReference {
-        field_type: FieldType,
+        field_type: T,
         default_value: Option<EntityId>,
         rank: i64,
         storage_scope: StorageScope,
     },
     Float {
-        field_type: FieldType,
+        field_type: T,
         default_value: f64,
         rank: i64,
         storage_scope: StorageScope,
     },
     Int {
-        field_type: FieldType,
+        field_type: T,
         default_value: i64,
         rank: i64,
         storage_scope: StorageScope,
     },
     String {
-        field_type: FieldType,
+        field_type: T,
         default_value: String,
         rank: i64,
         storage_scope: StorageScope,
     },
     Timestamp {
-        field_type: FieldType,
+        field_type: T,
         default_value: Timestamp,
         rank: i64,
         storage_scope: StorageScope,
     }
 }
 
-impl FieldSchema {
-    pub fn field_type(&self) -> &FieldType {
+impl<T: Clone> FieldSchema<T> {
+    pub fn field_type(&self) -> T {
         match self {
-            FieldSchema::Blob { field_type, .. } => field_type,
-            FieldSchema::Bool { field_type, .. } => field_type,
-            FieldSchema::Choice { field_type, .. } => field_type,
-            FieldSchema::EntityList { field_type, .. } => field_type,
-            FieldSchema::EntityReference { field_type, .. } => field_type,
-            FieldSchema::Float { field_type, .. } => field_type,
-            FieldSchema::Int { field_type, .. } => field_type,
-            FieldSchema::String { field_type, .. } => field_type,
-            FieldSchema::Timestamp { field_type, .. } => field_type,
+            FieldSchema::Blob { field_type, .. } => field_type.clone(),
+            FieldSchema::Bool { field_type, .. } => field_type.clone(),
+            FieldSchema::Choice { field_type, .. } => field_type.clone(),
+            FieldSchema::EntityList { field_type, .. } => field_type.clone(),
+            FieldSchema::EntityReference { field_type, .. } => field_type.clone(),
+            FieldSchema::Float { field_type, .. } => field_type.clone(),
+            FieldSchema::Int { field_type, .. } => field_type.clone(),
+            FieldSchema::String { field_type, .. } => field_type.clone(),
+            FieldSchema::Timestamp { field_type, .. } => field_type.clone(),
         }
     }
 
@@ -120,6 +120,128 @@ impl FieldSchema {
             FieldSchema::Int { storage_scope, .. } => storage_scope,
             FieldSchema::String { storage_scope, .. } => storage_scope,
             FieldSchema::Timestamp { storage_scope, .. } => storage_scope,
+        }
+    }
+}
+
+impl FieldSchema {
+    pub fn from_string_schema(schema: FieldSchema<String>, store: &impl StoreTrait) -> Self {
+        match schema {
+            FieldSchema::Blob { field_type, default_value, rank, storage_scope } => FieldSchema::Blob {
+                field_type: store.get_field_type(field_type.as_str()).expect("Field type not found"),
+                default_value,
+                rank,
+                storage_scope,
+            },
+            FieldSchema::Bool { field_type, default_value, rank, storage_scope } => FieldSchema::Bool {
+                field_type: store.get_field_type(field_type.as_str()).expect("Field type not found"),
+                default_value,
+                rank,
+                storage_scope,
+            },
+            FieldSchema::Choice { field_type, default_value, rank, choices, storage_scope } => FieldSchema::Choice {
+                field_type: store.get_field_type(field_type.as_str()).expect("Field type not found"),
+                default_value,
+                rank,
+                choices,
+                storage_scope,
+            },
+            FieldSchema::EntityList { field_type, default_value, rank, storage_scope } => FieldSchema::EntityList {
+                field_type: store.get_field_type(field_type.as_str()).expect("Field type not found"),
+                default_value,
+                rank,
+                storage_scope,
+            },
+            FieldSchema::EntityReference { field_type, default_value, rank, storage_scope } => FieldSchema::EntityReference {
+                field_type: store.get_field_type(field_type.as_str()).expect("Field type not found"),
+                default_value,
+                rank,
+                storage_scope,
+            },
+            FieldSchema::Float { field_type, default_value, rank, storage_scope } => FieldSchema::Float {
+                field_type: store.get_field_type(field_type.as_str()).expect("Field type not found"),
+                default_value,
+                rank,
+                storage_scope,
+            },
+            FieldSchema::Int { field_type, default_value, rank, storage_scope } => FieldSchema::Int {
+                field_type: store.get_field_type(field_type.as_str()).expect("Field type not found"),
+                default_value,
+                rank,
+                storage_scope,
+            },
+            FieldSchema::String { field_type, default_value, rank, storage_scope } => FieldSchema::String {
+                field_type: store.get_field_type(field_type.as_str()).expect("Field type not found"),
+                default_value,
+                rank,
+                storage_scope,
+            },
+            FieldSchema::Timestamp { field_type, default_value, rank, storage_scope } => FieldSchema::Timestamp {
+                field_type: store.get_field_type(field_type.as_str()).expect("Field type not found"),
+                default_value,
+                rank,
+                storage_scope,
+            },
+        }
+    }
+
+    pub fn to_string_schema(&self, store: &impl StoreTrait) -> FieldSchema<String> {
+        match self {
+            FieldSchema::Blob { field_type, default_value, rank, storage_scope } => FieldSchema::Blob {
+                field_type: store.resolve_field_type(*field_type).expect("Field type not found"),
+                default_value: default_value.clone(),
+                rank: *rank,
+                storage_scope: storage_scope.clone(),
+            },
+            FieldSchema::Bool { field_type, default_value, rank, storage_scope } => FieldSchema::Bool {
+                field_type: store.resolve_field_type(*field_type).expect("Field type not found"),
+                default_value: *default_value,
+                rank: *rank,
+                storage_scope: storage_scope.clone(),
+            },
+            FieldSchema::Choice { field_type, default_value, rank, choices, storage_scope } => FieldSchema::Choice {
+                field_type: store.resolve_field_type(*field_type).expect("Field type not found"),
+                default_value: *default_value,
+                rank: *rank,
+                choices: choices.clone(),
+                storage_scope: storage_scope.clone(),
+            },
+            FieldSchema::EntityList { field_type, default_value, rank, storage_scope } => FieldSchema::EntityList {
+                field_type: store.resolve_field_type(*field_type).expect("Field type not found"),
+                default_value: default_value.clone(),
+                rank: *rank,
+                storage_scope: storage_scope.clone(),
+            },
+            FieldSchema::EntityReference { field_type, default_value, rank, storage_scope } => FieldSchema::EntityReference {
+                field_type: store.resolve_field_type(*field_type).expect("Field type not found"),
+                default_value: default_value.clone(),
+                rank: *rank,
+                storage_scope: storage_scope.clone(),
+            },
+            FieldSchema::Float { field_type, default_value, rank, storage_scope } => FieldSchema::Float {
+                field_type: store.resolve_field_type(*field_type).expect("Field type not found"),
+                default_value: *default_value,
+                rank: *rank,
+                storage_scope: storage_scope.clone(),
+            },
+            FieldSchema::Int { field_type, default_value, rank, storage_scope } => FieldSchema::Int {
+                field_type: store.resolve_field_type(*field_type).expect("Field type not found"),
+                default_value: *default_value,
+                rank: *rank,
+                storage_scope: storage_scope.clone(),
+            },
+            FieldSchema::String { field_type, default_value, rank, storage_scope } => FieldSchema::String {
+                field_type: store.resolve_field_type(*field_type).expect("Field type not found"),
+                default_value: default_value.clone(),
+                rank: *rank,
+                storage_scope: storage_scope.clone(),
+            },
+            FieldSchema::Timestamp { field_type, default_value, rank, storage_scope } => FieldSchema::Timestamp {
+                field_type: store.resolve_field_type(*field_type).expect("Field type not found"),
+                default_value: *default_value,
+                rank: *rank,
+                storage_scope: storage_scope.clone(),
+            },
         }
     }
 }

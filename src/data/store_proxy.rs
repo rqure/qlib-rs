@@ -375,13 +375,13 @@ impl StoreProxy {
     }
 
     /// Get the authenticated subject ID
-    pub fn get_authenticated_subject(&self) -> Option<&EntityId> {
-        self.authenticated_subject.as_ref()
+    pub fn get_authenticated_subject(&self) -> Option<EntityId> {
+        self.authenticated_subject.clone()
     }
     /// Check if entity exists
     pub fn get_entity_schema(
         &self,
-        entity_type: &EntityType,
+        entity_type: EntityType,
     ) -> Result<EntitySchema<Single>> {
         let request = StoreMessage::GetEntitySchema {
             id: Uuid::new_v4().to_string(),
@@ -408,7 +408,7 @@ impl StoreProxy {
     /// Get complete entity schema
     pub fn get_complete_entity_schema(
         &self,
-        entity_type: &EntityType,
+        entity_type: EntityType,
     ) -> Result<EntitySchema<Complete>> {
         let request = StoreMessage::GetCompleteEntitySchema {
             id: Uuid::new_v4().to_string(),
@@ -427,29 +427,29 @@ impl StoreProxy {
     /// Set field schema
     pub fn set_field_schema(
         &mut self,
-        entity_type: &EntityType,
-        field_type: &FieldType,
+        entity_type: EntityType,
+        field_type: FieldType,
         schema: FieldSchema,
     ) -> Result<()> {
         let mut entity_schema = self.get_entity_schema(entity_type)?;
         entity_schema
             .fields
-            .insert(field_type.clone(), schema);
+            .insert(field_type, schema);
 
-                let requests = vec![Request::SchemaUpdate { schema: entity_schema, timestamp: None, originator: None }];
+                let requests = vec![Request::SchemaUpdate { schema: entity_schema.to_string_schema(self), timestamp: None, originator: None }];
         self.perform(requests).map(|_| ())
     }
 
     /// Get field schema
     pub fn get_field_schema(
         &self,
-        entity_type: &EntityType,
-        field_type: &FieldType,
+        entity_type: EntityType,
+        field_type: FieldType,
     ) -> Result<FieldSchema> {
         let request = StoreMessage::GetFieldSchema {
             id: Uuid::new_v4().to_string(),
             entity_type: entity_type.clone(),
-            field_type: field_type.clone(),
+            field_type: field_type,
         };
 
         let response: StoreMessage = self.send_request(request)?;
@@ -470,10 +470,10 @@ impl StoreProxy {
     }
 
     /// Check if entity exists
-    pub fn entity_exists(&self, entity_id: &EntityId) -> bool {
+    pub fn entity_exists(&self, entity_id: EntityId) -> bool {
         let request = StoreMessage::EntityExists {
             id: Uuid::new_v4().to_string(),
-            entity_id: entity_id.clone(),
+            entity_id: entity_id,
         };
 
         if let Ok(response) = self.send_request(request) {
@@ -489,13 +489,13 @@ impl StoreProxy {
     /// Check if field exists
     pub fn field_exists(
         &self,
-        entity_type: &EntityType,
-        field_type: &FieldType,
+        entity_type: EntityType,
+        field_type: FieldType,
     ) -> bool {
         let request = StoreMessage::FieldExists {
             id: Uuid::new_v4().to_string(),
             entity_type: entity_type.clone(),
-            field_type: field_type.clone(),
+            field_type: field_type,
         };
 
         if let Ok(response) = self.send_request(request) {
@@ -530,7 +530,7 @@ impl StoreProxy {
     /// Find entities
     pub fn find_entities_paginated(
         &self,
-        entity_type: &EntityType,
+        entity_type: EntityType,
         page_opts: Option<PageOpts>,
         filter: Option<String>,
     ) -> Result<PageResult<EntityId>> {
@@ -553,7 +553,7 @@ impl StoreProxy {
     /// Find entities exact
     pub fn find_entities_exact(
         &self,
-        entity_type: &EntityType,
+        entity_type: EntityType,
         page_opts: Option<PageOpts>,
         filter: Option<String>,
     ) -> Result<PageResult<EntityId>> {
@@ -575,7 +575,7 @@ impl StoreProxy {
 
     pub fn find_entities(
         &self,
-        entity_type: &EntityType,
+        entity_type: EntityType,
         filter: Option<String>,
     ) -> Result<Vec<EntityId>> {
         let mut result = Vec::new();
@@ -583,8 +583,7 @@ impl StoreProxy {
 
         loop {
             let page_result = self
-                .find_entities_paginated(entity_type, page_opts.clone(), filter.clone())
-                ?;
+                .find_entities_paginated(entity_type.clone(), page_opts.clone(), filter.clone())?;
             if page_result.items.is_empty() {
                 break;
             }
@@ -720,27 +719,27 @@ impl StoreProxy {
 }
 
 impl StoreTrait for StoreProxy {
-    fn get_entity_schema(&self, entity_type: &EntityType) -> Result<EntitySchema<Single>> {
+    fn get_entity_schema(&self, entity_type: EntityType) -> Result<EntitySchema<Single>> {
         self.get_entity_schema(entity_type)
     }
 
-    fn get_complete_entity_schema(&self, entity_type: &EntityType) -> Result<EntitySchema<Complete>> {
+    fn get_complete_entity_schema(&self, entity_type: EntityType) -> Result<EntitySchema<Complete>> {
         self.get_complete_entity_schema(entity_type)
     }
 
-    fn get_field_schema(&self, entity_type: &EntityType, field_type: &FieldType) -> Result<FieldSchema> {
+    fn get_field_schema(&self, entity_type: EntityType, field_type: FieldType) -> Result<FieldSchema> {
         self.get_field_schema(entity_type, field_type)
     }
 
-    fn set_field_schema(&mut self, entity_type: &EntityType, field_type: &FieldType, schema: FieldSchema) -> Result<()> {
+    fn set_field_schema(&mut self, entity_type: EntityType, field_type: FieldType, schema: FieldSchema) -> Result<()> {
         self.set_field_schema(entity_type, field_type, schema)
     }
 
-    fn entity_exists(&self, entity_id: &EntityId) -> bool {
+    fn entity_exists(&self, entity_id: EntityId) -> bool {
         self.entity_exists(entity_id)
     }
 
-    fn field_exists(&self, entity_type: &EntityType, field_type: &FieldType) -> bool {
+    fn field_exists(&self, entity_type: EntityType, field_type: FieldType) -> bool {
         self.field_exists(entity_type, field_type)
     }
 
@@ -752,15 +751,15 @@ impl StoreTrait for StoreProxy {
         self.perform(requests)
     }
 
-    fn find_entities_paginated(&self, entity_type: &EntityType, page_opts: Option<PageOpts>, filter: Option<String>) -> Result<PageResult<EntityId>> {
+    fn find_entities_paginated(&self, entity_type: EntityType, page_opts: Option<PageOpts>, filter: Option<String>) -> Result<PageResult<EntityId>> {
         self.find_entities_paginated(entity_type, page_opts, filter)
     }
 
-    fn find_entities_exact(&self, entity_type: &EntityType, page_opts: Option<PageOpts>, filter: Option<String>) -> Result<PageResult<EntityId>> {
+    fn find_entities_exact(&self, entity_type: EntityType, page_opts: Option<PageOpts>, filter: Option<String>) -> Result<PageResult<EntityId>> {
         self.find_entities_exact(entity_type, page_opts, filter)
     }
 
-    fn find_entities(&self, entity_type: &EntityType, filter: Option<String>) -> Result<Vec<EntityId>> {
+    fn find_entities(&self, entity_type: EntityType, filter: Option<String>) -> Result<Vec<EntityId>> {
         self.find_entities(entity_type, filter)
     }
 

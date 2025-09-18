@@ -13,9 +13,9 @@ pub fn get_scope(
     store: &Store,
     executor: &mut CelExecutor,
     permission_cache: &Cache,
-    subject_entity_id: &EntityId,
-    resource_entity_id: &EntityId,
-    resource_field: &FieldType,
+    subject_entity_id: EntityId,
+    resource_entity_id: EntityId,
+    resource_field: FieldType,
 ) -> Result<AuthorizationScope> {
     let mut filtered_rules: Vec<AuthorizationScope> = Vec::new();
 

@@ -2,18 +2,23 @@ use std::{mem::discriminant, sync::{Arc, Mutex}};
 use rustc_hash::FxHashMap;
 use crossbeam::queue::SegQueue;
 use itertools::Itertools;
+use sorted_vec::SortedVec;
 
 use crate::{
     data::{
-        entity_schema::Complete, hash_notify_config, indirection::resolve_indirection, now, request::PushCondition, EntityType, FieldType, Notification, NotificationQueue, NotifyConfig, StoreTrait, Timestamp, INDIRECTION_DELIMITER
-    }, expr::CelExecutor, ft, sread, AdjustBehavior, EntityId, EntitySchema, Error, Field, FieldSchema, PageOpts, PageResult, Request, Result, Single, Snapshot, Snowflake, Value
+        entity_schema::Complete, hash_notify_config, indirection::resolve_indirection, interner::Interner, now, request::PushCondition, EntityType, FieldType, Notification, NotificationQueue, NotifyConfig, StoreTrait, Timestamp, INDIRECTION_DELIMITER
+    }, et::ET, expr::CelExecutor, ft::{FT}, sread, AdjustBehavior, EntityId, EntitySchema, Error, Field, FieldSchema, PageOpts, PageResult, Request, Result, Single, Snapshot, Value
 };
 
 pub struct Store {
     schemas: FxHashMap<EntityType, EntitySchema<Single>>,
-    entities: FxHashMap<EntityType, Vec<EntityId>>,
-    types: Vec<EntityType>,
+    entities: FxHashMap<EntityType, SortedVec<EntityId>>,
     fields: FxHashMap<(EntityId, FieldType), Field>,
+
+    entity_type_interner: Interner,
+    field_type_interner: Interner,
+    et: Option<ET>,
+    ft: Option<FT>,
 
     /// Maps parent types to all their derived types (including direct and indirect children)
     /// This allows fast lookup of all entity types that inherit from a given parent type
@@ -22,8 +27,6 @@ pub struct Store {
     /// Cache for complete entity schemas to avoid rebuilding inheritance chains repeatedly
     /// This cache is invalidated whenever schemas are updated or inheritance map is rebuilt
     complete_entity_schema_cache: FxHashMap<EntityType, EntitySchema<Complete>>,
-
-    snowflake: Snowflake,
 
     /// Cached CEL executor for filter expressions
     /// This is wrapped in Arc<Mutex<>> for thread-safe access with interior mutability
@@ -53,7 +56,6 @@ impl std::fmt::Debug for Store {
         f.debug_struct("Store")
             .field("schemas", &self.schemas)
             .field("entities", &self.entities)
-            .field("types", &self.types)
             .field("fields", &self.fields)
             .field("inheritance_map", &self.inheritance_map)
             .field(
@@ -73,10 +75,30 @@ impl std::fmt::Debug for Store {
 }
 
 impl Store {
+    pub fn new() -> Self {
+        Store {
+            schemas: FxHashMap::default(),
+            entities: FxHashMap::default(),
+            fields: FxHashMap::default(),
+            entity_type_interner: Interner::new(),
+            field_type_interner: Interner::new(),
+            et: None,
+            ft: None,
+            inheritance_map: FxHashMap::default(),
+            complete_entity_schema_cache: FxHashMap::default(),
+            id_notifications: FxHashMap::default(),
+            type_notifications: FxHashMap::default(),
+            write_queue: SegQueue::new(),
+            notifications_disabled: false,
+            default_writer_id: None,
+            cel_executor_cache: Arc::new(Mutex::new(CelExecutor::new())),
+        }
+    }
+
     /// Internal entity creation that doesn't use perform to avoid recursion
     pub fn create_entity_internal(
         &mut self,
-        entity_type: &EntityType,
+        entity_type: EntityType,
         parent_id: Option<EntityId>,
         created_entity_id: &mut Option<EntityId>,
         name: &str,
@@ -85,9 +107,9 @@ impl Store {
             return Err(Error::EntityTypeNotFound(entity_type.clone()));
         }
 
-        if let Some(parent) = &parent_id {
-            if !self.entity_exists(&parent) {
-                return Err(Error::EntityNotFound(parent.clone()));
+        if let Some(parent) = parent_id.clone() {
+            if !self.entity_exists(parent) {
+                return Err(Error::EntityNotFound(parent));
             }
         }
 
@@ -95,8 +117,9 @@ impl Store {
             if let Some(id) = created_entity_id {
                 id.clone()
             } else {
-                let entity_id = EntityId::new(entity_type.clone(), self.snowflake.generate());
-                *created_entity_id = Some(entity_id.clone());
+                let last_id = self.entities.get(&entity_type).and_then(|v| v.last()).cloned().unwrap_or(EntityId::new(entity_type.clone(), 0));
+                let entity_id = EntityId::new(entity_type.clone(), last_id.extract_id() + 1);
+                *created_entity_id = Some(entity_id);
                 entity_id
             }
         };
@@ -108,27 +131,32 @@ impl Store {
             let entities = self
                 .entities
                 .entry(entity_type.clone())
-                .or_insert_with(Vec::new);
-            entities.push(entity_id.clone());
+                .or_insert_with(SortedVec::new);
+            entities.push(entity_id);
         }
 
         // Get the schema before accessing fields to avoid borrow issues
         let complete_schema = self.get_complete_entity_schema(entity_type)?;
+        let ft = self.ft.as_ref().unwrap();
 
         // Directly set fields in the entity's field map
         for (field_type, field_schema) in complete_schema.fields.iter() {
-            let value = match field_type.as_ref() {
-                "Name" => Value::String(name.to_string()),
-                "Parent" => match &parent_id {
-                    Some(parent) => Value::EntityReference(Some(parent.clone())),
-                    None => field_schema.default_value(),
-                },
-                _ => field_schema.default_value(),
+            let value = {
+                if *field_type == ft.name {
+                    Value::String(name.to_string())
+                } else if *field_type == ft.parent {
+                    match &parent_id {
+                        Some(parent) => Value::EntityReference(Some(*parent)),
+                        None => field_schema.default_value(),
+                    }
+                } else {
+                    field_schema.default_value()
+                }
             };
 
-            let field_key = (entity_id.clone(), field_type.clone());
+            let field_key = (entity_id, *field_type);
             self.fields.insert(field_key, Field {
-                field_type: field_type.clone(),
+                field_type: *field_type,
                 value,
                 write_time: now(),
                 writer_id: None,
@@ -137,17 +165,17 @@ impl Store {
 
         // If we have a parent, add it to the parent's children list
         if let Some(parent) = &parent_id {
-            let children_field_key = (parent.clone(), "Children".into());
+            let children_field_key = (*parent, ft.children.clone());
             if let Some(children_field) = self.fields.get_mut(&children_field_key) {
                 if let Value::EntityList(children) = &mut children_field.value {
-                    children.push(entity_id.clone());
+                    children.push(entity_id);
                     children_field.write_time = now();
                 }
             } else {
                 // Create the Children field if it doesn't exist
                 self.fields.insert(children_field_key, Field {
-                    field_type: "Children".into(),
-                    value: Value::EntityList(vec![entity_id.clone()]),
+                    field_type: ft.children.clone(),
+                    value: Value::EntityList(vec![entity_id]),
                     write_time: now(),
                     writer_id: None,
                 });
@@ -159,20 +187,20 @@ impl Store {
 
     pub fn get_entity_schema(
         &self,
-        entity_type: &EntityType,
+        entity_type: EntityType,
     ) -> Result<EntitySchema<Single>> {
         self.schemas
-            .get(entity_type)
+            .get(&entity_type)
             .cloned()
             .ok_or_else(|| Error::EntityTypeNotFound(entity_type.clone()))
     }
 
     pub fn get_complete_entity_schema(
         &self,
-        entity_type: &EntityType,
+        entity_type: EntityType,
     ) -> Result<EntitySchema<Complete>> {
         // Check cache first
-        if let Some(cached_schema) = self.complete_entity_schema_cache.get(entity_type) {
+        if let Some(cached_schema) = self.complete_entity_schema_cache.get(&entity_type) {
             return Ok(cached_schema.clone());
         }
 
@@ -184,9 +212,9 @@ impl Store {
     /// This method should only be called when the cache is empty or being rebuilt
     fn build_complete_entity_schema(
         &self,
-        entity_type: &EntityType,
+        entity_type: EntityType,
     ) -> Result<EntitySchema<Complete>> {
-        let mut schema = EntitySchema::<Complete>::from(self.get_entity_schema(entity_type)?);
+        let mut schema = EntitySchema::<Complete>::from(self.get_entity_schema(entity_type.clone())?);
         let mut visited_types = std::collections::HashSet::new();
         visited_types.insert(entity_type.clone());
 
@@ -195,7 +223,7 @@ impl Store {
         
         // Add fields from the base schema first
         for (field_type, field_schema) in &schema.fields {
-            all_fields.push((field_type.clone(), field_schema.clone()));
+            all_fields.push((*field_type, field_schema.clone()));
         }
 
         // Use a queue to process inheritance in breadth-first manner
@@ -216,14 +244,14 @@ impl Store {
                 // Fields in the derived schema take precedence over inherited fields
                 for (field_type, field_schema) in &inherit_schema.fields {
                     if !all_fields.iter().any(|(existing_field_type, _)| existing_field_type == field_type) {
-                        all_fields.push((field_type.clone(), field_schema.clone()));
+                        all_fields.push((*field_type, field_schema.clone()));
                     }
                 }
                 
                 // Add parent types to the queue for further processing
                 for parent in &inherit_schema.inherit {
                     if !visited_types.contains(parent) {
-                        inherit_queue.push_back(parent.clone());
+                        inherit_queue.push_back(*parent);
                     }
                 }
             } else {
@@ -246,47 +274,48 @@ impl Store {
     /// Get the schema for a specific field
     pub fn get_field_schema(
         &self,
-        entity_type: &EntityType,
-        field_type: &FieldType,
+        entity_type: EntityType,
+        field_type: FieldType,
     ) -> Result<FieldSchema> {
-        self.get_entity_schema(entity_type)?
+        self.get_entity_schema(entity_type.clone())?
             .fields
-            .get(field_type)
+            .get(&field_type)
             .cloned()
             .ok_or_else(|| {
-                Error::FieldNotFound(EntityId::new(entity_type.clone(), 0), field_type.clone())
+                Error::FieldTypeNotFound(EntityId::new(entity_type.clone(), 0), field_type)
             })
     }
 
     /// Set or update the schema for a specific field
     pub fn set_field_schema(
         &mut self,
-        entity_type: &EntityType,
-        field_type: &FieldType,
+        entity_type: EntityType,
+        field_type: FieldType,
         field_schema: FieldSchema,
     ) -> Result<()> {
         let mut entity_schema = self.get_entity_schema(entity_type)?;
 
         entity_schema
             .fields
-            .insert(field_type.clone(), field_schema);
+            .insert(field_type, field_schema);
 
-        let requests = vec![Request::SchemaUpdate { schema: entity_schema, timestamp: None, originator: None }];
+        let requests = vec![Request::SchemaUpdate { schema: entity_schema.to_string_schema(self), timestamp: None, originator: None }];
         self.perform_mut(requests).map(|_| ())
     }
 
-    pub fn entity_exists(&self, entity_id: &EntityId) -> bool {
-        self.fields.contains_key(&(entity_id.clone(), ft::name()))
+    pub fn entity_exists(&self, entity_id: EntityId) -> bool {
+        let ft = self.ft.as_ref().unwrap();
+        self.fields.contains_key(&(entity_id, ft.name.clone()))
     }
 
     pub fn field_exists(
         &self,
-        entity_type: &EntityType,
-        field_type: &FieldType,
+        entity_type: EntityType,
+        field_type: FieldType,
     ) -> bool {
         self.schemas
-            .get(entity_type)
-            .map(|schema| schema.fields.contains_key(field_type))
+            .get(&entity_type)
+            .map(|schema| schema.fields.contains_key(&field_type))
             .unwrap_or(false)
     }
 
@@ -295,14 +324,14 @@ impl Store {
             match request {
                 Request::Read {
                     entity_id,
-                    field_type,
+                    field_types: field_type,
                     value,
                     write_time,
                     writer_id,
                 } => {
                     let indir: (EntityId, FieldType) =
-                        resolve_indirection(self, entity_id, field_type)?;
-                    self.read(&indir.0, &indir.1, value, write_time, writer_id)?;
+                        resolve_indirection(self, *entity_id, &field_type)?;
+                    self.read(indir.0.clone(), indir.1.clone(), value, write_time, writer_id)?;
                 }
                 _ => {
                     return Err(Error::InvalidRequest("Perform without mutable access can only handle Read requests".to_string()));
@@ -318,18 +347,18 @@ impl Store {
             match request {
                 Request::Read {
                     entity_id,
-                    field_type,
+                    field_types,
                     value,
                     write_time,
                     writer_id,
                 } => {
                     let indir: (EntityId, FieldType) =
-                        resolve_indirection(self, entity_id, field_type)?;
-                    self.read(&indir.0, &indir.1, value, write_time, writer_id)?;
+                        resolve_indirection(self, *entity_id, &field_types)?;
+                    self.read(indir.0, indir.1, value, write_time, writer_id)?;
                 }
                 Request::Write {
                     entity_id,
-                    field_type,
+                    field_types: field_type,
                     value,
                     write_time,
                     writer_id,
@@ -337,10 +366,10 @@ impl Store {
                     adjust_behavior,
                     ..
                 } => {
-                    let indir = resolve_indirection(self, entity_id, field_type)?;
+                    let indir = resolve_indirection(self, *entity_id, &field_type)?;
                     if self.write(
-                        &indir.0,
-                        &indir.1,
+                        indir.0,
+                        indir.1,
                         value,
                         write_time,
                         writer_id,
@@ -358,7 +387,7 @@ impl Store {
                     timestamp,
                     ..
                 } => {
-                    self.create_entity_internal(entity_type, parent_id.clone(), created_entity_id, name)?;
+                    self.create_entity_internal(*entity_type, parent_id.clone(), created_entity_id, name)?;
                     *timestamp = Some(now());
                     self.write_queue.push(request.clone());
                 }
@@ -367,7 +396,7 @@ impl Store {
                     timestamp,
                     ..
                 } => {
-                    self.delete_entity_internal(entity_id)?;
+                    self.delete_entity_internal(*entity_id)?;
                     *timestamp = Some(now());
                     self.write_queue.push(request.clone());
                 }
@@ -376,22 +405,29 @@ impl Store {
                     timestamp,
                     ..
                 } => {
+                    // Validate whether inherited entity types exist or not:
+                    for parent in schema.inherit.iter() {
+                        self.entity_type_interner
+                            .get(parent.as_str())
+                            .ok_or_else(|| Error::EntityTypeStrNotFound(parent.clone()))?;
+                    }
+
+                    // Get or create the entity type if it doesn't exist
+                    let entity_type = EntityType(self.entity_type_interner.intern(schema.entity_type.as_str()) as u32);
+                    let schema = EntitySchema::<Single>::from_string_schema(schema.clone(), self);
+                    
                     // Get a copy of the existing schema if it exists
                     // We'll use this to see if any fields have been added or removed
                     let complete_old_schema = self
-                        .get_complete_entity_schema(&schema.entity_type)
-                        .unwrap_or_else(|_| EntitySchema::<Complete>::new(schema.entity_type.clone()));
+                        .get_complete_entity_schema(entity_type.clone())
+                        .unwrap_or_else(|_| EntitySchema::<Complete>::new(entity_type.clone()));
 
                     self.schemas
-                        .insert(schema.entity_type.clone(), schema.clone());
+                        .insert(entity_type.clone(), schema.clone());
 
-                    if !self.entities.contains_key(&schema.entity_type) {
+                    if !self.entities.contains_key(&entity_type) {
                         self.entities
-                            .insert(schema.entity_type.clone(), Vec::new());
-                    }
-
-                    if !self.types.contains(&schema.entity_type) {
-                        self.types.push(schema.entity_type.clone());
+                            .insert(entity_type.clone(), SortedVec::new());
                     }
 
                     // Clear the complete entity schema cache since a schema was updated
@@ -400,16 +436,16 @@ impl Store {
 
                     // Get the complete schema for the entity type (will rebuild since cache is cleared)
                     let complete_new_schema =
-                        self.build_complete_entity_schema(&schema.entity_type)?;
+                        self.build_complete_entity_schema(schema.entity_type.clone())?;
 
                     for removed_field in complete_old_schema.diff(&complete_new_schema) {
                         // If the field was removed, we need to remove it from all entities
                         for entity_id in self
                             .entities
                             .get(&schema.entity_type)
-                            .unwrap_or(&Vec::new())
+                            .unwrap_or(&SortedVec::new())
                         {
-                            let field_key = (entity_id.clone(), removed_field.field_type().clone());
+                            let field_key = (*entity_id, removed_field.field_type().clone());
                             self.fields.remove(&field_key);
                         }
                     }
@@ -419,23 +455,20 @@ impl Store {
                         for entity_id in self
                             .entities
                             .get(&schema.entity_type)
-                            .unwrap_or(&Vec::new())
+                            .unwrap_or(&SortedVec::new())
                         {
-                            let field_key = (entity_id.clone(), added_field.field_type().clone());
+                            let field_key = (*entity_id, added_field.field_type().clone());
                             self.fields.insert(field_key, Field {
                                 field_type: added_field.field_type().clone(),
                                 value: added_field.default_value(),
                                 write_time: now(),
                                 writer_id: None,
-
-
-
-
-
-
                             });
                         }
                     }
+                    
+                    self.et = Some(ET::new(self));
+                    self.ft = Some(FT::new(self));
 
                     // Rebuild inheritance map after schema changes
                     // This will also rebuild the complete entity schema cache
@@ -461,25 +494,31 @@ impl Store {
     }
 
     /// Internal entity deletion that doesn't use perform to avoid recursion
-    fn delete_entity_internal(&mut self, entity_id: &EntityId) -> Result<()> {
+    fn delete_entity_internal(&mut self, entity_id: EntityId) -> Result<()> {
         // Check if the entity exists
-        if !self.fields.keys().any(|(eid, _)| eid == entity_id) {
-            return Err(Error::EntityNotFound(entity_id.clone()));
+        if !self.fields.keys().any(|(eid, _)| *eid == entity_id) {
+            return Err(Error::EntityNotFound(entity_id));
         }
 
         // Remove all children first (recursively)
-        let children_field_key = (entity_id.clone(), ft::children());
+        let children_field_key = {
+            let ft = self.ft.as_ref().unwrap();
+            (entity_id, ft.children.clone())
+        };
         if let Some(children_field) = self.fields.get(&children_field_key) {
             if let Value::EntityList(children) = &children_field.value {
                 let children_to_delete = children.clone(); // Clone to avoid borrow issues
                 for child in children_to_delete {
-                    self.delete_entity_internal(&child)?;
+                    self.delete_entity_internal(child)?;
                 }
             }
         }
 
         // Remove from parent's children list
-        let parent_field_key = (entity_id.clone(), ft::parent());
+        let parent_field_key = {
+            let ft = self.ft.as_ref().unwrap();
+            (entity_id, ft.parent)
+        };
         let parent_id = if let Some(parent_field) = self.fields.get(&parent_field_key) {
             if let Value::EntityReference(Some(parent_id)) = &parent_field.value {
                 Some(parent_id.clone())
@@ -491,21 +530,24 @@ impl Store {
         };
 
         if let Some(parent_id) = parent_id {
-            let parent_children_key = (parent_id, ft::children());
+            let parent_children_key = {
+                let ft = self.ft.as_ref().unwrap();
+                (parent_id, ft.children.clone())
+            };
             if let Some(children_field) = self.fields.get_mut(&parent_children_key) {
                 if let Value::EntityList(children) = &mut children_field.value {
-                    children.retain(|id| id != entity_id);
+                    children.retain(|id| *id != entity_id);
                     children_field.write_time = now();
                 }
             }
         }
 
         // Remove fields
-        self.fields.retain(|(eid, _), _| eid != entity_id);
+        self.fields.retain(|(eid, _), _| *eid != entity_id);
 
         // Remove from entity type list
-        if let Some(entities) = self.entities.get_mut(entity_id.get_type()) {
-            entities.retain(|id| id != entity_id);
+        if let Some(entities) = self.entities.get_mut(&entity_id.extract_type()) {
+            entities.retain(|id| *id != entity_id);
         }
 
         Ok(())
@@ -532,7 +574,7 @@ impl Store {
     /// use `find_entities_exact` instead.
     pub fn find_entities_paginated(
         &self,
-        entity_type: &EntityType,
+        entity_type: EntityType,
         page_opts: Option<PageOpts>,
         filter: Option<String>,
     ) -> Result<PageResult<EntityId>> {
@@ -542,12 +584,12 @@ impl Store {
         // Use reference to avoid cloning the entire vector
         let types_to_search = self
             .inheritance_map
-            .get(entity_type)
+            .get(&entity_type)
             .map(|v| v.as_slice())
             .unwrap_or_else(|| {
                 // If not in inheritance map, just check the exact type
-                if self.entities.contains_key(entity_type) {
-                    std::slice::from_ref(entity_type)
+                if self.entities.contains_key(&entity_type) {
+                    std::slice::from_ref(&entity_type)
                 } else {
                     &[]
                 }
@@ -608,7 +650,7 @@ impl Store {
             if let Some(entities) = self.entities.get(et) {
                 for entity_id in entities {
                     if current_idx >= start_idx && items.len() < opts.limit {
-                        items.push(entity_id.clone());
+                        items.push(*entity_id);
                         if items.len() >= opts.limit {
                             break 'outer;
                         }
@@ -657,7 +699,7 @@ impl Store {
                     // Apply filter using cached executor
                     let passes_filter = {
                         let mut executor = self.cel_executor_cache.lock().unwrap();
-                        match executor.execute(filter_expr, entity_id, self) {
+                        match executor.execute(filter_expr, *entity_id, self) {
                             Ok(cel::Value::Bool(true)) => true,
                             _ => false, // Skip for false, non-boolean, or error results
                         }
@@ -668,7 +710,7 @@ impl Store {
 
                         // Collect items for the current page
                         if current_filtered_idx >= start_idx && page_items.len() < opts.limit {
-                            page_items.push(entity_id.clone());
+                            page_items.push(*entity_id);
                             
                             // Check if we've filled the page
                             if page_items.len() >= opts.limit {
@@ -711,14 +753,14 @@ impl Store {
     /// only return entities that were created with the "Animal" type, not Dog entities.
     pub fn find_entities_exact(
         &self,
-        entity_type: &EntityType,
+        entity_type: EntityType,
         page_opts: Option<PageOpts>,
         filter: Option<String>,
     ) -> Result<PageResult<EntityId>> {
         let opts = page_opts.unwrap_or_default();
 
         // Check if entity type exists - early return if not
-        let entities = match self.entities.get(entity_type) {
+        let entities = match self.entities.get(&entity_type) {
             Some(entities) => entities,
             None => {
                 return Ok(PageResult {
@@ -795,7 +837,7 @@ impl Store {
             // Apply filter using cached executor
             let passes_filter = {
                 let mut executor = self.cel_executor_cache.lock().unwrap();
-                match executor.execute(filter_expr, entity_id, self) {
+                match executor.execute(filter_expr, *entity_id, self) {
                     Ok(cel::Value::Bool(true)) => true,
                     _ => false, // Skip for false, non-boolean, or error results
                 }
@@ -806,7 +848,7 @@ impl Store {
 
                 // Collect for current page if within range
                 if current_filtered_idx >= start_idx && page_items.len() < opts.limit {
-                    page_items.push(entity_id.clone());
+                    page_items.push(*entity_id);
                 }
 
                 current_filtered_idx += 1;
@@ -828,14 +870,14 @@ impl Store {
 
     pub fn find_entities(
         &self,
-        entity_type: &EntityType,
+        entity_type: EntityType,
         filter: Option<String>,
     ) -> Result<Vec<EntityId>> {
         let mut result = Vec::new();
         let mut page_opts: Option<PageOpts> = None;
 
         loop {
-            let page_result = self.find_entities_paginated(entity_type, page_opts.clone(), filter.clone())?;
+            let page_result = self.find_entities_paginated(entity_type.clone(), page_opts.clone(), filter.clone())?;
             if page_result.items.is_empty() {
                 break;
             }
@@ -926,18 +968,6 @@ impl Store {
         config: NotifyConfig,
         sender: NotificationQueue,
     ) -> Result<()> {
-        // Validate that the main field_type is not indirect
-        let field_type = match &config {
-            NotifyConfig::EntityId { field_type, .. } => field_type,
-            NotifyConfig::EntityType { field_type, .. } => field_type,
-        };
-
-        if field_type.as_ref().contains(INDIRECTION_DELIMITER) {
-            return Err(Error::InvalidNotifyConfig(
-                "Cannot register notifications on indirect fields".to_string(),
-            ));
-        }
-
         // Add sender to the list for this notification config
         match &config {
             NotifyConfig::EntityId {
@@ -947,9 +977,9 @@ impl Store {
             } => {
                 let senders = self
                     .id_notifications
-                    .entry(entity_id.clone())
+                    .entry(*entity_id)
                     .or_insert_with(FxHashMap::default)
-                    .entry(field_type.clone())
+                    .entry(*field_type)
                     .or_insert_with(FxHashMap::default)
                     .entry(config.clone())
                     .or_insert_with(Vec::new);
@@ -962,9 +992,9 @@ impl Store {
             } => {
                 let senders = self
                     .type_notifications
-                    .entry(EntityType::from(entity_type.clone()))
+                    .entry(*entity_type)
                     .or_insert_with(FxHashMap::default)
-                    .entry(field_type.clone())
+                    .entry(*field_type)
                     .or_insert_with(FxHashMap::default)
                     .entry(config.clone())
                     .or_insert_with(Vec::new);
@@ -1016,7 +1046,7 @@ impl Store {
                 field_type,
                 ..
             } => {
-                let entity_type_key = EntityType::from(entity_type.clone());
+                let entity_type_key = *entity_type;
                 if let Some(field_map) = self.type_notifications.get_mut(&entity_type_key) {
                     if let Some(sender_map) = field_map.get_mut(field_type) {
                         if let Some(senders) = sender_map.get_mut(target_config) {
@@ -1046,24 +1076,6 @@ impl Store {
         removed_any
     }
 
-    pub fn new(snowflake: Snowflake) -> Self {
-        Store {
-            schemas: FxHashMap::default(),
-            entities: FxHashMap::default(),
-            types: Vec::new(),
-            fields: FxHashMap::default(),
-            inheritance_map: FxHashMap::default(),
-            complete_entity_schema_cache: FxHashMap::default(),
-            snowflake,
-            id_notifications: FxHashMap::default(),
-            type_notifications: FxHashMap::default(),
-            write_queue: SegQueue::new(),
-            notifications_disabled: false,
-            default_writer_id: None,
-            cel_executor_cache: Arc::new(Mutex::new(CelExecutor::new())),
-        }
-    }
-
     /// Get a reference to the schemas map
     pub fn get_schemas(&self) -> &FxHashMap<EntityType, EntitySchema<Single>> {
         &self.schemas
@@ -1074,16 +1086,11 @@ impl Store {
         let mut nested_fields = FxHashMap::default();
         for ((entity_id, field_type), field) in &self.fields {
             nested_fields
-                .entry(entity_id.clone())
+                .entry(*entity_id)
                 .or_insert_with(FxHashMap::default)
-                .insert(field_type.clone(), field.clone());
+                .insert(*field_type, field.clone());
         }
         nested_fields
-    }
-
-    /// Get a reference to the snowflake generator
-    pub fn get_snowflake(&self) -> &Snowflake {
-        &self.snowflake
     }
 
     /// Disable notifications temporarily (e.g., during WAL replay)
@@ -1103,20 +1110,20 @@ impl Store {
 
     fn read(
         &self,
-        entity_id: &EntityId,
-        field_type: &FieldType,
+        entity_id: EntityId,
+        field_type: FieldType,
         value: &mut Option<Value>,
         write_time: &mut Option<Timestamp>,
         writer_id: &mut Option<EntityId>,
     ) -> Result<()> {
-        let field = self.fields.get(&(entity_id.clone(), field_type.clone()));
+        let field = self.fields.get(&(entity_id, field_type));
 
         if let Some(field) = field {
             *value = Some(field.value.clone());
             *write_time = Some(field.write_time.clone());
             *writer_id = field.writer_id.clone();
         } else {
-            return Err(Error::FieldNotFound(entity_id.clone(), field_type.clone()).into());
+            return Err(Error::FieldTypeNotFound(entity_id, field_type).into());
         }
 
         Ok(())
@@ -1124,22 +1131,22 @@ impl Store {
 
     fn write(
         &mut self,
-        entity_id: &EntityId,
-        field_type: &FieldType,
+        entity_id: EntityId,
+        field_type: FieldType,
         value: &Option<Value>,
         write_time: &mut Option<Timestamp>,
         writer_id: &mut Option<EntityId>,
         write_option: &PushCondition,
         adjust_behavior: &AdjustBehavior,
     ) -> Result<bool> {
-        let entity_schema = self.get_complete_entity_schema( entity_id.get_type())?;
+        let entity_schema = self.get_complete_entity_schema( entity_id.extract_type())?;
         let field_schema = entity_schema
             .fields
-            .get(field_type)
-            .ok_or_else(|| Error::FieldNotFound(entity_id.clone(), field_type.clone()))?;
+            .get(&field_type)
+            .ok_or_else(|| Error::FieldTypeNotFound(entity_id, field_type))?;
 
-        let field = self.fields.entry((entity_id.clone(), field_type.clone())).or_insert_with(|| Field {
-            field_type: field_type.clone(),
+        let field = self.fields.entry((entity_id, field_type)).or_insert_with(|| Field {
+            field_type: field_type,
             value: field_schema.default_value(),
             write_time: now(),
             writer_id: None,
@@ -1152,8 +1159,8 @@ impl Store {
         if let Some(value) = value {
             if discriminant(value) != discriminant(&field_schema.default_value()) {
                 return Err(Error::ValueTypeMismatch(
-                    entity_id.clone(),
-                    field_type.clone(),
+                    entity_id,
+                    field_type,
                     field_schema.default_value(),
                     value.clone(),
                 ));
@@ -1205,8 +1212,8 @@ impl Store {
                 }
                 _ => {
                     return Err(Error::UnsupportedAdjustBehavior(
-                        entity_id.clone(),
-                        field_type.clone(),
+                        entity_id,
+                        field_type,
                         adjust_behavior.clone(),
                     ));
                 }
@@ -1243,8 +1250,8 @@ impl Store {
                 }
                 _ => {
                     return Err(Error::UnsupportedAdjustBehavior(
-                        entity_id.clone(),
-                        field_type.clone(),
+                        entity_id,
+                        field_type,
                         adjust_behavior.clone(),
                     ));
                 }
@@ -1275,15 +1282,15 @@ impl Store {
 
                     // Trigger notifications after a write operation
                     let current_request = Request::Read {
-                        entity_id: entity_id.clone(),
-                        field_type: field_type.clone(),
+                        entity_id: entity_id,
+                        field_types: vec![field_type],
                         value: Some(notification_new_value.clone()),
                         write_time: Some(field.write_time),
                         writer_id: field.writer_id.clone(),
                     };
                     let previous_request = Request::Read {
-                        entity_id: entity_id.clone(),
-                        field_type: field_type.clone(),
+                        entity_id: entity_id,
+                        field_types: vec![field_type],
                         value: Some(notification_old_value.clone()),
                         write_time: Some(field.write_time), // Use the time before the write
                         writer_id: field.writer_id.clone(),
@@ -1319,15 +1326,15 @@ impl Store {
                     
                     // Trigger notifications after a write operation
                     let current_request = Request::Read {
-                        entity_id: entity_id.clone(),
-                        field_type: field_type.clone(),
+                        entity_id: entity_id,
+                        field_types: vec![field_type],
                         value: Some(notification_new_value.clone()),
                         write_time: Some(field.write_time),
                         writer_id: field.writer_id.clone(),
                     };
                     let previous_request = Request::Read {
-                        entity_id: entity_id.clone(),
-                        field_type: field_type.clone(),
+                        entity_id: entity_id,
+                        field_types: vec![field_type],
                         value: Some(notification_old_value.clone()),
                         write_time: Some(field.write_time), // Use the time before the write
                         writer_id: field.writer_id.clone(),
@@ -1359,7 +1366,6 @@ impl Store {
         Snapshot::from_fx_hashmaps(
             self.schemas.clone(),
             self.entities.clone(),
-            self.types.clone(),
             self.get_fields(),
         )
     }
@@ -1370,13 +1376,12 @@ impl Store {
         
         self.schemas = schemas;
         self.entities = entities;
-        self.types = types;
         
         // Convert nested fields structure to flattened structure
         self.fields.clear();
         for (entity_id, entity_fields) in flat_fields {
             for (field_type, field) in entity_fields {
-                self.fields.insert((entity_id.clone(), field_type), field);
+                self.fields.insert((entity_id, field_type), field);
             }
         }
         
@@ -1394,12 +1399,12 @@ impl Store {
         self.complete_entity_schema_cache.clear();
 
         // For each entity type, find all types that inherit from it
-        for entity_type in &self.types {
+        for entity_type in self.entity_type_interner.ids().map(|id| EntityType(id as u32)) {
             let mut derived_types = Vec::new();
 
             // Check all other types to see if they inherit from this type
-            for other_type in &self.types {
-                if self.inherits_from(other_type, entity_type) {
+            for other_type in self.entity_type_interner.ids().map(|id| EntityType(id as u32)) {
+                if self.inherits_from(other_type.clone(), entity_type.clone()) {
                     derived_types.push(other_type.clone());
                 }
             }
@@ -1421,8 +1426,8 @@ impl Store {
         self.complete_entity_schema_cache.clear();
         
         // Build complete schemas for all entity types
-        for entity_type in &self.types {
-            if let Ok(complete_schema) = self.build_complete_entity_schema(entity_type) {
+        for entity_type in self.entity_type_interner.ids().map(|id| EntityType(id as u32)) {
+            if let Ok(complete_schema) = self.build_complete_entity_schema(entity_type.clone()) {
                 self.complete_entity_schema_cache.insert(entity_type.clone(), complete_schema);
             }
         }
@@ -1430,7 +1435,7 @@ impl Store {
 
     /// Check if derived_type inherits from base_type (directly or indirectly)
     /// This method guards against circular inheritance by limiting the depth of inheritance traversal
-    pub fn inherits_from(&self, derived_type: &EntityType, base_type: &EntityType) -> bool {
+    pub fn inherits_from(&self, derived_type: EntityType, base_type: EntityType) -> bool {
         if derived_type == base_type {
             return false; // A type doesn't inherit from itself
         }
@@ -1443,7 +1448,7 @@ impl Store {
         while let Some(current_type) = types_to_check.pop_front() {
             if let Some(schema) = self.schemas.get(&current_type) {
                 for inherit_type in &schema.inherit {
-                    if inherit_type == base_type {
+                    if *inherit_type == base_type {
                         return true;
                     }
                     
@@ -1462,7 +1467,7 @@ impl Store {
     /// Get all parent types in the inheritance chain for a given entity type
     /// Returns a vector of parent types (all ancestors in the inheritance hierarchy)
     /// For multi-inheritance, this includes all paths through the inheritance graph
-    pub fn get_parent_types(&self, entity_type: &EntityType) -> Vec<EntityType> {
+    pub fn get_parent_types(&self, entity_type: EntityType) -> Vec<EntityType> {
         let mut parent_types = Vec::new();
         let mut types_to_check = std::collections::VecDeque::new();
         let mut visited = std::collections::HashSet::new();
@@ -1488,20 +1493,20 @@ impl Store {
     /// Build context fields using the perform method to handle indirection
     fn build_context_fields(
         &mut self,
-        entity_id: &EntityId,
-        context_fields: &[FieldType],
-    ) -> std::collections::BTreeMap<FieldType, Request> {
+        entity_id: EntityId,
+        context_fields: &[Vec<FieldType>],
+    ) -> std::collections::BTreeMap<Vec<FieldType>, Request> {
         let mut context_map = std::collections::BTreeMap::new();
 
         for context_field in context_fields {
             // Use perform to handle indirection properly
-            let requests = vec![sread!(entity_id.clone(), context_field.clone())];
+            let requests = vec![sread!(entity_id, context_field.clone())];
 
             if let Ok(updated_requests) = self.perform(requests) {
                 context_map.insert(context_field.clone(), updated_requests.into_iter().next().unwrap());
             } else {
                 // If perform_mut fails, insert the original request
-                context_map.insert(context_field.clone(), sread!(entity_id.clone(), context_field.clone()));
+                context_map.insert(context_field.clone(), sread!(entity_id, context_field.clone()));
             }
         }
 
@@ -1511,8 +1516,8 @@ impl Store {
     /// Trigger notifications for a write operation
     fn trigger_notifications(
         &mut self,
-        entity_id: &EntityId,
-        field_type: &FieldType,
+        entity_id: EntityId,
+        field_type: FieldType,
         current_request: Request,
         previous_request: Request,
     ) {
@@ -1525,8 +1530,8 @@ impl Store {
         let mut notifications_to_trigger = Vec::new();
 
         // Check entity-specific notifications with O(1) lookup by entity_id and field_type
-        if let Some(field_map) = self.id_notifications.get(entity_id) {
-            if let Some(sender_map) = field_map.get(field_type) {
+        if let Some(field_map) = self.id_notifications.get(&entity_id) {
+            if let Some(sender_map) = field_map.get(&field_type) {
                 for (config, _) in sender_map {
                     if let NotifyConfig::EntityId {
                         trigger_on_change,
@@ -1555,13 +1560,13 @@ impl Store {
 
         // Check entity type notifications with O(1) lookup by entity_type and field_type
         // Also check parent entity types for inheritance support
-        let entity_type = entity_id.get_type();
+        let entity_type = entity_id.extract_type();
         let mut types_to_check = vec![entity_type.clone()];
         types_to_check.extend(self.get_parent_types(entity_type));
 
         for entity_type_to_check in types_to_check {
             if let Some(field_map) = self.type_notifications.get(&entity_type_to_check) {
-                if let Some(sender_map) = field_map.get(field_type) {
+                if let Some(sender_map) = field_map.get(&field_type) {
                 for (config, _) in sender_map {
                         if let NotifyConfig::EntityType {
                             trigger_on_change,
@@ -1607,7 +1612,7 @@ impl Store {
                     field_type: config_field_type,
                     ..
                 } => {
-                    if let Some(field_map) = self.id_notifications.get_mut(entity_id) {
+                    if let Some(field_map) = self.id_notifications.get_mut(&entity_id) {
                         if let Some(queue_map) = field_map.get_mut(config_field_type) {
                             if let Some(queues) = queue_map.get_mut(&config) {
                                 for queue in queues.iter() {
@@ -1639,27 +1644,59 @@ impl Store {
 }
 
 impl StoreTrait for Store {
-    fn get_entity_schema(&self, entity_type: &EntityType) -> Result<EntitySchema<Single>> {
+    fn get_entity_type(&self, name: &str) -> Result<EntityType> {
+        if let Some(id) = self.entity_type_interner.get(name) {
+            Ok(EntityType(id as u32))
+        } else {
+            Err(Error::EntityTypeStrNotFound(name.to_string()))
+        }
+    }
+
+    fn resolve_entity_type(&self, entity_type: EntityType) -> Result<String> {
+        if let Some(entity_type_str) = self.entity_type_interner.resolve(entity_type.0 as u64) {
+            Ok(entity_type_str.clone())
+        } else {
+            Err(Error::EntityTypeNotFound(entity_type))
+        }
+    }
+
+    fn get_field_type(&self, name: &str) -> Result<FieldType> {
+        if let Some(id) = self.field_type_interner.get(name) {
+            Ok(FieldType(id))
+        } else {
+            Err(Error::FieldTypeStrNotFound(name.to_string()))
+        }
+    }
+
+    fn resolve_field_type(&self, field_type: FieldType) -> Result<String> {
+        if let Some(field_type_str) = self.field_type_interner.resolve(field_type.0 as u64) {
+            Ok(field_type_str.clone())
+        } else {
+            Err(Error::FieldTypeNotFound(EntityId(0), field_type))
+        }
+    }
+
+    fn get_entity_schema(&self, entity_type: EntityType) -> Result<EntitySchema<Single>> {
         self.get_entity_schema(entity_type)
     }
 
-    fn get_complete_entity_schema(&self, entity_type: &EntityType) -> Result<EntitySchema<Complete>> {
+    fn get_complete_entity_schema(&self, entity_type: EntityType) -> Result<EntitySchema<Complete>> {
         self.get_complete_entity_schema(entity_type)
     }
 
-    fn get_field_schema(&self, entity_type: &EntityType, field_type: &FieldType) -> Result<FieldSchema> {
+    fn get_field_schema(&self, entity_type: EntityType, field_type: FieldType) -> Result<FieldSchema> {
         self.get_field_schema(entity_type, field_type)
     }
 
-    fn set_field_schema(&mut self, entity_type: &EntityType, field_type: &FieldType, schema: FieldSchema) -> Result<()> {
+    fn set_field_schema(&mut self, entity_type: EntityType, field_type: FieldType, schema: FieldSchema) -> Result<()> {
         self.set_field_schema(entity_type, field_type, schema)
     }
 
-    fn entity_exists(&self, entity_id: &EntityId) -> bool {
+    fn entity_exists(&self, entity_id: EntityId) -> bool {
         self.entity_exists(entity_id)
     }
 
-    fn field_exists(&self, entity_type: &EntityType, field_type: &FieldType) -> bool {
+    fn field_exists(&self, entity_type: EntityType, field_type: FieldType) -> bool {
         self.field_exists(entity_type, field_type)
     }
 
@@ -1671,15 +1708,15 @@ impl StoreTrait for Store {
         self.perform_mut(requests)
     }
 
-    fn find_entities_paginated(&self, entity_type: &EntityType, page_opts: Option<PageOpts>, filter: Option<String>) -> Result<PageResult<EntityId>> {
+    fn find_entities_paginated(&self, entity_type: EntityType, page_opts: Option<PageOpts>, filter: Option<String>) -> Result<PageResult<EntityId>> {
         self.find_entities_paginated(entity_type, page_opts, filter)
     }
 
-    fn find_entities_exact(&self, entity_type: &EntityType, page_opts: Option<PageOpts>, filter: Option<String>) -> Result<PageResult<EntityId>> {
+    fn find_entities_exact(&self, entity_type: EntityType, page_opts: Option<PageOpts>, filter: Option<String>) -> Result<PageResult<EntityId>> {
         self.find_entities_exact(entity_type, page_opts, filter)
     }
 
-    fn find_entities(&self, entity_type: &EntityType, filter: Option<String>) -> Result<Vec<EntityId>> {
+    fn find_entities(&self, entity_type: EntityType, filter: Option<String>) -> Result<Vec<EntityId>> {
         self.find_entities(entity_type, filter)
     }
 

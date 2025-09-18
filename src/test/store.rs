@@ -2,7 +2,7 @@ use crate::*;
 use crate::data::{EntityType, StorageScope};
 
 // Helper to create an entity schema with basic fields
-fn create_entity_schema(store: &mut Store, entity_type: &EntityType) -> Result<()> {
+fn create_entity_schema(store: &mut Store, entity_type: EntityType) -> Result<()> {
     let mut schema = EntitySchema::<Single>::new(entity_type.clone(), vec![]);
     let ft_name = FieldType::from("Name");
     let ft_parent = FieldType::from("Parent");
@@ -80,7 +80,7 @@ fn test_create_entity_hierarchy() -> Result<()> {
     } else {
         panic!("Expected created entity ID");
     };
-    let root_entity_id_ref = root_entity_id.clone();
+    let root_entity_id_ref = root_entity_id;
 
     let create_requests = vec![screate!(
         et_folder.clone(),
@@ -812,15 +812,15 @@ fn test_complete_entity_schema_caching() -> Result<()> {
     
     // First call to get_complete_entity_schema should populate the cache
     let complete_schema_1 = store.get_complete_entity_schema(&et_derived)?;
-    assert!(complete_schema_1.fields.contains_key(&FieldType::from("BaseField")));
-    assert!(complete_schema_1.fields.contains_key(&FieldType::from("DerivedField")));
+    assert!(complete_schema_1.fields.contains_key(FieldType::from("BaseField")));
+    assert!(complete_schema_1.fields.contains_key(FieldType::from("DerivedField")));
     
     // Second call should use the cache (no way to directly verify this without exposing cache, 
     // but this tests that the cache doesn't break functionality)
     let complete_schema_2 = store.get_complete_entity_schema(&et_derived)?;
     assert_eq!(complete_schema_1.fields.len(), complete_schema_2.fields.len());
-    assert!(complete_schema_2.fields.contains_key(&FieldType::from("BaseField")));
-    assert!(complete_schema_2.fields.contains_key(&FieldType::from("DerivedField")));
+    assert!(complete_schema_2.fields.contains_key(FieldType::from("BaseField")));
+    assert!(complete_schema_2.fields.contains_key(FieldType::from("DerivedField")));
     
     // Update the base schema - this should invalidate the cache
     let mut updated_base_schema = EntitySchema::<Single>::new(et_base.clone(), vec![]);
@@ -848,9 +848,9 @@ fn test_complete_entity_schema_caching() -> Result<()> {
     
     // After update, cache should be invalidated and the complete schema should include the new field
     let complete_schema_3 = store.get_complete_entity_schema(&et_derived)?;
-    assert!(complete_schema_3.fields.contains_key(&FieldType::from("BaseField")));
-    assert!(complete_schema_3.fields.contains_key(&FieldType::from("DerivedField")));
-    assert!(complete_schema_3.fields.contains_key(&FieldType::from("NewBaseField")));
+    assert!(complete_schema_3.fields.contains_key(FieldType::from("BaseField")));
+    assert!(complete_schema_3.fields.contains_key(FieldType::from("DerivedField")));
+    assert!(complete_schema_3.fields.contains_key(FieldType::from("NewBaseField")));
     assert_eq!(complete_schema_3.fields.len(), 3); // BaseField, DerivedField, NewBaseField
     
     Ok(())

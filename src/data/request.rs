@@ -27,14 +27,14 @@ impl std::fmt::Display for AdjustBehavior {
 pub enum Request {
     Read {
         entity_id: EntityId,
-        field_type: FieldType,
+        field_types: Vec<FieldType>,
         value: Option<Value>,
         write_time: Option<Timestamp>,
         writer_id: Option<EntityId>,
     },
     Write {
         entity_id: EntityId,
-        field_type: FieldType,
+        field_types: Vec<FieldType>,
         value: Option<Value>,
         push_condition: PushCondition,
         adjust_behavior: AdjustBehavior,
@@ -56,7 +56,7 @@ pub enum Request {
         originator: Option<String>,
     },
     SchemaUpdate {
-        schema: EntitySchema<Single>,
+        schema: EntitySchema<Single, String, String>,
         timestamp: Option<Timestamp>,
         originator: Option<String>,
     },
@@ -68,21 +68,21 @@ pub enum Request {
 }
 
 impl Request {
-    pub fn entity_id(&self) -> Option<&EntityId> {
+    pub fn entity_id(&self) -> Option<EntityId> {
         match self {
-            Request::Read { entity_id, .. } => Some(entity_id),
-            Request::Write { entity_id, .. } => Some(entity_id),
-            Request::Create { created_entity_id, .. } => created_entity_id.as_ref(),
-            Request::Delete { entity_id, .. } => Some(entity_id),
+            Request::Read { entity_id, .. } => Some(*entity_id),
+            Request::Write { entity_id, .. } => Some(*entity_id),
+            Request::Create { created_entity_id, .. } => created_entity_id.clone(),
+            Request::Delete { entity_id, .. } => Some(*entity_id),
             Request::SchemaUpdate { .. } => None,
             Request::Snapshot { .. } => None,
         }
     }
 
-    pub fn field_type(&self) -> Option<&FieldType> {
+    pub fn field_type(&self) -> Option<&Vec<FieldType>> {
         match self {
-            Request::Read { field_type, .. } => Some(field_type),
-            Request::Write { field_type, .. } => Some(field_type),
+            Request::Read { field_types, .. } => Some(field_types),
+            Request::Write { field_types, .. } => Some(field_types),
             Request::Create { .. } => None,
             Request::Delete { .. } => None,
             Request::SchemaUpdate { .. } => None,
@@ -112,10 +112,10 @@ impl Request {
         }
     }
 
-    pub fn writer_id(&self) -> Option<&EntityId> {
+    pub fn writer_id(&self) -> Option<EntityId> {
         match self {
-            Request::Read { writer_id, .. } => writer_id.as_ref(),
-            Request::Write { writer_id, .. } => writer_id.as_ref(),
+            Request::Read { writer_id, .. } => writer_id.clone(),
+            Request::Write { writer_id, .. } => writer_id.clone(),
             Request::Create { .. } => None,
             Request::Delete { .. } => None,
             Request::SchemaUpdate { .. } => None,
@@ -219,23 +219,23 @@ impl Request {
 impl std::fmt::Display for Request {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Request::Read { entity_id, field_type, value, write_time, writer_id } => {
-                write!(f, "Read Request - Entity ID: {}, Field Type: {}, Value: {:?}, Write Time: {:?}, Writer ID: {:?}", entity_id, field_type, value, write_time, writer_id)
+            Request::Read { entity_id, field_types: field_type, value, write_time, writer_id } => {
+                write!(f, "Read Request - Entity ID: {:?}, Field Type: {:?}, Value: {:?}, Write Time: {:?}, Writer ID: {:?}", entity_id, field_type, value, write_time, writer_id)
             }
-            Request::Write { entity_id, field_type, value, push_condition, adjust_behavior, write_time, writer_id, originator } => {
-                write!(f, "Write Request - Entity ID: {}, Field Type: {}, Value: {:?}, Push Condition: {:?}, Adjust Behavior: {}, Write Time: {:?}, Writer ID: {:?}, Originator: {:?}", entity_id, field_type, value, push_condition, adjust_behavior, write_time, writer_id, originator)
+            Request::Write { entity_id, field_types: field_type, value, push_condition, adjust_behavior, write_time, writer_id, originator } => {
+                write!(f, "Write Request - Entity ID: {:?}, Field Type: {:?}, Value: {:?}, Push Condition: {:?}, Adjust Behavior: {}, Write Time: {:?}, Writer ID: {:?}, Originator: {:?}", entity_id, field_type, value, push_condition, adjust_behavior, write_time, writer_id, originator)
             }
             Request::Create { entity_type, parent_id, name, created_entity_id, timestamp, originator } => {
-                write!(f, "Create Request - Entity Type: {}, Parent ID: {:?}, Name: {}, Created Entity ID: {:?}, Timestamp: {:?}, Originator: {:?}", entity_type, parent_id, name, created_entity_id, timestamp, originator)
+                write!(f, "Create Request - Entity Type: {:?}, Parent ID: {:?}, Name: {:?}, Created Entity ID: {:?}, Timestamp: {:?}, Originator: {:?}", entity_type, parent_id, name, created_entity_id, timestamp, originator)
             }
             Request::Delete { entity_id, timestamp, originator } => {
-                write!(f, "Delete Request - Entity ID: {}, Timestamp: {:?}, Originator: {:?}", entity_id, timestamp, originator)
+                write!(f, "Delete Request - Entity ID: {:?}, Timestamp: {:?}, Originator: {:?}", entity_id, timestamp, originator)
             }
             Request::SchemaUpdate { schema, timestamp, originator } => {
                 write!(f, "Schema Update Request - Schema: {:?}, Timestamp: {:?}, Originator: {:?}", schema, timestamp, originator)
             }
             Request::Snapshot { snapshot_counter, timestamp, originator } => {
-                write!(f, "Snapshot Request - Snapshot Counter: {}, Timestamp: {:?}, Originator: {:?}", snapshot_counter, timestamp, originator)
+                write!(f, "Snapshot Request - Snapshot Counter: {:?}, Timestamp: {:?}, Originator: {:?}", snapshot_counter, timestamp, originator)
             }
         }
     }

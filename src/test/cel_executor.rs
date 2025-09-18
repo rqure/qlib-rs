@@ -130,15 +130,15 @@ fn setup_test_store_with_entity() -> Result<(Store, EntityId)> {
     let test_data = vec![72, 101, 108, 108, 111]; // "Hello" in bytes
     
     let field_requests = vec![
-        swrite!(entity_id.clone(), FieldType::from("Name"), sstr!("John Doe")),
-        swrite!(entity_id.clone(), FieldType::from("Age"), sint!(30)),
-        swrite!(entity_id.clone(), FieldType::from("Score"), sfloat!(95.5)),
-        swrite!(entity_id.clone(), FieldType::from("IsActive"), sbool!(true)),
-        swrite!(entity_id.clone(), FieldType::from("Status"), schoice!(1)),
-        swrite!(entity_id.clone(), FieldType::from("Manager"), sref!(Some(manager_id))),
-        swrite!(entity_id.clone(), FieldType::from("Tags"), sreflist![tag1_id, tag2_id]),
-        swrite!(entity_id.clone(), FieldType::from("CreatedAt"), stimestamp!(now)),
-        swrite!(entity_id.clone(), FieldType::from("Data"), sblob!(test_data)),
+        swrite!(entity_id, FieldType::from("Name"), sstr!("John Doe")),
+        swrite!(entity_id, FieldType::from("Age"), sint!(30)),
+        swrite!(entity_id, FieldType::from("Score"), sfloat!(95.5)),
+        swrite!(entity_id, FieldType::from("IsActive"), sbool!(true)),
+        swrite!(entity_id, FieldType::from("Status"), schoice!(1)),
+        swrite!(entity_id, FieldType::from("Manager"), sref!(Some(manager_id))),
+        swrite!(entity_id, FieldType::from("Tags"), sreflist![tag1_id, tag2_id]),
+        swrite!(entity_id, FieldType::from("CreatedAt"), stimestamp!(now)),
+        swrite!(entity_id, FieldType::from("Data"), sblob!(test_data)),
     ];
     store.perform_mut(field_requests)?;
 

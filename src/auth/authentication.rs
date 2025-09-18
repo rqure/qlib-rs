@@ -113,7 +113,7 @@ pub fn authenticate_user(
 /// Authenticate a user using native (password hash) authentication
 pub fn authenticate_native(
     store: &mut Store,
-    user_id: &EntityId,
+    user_id: EntityId,
     password: &str,
     config: &AuthConfig,
 ) -> Result<()> {
@@ -134,7 +134,7 @@ pub fn authenticate_native(
 /// Note: This is a placeholder - actual LDAP implementation would require LDAP client
 pub fn authenticate_ldap(
     _store: &mut Store,
-    _user_id: &EntityId,
+    _user_id: EntityId,
     _name: &str,
     _password: &str,
     _config: &AuthConfig,
@@ -147,7 +147,7 @@ pub fn authenticate_ldap(
 /// Authenticate a user using OpenID Connect token validation
 pub fn authenticate_openid_connect(
     _store: &mut Store,
-    _user_id: &EntityId,
+    _user_id: EntityId,
     _id_token: &str,
     _config: &AuthConfig,
 ) -> Result<()> {
@@ -157,7 +157,7 @@ pub fn authenticate_openid_connect(
 }
 
 /// Get user authentication method
-pub fn get_user_auth_method(store: &mut Store, user_id: &EntityId) -> Result<AuthMethod> {
+pub fn get_user_auth_method(store: &mut Store, user_id: EntityId) -> Result<AuthMethod> {
     let requests = vec![sread!(user_id.clone(), ft::auth_method())];
 
     let result = store.perform_mut(requests);
@@ -186,7 +186,7 @@ pub fn get_user_auth_method(store: &mut Store, user_id: &EntityId) -> Result<Aut
 }
 
 /// Get user secret (password hash for native auth, or other secret data)
-pub fn get_user_secret(store: &mut Store, user_id: &EntityId) -> Result<String> {
+pub fn get_user_secret(store: &mut Store, user_id: EntityId) -> Result<String> {
     let requests = vec![sread!(user_id.clone(), ft::secret())];
 
     let requests = store.perform_mut(requests)?;
@@ -209,7 +209,7 @@ pub fn get_user_secret(store: &mut Store, user_id: &EntityId) -> Result<String> 
 /// Change a user's password (only for Native authentication)
 pub fn change_password(
     store: &mut Store,
-    user_id: &EntityId,
+    user_id: EntityId,
     new_password: &str,
     config: &AuthConfig,
 ) -> Result<()> {
@@ -242,7 +242,7 @@ pub fn find_user_by_name(store: &mut Store, name: &str) -> Result<Option<EntityI
     let entities = store.find_entities(&et::user(), None)?;
 
     for entity_id in entities {
-        let requests = vec![sread!(entity_id.clone(), ft::name())];
+        let requests = vec![sread!(entity_id, ft::name())];
 
         let requests = store.perform_mut(requests)?;
 
@@ -263,7 +263,7 @@ pub fn find_user_by_name(store: &mut Store, name: &str) -> Result<Option<EntityI
 }
 
 /// Check if a user is active
-pub fn is_user_active(store: &mut Store, user_id: &EntityId) -> Result<bool> {
+pub fn is_user_active(store: &mut Store, user_id: EntityId) -> Result<bool> {
     let requests = vec![sread!(user_id.clone(), ft::active())];
 
     let requests = store.perform_mut(requests)?;
@@ -284,7 +284,7 @@ pub fn is_user_active(store: &mut Store, user_id: &EntityId) -> Result<bool> {
 }
 
 /// Check if a user is locked
-pub fn is_user_locked(store: &mut Store, user_id: &EntityId) -> Result<bool> {
+pub fn is_user_locked(store: &mut Store, user_id: EntityId) -> Result<bool> {
     let requests = vec![sread!(user_id.clone(), ft::locked_until())];
 
     let result = store.perform_mut(requests);
@@ -357,7 +357,7 @@ pub fn validate_password(password: &str, config: &AuthConfig) -> Result<()> {
 /// Increment failed login attempts and lock account if needed
 pub fn increment_failed_attempts(
     store: &mut Store,
-    user_id: &EntityId,
+    user_id: EntityId,
     config: &AuthConfig,
 ) -> Result<()> {
     // Get current failed attempts
@@ -404,7 +404,7 @@ pub fn increment_failed_attempts(
 }
 
 /// Reset failed login attempts
-pub fn reset_failed_attempts(store: &mut Store, user_id: &EntityId) -> Result<()> {
+pub fn reset_failed_attempts(store: &mut Store, user_id: EntityId) -> Result<()> {
     let requests = vec![swrite!(user_id.clone(), ft::failed_attempts(), Some(Value::Int(0)))];
 
     store.perform_mut(requests)?;
@@ -413,7 +413,7 @@ pub fn reset_failed_attempts(store: &mut Store, user_id: &EntityId) -> Result<()
 }
 
 /// Update last login timestamp
-pub fn update_last_login(store: &mut Store, user_id: &EntityId) -> Result<()> {
+pub fn update_last_login(store: &mut Store, user_id: EntityId) -> Result<()> {
     let requests = vec![swrite!(
         user_id.clone(),
         ft::last_login(),
@@ -430,7 +430,7 @@ pub fn create_user(
     store: &mut Store,
     name: &str,
     auth_method: AuthMethod,
-    parent_id: &EntityId,
+    parent_id: EntityId,
 ) -> Result<EntityId> {
     // Check if user already exists
     if let Ok(Some(_)) = find_user_by_name(store, name) {
@@ -470,7 +470,7 @@ pub fn create_user(
 /// Set user password (only for Native authentication method)
 pub fn set_user_password(
     store: &mut Store,
-    user_id: &EntityId,
+    user_id: EntityId,
     password: &str,
     config: &AuthConfig,
 ) -> Result<()> {
@@ -501,7 +501,7 @@ pub fn set_user_password(
 /// Set user authentication method
 pub fn set_user_auth_method(
     store: &mut Store,
-    user_id: &EntityId,
+    user_id: EntityId,
     auth_method: AuthMethod,
 ) -> Result<()> {
     let requests = vec![swrite!(
@@ -545,7 +545,7 @@ pub fn find_subject_by_name(store: &mut Store, name: &str) -> Result<Option<Enti
     let entities = store.find_entities(&et::subject(), None)?;
 
     for entity_id in entities {
-        let requests = vec![sread!(entity_id.clone(), ft::name())];
+        let requests = vec![sread!(entity_id, ft::name())];
         let requests = store.perform_mut(requests)?;
 
         if let Some(request) = requests.first() {
@@ -565,7 +565,7 @@ pub fn find_subject_by_name(store: &mut Store, name: &str) -> Result<Option<Enti
 }
 
 /// Check if a service is active
-pub fn is_service_active(store: &mut Store, service_id: &EntityId) -> Result<bool> {
+pub fn is_service_active(store: &mut Store, service_id: EntityId) -> Result<bool> {
     let requests = vec![sread!(service_id.clone(), ft::active())];
     let requests = store.perform_mut(requests)?;
 
@@ -585,7 +585,7 @@ pub fn is_service_active(store: &mut Store, service_id: &EntityId) -> Result<boo
 }
 
 /// Get service secret key
-pub fn get_service_secret(store: &mut Store, service_id: &EntityId) -> Result<String> {
+pub fn get_service_secret(store: &mut Store, service_id: EntityId) -> Result<String> {
     let requests = vec![sread!(service_id.clone(), ft::secret())];
     let requests = store.perform_mut(requests)?;
 
@@ -607,7 +607,7 @@ pub fn get_service_secret(store: &mut Store, service_id: &EntityId) -> Result<St
 /// Set service secret key
 pub fn set_service_secret(
     store: &mut Store,
-    service_id: &EntityId,
+    service_id: EntityId,
     secret_key: &str,
 ) -> Result<()> {
     let requests = vec![swrite!(

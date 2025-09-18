@@ -241,7 +241,7 @@ fn test_authentication_with_factory_restore_format() -> Result<()> {
     let field_requests = vec![
         Request::Write {
             entity_id: user_id.clone(),
-            field_type: FieldType::from("Name"),
+            field_types: FieldType::from("Name"),
             value: Some(Value::String(username.to_string())),
             push_condition: PushCondition::Always,
             adjust_behavior: AdjustBehavior::Set,
@@ -251,7 +251,7 @@ fn test_authentication_with_factory_restore_format() -> Result<()> {
         },
         Request::Write {
             entity_id: user_id.clone(),
-            field_type: FieldType::from("Secret"),
+            field_types: FieldType::from("Secret"),
             value: Some(Value::String(password_hash)),
             push_condition: PushCondition::Always,
             adjust_behavior: AdjustBehavior::Set,
@@ -261,7 +261,7 @@ fn test_authentication_with_factory_restore_format() -> Result<()> {
         },
         Request::Write {
             entity_id: user_id.clone(),
-            field_type: FieldType::from("Active"),
+            field_types: FieldType::from("Active"),
             value: Some(Value::Bool(true)),
             push_condition: PushCondition::Always,
             adjust_behavior: AdjustBehavior::Set,

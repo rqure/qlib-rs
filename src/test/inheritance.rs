@@ -307,15 +307,15 @@ fn test_multi_inheritance() -> Result<()> {
     let complete_schema = store.get_complete_entity_schema(&et_bat)?;
     
     // Should have fields from Flyable
-    assert!(complete_schema.fields.contains_key(&FieldType::from("CanFly")));
-    assert!(complete_schema.fields.contains_key(&FieldType::from("WingSpan")));
+    assert!(complete_schema.fields.contains_key(FieldType::from("CanFly")));
+    assert!(complete_schema.fields.contains_key(FieldType::from("WingSpan")));
     
     // Should have fields from Mammal
-    assert!(complete_schema.fields.contains_key(&FieldType::from("FurColor")));
-    assert!(complete_schema.fields.contains_key(&FieldType::from("IsWarmBlooded")));
+    assert!(complete_schema.fields.contains_key(FieldType::from("FurColor")));
+    assert!(complete_schema.fields.contains_key(FieldType::from("IsWarmBlooded")));
     
     // Should have its own field
-    assert!(complete_schema.fields.contains_key(&FieldType::from("EcholocationRange")));
+    assert!(complete_schema.fields.contains_key(FieldType::from("EcholocationRange")));
 
     // Test inheritance lookup - searching for Flyable should find bats
     let flyable_entities = store.find_entities(&et_flyable, None)?;

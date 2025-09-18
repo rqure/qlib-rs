@@ -3,7 +3,7 @@ use qlib_rs::*;
 use qlib_rs::data::{EntityType, StorageScope};
 
 // Helper to create an entity schema with basic fields
-fn create_entity_schema(store: &mut Store, entity_type: &EntityType) -> Result<()> {
+fn create_entity_schema(store: &mut Store, entity_type: EntityType) -> Result<()> {
     let mut schema = EntitySchema::<Single>::new(entity_type.clone(), vec![]);
     let ft_name = FieldType::from("Name");
     let ft_parent = FieldType::from("Parent");
@@ -111,7 +111,7 @@ fn bench_field_operations(c: &mut Criterion) {
             b.iter(|| {
                 let mut write_requests = Vec::new();
                 for (i, entity_id) in entity_subset.iter().enumerate() {
-                    write_requests.push(swrite!(entity_id.clone(), "Score".into(), sint!(i as i64)));
+                    write_requests.push(swrite!(entity_id, "Score".into(), sint!(i as i64)));
                 }
                 black_box(store.perform_mut(write_requests).unwrap());
             })
@@ -123,7 +123,7 @@ fn bench_field_operations(c: &mut Criterion) {
             b.iter(|| {
                 let mut read_requests = Vec::new();
                 for entity_id in &entity_subset {
-                    read_requests.push(sread!(entity_id.clone(), "Name".into()));
+                    read_requests.push(sread!(entity_id, "Name".into()));
                 }
                 black_box(store.perform_mut(read_requests).unwrap());
             })
