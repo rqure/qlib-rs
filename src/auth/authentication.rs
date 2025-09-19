@@ -240,7 +240,7 @@ pub fn change_password(
 }
 
 /// Find a user by name
-pub fn find_user_by_name(store: &mut Store, name: &str) -> Result<Option<EntityId>> {
+pub fn find_user_by_name(store: &Store, name: &str) -> Result<Option<EntityId>> {
     // Use the store's find_entities method to search for users with matching name
     let et = store.et.as_ref().unwrap();
     let entities = store.find_entities(et.user, None)?;
@@ -249,7 +249,7 @@ pub fn find_user_by_name(store: &mut Store, name: &str) -> Result<Option<EntityI
     for entity_id in entities {
         let requests = vec![sread!(entity_id, vec![ft.name])];
 
-        let requests = store.perform_mut(requests)?;
+        let requests = store.perform(requests)?;
 
         if let Some(request) = requests.first() {
             if let Request::Read {
