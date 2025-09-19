@@ -124,6 +124,42 @@ pub enum StoreMessage {
         response: std::result::Result<PageResult<EntityType>, String>,
     },
 
+    GetEntityType {
+        id: String,
+        name: String,
+    },
+    GetEntityTypeResponse {
+        id: String,
+        response: std::result::Result<EntityType, String>,
+    },
+
+    ResolveEntityType {
+        id: String,
+        entity_type: EntityType,
+    },
+    ResolveEntityTypeResponse {
+        id: String,
+        response: std::result::Result<String, String>,
+    },
+
+    GetFieldType {
+        id: String,
+        name: String,
+    },
+    GetFieldTypeResponse {
+        id: String,
+        response: std::result::Result<FieldType, String>,
+    },
+
+    ResolveFieldType {
+        id: String,
+        field_type: FieldType,
+    },
+    ResolveFieldTypeResponse {
+        id: String,
+        response: std::result::Result<String, String>,
+    },
+
     // Notification support
     RegisterNotification {
         id: String,
@@ -178,6 +214,14 @@ pub fn extract_message_id(message: &StoreMessage) -> Option<String> {
         StoreMessage::FindEntitiesExactResponse { id, .. } => Some(id.clone()),
         StoreMessage::GetEntityTypes { id, .. } => Some(id.clone()),
         StoreMessage::GetEntityTypesResponse { id, .. } => Some(id.clone()),
+        StoreMessage::GetEntityType { id, .. } => Some(id.clone()),
+        StoreMessage::GetEntityTypeResponse { id, .. } => Some(id.clone()),
+        StoreMessage::ResolveEntityType { id, .. } => Some(id.clone()),
+        StoreMessage::ResolveEntityTypeResponse { id, .. } => Some(id.clone()),
+        StoreMessage::GetFieldType { id, .. } => Some(id.clone()),
+        StoreMessage::GetFieldTypeResponse { id, .. } => Some(id.clone()),
+        StoreMessage::ResolveFieldType { id, .. } => Some(id.clone()),
+        StoreMessage::ResolveFieldTypeResponse { id, .. } => Some(id.clone()),
         StoreMessage::RegisterNotification { id, .. } => Some(id.clone()),
         StoreMessage::RegisterNotificationResponse { id, .. } => Some(id.clone()),
         StoreMessage::UnregisterNotification { id, .. } => Some(id.clone()),
@@ -716,9 +760,77 @@ impl StoreProxy {
         }
     }
 
+    pub fn get_entity_type(&self, name: &str) -> Result<EntityType> {
+        let request = StoreMessage::GetEntityType {
+            id: Uuid::new_v4().to_string(),
+            name: name.to_string(),
+        };
+
+        let response = self.send_request(request)?;
+        match response {
+            StoreMessage::GetEntityTypeResponse { response, .. } => response.map_err(Error::StoreProxyError),
+            _ => Err(Error::StoreProxyError("Unexpected response type".to_string())),
+        }
+    }
+
+    pub fn resolve_entity_type(&self, entity_type: EntityType) -> Result<String> {
+        let request = StoreMessage::ResolveEntityType {
+            id: Uuid::new_v4().to_string(),
+            entity_type,
+        };
+
+        let response = self.send_request(request)?;
+        match response {
+            StoreMessage::ResolveEntityTypeResponse { response, .. } => response.map_err(Error::StoreProxyError),
+            _ => Err(Error::StoreProxyError("Unexpected response type".to_string())),
+        }
+    }
+
+    pub fn get_field_type(&self, name: &str) -> Result<FieldType> {
+        let request = StoreMessage::GetFieldType {
+            id: Uuid::new_v4().to_string(),
+            name: name.to_string(),
+        };
+
+        let response = self.send_request(request)?;
+        match response {
+            StoreMessage::GetFieldTypeResponse { response, .. } => response.map_err(Error::StoreProxyError),
+            _ => Err(Error::StoreProxyError("Unexpected response type".to_string())),
+        }
+    }
+
+    pub fn resolve_field_type(&self, field_type: FieldType) -> Result<String> {
+        let request = StoreMessage::ResolveFieldType {
+            id: Uuid::new_v4().to_string(),
+            field_type,
+        };
+
+        let response = self.send_request(request)?;
+        match response {
+            StoreMessage::ResolveFieldTypeResponse { response, .. } => response.map_err(Error::StoreProxyError),
+            _ => Err(Error::StoreProxyError("Unexpected response type".to_string())),
+        }
+    }
+
 }
 
 impl StoreTrait for StoreProxy {
+    fn get_entity_type(&self, name: &str) -> Result<EntityType> {
+        self.get_entity_type(name)
+    }
+
+    fn resolve_entity_type(&self, entity_type: EntityType) -> Result<String> {
+        self.resolve_entity_type(entity_type)
+    }
+
+    fn get_field_type(&self, name: &str) -> Result<FieldType> {
+        self.get_field_type(name)
+    }
+
+    fn resolve_field_type(&self, field_type: FieldType) -> Result<String> {
+        self.resolve_field_type(field_type)
+    }
+
     fn get_entity_schema(&self, entity_type: EntityType) -> Result<EntitySchema<Single>> {
         self.get_entity_schema(entity_type)
     }

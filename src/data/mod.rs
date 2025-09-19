@@ -6,7 +6,7 @@ mod field;
 pub mod ft;
 mod interner;
 mod indirection;
-mod json_snapshot;
+// mod json_snapshot;
 mod notifications;
 mod pagination;
 mod request;
@@ -29,7 +29,7 @@ pub use store_trait::StoreTrait;
 pub use indirection::{BadIndirectionReason, INDIRECTION_DELIMITER, resolve_indirection, path, path_to_entity_id};
 pub use pagination::{PageOpts, PageResult};
 pub use snapshots::Snapshot;
-pub use json_snapshot::{JsonSnapshot, JsonEntitySchema, JsonEntity, value_to_json_value, json_value_to_value, value_to_json_value_with_paths, build_json_entity_tree, take_json_snapshot, restore_json_snapshot, restore_entity_recursive, factory_restore_json_snapshot, restore_json_snapshot_via_proxy};
+// pub use json_snapshot::{JsonSnapshot, JsonEntitySchema, JsonEntity, value_to_json_value, json_value_to_value, value_to_json_value_with_paths, build_json_entity_tree, take_json_snapshot, restore_json_snapshot, restore_entity_recursive, factory_restore_json_snapshot, restore_json_snapshot_via_proxy};
 pub use cache::Cache;
 
 pub use store_proxy::{StoreProxy, StoreMessage, extract_message_id, AuthenticationResult};

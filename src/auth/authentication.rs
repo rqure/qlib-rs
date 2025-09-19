@@ -246,8 +246,9 @@ pub fn find_user_by_name(store: &mut Store, name: &str) -> Result<Option<EntityI
     let entities = store.find_entities(et.user, None)?;
 
     let ft = store.ft.as_ref().unwrap();
+    let name_field = ft.name; // Copy the FieldType since it's now Copy
     for entity_id in entities {
-        let requests = vec![sread!(entity_id, vec![ft.name])];
+        let requests = vec![sread!(entity_id, vec![name_field])];
 
         let requests = store.perform_mut(requests)?;
 
