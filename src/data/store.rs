@@ -489,9 +489,7 @@ impl Store {
                 }
                 Request::GetEntityType {
                     name,
-                    entity_type,
-                    timestamp,
-                    ..
+                    entity_type
                 } => {
                     match self.get_entity_type(name) {
                         Ok(et) => {
@@ -501,13 +499,10 @@ impl Store {
                             *entity_type = None;
                         }
                     }
-                    *timestamp = Some(now());
                 }
                 Request::ResolveEntityType {
                     entity_type: et,
-                    name,
-                    timestamp,
-                    ..
+                    name
                 } => {
                     match self.resolve_entity_type(*et) {
                         Ok(resolved_name) => {
@@ -517,13 +512,10 @@ impl Store {
                             *name = None;
                         }
                     }
-                    *timestamp = Some(now());
                 }
                 Request::GetFieldType {
                     name,
-                    field_type,
-                    timestamp,
-                    ..
+                    field_type
                 } => {
                     match self.get_field_type(name) {
                         Ok(ft) => {
@@ -533,13 +525,10 @@ impl Store {
                             *field_type = None;
                         }
                     }
-                    *timestamp = Some(now());
                 }
                 Request::ResolveFieldType {
                     field_type: ft,
-                    name,
-                    timestamp,
-                    ..
+                    name
                 } => {
                     match self.resolve_field_type(*ft) {
                         Ok(resolved_name) => {
@@ -549,7 +538,6 @@ impl Store {
                             *name = None;
                         }
                     }
-                    *timestamp = Some(now());
                 }
             }
         }
