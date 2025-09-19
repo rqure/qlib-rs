@@ -1,6 +1,7 @@
 use anyhow::Result;
 #[allow(unused_imports)] // Used by bincode
 use serde::{Serialize, Deserialize};
+use rkyv::Deserialize as RkyvDeserialize;
 
 /// Magic bytes to identify protocol messages (4 bytes)
 const PROTOCOL_MAGIC: [u8; 4] = [0x51, 0x43, 0x4F, 0x52]; // "QCOR" in ASCII
@@ -65,13 +66,15 @@ impl MessageHeader {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MessageType {
     // Core store messages (1000-1999)
-    StoreMessage = 1000,        // Uses rkyv for high-performance operations
+    StoreMessage = 1000,        // Uses bincode for compatibility (legacy)
+    FastStoreMessage = 1001,    // Uses rkyv for high-performance operations (new)
 }
 
 impl MessageType {
     pub fn from_u32(value: u32) -> Option<Self> {
         match value {
             1000 => Some(Self::StoreMessage),
+            1001 => Some(Self::FastStoreMessage),
             _ => None,
         }
     }
@@ -81,10 +84,71 @@ impl MessageType {
     }
 }
 
+/// Fast Store message wrapper that uses rkyv for the envelope and bincode for the StoreMessage payload
+/// This provides the performance benefits of rkyv for the message envelope while maintaining
+/// compatibility with the existing complex StoreMessage types
+#[derive(Debug, Clone)]
+#[derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
+#[archive(check_bytes)]
+pub struct FastStoreMessage {
+    /// Message ID for correlation
+    pub id: String,
+    /// Bincode-serialized StoreMessage payload
+    pub payload: Vec<u8>,
+    /// Message type hint for faster deserialization
+    pub message_type_hint: u32,
+}
+
+impl FastStoreMessage {
+    /// Create a new FastStoreMessage from a StoreMessage
+    pub fn from_store_message(store_message: &crate::data::StoreMessage) -> anyhow::Result<Self> {
+        let payload = bincode::serialize(store_message)
+            .map_err(|e| anyhow::anyhow!("Failed to serialize store message: {}", e))?;
+        
+        // Extract message ID for optimization
+        let id = crate::data::extract_message_id(store_message)
+            .unwrap_or_else(|| "unknown".to_string());
+        
+        // Create a simple type hint based on the message variant
+        let message_type_hint = Self::get_message_type_hint(store_message);
+        
+        Ok(FastStoreMessage {
+            id,
+            payload,
+            message_type_hint,
+        })
+    }
+    
+    /// Deserialize the embedded StoreMessage
+    pub fn to_store_message(&self) -> anyhow::Result<crate::data::StoreMessage> {
+        bincode::deserialize(&self.payload)
+            .map_err(|e| anyhow::anyhow!("Failed to deserialize store message: {}", e))
+    }
+    
+    /// Get a simple type hint for the message (for optimization purposes)
+    fn get_message_type_hint(msg: &crate::data::StoreMessage) -> u32 {
+        use crate::data::StoreMessage;
+        match msg {
+            StoreMessage::Authenticate { .. } => 1,
+            StoreMessage::AuthenticateResponse { .. } => 2,
+            StoreMessage::GetEntitySchema { .. } => 3,
+            StoreMessage::GetEntitySchemaResponse { .. } => 4,
+            StoreMessage::EntityExists { .. } => 5,
+            StoreMessage::EntityExistsResponse { .. } => 6,
+            StoreMessage::FieldExists { .. } => 7,
+            StoreMessage::FieldExistsResponse { .. } => 8,
+            StoreMessage::Perform { .. } => 9,
+            StoreMessage::PerformResponse { .. } => 10,
+            _ => 0, // Other types
+        }
+    }
+}
+
 /// Protocol message wrapper
 #[derive(Debug)]
 pub enum ProtocolMessage {
-    Store(crate::data::StoreMessage),           // Uses rkyv (performance)
+    Store(crate::data::StoreMessage),           // Uses bincode (legacy compatibility)
+    FastStore(FastStoreMessage),                // Uses rkyv envelope with bincode payload
 }
 
 impl ProtocolMessage {
@@ -92,15 +156,23 @@ impl ProtocolMessage {
     pub fn message_type(&self) -> MessageType {
         match self {
             Self::Store(_) => MessageType::StoreMessage,
+            Self::FastStore(_) => MessageType::FastStoreMessage,
         }
     }
     
     /// Serialize the message payload to bytes using the most appropriate method
     pub fn serialize_payload(&self) -> Result<Vec<u8>> {
         match self {
-            // Use bincode for StoreMessage (for now)
+            // Use bincode for legacy StoreMessage (compatibility)
             Self::Store(msg) => bincode::serialize(msg)
                 .map_err(|e| anyhow::anyhow!("Failed to serialize store message: {}", e)),
+            
+            // Use rkyv for FastStoreMessage (performance)
+            Self::FastStore(fast_msg) => {
+                rkyv::to_bytes::<_, 256>(fast_msg)
+                    .map(|bytes| bytes.into_vec())
+                    .map_err(|e| anyhow::anyhow!("Failed to serialize fast store message: {}", e))
+            },
         }
     }
     
@@ -111,6 +183,13 @@ impl ProtocolMessage {
                 let msg: crate::data::StoreMessage = bincode::deserialize(payload)
                     .map_err(|e| anyhow::anyhow!("Failed to deserialize store message: {}", e))?;
                 Ok(Self::Store(msg))
+            },
+            MessageType::FastStoreMessage => {
+                let archived = rkyv::check_archived_root::<FastStoreMessage>(payload)
+                    .map_err(|e| anyhow::anyhow!("Failed to check archived fast store message: {}", e))?;
+                let fast_msg: FastStoreMessage = RkyvDeserialize::deserialize(archived, &mut rkyv::Infallible)
+                    .map_err(|e| anyhow::anyhow!("Failed to deserialize fast store message: {:?}", e))?;
+                Ok(Self::FastStore(fast_msg))
             },
         }
     }
@@ -209,6 +288,11 @@ impl MessageBuffer {
     pub fn try_decode_store_message(&mut self) -> Result<Option<crate::data::StoreMessage>> {
         match self.try_decode()? {
             Some(ProtocolMessage::Store(store_msg)) => Ok(Some(store_msg)),
+            Some(ProtocolMessage::FastStore(fast_msg)) => {
+                // Convert FastStoreMessage back to StoreMessage
+                let store_msg = fast_msg.to_store_message()?;
+                Ok(Some(store_msg))
+            },
             None => Ok(None),
         }
     }
@@ -223,5 +307,12 @@ impl Default for MessageBuffer {
 /// Encode a StoreMessage for TCP transmission using the shared protocol
 pub fn encode_store_message(message: &crate::data::StoreMessage) -> Result<Vec<u8>> {
     let protocol_message = ProtocolMessage::Store(message.clone());
+    ProtocolCodec::encode(&protocol_message)
+}
+
+/// Encode a StoreMessage for TCP transmission using the fast rkyv protocol
+pub fn encode_fast_store_message(message: &crate::data::StoreMessage) -> Result<Vec<u8>> {
+    let fast_message = FastStoreMessage::from_store_message(message)?;
+    let protocol_message = ProtocolMessage::FastStore(fast_message);
     ProtocolCodec::encode(&protocol_message)
 }

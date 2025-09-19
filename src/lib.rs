@@ -24,8 +24,8 @@ pub use auth::{
 };
 
 pub use protocol::{
-    MessageHeader, MessageType, ProtocolMessage, ProtocolCodec, MessageBuffer, 
-    encode_store_message,
+    MessageHeader, MessageType, ProtocolMessage, ProtocolCodec, MessageBuffer, FastStoreMessage,
+    encode_store_message, encode_fast_store_message,
 };
 
 pub use expr::CelExecutor;

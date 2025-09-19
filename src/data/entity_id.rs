@@ -3,8 +3,6 @@ use serde::{Deserialize, Serialize};
 
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Ord, PartialOrd)]
-#[derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
-#[archive(check_bytes)]
 pub struct EntityId(pub u64);
 
 impl EntityId {
