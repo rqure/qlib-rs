@@ -17,8 +17,8 @@ pub struct Store {
 
     entity_type_interner: Interner,
     field_type_interner: Interner,
-    et: Option<ET>,
-    ft: Option<FT>,
+    pub et: Option<ET>,
+    pub ft: Option<FT>,
 
     /// Maps parent types to all their derived types (including direct and indirect children)
     /// This allows fast lookup of all entity types that inherit from a given parent type
