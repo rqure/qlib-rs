@@ -2,7 +2,7 @@ use cel::{Context, Program};
 use lru::LruCache;
 use std::num::NonZeroUsize;
 
-use crate::{sread, to_base64, EntityId, FieldType, Result, Store, Value, INDIRECTION_DELIMITER};
+use crate::{sread, to_base64, EntityId, FieldType, Result, Store, StoreTrait, Value, INDIRECTION_DELIMITER};
 
 /// CelExecutor with LRU cache for compiled CEL programs
 #[derive(Debug)]
@@ -73,8 +73,16 @@ impl CelExecutor {
         for field in fields {
             // Convert underscore to indirection delimiter for store reading
             let store_field = field.to_string().replace("_", INDIRECTION_DELIMITER);
+            
+            // Parse indirection: split by delimiter and convert each part to FieldType
+            let field_types: Result<Vec<FieldType>> = store_field
+                .split(INDIRECTION_DELIMITER)
+                .map(|field_name| store.get_field_type(field_name))
+                .collect();
+            let field_types = field_types?;
+            
             let reqs = vec![
-                sread!(relative_id.clone(), FieldType::from(store_field))
+                sread!(relative_id, field_types)
             ];
             let reqs = store.perform(reqs)?;
             let value = reqs.first().unwrap().value().unwrap().clone();
@@ -94,7 +102,9 @@ impl CelExecutor {
                 Value::EntityReference(v) => {
                     match v {
                         Some(e) => {
-                            context.add_variable_from_value(cel_field.clone(), e.to_string());
+                            // EntityId no longer implements Display, so we use debug formatting
+                            // or convert to a meaningful string representation
+                            context.add_variable_from_value(cel_field.clone(), format!("{:?}", e));
                         },
                         None => {
                             context.add_variable_from_value(cel_field.clone(), "");
@@ -102,7 +112,7 @@ impl CelExecutor {
                     }
                 },
                 Value::EntityList(v) => {
-                    let list: Vec<String> = v.iter().map(|e| e.to_string()).collect();
+                    let list: Vec<String> = v.iter().map(|e| format!("{:?}", e)).collect();
                     context.add_variable_from_value(cel_field.clone(), list);
                 },
                 Value::Float(v) => {
@@ -128,9 +138,9 @@ impl CelExecutor {
             }
         }
 
-        context.add_variable_from_value("EntityId", relative_id.to_string());
+        context.add_variable_from_value("EntityId", format!("{:?}", relative_id));
 
-        context.add_variable_from_value("EntityType", relative_id.get_type().to_string());
+        context.add_variable_from_value("EntityType", store.resolve_entity_type(relative_id.extract_type()).unwrap_or_else(|_| format!("{:?}", relative_id.extract_type())));
 
         match program.execute(&context) {
             Ok(v) => Ok(v),
