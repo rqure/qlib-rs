@@ -39,9 +39,13 @@ pub use notifications::{NotifyConfig, Notification, NotificationQueue, hash_noti
 pub use utils::{from_base64, to_base64};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash)]
+#[derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
+#[archive(check_bytes)]
 pub struct EntityType(pub u32);
 
 #[derive(Debug, Clone, Copy,PartialEq, Eq, Serialize, Deserialize, Hash, Ord, PartialOrd)]
+#[derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
+#[archive(check_bytes)]
 pub struct FieldType(pub u64);
 
 pub type Timestamp = time::OffsetDateTime;

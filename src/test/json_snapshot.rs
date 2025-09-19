@@ -787,7 +787,7 @@ fn test_json_snapshot_entity_list_paths() {
 
     // Now test the problematic restore operation
     // Create a new store and try to restore the snapshot
-    let mut store2 = Store::new(snowflake2);
+    let mut store2 = Store::new();
 
     // This should fail because json_value_to_value can't handle paths in EntityList
     let restore_result = restore_json_snapshot(&mut store2, &snapshot);
