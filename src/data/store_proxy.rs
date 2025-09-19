@@ -2,10 +2,10 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::rc::Rc;
 use std::cell::RefCell;
-use std::net::TcpStream;
 use std::io::{Read, Write};
 use uuid::Uuid;
 use anyhow;
+use mio::{Poll, Token, Interest, Events};
 
 use crate::{
     Complete, EntityId, EntitySchema, EntityType, Error, FieldSchema, FieldType, Notification, NotificationQueue, NotifyConfig, hash_notify_config, PageOpts, PageResult, Request, Result, Single
@@ -234,16 +234,30 @@ pub fn extract_message_id(message: &StoreMessage) -> Option<String> {
 /// TCP connection with message buffering
 #[derive(Debug)]
 pub struct TcpConnection {
-    stream: TcpStream,
+    stream: mio::net::TcpStream,
     message_buffer: MessageBuffer,
+    poll: Poll,
+    token: Token,
 }
 
 impl TcpConnection {
-    pub fn new(stream: TcpStream) -> Self {
-        Self {
+    pub fn new(stream: std::net::TcpStream) -> anyhow::Result<Self> {
+        // Convert std::net::TcpStream to mio::net::TcpStream
+        let mut stream = mio::net::TcpStream::from_std(stream);
+        
+        // Create a poll instance
+        let poll = Poll::new()?;
+        let token = Token(0);
+        
+        // Register the stream with the poll instance
+        poll.registry().register(&mut stream, token, Interest::READABLE)?;
+        
+        Ok(Self {
             stream,
             message_buffer: MessageBuffer::new(),
-        }
+            poll,
+            token,
+        })
     }
     
     pub fn send_message(&mut self, message: &StoreMessage) -> anyhow::Result<()> {
@@ -251,6 +265,21 @@ impl TcpConnection {
         self.stream.write_all(&encoded)?;
         self.stream.flush()?;
         Ok(())
+    }
+    
+    /// Wait for the socket to be ready for reading, with a timeout
+    pub fn wait_for_readable(&mut self, timeout: Option<std::time::Duration>) -> anyhow::Result<bool> {
+        let mut events = Events::with_capacity(1);
+        self.poll.poll(&mut events, timeout)?;
+        
+        // Check if our token has events
+        for event in events.iter() {
+            if event.token() == self.token && event.is_readable() {
+                return Ok(true);
+            }
+        }
+        
+        Ok(false) // Timeout or no readable event
     }
     
     pub fn try_receive_message(&mut self) -> anyhow::Result<Option<StoreMessage>> {
@@ -291,14 +320,15 @@ impl StoreProxy {
         credential: &str,
     ) -> Result<Self> {
         // Connect to TCP server
-        let stream = TcpStream::connect(address)
+        let stream = std::net::TcpStream::connect(address)
             .map_err(|e| Error::StoreProxyError(format!("Failed to connect to {}: {}", address, e)))?;
         
         // Set to non-blocking for message handling
         stream.set_nonblocking(true)
             .map_err(|e| Error::StoreProxyError(format!("Failed to set non-blocking: {}", e)))?;
 
-        let mut tcp_connection = TcpConnection::new(stream);
+        let mut tcp_connection = TcpConnection::new(stream)
+            .map_err(|e| Error::StoreProxyError(format!("Failed to create TCP connection: {}", e)))?;
 
         // Send authentication message immediately
         let auth_request = StoreMessage::Authenticate {
@@ -407,9 +437,20 @@ impl StoreProxy {
                     }
                 }
                 Ok(None) => {
-                    // No message available, continue loop
-                    std::thread::sleep(std::time::Duration::from_millis(1));
-                    continue;
+                    // No message available, wait for data to be ready using mio
+                    match self.tcp_connection.borrow_mut().wait_for_readable(Some(std::time::Duration::from_millis(10))) {
+                        Ok(true) => {
+                            // Data is ready, continue loop to try reading again
+                            continue;
+                        }
+                        Ok(false) => {
+                            // Timeout, continue loop to check for pending responses
+                            continue;
+                        }
+                        Err(e) => {
+                            return Err(Error::StoreProxyError(format!("Poll error: {}", e)));
+                        }
+                    }
                 }
                 Err(e) => {
                     return Err(Error::StoreProxyError(format!("TCP error: {}", e)));
