@@ -65,6 +65,22 @@ pub enum Request {
         timestamp: Option<Timestamp>,
         originator: Option<String>,
     },
+    GetEntityType {
+        name: String,
+        entity_type: Option<EntityType>,
+    },
+    ResolveEntityType {
+        entity_type: EntityType,
+        name: Option<String>,
+    },
+    GetFieldType {
+        name: String,
+        field_type: Option<FieldType>,
+    },
+    ResolveFieldType {
+        field_type: FieldType,
+        name: Option<String>,
+    },
 }
 
 impl Request {
@@ -76,6 +92,10 @@ impl Request {
             Request::Delete { entity_id, .. } => Some(*entity_id),
             Request::SchemaUpdate { .. } => None,
             Request::Snapshot { .. } => None,
+            Request::GetEntityType { .. } => None,
+            Request::ResolveEntityType { .. } => None,
+            Request::GetFieldType { .. } => None,
+            Request::ResolveFieldType { .. } => None,
         }
     }
 
@@ -87,6 +107,10 @@ impl Request {
             Request::Delete { .. } => None,
             Request::SchemaUpdate { .. } => None,
             Request::Snapshot { .. } => None,
+            Request::GetEntityType { .. } => None,
+            Request::ResolveEntityType { .. } => None,
+            Request::GetFieldType { .. } => None,
+            Request::ResolveFieldType { .. } => None,
         }
     }
 
@@ -98,6 +122,10 @@ impl Request {
             Request::Delete { .. } => None,
             Request::SchemaUpdate { .. } => None,
             Request::Snapshot { .. } => None,
+            Request::GetEntityType { .. } => None,
+            Request::ResolveEntityType { .. } => None,
+            Request::GetFieldType { .. } => None,
+            Request::ResolveFieldType { .. } => None,
         }
     }
 
@@ -109,6 +137,7 @@ impl Request {
             Request::Delete { timestamp, .. } => *timestamp,
             Request::SchemaUpdate { timestamp, .. } => *timestamp,
             Request::Snapshot { timestamp, .. } => *timestamp,
+            _ => None,
         }
     }
 
@@ -120,6 +149,10 @@ impl Request {
             Request::Delete { .. } => None,
             Request::SchemaUpdate { .. } => None,
             Request::Snapshot { .. } => None,
+            Request::GetEntityType { .. } => None,
+            Request::ResolveEntityType { .. } => None,
+            Request::GetFieldType { .. } => None,
+            Request::ResolveFieldType { .. } => None,
         }
     }
 
@@ -131,6 +164,7 @@ impl Request {
             Request::Delete { originator, .. } => originator.as_ref(),
             Request::SchemaUpdate { originator, .. } => originator.as_ref(),
             Request::Snapshot { originator, .. } => originator.as_ref(),
+            _ => None,
         }
     }
 
@@ -162,6 +196,10 @@ impl Request {
                     *o = Some(originator);
                 }
             }
+            Request::GetEntityType { .. } => {}
+            Request::ResolveEntityType { .. } => {}
+            Request::GetFieldType { .. } => {}
+            Request::ResolveFieldType { .. } => {}
         }
     }
 
@@ -177,6 +215,10 @@ impl Request {
             Request::Delete { .. } => {}
             Request::SchemaUpdate { .. } => {}
             Request::Snapshot { .. } => {}
+            Request::GetEntityType { .. } => {}
+            Request::ResolveEntityType { .. } => {}
+            Request::GetFieldType { .. } => {}
+            Request::ResolveFieldType { .. } => {}
         }
     }
 
@@ -212,6 +254,10 @@ impl Request {
                     *t = Some(timestamp);
                 }
             }
+            Request::GetEntityType { .. } => {}
+            Request::ResolveEntityType { .. } => {}
+            Request::GetFieldType { .. } => {}
+            Request::ResolveFieldType { .. } => {}
         }
     }
 }
@@ -236,6 +282,18 @@ impl std::fmt::Display for Request {
             }
             Request::Snapshot { snapshot_counter, timestamp, originator } => {
                 write!(f, "Snapshot Request - Snapshot Counter: {:?}, Timestamp: {:?}, Originator: {:?}", snapshot_counter, timestamp, originator)
+            }
+            Request::GetEntityType { name, entity_type } => {
+                write!(f, "Get Entity Type Request - Name: {:?}, Entity Type: {:?}", name, entity_type)
+            }
+            Request::ResolveEntityType { entity_type, name } => {
+                write!(f, "Resolve Entity Type Request - Entity Type: {:?}, Name: {:?}", entity_type, name)
+            }
+            Request::GetFieldType { name, field_type } => {
+                write!(f, "Get Field Type Request - Name: {:?}, Field Type: {:?}", name, field_type)
+            }
+            Request::ResolveFieldType { field_type, name } => {
+                write!(f, "Resolve Field Type Request - Field Type: {:?}, Name: {:?}", field_type, name)
             }
         }
     }

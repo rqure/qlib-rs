@@ -487,6 +487,70 @@ impl Store {
                     // We just log this event and include it in write requests for WAL persistence
                     self.write_queue.push(request.clone());
                 }
+                Request::GetEntityType {
+                    name,
+                    entity_type,
+                    timestamp,
+                    ..
+                } => {
+                    match self.get_entity_type(name) {
+                        Ok(et) => {
+                            *entity_type = Some(et);
+                        },
+                        Err(_) => {
+                            *entity_type = None;
+                        }
+                    }
+                    *timestamp = Some(now());
+                }
+                Request::ResolveEntityType {
+                    entity_type: et,
+                    name,
+                    timestamp,
+                    ..
+                } => {
+                    match self.resolve_entity_type(*et) {
+                        Ok(resolved_name) => {
+                            *name = Some(resolved_name);
+                        },
+                        Err(_) => {
+                            *name = None;
+                        }
+                    }
+                    *timestamp = Some(now());
+                }
+                Request::GetFieldType {
+                    name,
+                    field_type,
+                    timestamp,
+                    ..
+                } => {
+                    match self.get_field_type(name) {
+                        Ok(ft) => {
+                            *field_type = Some(ft);
+                        },
+                        Err(_) => {
+                            *field_type = None;
+                        }
+                    }
+                    *timestamp = Some(now());
+                }
+                Request::ResolveFieldType {
+                    field_type: ft,
+                    name,
+                    timestamp,
+                    ..
+                } => {
+                    match self.resolve_field_type(*ft) {
+                        Ok(resolved_name) => {
+                            *name = Some(resolved_name);
+                        },
+                        Err(_) => {
+                            *name = None;
+                        }
+                    }
+                    *timestamp = Some(now());
+                }
             }
         }
         
