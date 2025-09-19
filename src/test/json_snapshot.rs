@@ -6,13 +6,13 @@ use crate::data::StorageScope;
 use crate::StoreTrait;
 
 #[allow(unused_imports)]
-use crate::{restore_json_snapshot, screate, sschemaupdate, swrite, take_json_snapshot, EntitySchema, EntityType, FieldSchema, FieldType, Request, Single, Snowflake, Store, Value};
+use crate::{restore_json_snapshot, screate, sschemaupdate, swrite, take_json_snapshot, EntitySchema, EntityType, FieldSchema, FieldType, Request, Single, Store, Value};
 
 
 #[test]
 fn test_json_snapshot_functionality() {
     // Create a new store
-    let mut store = Store::new(Snowflake::new());
+    let mut store = Store::new();
 
     // Define schemas as per the example
     let mut object_schema = EntitySchema::<Single>::new("Object", vec![]);
@@ -235,7 +235,7 @@ fn test_json_snapshot_functionality() {
 #[test]
 fn test_json_snapshot_restore() {
     // Create and populate the first store
-    let mut store1 = Store::new(Snowflake::new());
+    let mut store1 = Store::new();
 
     // Define schemas
     let mut object_schema = EntitySchema::<Single>::new("Object", vec![]);
@@ -339,7 +339,7 @@ fn test_json_snapshot_restore() {
     let snapshot = take_json_snapshot(&mut store1).unwrap();
 
     // Create a new empty store
-    let mut store2 = Store::new(Snowflake::new());
+    let mut store2 = Store::new();
 
     // Restore the snapshot to store2
     restore_json_snapshot(&mut store2, &snapshot).unwrap();
@@ -408,7 +408,7 @@ fn test_json_snapshot_restore() {
 fn test_json_snapshot_path_resolution() {
     // This test ensures that normal entity references (not Children) show paths
     // while Children fields show nested entity objects
-    let mut store = Store::new(Snowflake::new());
+    let mut store = Store::new();
 
     // Define schemas
     let mut object_schema = EntitySchema::<Single>::new("Object", vec![]);
