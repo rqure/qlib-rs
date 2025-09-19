@@ -20,8 +20,8 @@ pub struct EntitySchema<T, ET: PartialEq=EntityType, FT: Eq + Hash=FieldType> {
     _marker: std::marker::PhantomData<T>,
 }
 
-impl EntitySchema<Single, EntityType, FieldType> {
-    pub fn new(entity_type: EntityType, inherit: Vec<EntityType>) -> Self {
+impl<ET: PartialEq, FT: Eq + Hash> EntitySchema<Single, ET, FT> {
+    pub fn new(entity_type: ET, inherit: Vec<ET>) -> Self {
         Self {
             entity_type,
             inherit,

@@ -583,12 +583,7 @@ fn test_sdelete_macro() {
 #[test]
 fn test_sschemaupdate_macro() {
     // SchemaUpdate expects EntitySchema<Single, String, String>
-    let schema = EntitySchema::<Single, String, String> {
-        entity_type: "User".to_string(),
-        inherit: vec![],
-        fields: rustc_hash::FxHashMap::default(),
-        _marker: std::marker::PhantomData,
-    };
+    let schema = EntitySchema::<Single, String, String>::new("User".to_string(), vec![]);
 
     let schema_update = sschemaupdate!(schema.clone());
     match schema_update {
