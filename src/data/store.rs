@@ -6,7 +6,7 @@ use sorted_vec::SortedVec;
 
 use crate::{
     data::{
-        entity_schema::Complete, hash_notify_config, indirection::resolve_indirection, interner::Interner, now, request::PushCondition, EntityType, FieldType, Notification, NotificationQueue, NotifyConfig, StoreTrait, Timestamp, INDIRECTION_DELIMITER
+        entity_schema::Complete, hash_notify_config, indirection::resolve_indirection, interner::Interner, now, request::PushCondition, EntityType, FieldType, Notification, NotificationQueue, NotifyConfig, StoreTrait, Timestamp,
     }, et::ET, expr::CelExecutor, ft::{FT}, sread, AdjustBehavior, EntityId, EntitySchema, Error, Field, FieldSchema, PageOpts, PageResult, Request, Result, Single, Snapshot, Value
 };
 
@@ -1363,7 +1363,7 @@ impl Store {
 
     /// Take a snapshot of the current store state
     pub fn take_snapshot(&self) -> Snapshot {
-        Snapshot::from_fx_hashmaps(
+        Snapshot::new(
             self.schemas.clone(),
             self.entities.clone(),
             self.entity_type_interner.clone(),
@@ -1374,16 +1374,14 @@ impl Store {
 
     /// Restore the store state from a snapshot
     pub fn restore_snapshot(&mut self, snapshot: Snapshot) {
-        let (schemas, entities, entity_type_interner, field_type_interner, flat_fields) = snapshot.to_fx_hashmaps();
-        
-        self.schemas = schemas;
-        self.entities = entities;
-        self.entity_type_interner = entity_type_interner;
-        self.field_type_interner = field_type_interner;
+        self.schemas = snapshot.schemas;
+        self.entities = snapshot.entities;
+        self.entity_type_interner = snapshot.entity_type_interner;
+        self.field_type_interner = snapshot.field_type_interner;
         
         // Convert nested fields structure to flattened structure
         self.fields.clear();
-        for (entity_id, entity_fields) in flat_fields {
+        for (entity_id, entity_fields) in snapshot.fields {
             for (field_type, field) in entity_fields {
                 self.fields.insert((entity_id, field_type), field);
             }
