@@ -1,6 +1,8 @@
 use ahash::AHashMap;
 use std::option::Option;
+use serde::{Deserialize, Serialize};
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Interner {
     map: AHashMap<String, u64>,
     vec: Vec<String>,

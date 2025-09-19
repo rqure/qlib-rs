@@ -1366,16 +1366,20 @@ impl Store {
         Snapshot::from_fx_hashmaps(
             self.schemas.clone(),
             self.entities.clone(),
+            self.entity_type_interner.clone(),
+            self.field_type_interner.clone(),
             self.get_fields(),
         )
     }
 
     /// Restore the store state from a snapshot
     pub fn restore_snapshot(&mut self, snapshot: Snapshot) {
-        let (schemas, entities, types, flat_fields) = snapshot.to_fx_hashmaps();
+        let (schemas, entities, entity_type_interner, field_type_interner, flat_fields) = snapshot.to_fx_hashmaps();
         
         self.schemas = schemas;
         self.entities = entities;
+        self.entity_type_interner = entity_type_interner;
+        self.field_type_interner = field_type_interner;
         
         // Convert nested fields structure to flattened structure
         self.fields.clear();
