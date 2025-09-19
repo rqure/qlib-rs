@@ -60,7 +60,7 @@ impl Cache {
 
         // Read initial values from the store
         let mut entity_ids_by_index_fields = HashMap::new();
-        let mut fields_by_entity_id = HashMap::new();
+        let mut fields_by_entity_id = FxHashMap::default();
 
         let entity_ids = store.find_entities(entity_type, None)?;
         for entity_id in entity_ids {
@@ -83,8 +83,13 @@ impl Cache {
             let all_fields = reqs[index_fields.len()..]
                 .iter()
                 .filter_map(|req| {
-                    if let (Some(field_type), Some(value)) = (req.field_type(), req.value()) {
-                        Some((field_type, value.clone()))
+                    if let (Some(field_types), Some(value)) = (req.field_type(), req.value()) {
+                        // Handle the case where field_types is Vec<FieldType> - take the first one
+                        if let Some(field_type) = field_types.first() {
+                            Some((*field_type, value.clone()))
+                        } else {
+                            None
+                        }
                     } else {
                         None
                     }
@@ -93,8 +98,13 @@ impl Cache {
                     reqs[..index_fields.len()]
                         .iter()
                         .filter_map(|req| {
-                            if let (Some(field_type), Some(value)) = (req.field_type(), req.value()) {
-                                Some((field_type, value.clone()))
+                            if let (Some(field_types), Some(value)) = (req.field_type(), req.value()) {
+                                // Handle the case where field_types is Vec<FieldType> - take the first one
+                                if let Some(field_type) = field_types.first() {
+                                    Some((*field_type, value.clone()))
+                                } else {
+                                    None
+                                }
                             } else {
                                 None
                             }
@@ -124,30 +134,33 @@ impl Cache {
 impl Cache {
     pub fn process_notification(&mut self, notification: Notification) {
         // Extract entity_id and field_type from the current request
-        if let Request::Read { entity_id, field_types: field_type, value: current_value, .. } = &notification.current {
+        if let Request::Read { entity_id, field_types, value: current_value, .. } = &notification.current {
             if let Request::Read { value: previous_value, .. } = &notification.previous {
-                if let Some(curr_val) = current_value {
-                    self.fields_by_entity_id
-                        .entry(entity_id)
-                        .or_default()
-                        .insert(field_type, curr_val.clone());
-                }
-
-                // If the field type is one of the index fields, we need to update the index
-                if self.index_fields.contains(field_type) {
-                    // Remove old entry if it exists
-                    if let Some(prev_val) = previous_value {
-                        let old_index_key = self.make_index_key(entity_id, field_type, prev_val);
-                        self.entity_ids_by_index_fields.remove(&old_index_key);
-                    }
-                    
-                    // Add new entry
+                // Handle the case where field_types is Vec<FieldType> - take the first one
+                if let Some(field_type) = field_types.first() {
                     if let Some(curr_val) = current_value {
-                        let new_index_key = self.make_index_key(entity_id, field_type, curr_val);
-                        self.entity_ids_by_index_fields
-                            .entry(new_index_key)
-                            .or_insert_with(Vec::new)
-                            .push(entity_id);
+                        self.fields_by_entity_id
+                            .entry(*entity_id)
+                            .or_default()
+                            .insert(*field_type, curr_val.clone());
+                    }
+
+                    // If the field type is one of the index fields, we need to update the index
+                    if self.index_fields.contains(field_type) {
+                        // Remove old entry if it exists
+                        if let Some(prev_val) = previous_value {
+                            let old_index_key = self.make_index_key(*entity_id, *field_type, prev_val);
+                            self.entity_ids_by_index_fields.remove(&old_index_key);
+                        }
+                        
+                        // Add new entry
+                        if let Some(curr_val) = current_value {
+                            let new_index_key = self.make_index_key(*entity_id, *field_type, curr_val);
+                            self.entity_ids_by_index_fields
+                                .entry(new_index_key)
+                                .or_insert_with(Vec::new)
+                                .push(*entity_id);
+                        }
                     }
                 }
             }
@@ -163,12 +176,12 @@ impl Cache {
         let mut index_key = Vec::new();
 
         for field in &self.index_fields {
-            if field == field_type {
+            if *field == field_type {
                 index_key.push(value.clone());
             } else {
                 let other_value = self
                     .fields_by_entity_id
-                    .get(entity_id)
+                    .get(&entity_id)
                     .and_then(|fields| fields.get(field));
 
                 index_key.push(other_value.unwrap().clone());
@@ -178,7 +191,7 @@ impl Cache {
         index_key
     }
 
-    pub fn get(&self, index_key: Vec<Value>) -> Option<Vec<HashMap<FieldType, Value>>> {
+    pub fn get(&self, index_key: Vec<Value>) -> Option<Vec<FxHashMap<FieldType, Value>>> {
         self.entity_ids_by_index_fields
             .get(&index_key)
             .map(|entity_ids| {
@@ -189,7 +202,7 @@ impl Cache {
             })
     }
 
-    pub fn get_unique(&self, index_key: Vec<Value>) -> Option<HashMap<FieldType, Value>> {
+    pub fn get_unique(&self, index_key: Vec<Value>) -> Option<FxHashMap<FieldType, Value>> {
         return self.get(index_key).and_then(|entities| {
             if entities.len() == 1 {
                 Some(entities[0].clone())
@@ -206,8 +219,8 @@ impl Cache {
         // Unregister notifications for index fields
         for field in self.index_fields.iter() {
             let config = crate::NotifyConfig::EntityType {
-                entity_type: self.entity_type.clone(),
-                field_type: field.clone(),
+                entity_type: self.entity_type,
+                field_type: *field,
                 trigger_on_change: true,
                 context: vec![],
             };
@@ -217,8 +230,8 @@ impl Cache {
         // Unregister notifications for other fields
         for field in self.other_fields.iter() {
             let config = crate::NotifyConfig::EntityType {
-                entity_type: self.entity_type.clone(),
-                field_type: field.clone(),
+                entity_type: self.entity_type,
+                field_type: *field,
                 trigger_on_change: true,
                 context: vec![],
             };
