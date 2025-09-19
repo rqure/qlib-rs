@@ -81,8 +81,9 @@ fn test_value_string_macro() {
 
 #[test]
 fn test_entity_reference_macro() {
-    // Test with string literal
-    let entity_id = Some(EntityId::try_from("User$123").unwrap());
+    // Test with EntityId
+    let user_type = EntityType(1); // User
+    let entity_id = Some(EntityId::new(user_type, 123));
     let ref_lit = sref!(entity_id);
     assert!(matches!(ref_lit, Some(Value::EntityReference(s)) if s == entity_id));
 }
@@ -94,10 +95,11 @@ fn test_entity_list_macro() {
     assert!(matches!(empty, Some(Value::EntityList(v)) if v.is_empty()));
 
     // Test list with multiple items
-    let user1 = EntityId::try_from("User$1").unwrap();
-    let user2 = EntityId::try_from("User$2").unwrap();
-    let user3 = EntityId::try_from("User$3").unwrap();
-    let multi = sreflist![user1.clone(), user2.clone(), user3.clone()];
+    let user_type = EntityType(1); // User
+    let user1 = EntityId::new(user_type, 1);
+    let user2 = EntityId::new(user_type, 2);
+    let user3 = EntityId::new(user_type, 3);
+    let multi = sreflist![user1, user2, user3];
     if let Some(Value::EntityList(list)) = multi {
         assert_eq!(list.len(), 3);
         assert_eq!(list[0], user1);
@@ -177,17 +179,20 @@ fn test_blob_macro() {
 
 #[test]
 fn test_sread_macro() {
-    let entity_id = EntityId::new("User", 123);
-    let request = sread!(entity_id, "Username".into());
+    // Use EntityType(1) and FieldType(1) directly for testing
+    let entity_type = EntityType(1); // User
+    let entity_id = EntityId::new(entity_type, 123);
+    let field_type = FieldType(1); // Username
+    let request = sread!(entity_id, vec![field_type]);
 
     match request {
         Request::Read {
             entity_id: req_entity_id,
-            field_types: field_type,
+            field_types: field_types,
             ..
         } => {
             assert_eq!(req_entity_id, entity_id);
-            assert_eq!(field_type, "Username".into());
+            assert_eq!(field_types, vec![field_type]);
         }
         _ => panic!("Expected Request::Read"),
     }
@@ -195,15 +200,16 @@ fn test_sread_macro() {
 
 #[test]
 fn test_swrite_macro() {
-    let entity_id = EntityId::new("User", 456);
-    let ft_username = FieldType::from("Username");
+    let entity_type = EntityType(1); // User
+    let entity_id = EntityId::new(entity_type, 456);
+    let ft_username = FieldType(1); // Username
 
     // Basic write with just a value
-    let request1 = swrite!(entity_id, ft_username.clone(), sstr!("alice"));
+    let request1 = swrite!(entity_id, vec![ft_username], sstr!("alice"));
     match request1 {
         Request::Write {
             entity_id: req_entity_id,
-            field_types: field_type,
+            field_types: field_types,
             value,
             push_condition,
             adjust_behavior,
@@ -212,7 +218,7 @@ fn test_swrite_macro() {
             ..
         } => {
             assert_eq!(req_entity_id, entity_id);
-            assert_eq!(field_type, ft_username);
+            assert_eq!(field_types, vec![ft_username]);
             assert!(matches!(value, Some(Value::String(s)) if s == "alice"));
             assert!(matches!(push_condition, PushCondition::Always));
             assert!(matches!(adjust_behavior, AdjustBehavior::Set));
@@ -223,7 +229,7 @@ fn test_swrite_macro() {
     }
 
     // Write with None (deletion)
-    let request2 = swrite!(entity_id, ft_username.clone(), None);
+    let request2 = swrite!(entity_id, vec![ft_username], None);
     match request2 {
         Request::Write { value, .. } => assert!(value.is_none()),
         _ => panic!("Expected Request::Write"),
@@ -232,7 +238,7 @@ fn test_swrite_macro() {
     // Write with custom write option
     let request3 = swrite!(
         entity_id,
-        ft_username.clone(),
+        vec![ft_username],
         sstr!("bob"),
         PushCondition::Changes
     );
@@ -245,10 +251,10 @@ fn test_swrite_macro() {
 
     // Write with time
     let now = now();
-    let ft_last_login = FieldType::from("LastLogin");
+    let ft_last_login = FieldType(2); // LastLogin
     let request4 = swrite!(
         entity_id,
-        ft_last_login.clone(),
+        vec![ft_last_login],
         stimestamp!(now),
         PushCondition::Always,
         Some(now)
@@ -259,14 +265,15 @@ fn test_swrite_macro() {
     }
 
     // Write with writer
-    let writer_id = EntityId::new("Admin", 1);
+    let admin_type = EntityType(3); // Admin
+    let writer_id = EntityId::new(admin_type, 1);
     let request5 = swrite!(
         entity_id,
-        ft_username.clone(),
+        vec![ft_username],
         sstr!("carol"),
         PushCondition::Always,
         Some(now),
-        Some(writer_id.clone())
+        Some(writer_id)
     );
     match request5 {
         Request::Write {
@@ -281,15 +288,16 @@ fn test_swrite_macro() {
 
 #[test]
 fn test_sadd_macro() {
-    let entity_id = EntityId::new("User", 456);
-    let ft_counter = FieldType::from("Counter");
+    let entity_type = EntityType(1); // User
+    let entity_id = EntityId::new(entity_type, 456);
+    let ft_counter = FieldType(3); // Counter
 
     // Basic add with just a value
-    let request1 = sadd!(entity_id, ft_counter.clone(), sint!(5));
+    let request1 = sadd!(entity_id, vec![ft_counter], sint!(5));
     match request1 {
         Request::Write {
             entity_id: req_entity_id,
-            field_types: field_type,
+            field_types: field_types,
             value,
             push_condition,
             adjust_behavior,
@@ -298,7 +306,7 @@ fn test_sadd_macro() {
             ..
         } => {
             assert_eq!(req_entity_id, entity_id);
-            assert_eq!(field_type, ft_counter);
+            assert_eq!(field_types, vec![ft_counter]);
             assert!(matches!(value, Some(Value::Int(5))));
             assert!(matches!(push_condition, PushCondition::Always));
             assert!(matches!(adjust_behavior, AdjustBehavior::Add));
@@ -311,7 +319,7 @@ fn test_sadd_macro() {
     // Add with write option
     let request2 = sadd!(
         entity_id,
-        ft_counter.clone(),
+        vec![ft_counter],
         sint!(10),
         PushCondition::Changes
     );
@@ -331,7 +339,7 @@ fn test_sadd_macro() {
     let now = now();
     let request3 = sadd!(
         entity_id,
-        ft_counter.clone(),
+        vec![ft_counter],
         sint!(15),
         PushCondition::Always,
         Some(now)
@@ -349,14 +357,15 @@ fn test_sadd_macro() {
     }
 
     // Add with writer
-    let writer_id = EntityId::new("Admin", 1);
+    let admin_type = EntityType(3); // Admin
+    let writer_id = EntityId::new(admin_type, 1);
     let request4 = sadd!(
         entity_id,
-        ft_counter.clone(),
+        vec![ft_counter],
         sint!(20),
         PushCondition::Always,
         Some(now),
-        Some(writer_id.clone())
+        Some(writer_id)
     );
     match request4 {
         Request::Write {
@@ -371,13 +380,14 @@ fn test_sadd_macro() {
     }
 
     // Add with entity list (testing different value types)
-    let ft_tags = FieldType::from("Tags");
-    let tag1 = EntityId::new("Tag", 1);
-    let tag2 = EntityId::new("Tag", 2);
+    let ft_tags = FieldType(4); // Tags
+    let tag_type = EntityType(4); // Tag
+    let tag1 = EntityId::new(tag_type, 1);
+    let tag2 = EntityId::new(tag_type, 2);
     let request5 = sadd!(
         entity_id,
-        ft_tags.clone(),
-        sreflist![tag1.clone(), tag2.clone()]
+        vec![ft_tags],
+        sreflist![tag1, tag2]
     );
     match request5 {
         Request::Write {
@@ -400,15 +410,16 @@ fn test_sadd_macro() {
 
 #[test]
 fn test_ssub_macro() {
-    let entity_id = EntityId::new("User", 789);
-    let ft_counter = FieldType::from("Counter");
+    let entity_type = EntityType(1); // User
+    let entity_id = EntityId::new(entity_type, 789);
+    let ft_counter = FieldType(3); // Counter
 
     // Basic subtract with just a value
-    let request1 = ssub!(entity_id, ft_counter.clone(), sint!(3));
+    let request1 = ssub!(entity_id, vec![ft_counter], sint!(3));
     match request1 {
         Request::Write {
             entity_id: req_entity_id,
-            field_types: field_type,
+            field_types: field_types,
             value,
             push_condition,
             adjust_behavior,
@@ -417,7 +428,7 @@ fn test_ssub_macro() {
             ..
         } => {
             assert_eq!(req_entity_id, entity_id);
-            assert_eq!(field_type, ft_counter);
+            assert_eq!(field_types, vec![ft_counter]);
             assert!(matches!(value, Some(Value::Int(3))));
             assert!(matches!(push_condition, PushCondition::Always));
             assert!(matches!(adjust_behavior, AdjustBehavior::Subtract));
@@ -430,7 +441,7 @@ fn test_ssub_macro() {
     // Subtract with write option
     let request2 = ssub!(
         entity_id,
-        ft_counter.clone(),
+        vec![ft_counter],
         sint!(5),
         PushCondition::Changes
     );
@@ -450,7 +461,7 @@ fn test_ssub_macro() {
     let now = now();
     let request3 = ssub!(
         entity_id,
-        ft_counter.clone(),
+        vec![ft_counter],
         sint!(8),
         PushCondition::Always,
         Some(now)
@@ -468,14 +479,15 @@ fn test_ssub_macro() {
     }
 
     // Subtract with writer
-    let writer_id = EntityId::new("Admin", 1);
+    let admin_type = EntityType(3); // Admin
+    let writer_id = EntityId::new(admin_type, 1);
     let request4 = ssub!(
         entity_id,
-        ft_counter.clone(),
+        vec![ft_counter],
         sint!(10),
         PushCondition::Always,
         Some(now),
-        Some(writer_id.clone())
+        Some(writer_id)
     );
     match request4 {
         Request::Write {
@@ -490,9 +502,10 @@ fn test_ssub_macro() {
     }
 
     // Subtract with entity list (testing different value types)
-    let ft_tags = FieldType::from("Tags");
-    let tag1 = EntityId::new("Tag", 1);
-    let request5 = ssub!(entity_id, ft_tags.clone(), sreflist![tag1.clone()]);
+    let ft_tags = FieldType(4); // Tags
+    let tag_type = EntityType(4); // Tag
+    let tag1 = EntityId::new(tag_type, 1);
+    let request5 = ssub!(entity_id, vec![ft_tags], sreflist![tag1]);
     match request5 {
         Request::Write {
             adjust_behavior,
@@ -513,12 +526,14 @@ fn test_ssub_macro() {
 
 #[test]
 fn test_screate_macro() {
-    let et_user = EntityType::from("User");
-    let parent_id = EntityId::new("Parent", 123);
-    let entity_id = EntityId::new("Entity", 456);
+    let et_user = EntityType(1); // User
+    let parent_type = EntityType(5); // Parent
+    let parent_id = EntityId::new(parent_type, 123);
+    let entity_type = EntityType(2); // Entity
+    let entity_id = EntityId::new(entity_type, 456);
 
     // Test basic create with just type and name
-    let basic_create = screate!(et_user.clone(), "test_user".to_string());
+    let basic_create = screate!(et_user, "test_user".to_string());
     match basic_create {
         Request::Create { entity_type, parent_id: None, name, created_entity_id: None, timestamp: None, originator: None } => {
             assert_eq!(entity_type, et_user);
@@ -528,7 +543,7 @@ fn test_screate_macro() {
     }
 
     // Test create with parent ID
-    let create_with_parent = screate!(et_user.clone(), "child_user".to_string(), parent_id.clone());
+    let create_with_parent = screate!(et_user, "child_user".to_string(), parent_id);
     match create_with_parent {
         Request::Create { entity_type, parent_id: Some(pid), name, created_entity_id: None, timestamp: None, originator: None } => {
             assert_eq!(entity_type, et_user);
@@ -539,7 +554,7 @@ fn test_screate_macro() {
     }
 
     // Test create with parent ID and desired entity ID
-    let create_with_ids = screate!(et_user.clone(), "specific_user".to_string(), parent_id.clone(), entity_id);
+    let create_with_ids = screate!(et_user, "specific_user".to_string(), parent_id, entity_id);
     match create_with_ids {
         Request::Create { entity_type, parent_id: Some(pid), name, created_entity_id: Some(eid), timestamp: None, originator: None } => {
             assert_eq!(entity_type, et_user);
@@ -553,7 +568,8 @@ fn test_screate_macro() {
 
 #[test]
 fn test_sdelete_macro() {
-    let entity_id = EntityId::new("Entity", 123);
+    let entity_type = EntityType(2); // Entity
+    let entity_id = EntityId::new(entity_type, 123);
 
     let delete_request = sdelete!(entity_id);
     match delete_request {
@@ -566,13 +582,18 @@ fn test_sdelete_macro() {
 
 #[test]
 fn test_sschemaupdate_macro() {
-    let et_user = EntityType::from("User");
-    let schema = EntitySchema::<Single>::new(et_user.clone(), vec![]);
+    // SchemaUpdate expects EntitySchema<Single, String, String>
+    let schema = EntitySchema::<Single, String, String> {
+        entity_type: "User".to_string(),
+        inherit: vec![],
+        fields: rustc_hash::FxHashMap::default(),
+        _marker: std::marker::PhantomData,
+    };
 
     let schema_update = sschemaupdate!(schema.clone());
     match schema_update {
         Request::SchemaUpdate { schema: s, timestamp: None, originator: None } => {
-            assert_eq!(s.entity_type, et_user);
+            assert_eq!(s.entity_type, "User".to_string());
         }
         _ => panic!("Expected Request::SchemaUpdate"),
     }
