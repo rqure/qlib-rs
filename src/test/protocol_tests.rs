@@ -87,3 +87,58 @@ fn test_message_type_enum() {
     assert_eq!(MessageType::from_u32(1001), Some(MessageType::FastStoreMessage));
     assert_eq!(MessageType::from_u32(9999), None); // Removed types should not exist
 }
+
+#[test]
+fn test_performance_demonstration() {
+    use std::time::Instant;
+    
+    // Create a StoreMessage with some data
+    let store_message = StoreMessage::Perform {
+        id: "perf-test-123".to_string(),
+        requests: vec![
+            // Simulate some typical requests
+            crate::Request::Create {
+                entity_type: crate::EntityType(1),
+                parent_id: Some(crate::EntityId::new(crate::EntityType(1), 42)),
+                name: "TestEntity".to_string(),
+                created_entity_id: None,
+                timestamp: None,
+                originator: None,
+            },
+            crate::Request::Write {
+                entity_id: crate::EntityId::new(crate::EntityType(2), 100),
+                field_types: vec![crate::FieldType(1), crate::FieldType(2)],
+                value: Some(crate::Value::String("test data".to_string())),
+                push_condition: crate::PushCondition::Always,
+                adjust_behavior: crate::AdjustBehavior::Set,
+                write_time: None,
+                writer_id: None,
+                originator: None,
+            },
+        ],
+    };
+    
+    // Test multiple iterations to get meaningful timing
+    let iterations = 1000;
+    
+    // Time legacy encoding
+    let start = Instant::now();
+    for _ in 0..iterations {
+        let _encoded = encode_store_message(&store_message).expect("Legacy encoding should work");
+    }
+    let legacy_duration = start.elapsed();
+    
+    // Time fast encoding  
+    let start = Instant::now();
+    for _ in 0..iterations {
+        let _encoded = encode_fast_store_message(&store_message).expect("Fast encoding should work");
+    }
+    let fast_duration = start.elapsed();
+    
+    println!("Legacy encoding: {:?} for {} iterations", legacy_duration, iterations);
+    println!("Fast encoding: {:?} for {} iterations", fast_duration, iterations);
+    println!("Performance ratio: {:.2}x", legacy_duration.as_nanos() as f64 / fast_duration.as_nanos() as f64);
+    
+    // This test doesn't assert performance - that's hardware dependent
+    // But it demonstrates that both methods work and provides timing comparison
+}
