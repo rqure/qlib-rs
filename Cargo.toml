@@ -30,7 +30,7 @@ ahash = { version = "0.8", features = ["serde"] }
 rustc-hash = "2.0.0"
 smallvec = "1.13.2"
 crossbeam = "0.8.4"
-mio = "1.0.4"
+mio = { version = "1.0.4", features = ["net", "os-poll"] }
 anyhow = "1.0"
 tungstenite = "0.27.0"
 url = "2.5.7"
