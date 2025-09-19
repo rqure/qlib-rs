@@ -12,34 +12,43 @@ fn test_create_and_authenticate_user() -> Result<()> {
     let mut store = Store::new();
     
     // Create the Object entity schema with Name field first
-    let mut object_schema = EntitySchema::<Single>::new(EntityType::from("Object"), vec![]);
+    let object_entity_type = store.get_entity_type("Object")?;
+    let name_field_type = store.get_field_type("Name")?;
+    let mut object_schema = EntitySchema::<Single>::new(object_entity_type, vec![]);
     object_schema.fields.insert(
-        FieldType::from("Name"),
+        name_field_type,
         FieldSchema::String {
-            field_type: FieldType::from("Name"),
+            field_type: name_field_type,
             default_value: String::new(),
             rank: 0,
             storage_scope: StorageScope::Configuration,
         }
     );
-    let requests = vec![sschemaupdate!(object_schema)];
+    let requests = vec![sschemaupdate!(object_schema.to_string_schema(&store))];
     store.perform_mut(requests)?;
     
     // Create the Subject entity schema with required authentication fields
-    let mut subject_schema = EntitySchema::<Single>::new(EntityType::from("Subject"), vec![EntityType::from("Object")]);
+    let subject_entity_type = store.get_entity_type("Subject")?;
+    let secret_field_type = store.get_field_type("Secret")?;
+    let auth_method_field_type = store.get_field_type("AuthMethod")?;
+    let active_field_type = store.get_field_type("Active")?;
+    let failed_attempts_field_type = store.get_field_type("FailedAttempts")?;
+    let locked_until_field_type = store.get_field_type("LockedUntil")?;
+    let last_login_field_type = store.get_field_type("LastLogin")?;
+    let mut subject_schema = EntitySchema::<Single>::new(subject_entity_type, vec![object_entity_type]);
     subject_schema.fields.insert(
-        FieldType::from("Secret"),
+        secret_field_type,
         FieldSchema::String {
-            field_type: FieldType::from("Secret"),
+            field_type: secret_field_type,
             default_value: String::new(),
             rank: 0,
             storage_scope: StorageScope::Configuration,
         }
     );
     subject_schema.fields.insert(
-        FieldType::from("AuthMethod"),
+        auth_method_field_type,
         FieldSchema::Choice {
-            field_type: FieldType::from("AuthMethod"),
+            field_type: auth_method_field_type,
             default_value: 0, // Native
             rank: 1,
             storage_scope: StorageScope::Configuration,
@@ -47,56 +56,57 @@ fn test_create_and_authenticate_user() -> Result<()> {
         }
     );
     subject_schema.fields.insert(
-        FieldType::from("Active"),
+        active_field_type,
         FieldSchema::Bool {
-            field_type: FieldType::from("Active"),
+            field_type: active_field_type,
             default_value: true,
             rank: 2,
             storage_scope: StorageScope::Configuration,
         }
     );
     subject_schema.fields.insert(
-        FieldType::from("FailedAttempts"),
+        failed_attempts_field_type,
         FieldSchema::Int {
-            field_type: FieldType::from("FailedAttempts"),
+            field_type: failed_attempts_field_type,
             default_value: 0,
             rank: 3,
             storage_scope: StorageScope::Runtime,
         }
     );
     subject_schema.fields.insert(
-        FieldType::from("LockedUntil"),
+        locked_until_field_type,
         FieldSchema::Timestamp {
-            field_type: FieldType::from("LockedUntil"),
+            field_type: locked_until_field_type,
             default_value: crate::Timestamp::from_unix_timestamp(0).unwrap(),
             rank: 4,
             storage_scope: StorageScope::Runtime,
         }
     );
     subject_schema.fields.insert(
-        FieldType::from("LastLogin"),
+        last_login_field_type,
         FieldSchema::Timestamp {
-            field_type: FieldType::from("LastLogin"),
+            field_type: last_login_field_type,
             default_value: crate::Timestamp::from_unix_timestamp(0).unwrap(),
             rank: 5,
             storage_scope: StorageScope::Runtime,
         }
     );
-    let requests = vec![sschemaupdate!(subject_schema)];
+    let requests = vec![sschemaupdate!(subject_schema.to_string_schema(&store))];
     store.perform_mut(requests)?;
     
     // Create the User entity schema (inheriting from Subject)
-    let user_schema = EntitySchema::<Single>::new(EntityType::from("User"), vec![EntityType::from("Subject")]);
-    let requests = vec![sschemaupdate!(user_schema)];
+    let user_entity_type = store.get_entity_type("User")?;
+    let user_schema = EntitySchema::<Single>::new(user_entity_type, vec![subject_entity_type]);
+    let requests = vec![sschemaupdate!(user_schema.to_string_schema(&store))];
     store.perform_mut(requests)?;
     
     // Create an object entity to serve as parent
-    let parent_id = EntityId::new("Object", 1);
+    let parent_id = EntityId::new(object_entity_type, 1);
     let create_requests = vec![Request::Create {
-        entity_type: EntityType::from("Object"),
+        entity_type: object_entity_type,
         parent_id: None,
         name: "TestParent".to_string(),
-        created_entity_id: Some(parent_id.clone()),
+        created_entity_id: Some(parent_id),
         timestamp: None,
         originator: None,
     }];
@@ -106,12 +116,12 @@ fn test_create_and_authenticate_user() -> Result<()> {
     let username = "testuser";
     let password = "TestPassword123!"; // Meet password complexity requirements
     
-    let user_id = create_user(&mut store, username, AuthMethod::Native, &parent_id)?;
-    println!("Created user with ID: {}", user_id);
+    let user_id = create_user(&mut store, username, AuthMethod::Native, parent_id)?;
+    println!("Created user with ID: {:?}", user_id);
     
     // Set the user password
     let auth_config = AuthConfig::default();
-    set_user_password(&mut store, &user_id, password, &auth_config)?;
+    set_user_password(&mut store, user_id, password, &auth_config)?;
     
     // Test finding the user by name
     let found_user = find_user_by_name(&mut store, username)?;
@@ -137,34 +147,43 @@ fn test_authentication_with_factory_restore_format() -> Result<()> {
     // (this should match what's in base-topology.json)
     
     // Create Object schema
-    let mut object_schema = EntitySchema::<Single>::new(EntityType::from("Object"), vec![]);
+    let object_entity_type = store.get_entity_type("Object")?;
+    let name_field_type = store.get_field_type("Name")?;
+    let mut object_schema = EntitySchema::<Single>::new(object_entity_type, vec![]);
     object_schema.fields.insert(
-        FieldType::from("Name"),
+        name_field_type,
         FieldSchema::String {
-            field_type: FieldType::from("Name"),
+            field_type: name_field_type,
             default_value: String::new(),
             rank: 0,
             storage_scope: StorageScope::Configuration,
         }
     );
-    let requests = vec![sschemaupdate!(object_schema)];
+    let requests = vec![sschemaupdate!(object_schema.to_string_schema(&store))];
     store.perform_mut(requests)?;
     
     // Create Subject schema
-    let mut subject_schema = EntitySchema::<Single>::new(EntityType::from("Subject"), vec![EntityType::from("Object")]);
+    let subject_entity_type = store.get_entity_type("Subject")?;
+    let secret_field_type = store.get_field_type("Secret")?;
+    let auth_method_field_type = store.get_field_type("AuthMethod")?;
+    let active_field_type = store.get_field_type("Active")?;
+    let failed_attempts_field_type = store.get_field_type("FailedAttempts")?;
+    let locked_until_field_type = store.get_field_type("LockedUntil")?;
+    let last_login_field_type = store.get_field_type("LastLogin")?;
+    let mut subject_schema = EntitySchema::<Single>::new(subject_entity_type, vec![object_entity_type]);
     subject_schema.fields.insert(
-        FieldType::from("Secret"),
+        secret_field_type,
         FieldSchema::String {
-            field_type: FieldType::from("Secret"),
+            field_type: secret_field_type,
             default_value: String::new(),
             rank: 0,
             storage_scope: StorageScope::Configuration,
         }
     );
     subject_schema.fields.insert(
-        FieldType::from("AuthMethod"),
+        auth_method_field_type,
         FieldSchema::Choice {
-            field_type: FieldType::from("AuthMethod"),
+            field_type: auth_method_field_type,
             default_value: 0,
             rank: 1,
             storage_scope: StorageScope::Configuration,
@@ -172,47 +191,48 @@ fn test_authentication_with_factory_restore_format() -> Result<()> {
         }
     );
     subject_schema.fields.insert(
-        FieldType::from("Active"),
+        active_field_type,
         FieldSchema::Bool {
-            field_type: FieldType::from("Active"),
+            field_type: active_field_type,
             default_value: true,
             rank: 2,
             storage_scope: StorageScope::Configuration,
         }
     );
     subject_schema.fields.insert(
-        FieldType::from("FailedAttempts"),
+        failed_attempts_field_type,
         FieldSchema::Int {
-            field_type: FieldType::from("FailedAttempts"),
+            field_type: failed_attempts_field_type,
             default_value: 0,
             rank: 3,
             storage_scope: StorageScope::Runtime,
         }
     );
     subject_schema.fields.insert(
-        FieldType::from("LockedUntil"),
+        locked_until_field_type,
         FieldSchema::Timestamp {
-            field_type: FieldType::from("LockedUntil"),
+            field_type: locked_until_field_type,
             default_value: crate::Timestamp::from_unix_timestamp(0).unwrap(),
             rank: 4,
             storage_scope: StorageScope::Runtime,
         }
     );
     subject_schema.fields.insert(
-        FieldType::from("LastLogin"),
+        last_login_field_type,
         FieldSchema::Timestamp {
-            field_type: FieldType::from("LastLogin"),
+            field_type: last_login_field_type,
             default_value: crate::Timestamp::from_unix_timestamp(0).unwrap(),
             rank: 5,
             storage_scope: StorageScope::Runtime,
         }
     );
-    let requests = vec![sschemaupdate!(subject_schema)];
+    let requests = vec![sschemaupdate!(subject_schema.to_string_schema(&store))];
     store.perform_mut(requests)?;
     
     // Create User schema
-    let user_schema = EntitySchema::<Single>::new(EntityType::from("User"), vec![EntityType::from("Subject")]);
-    let requests = vec![sschemaupdate!(user_schema)];
+    let user_entity_type = store.get_entity_type("User")?;
+    let user_schema = EntitySchema::<Single>::new(user_entity_type, vec![subject_entity_type]);
+    let requests = vec![sschemaupdate!(user_schema.to_string_schema(&store))];
     store.perform_mut(requests)?;
     
     // Create a user entity as it would be created by factory restore
@@ -220,15 +240,14 @@ fn test_authentication_with_factory_restore_format() -> Result<()> {
     let password = "qei";
     
     // Create the entity manually (simulating factory restore)
-    let user_type = EntityType::from("User");
-    let user_id = EntityId::new("User", 0); // This matches our factory restore format: User$0
+    let user_id = EntityId::new(user_entity_type, 0); // This matches our factory restore format: User$0
     
     // Add the user entity to the store
     let create_requests = vec![Request::Create {
-        entity_type: user_type.clone(),
+        entity_type: user_entity_type,
         parent_id: None,
         name: username.to_string(),
-        created_entity_id: Some(user_id.clone()),
+        created_entity_id: Some(user_id),
         timestamp: None,
         originator: None,
     }];
@@ -240,8 +259,8 @@ fn test_authentication_with_factory_restore_format() -> Result<()> {
     
     let field_requests = vec![
         Request::Write {
-            entity_id: user_id.clone(),
-            field_types: FieldType::from("Name"),
+            entity_id: user_id,
+            field_types: vec![name_field_type],
             value: Some(Value::String(username.to_string())),
             push_condition: PushCondition::Always,
             adjust_behavior: AdjustBehavior::Set,
@@ -250,8 +269,8 @@ fn test_authentication_with_factory_restore_format() -> Result<()> {
             originator: None,
         },
         Request::Write {
-            entity_id: user_id.clone(),
-            field_types: FieldType::from("Secret"),
+            entity_id: user_id,
+            field_types: vec![secret_field_type],
             value: Some(Value::String(password_hash)),
             push_condition: PushCondition::Always,
             adjust_behavior: AdjustBehavior::Set,
@@ -260,8 +279,8 @@ fn test_authentication_with_factory_restore_format() -> Result<()> {
             originator: None,
         },
         Request::Write {
-            entity_id: user_id.clone(),
-            field_types: FieldType::from("Active"),
+            entity_id: user_id,
+            field_types: vec![active_field_type],
             value: Some(Value::Bool(true)),
             push_condition: PushCondition::Always,
             adjust_behavior: AdjustBehavior::Set,
