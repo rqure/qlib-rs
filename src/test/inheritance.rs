@@ -12,15 +12,7 @@ fn test_inheritance_in_find_entities() -> Result<()> {
     let mut store = Store::new();
 
     // Create base and derived entity types
-    let et_animal = store.get_entity_type("Animal")?;
-    let et_mammal = store.get_entity_type("Mammal")?;
-    let et_dog = store.get_entity_type("Dog")?;
-    let et_cat = store.get_entity_type("Cat")?;
-    
-    // Get field types
-    let ft_name = store.get_field_type("Name")?;
-    let ft_fur_color = store.get_field_type("FurColor")?;
-    let ft_breed = store.get_field_type("Breed")?;
+    // Define schemas using strings - perform_mut will intern the types
     
     // Create schemas with inheritance hierarchy:
     // Animal (base)
@@ -28,52 +20,76 @@ fn test_inheritance_in_find_entities() -> Result<()> {
     //       ├── Dog (inherits from Mammal)
     //       └── Cat (inherits from Mammal)
     
-    // Base Animal schema
-    let mut animal_schema = EntitySchema::<Single>::new(et_animal, vec![]);
+    // Base Animal schema with required fields
+    let mut animal_schema = EntitySchema::<Single, String, String>::new("Animal".to_string(), vec![]);
     animal_schema.fields.insert(
-        ft_name,
+        "Name".to_string(),
         FieldSchema::String {
-            field_type: ft_name,
+            field_type: "Name".to_string(),
             default_value: String::new(),
             rank: 0,
             storage_scope: StorageScope::Runtime,
         }
     );
-    let requests = vec![sschemaupdate!(animal_schema.to_string_schema(&store))];
+    animal_schema.fields.insert(
+        "Parent".to_string(),
+        FieldSchema::EntityReference {
+            field_type: "Parent".to_string(),
+            default_value: None,
+            rank: 1,
+            storage_scope: StorageScope::Configuration,
+        }
+    );
+    animal_schema.fields.insert(
+        "Children".to_string(),
+        FieldSchema::EntityList {
+            field_type: "Children".to_string(),
+            default_value: Vec::new(),
+            rank: 2,
+            storage_scope: StorageScope::Configuration,
+        }
+    );
+    let requests = vec![sschemaupdate!(animal_schema)];
     store.perform_mut(requests)?;
 
     // Mammal schema (inherits from Animal)
-    let mut mammal_schema = EntitySchema::<Single>::new(et_mammal, vec![et_animal]);
+    let mut mammal_schema = EntitySchema::<Single, String, String>::new("Mammal".to_string(), vec!["Animal".to_string()]);
     mammal_schema.fields.insert(
-        ft_fur_color,
+        "FurColor".to_string(),
         FieldSchema::String {
-            field_type: ft_fur_color,
+            field_type: "FurColor".to_string(),
             default_value: String::new(),
             rank: 1,
             storage_scope: StorageScope::Runtime,
         }
     );
-    let requests = vec![sschemaupdate!(mammal_schema.to_string_schema(&store))];
+    let requests = vec![sschemaupdate!(mammal_schema)];
     store.perform_mut(requests)?;
 
     // Dog schema (inherits from Mammal)
-    let mut dog_schema = EntitySchema::<Single>::new(et_dog, vec![et_mammal]);
+    let mut dog_schema = EntitySchema::<Single, String, String>::new("Dog".to_string(), vec!["Mammal".to_string()]);
     dog_schema.fields.insert(
-        ft_breed,
+        "Breed".to_string(),
         FieldSchema::String {
-            field_type: ft_breed,
+            field_type: "Breed".to_string(),
             default_value: String::new(),
             rank: 2,
             storage_scope: StorageScope::Runtime,
         }
     );
-    let requests = vec![sschemaupdate!(dog_schema.to_string_schema(&store))];
+    let requests = vec![sschemaupdate!(dog_schema)];
     store.perform_mut(requests)?;
 
     // Cat schema (inherits from Mammal)
-    let cat_schema = EntitySchema::<Single>::new(et_cat, vec![et_mammal]);
-    let requests = vec![sschemaupdate!(cat_schema.to_string_schema(&store))];
+    let cat_schema = EntitySchema::<Single, String, String>::new("Cat".to_string(), vec!["Mammal".to_string()]);
+    let requests = vec![sschemaupdate!(cat_schema)];
     store.perform_mut(requests)?;
+
+    // Now we can get the interned entity types
+    let et_animal = store.get_entity_type("Animal")?;
+    let et_mammal = store.get_entity_type("Mammal")?;
+    let et_dog = store.get_entity_type("Dog")?;
+    let et_cat = store.get_entity_type("Cat")?;
 
     // Create some entities
     let create_requests = store.perform_mut(vec![screate!(
@@ -133,16 +149,44 @@ fn test_inheritance_in_find_entities() -> Result<()> {
 fn test_inheritance_with_direct_instances() -> Result<()> {
     let mut store = Store::new();
 
-    let et_animal = store.get_entity_type("Animal")?;
-    let et_mammal = store.get_entity_type("Mammal")?;
-
-    // Create base Animal schema
-    let animal_schema = EntitySchema::<Single>::new(et_animal, vec![]);
-    store.perform_mut(vec![sschemaupdate!(animal_schema.to_string_schema(&store))])?;
+    // Create base Animal schema with required fields
+    let mut animal_schema = EntitySchema::<Single, String, String>::new("Animal".to_string(), vec![]);
+    animal_schema.fields.insert(
+        "Name".to_string(),
+        FieldSchema::String {
+            field_type: "Name".to_string(),
+            default_value: String::new(),
+            rank: 0,
+            storage_scope: StorageScope::Runtime,
+        }
+    );
+    animal_schema.fields.insert(
+        "Parent".to_string(),
+        FieldSchema::EntityReference {
+            field_type: "Parent".to_string(),
+            default_value: None,
+            rank: 1,
+            storage_scope: StorageScope::Configuration,
+        }
+    );
+    animal_schema.fields.insert(
+        "Children".to_string(),
+        FieldSchema::EntityList {
+            field_type: "Children".to_string(),
+            default_value: Vec::new(),
+            rank: 2,
+            storage_scope: StorageScope::Configuration,
+        }
+    );
+    store.perform_mut(vec![sschemaupdate!(animal_schema)])?;
 
     // Create Mammal schema that inherits from Animal
-    let mammal_schema = EntitySchema::<Single>::new(et_mammal, vec![et_animal]);
-    store.perform_mut(vec![sschemaupdate!(mammal_schema.to_string_schema(&store))])?;
+    let mammal_schema = EntitySchema::<Single, String, String>::new("Mammal".to_string(), vec!["Animal".to_string()]);
+    store.perform_mut(vec![sschemaupdate!(mammal_schema)])?;
+
+    // Now get the interned entity types
+    let et_animal = store.get_entity_type("Animal")?;
+    let et_mammal = store.get_entity_type("Mammal")?;
 
     // Create direct instances of both types
     let create_requests = store.perform_mut(vec![screate!(
@@ -183,27 +227,56 @@ fn test_inheritance_with_direct_instances() -> Result<()> {
 fn test_circular_inheritance_protection() -> Result<()> {
     let mut store = Store::new();
 
-    let et_a = store.get_entity_type("TypeA")?;
-    let et_b = store.get_entity_type("TypeB")?;
-
-    // Create TypeA
-    let schema_a: EntitySchema<Single> = EntitySchema::<Single>::new(et_a, vec![]);
-    store.perform_mut(vec![sschemaupdate!(schema_a.to_string_schema(&store))])?;
+    // Create TypeA with required fields
+    let mut schema_a = EntitySchema::<Single, String, String>::new("TypeA".to_string(), vec![]);
+    schema_a.fields.insert(
+        "Name".to_string(),
+        FieldSchema::String {
+            field_type: "Name".to_string(),
+            default_value: String::new(),
+            rank: 0,
+            storage_scope: StorageScope::Runtime,
+        }
+    );
+    schema_a.fields.insert(
+        "Parent".to_string(),
+        FieldSchema::EntityReference {
+            field_type: "Parent".to_string(),
+            default_value: None,
+            rank: 1,
+            storage_scope: StorageScope::Configuration,
+        }
+    );
+    schema_a.fields.insert(
+        "Children".to_string(),
+        FieldSchema::EntityList {
+            field_type: "Children".to_string(),
+            default_value: Vec::new(),
+            rank: 2,
+            storage_scope: StorageScope::Configuration,
+        }
+    );
+    store.perform_mut(vec![sschemaupdate!(schema_a)])?;
 
     // Create TypeB that inherits from TypeA
-    let schema_b = EntitySchema::<Single>::new(et_b, vec![et_a]);
-    store.perform_mut(vec![sschemaupdate!(schema_b.to_string_schema(&store))])?;
+    let schema_b = EntitySchema::<Single, String, String>::new("TypeB".to_string(), vec!["TypeA".to_string()]);
+    store.perform_mut(vec![sschemaupdate!(schema_b)])?;
 
     // Try to make TypeA inherit from TypeB (should fail or be ignored)
-    let circular_schema_a = EntitySchema::<Single>::new(et_a, vec![et_b]);
+    let circular_schema_a = EntitySchema::<Single, String, String>::new("TypeA".to_string(), vec!["TypeB".to_string()]);
     
     // This should either fail or the system should handle it gracefully
-    let requests = vec![sschemaupdate!(circular_schema_a.to_string_schema(&store))];
+    let requests = vec![sschemaupdate!(circular_schema_a)];
     let result = store.perform_mut(requests);
     
     // The test passes if either:
     // 1. The operation fails (returns an error)
     // 2. The operation succeeds but circular inheritance is prevented internally
+    
+    // Get entity types after schema creation
+    let et_a = store.get_entity_type("TypeA")?;
+    let et_b = store.get_entity_type("TypeB")?;
+
     match result {
         Ok(_) => {
             // If it succeeded, verify that circular inheritance is handled properly
@@ -230,74 +303,99 @@ fn test_circular_inheritance_protection() -> Result<()> {
 fn test_multi_inheritance() -> Result<()> {
     let mut store = Store::new();
 
-    // Create base types
-    let et_flyable = store.get_entity_type("Flyable")?;
-    let et_mammal = store.get_entity_type("Mammal")?;
-    let et_bat = store.get_entity_type("Bat")?;
-    
-    // Get field types
-    let ft_can_fly = store.get_field_type("CanFly")?;
-    let ft_wing_span = store.get_field_type("WingSpan")?;
-    let ft_fur_color = store.get_field_type("FurColor")?;
-    let ft_is_warm_blooded = store.get_field_type("IsWarmBlooded")?;
-    let ft_echolocation_range = store.get_field_type("EcholocationRange")?;
-    
-    // Create Flyable trait (interface-like entity type)
-    let mut flyable_schema = EntitySchema::<Single>::new(et_flyable, vec![]);
+    // Create Flyable trait (interface-like entity type) with required fields
+    let mut flyable_schema = EntitySchema::<Single, String, String>::new("Flyable".to_string(), vec![]);
     flyable_schema.fields.insert(
-        ft_can_fly,
-        FieldSchema::Bool {
-            field_type: ft_can_fly,
-            default_value: true,
+        "Name".to_string(),
+        FieldSchema::String {
+            field_type: "Name".to_string(),
+            default_value: String::new(),
             rank: 0,
             storage_scope: StorageScope::Runtime,
         }
     );
     flyable_schema.fields.insert(
-        ft_wing_span,
-        FieldSchema::Float {
-            field_type: ft_wing_span,
-            default_value: 0.0,
+        "Parent".to_string(),
+        FieldSchema::EntityReference {
+            field_type: "Parent".to_string(),
+            default_value: None,
             rank: 1,
+            storage_scope: StorageScope::Configuration,
+        }
+    );
+    flyable_schema.fields.insert(
+        "Children".to_string(),
+        FieldSchema::EntityList {
+            field_type: "Children".to_string(),
+            default_value: Vec::new(),
+            rank: 2,
+            storage_scope: StorageScope::Configuration,
+        }
+    );
+    flyable_schema.fields.insert(
+        "CanFly".to_string(),
+        FieldSchema::Bool {
+            field_type: "CanFly".to_string(),
+            default_value: true,
+            rank: 3,
             storage_scope: StorageScope::Runtime,
         }
     );
-    store.perform_mut(vec![sschemaupdate!(flyable_schema.to_string_schema(&store))])?;
+    flyable_schema.fields.insert(
+        "WingSpan".to_string(),
+        FieldSchema::Float {
+            field_type: "WingSpan".to_string(),
+            default_value: 0.0,
+            rank: 4,
+            storage_scope: StorageScope::Runtime,
+        }
+    );
+    store.perform_mut(vec![sschemaupdate!(flyable_schema)])?;
 
     // Create Mammal schema
-    let mut mammal_schema = EntitySchema::<Single>::new(et_mammal, vec![]);
+    let mut mammal_schema = EntitySchema::<Single, String, String>::new("Mammal".to_string(), vec![]);
     mammal_schema.fields.insert(
-        ft_fur_color,
+        "FurColor".to_string(),
         FieldSchema::String {
-            field_type: ft_fur_color,
+            field_type: "FurColor".to_string(),
             default_value: String::new(),
             rank: 0,
             storage_scope: StorageScope::Runtime,
         }
     );
     mammal_schema.fields.insert(
-        ft_is_warm_blooded,
+        "IsWarmBlooded".to_string(),
         FieldSchema::Bool {
-            field_type: ft_is_warm_blooded,
+            field_type: "IsWarmBlooded".to_string(),
             default_value: true,
             rank: 1,
             storage_scope: StorageScope::Runtime,
         }
     );
-    store.perform_mut(vec![sschemaupdate!(mammal_schema.to_string_schema(&store))])?;
+    store.perform_mut(vec![sschemaupdate!(mammal_schema)])?;
 
     // Create Bat schema that inherits from BOTH Flyable and Mammal
-    let mut bat_schema = EntitySchema::<Single>::new(et_bat, vec![et_flyable, et_mammal]);
+    let mut bat_schema = EntitySchema::<Single, String, String>::new("Bat".to_string(), vec!["Flyable".to_string(), "Mammal".to_string()]);
     bat_schema.fields.insert(
-        ft_echolocation_range,
+        "EcholocationRange".to_string(),
         FieldSchema::Float {
-            field_type: ft_echolocation_range,
+            field_type: "EcholocationRange".to_string(),
             default_value: 100.0,
             rank: 0,
             storage_scope: StorageScope::Runtime,
         }
     );
-    store.perform_mut(vec![sschemaupdate!(bat_schema.to_string_schema(&store))])?;
+    store.perform_mut(vec![sschemaupdate!(bat_schema)])?;
+
+    // Now get the interned entity and field types
+    let et_flyable = store.get_entity_type("Flyable")?;
+    let et_mammal = store.get_entity_type("Mammal")?;
+    let et_bat = store.get_entity_type("Bat")?;
+    let ft_can_fly = store.get_field_type("CanFly")?;
+    let ft_wing_span = store.get_field_type("WingSpan")?;
+    let ft_fur_color = store.get_field_type("FurColor")?;
+    let ft_is_warm_blooded = store.get_field_type("IsWarmBlooded")?;
+    let ft_echolocation_range = store.get_field_type("EcholocationRange")?;
 
     // Create a bat entity
     let create_requests = store.perform_mut(vec![screate!(

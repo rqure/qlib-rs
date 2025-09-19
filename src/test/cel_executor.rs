@@ -12,7 +12,123 @@ use std::sync::Arc;
 fn setup_test_store_with_entity() -> Result<(Store, EntityId)> {
     let mut store = Store::new();
 
-    // Create a test entity type with various field types
+    // Create a test entity type with various field types using string schemas
+    let mut schema = EntitySchema::<Single, String, String>::new("TestEntity".to_string(), vec![]);
+    
+    // Add all the required basic fields
+    schema.fields.insert(
+        "Name".to_string(),
+        FieldSchema::String {
+            field_type: "Name".to_string(),
+            default_value: String::new(),
+            rank: 0,
+            storage_scope: StorageScope::Runtime,
+        }
+    );
+    schema.fields.insert(
+        "Parent".to_string(),
+        FieldSchema::EntityReference {
+            field_type: "Parent".to_string(),
+            default_value: None,
+            rank: 1,
+            storage_scope: StorageScope::Configuration,
+        }
+    );
+    schema.fields.insert(
+        "Children".to_string(),
+        FieldSchema::EntityList {
+            field_type: "Children".to_string(),
+            default_value: Vec::new(),
+            rank: 2,
+            storage_scope: StorageScope::Configuration,
+        }
+    );
+    
+    schema.fields.insert(
+        "Age".to_string(),
+        FieldSchema::Int {
+            field_type: "Age".to_string(),
+            default_value: 0,
+            rank: 3,
+            storage_scope: StorageScope::Runtime,
+        }
+    );
+    
+    schema.fields.insert(
+        "Score".to_string(),
+        FieldSchema::Float {
+            field_type: "Score".to_string(),
+            default_value: 0.0,
+            rank: 4,
+            storage_scope: StorageScope::Runtime,
+        }
+    );
+    
+    schema.fields.insert(
+        "IsActive".to_string(),
+        FieldSchema::Bool {
+            field_type: "IsActive".to_string(),
+            default_value: false,
+            rank: 5,
+            storage_scope: StorageScope::Runtime,
+        }
+    );
+    
+    schema.fields.insert(
+        "Status".to_string(),
+        FieldSchema::Choice {
+            field_type: "Status".to_string(),
+            default_value: 0,
+            choices: vec!["Inactive".to_string(), "Active".to_string(), "Pending".to_string()],
+            rank: 6,
+            storage_scope: StorageScope::Runtime,
+        }
+    );
+    
+    schema.fields.insert(
+        "Manager".to_string(),
+        FieldSchema::EntityReference {
+            field_type: "Manager".to_string(),
+            default_value: None,
+            rank: 7,
+            storage_scope: StorageScope::Runtime,
+        }
+    );
+    
+    schema.fields.insert(
+        "Tags".to_string(),
+        FieldSchema::EntityList {
+            field_type: "Tags".to_string(),
+            default_value: vec![],
+            rank: 8,
+            storage_scope: StorageScope::Runtime,
+        }
+    );
+    
+    schema.fields.insert(
+        "CreatedAt".to_string(),
+        FieldSchema::Timestamp {
+            field_type: "CreatedAt".to_string(),
+            default_value: epoch(),
+            rank: 9,
+            storage_scope: StorageScope::Runtime,
+        }
+    );
+    
+    schema.fields.insert(
+        "Data".to_string(),
+        FieldSchema::Blob {
+            field_type: "Data".to_string(),
+            default_value: vec![],
+            rank: 10,
+            storage_scope: StorageScope::Runtime,
+        }
+    );
+
+    let requests = vec![sschemaupdate!(schema)];
+    store.perform_mut(requests)?;
+
+    // Now we can get the interned types
     let et_test = store.get_entity_type("TestEntity")?;
     let ft_name = store.get_field_type("Name")?;
     let ft_age = store.get_field_type("Age")?;
@@ -23,102 +139,6 @@ fn setup_test_store_with_entity() -> Result<(Store, EntityId)> {
     let ft_tags = store.get_field_type("Tags")?;
     let ft_created_at = store.get_field_type("CreatedAt")?;
     let ft_data = store.get_field_type("Data")?;
-    
-    let mut schema = EntitySchema::<Single>::new(et_test, vec![]);
-    
-    schema.fields.insert(
-        ft_name,
-        FieldSchema::String {
-            field_type: ft_name,
-            default_value: String::new(),
-            rank: 0,
-            storage_scope: StorageScope::Runtime,
-        }
-    );
-    
-    schema.fields.insert(
-        ft_age,
-        FieldSchema::Int {
-            field_type: ft_age,
-            default_value: 0,
-            rank: 1,
-            storage_scope: StorageScope::Runtime,
-        }
-    );
-    
-    schema.fields.insert(
-        ft_score,
-        FieldSchema::Float {
-            field_type: ft_score,
-            default_value: 0.0,
-            rank: 2,
-            storage_scope: StorageScope::Runtime,
-        }
-    );
-    
-    schema.fields.insert(
-        ft_is_active,
-        FieldSchema::Bool {
-            field_type: ft_is_active,
-            default_value: false,
-            rank: 3,
-            storage_scope: StorageScope::Runtime,
-        }
-    );
-    
-    schema.fields.insert(
-        ft_status,
-        FieldSchema::Choice {
-            field_type: ft_status,
-            default_value: 0,
-            choices: vec!["Inactive".to_string(), "Active".to_string(), "Pending".to_string()],
-            rank: 4,
-            storage_scope: StorageScope::Runtime,
-        }
-    );
-    
-    schema.fields.insert(
-        ft_manager,
-        FieldSchema::EntityReference {
-            field_type: ft_manager,
-            default_value: None,
-            rank: 5,
-            storage_scope: StorageScope::Runtime,
-        }
-    );
-    
-    schema.fields.insert(
-        ft_tags,
-        FieldSchema::EntityList {
-            field_type: ft_tags,
-            default_value: vec![],
-            rank: 6,
-            storage_scope: StorageScope::Runtime,
-        }
-    );
-    
-    schema.fields.insert(
-        ft_created_at,
-        FieldSchema::Timestamp {
-            field_type: ft_created_at,
-            default_value: epoch(),
-            rank: 7,
-            storage_scope: StorageScope::Runtime,
-        }
-    );
-    
-    schema.fields.insert(
-        ft_data,
-        FieldSchema::Blob {
-            field_type: ft_data,
-            default_value: vec![],
-            rank: 8,
-            storage_scope: StorageScope::Runtime,
-        }
-    );
-
-    let requests = vec![sschemaupdate!(schema.to_string_schema(&store))];
-    store.perform_mut(requests)?;
 
     // Create a test entity
     let create_requests = store.perform_mut(vec![screate!(
@@ -134,6 +154,14 @@ fn setup_test_store_with_entity() -> Result<(Store, EntityId)> {
 
     // Set some field values
     let now = now();
+    
+    // Create additional entity types for Manager and Tag references
+    let manager_schema = EntitySchema::<Single, String, String>::new("Manager".to_string(), vec![]);
+    store.perform_mut(vec![sschemaupdate!(manager_schema)])?;
+    
+    let tag_schema = EntitySchema::<Single, String, String>::new("Tag".to_string(), vec![]);
+    store.perform_mut(vec![sschemaupdate!(tag_schema)])?;
+    
     let et_manager = store.get_entity_type("Manager")?;
     let et_tag = store.get_entity_type("Tag")?;
     let manager_id = EntityId::new(et_manager, 123);

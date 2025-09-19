@@ -1,56 +1,55 @@
 use crate::*;
-use crate::data::{EntityType, StorageScope};
+use crate::data::StorageScope;
 
 // Helper to create an entity schema with basic fields
-fn create_entity_schema(store: &mut Store, entity_type: EntityType) -> Result<()> {
-    let mut schema = EntitySchema::<Single>::new(entity_type, vec![]);
-    let ft_name = store.get_field_type("Name")?;
-    let ft_parent = store.get_field_type("Parent")?;
-    let ft_children = store.get_field_type("Children")?;
+fn create_entity_schema_with_name(store: &mut Store, entity_type_name: &str) -> Result<()> {
+    let mut schema = EntitySchema::<Single, String, String>::new(entity_type_name.to_string(), vec![]);
 
     // Add default fields common to all entities
-    let name_schema = FieldSchema::String {
-        field_type: ft_name,
-        default_value: "".to_string(),
-        rank: 1,
-        storage_scope: StorageScope::Configuration,
-    };
+    schema.fields.insert(
+        "Name".to_string(),
+        FieldSchema::String {
+            field_type: "Name".to_string(),
+            default_value: "".to_string(),
+            rank: 1,
+            storage_scope: StorageScope::Configuration,
+        }
+    );
 
-    let parent_schema = FieldSchema::EntityReference {
-        field_type: ft_parent,
-        default_value: None,
-        rank: 2,
-        storage_scope: StorageScope::Configuration,
-    };
+    schema.fields.insert(
+        "Parent".to_string(),
+        FieldSchema::EntityReference {
+            field_type: "Parent".to_string(),
+            default_value: None,
+            rank: 2,
+            storage_scope: StorageScope::Configuration,
+        }
+    );
 
-    let children_schema = FieldSchema::EntityList {
-        field_type: ft_children,
-        default_value: vec![],
-        rank: 3,
-        storage_scope: StorageScope::Configuration,
-    };
+    schema.fields.insert(
+        "Children".to_string(),
+        FieldSchema::EntityList {
+            field_type: "Children".to_string(),
+            default_value: vec![],
+            rank: 3,
+            storage_scope: StorageScope::Configuration,
+        }
+    );
 
-    schema.fields.insert(ft_name, name_schema);
-    schema.fields.insert(ft_parent, parent_schema);
-    schema.fields.insert(ft_children, children_schema);
-
-    let requests = vec![sschemaupdate!(schema.to_string_schema(store))];
+    let requests = vec![sschemaupdate!(schema)];
     store.perform_mut(requests)?;
     Ok(())
-}// Helper to set up a basic database structure for testing
+}
+
+// Helper to set up a basic database structure for testing
 #[allow(dead_code)]
 fn setup_test_database() -> Result<Store> {
     let mut store = Store::new();
 
-    let et_root = store.get_entity_type("Root")?;
-    let et_folder = store.get_entity_type("Folder")?;
-    let et_user = store.get_entity_type("User")?;
-    let et_role = store.get_entity_type("Role")?;
-
-    create_entity_schema(&mut store, et_root)?;
-    create_entity_schema(&mut store, et_folder)?;
-    create_entity_schema(&mut store, et_user)?;
-    create_entity_schema(&mut store, et_role)?;
+    create_entity_schema_with_name(&mut store, "Root")?;
+    create_entity_schema_with_name(&mut store, "Folder")?;
+    create_entity_schema_with_name(&mut store, "User")?;
+    create_entity_schema_with_name(&mut store, "Role")?;
 
     Ok(store)
 }

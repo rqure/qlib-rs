@@ -11,44 +11,58 @@ use crate::auth::{authenticate_user, find_user_by_name, create_user, set_user_pa
 fn test_create_and_authenticate_user() -> Result<()> {
     let mut store = Store::new();
     
-    // Create the Object entity schema with Name field first
-    let object_entity_type = store.get_entity_type("Object")?;
-    let name_field_type = store.get_field_type("Name")?;
-    let mut object_schema = EntitySchema::<Single>::new(object_entity_type, vec![]);
+    // Create the Object entity schema with Name, Parent, and Children fields first
+    // Define the schema using strings - perform_mut will intern the types
+    let mut object_schema = EntitySchema::<Single, String, String>::new("Object".to_string(), vec![]);
     object_schema.fields.insert(
-        name_field_type,
+        "Name".to_string(),
         FieldSchema::String {
-            field_type: name_field_type,
+            field_type: "Name".to_string(),
             default_value: String::new(),
             rank: 0,
             storage_scope: StorageScope::Configuration,
         }
     );
-    let requests = vec![sschemaupdate!(object_schema.to_string_schema(&store))];
+    object_schema.fields.insert(
+        "Parent".to_string(),
+        FieldSchema::EntityReference {
+            field_type: "Parent".to_string(),
+            default_value: None,
+            rank: 1,
+            storage_scope: StorageScope::Configuration,
+        }
+    );
+    object_schema.fields.insert(
+        "Children".to_string(),
+        FieldSchema::EntityList {
+            field_type: "Children".to_string(),
+            default_value: Vec::new(),
+            rank: 2,
+            storage_scope: StorageScope::Configuration,
+        }
+    );
+    let requests = vec![sschemaupdate!(object_schema)];
     store.perform_mut(requests)?;
     
+    // Now we can get the interned types
+    let object_entity_type = store.get_entity_type("Object")?;
+    
     // Create the Subject entity schema with required authentication fields
-    let subject_entity_type = store.get_entity_type("Subject")?;
-    let secret_field_type = store.get_field_type("Secret")?;
-    let auth_method_field_type = store.get_field_type("AuthMethod")?;
-    let active_field_type = store.get_field_type("Active")?;
-    let failed_attempts_field_type = store.get_field_type("FailedAttempts")?;
-    let locked_until_field_type = store.get_field_type("LockedUntil")?;
-    let last_login_field_type = store.get_field_type("LastLogin")?;
-    let mut subject_schema = EntitySchema::<Single>::new(subject_entity_type, vec![object_entity_type]);
+    // Define the schema using strings - perform_mut will intern the types
+    let mut subject_schema = EntitySchema::<Single, String, String>::new("Subject".to_string(), vec!["Object".to_string()]);
     subject_schema.fields.insert(
-        secret_field_type,
+        "Secret".to_string(),
         FieldSchema::String {
-            field_type: secret_field_type,
+            field_type: "Secret".to_string(),
             default_value: String::new(),
             rank: 0,
             storage_scope: StorageScope::Configuration,
         }
     );
     subject_schema.fields.insert(
-        auth_method_field_type,
+        "AuthMethod".to_string(),
         FieldSchema::Choice {
-            field_type: auth_method_field_type,
+            field_type: "AuthMethod".to_string(),
             default_value: 0, // Native
             rank: 1,
             storage_scope: StorageScope::Configuration,
@@ -56,61 +70,59 @@ fn test_create_and_authenticate_user() -> Result<()> {
         }
     );
     subject_schema.fields.insert(
-        active_field_type,
+        "Active".to_string(),
         FieldSchema::Bool {
-            field_type: active_field_type,
+            field_type: "Active".to_string(),
             default_value: true,
             rank: 2,
             storage_scope: StorageScope::Configuration,
         }
     );
     subject_schema.fields.insert(
-        failed_attempts_field_type,
+        "FailedAttempts".to_string(),
         FieldSchema::Int {
-            field_type: failed_attempts_field_type,
+            field_type: "FailedAttempts".to_string(),
             default_value: 0,
             rank: 3,
             storage_scope: StorageScope::Runtime,
         }
     );
     subject_schema.fields.insert(
-        locked_until_field_type,
+        "LockedUntil".to_string(),
         FieldSchema::Timestamp {
-            field_type: locked_until_field_type,
+            field_type: "LockedUntil".to_string(),
             default_value: crate::Timestamp::from_unix_timestamp(0).unwrap(),
             rank: 4,
             storage_scope: StorageScope::Runtime,
         }
     );
     subject_schema.fields.insert(
-        last_login_field_type,
+        "LastLogin".to_string(),
         FieldSchema::Timestamp {
-            field_type: last_login_field_type,
+            field_type: "LastLogin".to_string(),
             default_value: crate::Timestamp::from_unix_timestamp(0).unwrap(),
             rank: 5,
             storage_scope: StorageScope::Runtime,
         }
     );
-    let requests = vec![sschemaupdate!(subject_schema.to_string_schema(&store))];
+    let requests = vec![sschemaupdate!(subject_schema)];
     store.perform_mut(requests)?;
     
     // Create the User entity schema (inheriting from Subject)
-    let user_entity_type = store.get_entity_type("User")?;
-    let user_schema = EntitySchema::<Single>::new(user_entity_type, vec![subject_entity_type]);
-    let requests = vec![sschemaupdate!(user_schema.to_string_schema(&store))];
+    let user_schema = EntitySchema::<Single, String, String>::new("User".to_string(), vec!["Subject".to_string()]);
+    let requests = vec![sschemaupdate!(user_schema)];
     store.perform_mut(requests)?;
     
     // Create an object entity to serve as parent
-    let parent_id = EntityId::new(object_entity_type, 1);
-    let create_requests = vec![Request::Create {
-        entity_type: object_entity_type,
-        parent_id: None,
-        name: "TestParent".to_string(),
-        created_entity_id: Some(parent_id),
-        timestamp: None,
-        originator: None,
-    }];
-    store.perform_mut(create_requests)?;
+    let create_requests = store.perform_mut(vec![screate!(
+        object_entity_type,
+        "TestParent".to_string()
+    )])?;
+    let parent_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
+        *id
+    } else {
+        panic!("Failed to create parent entity");
+    };
     
     // Create a test user
     let username = "testuser";
@@ -146,44 +158,56 @@ fn test_authentication_with_factory_restore_format() -> Result<()> {
     // Create schemas as they would be loaded from factory restore
     // (this should match what's in base-topology.json)
     
-    // Create Object schema
-    let object_entity_type = store.get_entity_type("Object")?;
-    let name_field_type = store.get_field_type("Name")?;
-    let mut object_schema = EntitySchema::<Single>::new(object_entity_type, vec![]);
+    // Create Object schema with all required fields
+    let mut object_schema = EntitySchema::<Single, String, String>::new("Object".to_string(), vec![]);
     object_schema.fields.insert(
-        name_field_type,
+        "Name".to_string(),
         FieldSchema::String {
-            field_type: name_field_type,
+            field_type: "Name".to_string(),
             default_value: String::new(),
             rank: 0,
             storage_scope: StorageScope::Configuration,
         }
     );
-    let requests = vec![sschemaupdate!(object_schema.to_string_schema(&store))];
+    object_schema.fields.insert(
+        "Parent".to_string(),
+        FieldSchema::EntityReference {
+            field_type: "Parent".to_string(),
+            default_value: None,
+            rank: 1,
+            storage_scope: StorageScope::Configuration,
+        }
+    );
+    object_schema.fields.insert(
+        "Children".to_string(),
+        FieldSchema::EntityList {
+            field_type: "Children".to_string(),
+            default_value: Vec::new(),
+            rank: 2,
+            storage_scope: StorageScope::Configuration,
+        }
+    );
+    let requests = vec![sschemaupdate!(object_schema)];
     store.perform_mut(requests)?;
     
+    // Now we can get the interned types
+    let object_entity_type = store.get_entity_type("Object")?;
+    
     // Create Subject schema
-    let subject_entity_type = store.get_entity_type("Subject")?;
-    let secret_field_type = store.get_field_type("Secret")?;
-    let auth_method_field_type = store.get_field_type("AuthMethod")?;
-    let active_field_type = store.get_field_type("Active")?;
-    let failed_attempts_field_type = store.get_field_type("FailedAttempts")?;
-    let locked_until_field_type = store.get_field_type("LockedUntil")?;
-    let last_login_field_type = store.get_field_type("LastLogin")?;
-    let mut subject_schema = EntitySchema::<Single>::new(subject_entity_type, vec![object_entity_type]);
+    let mut subject_schema = EntitySchema::<Single, String, String>::new("Subject".to_string(), vec!["Object".to_string()]);
     subject_schema.fields.insert(
-        secret_field_type,
+        "Secret".to_string(),
         FieldSchema::String {
-            field_type: secret_field_type,
+            field_type: "Secret".to_string(),
             default_value: String::new(),
             rank: 0,
             storage_scope: StorageScope::Configuration,
         }
     );
     subject_schema.fields.insert(
-        auth_method_field_type,
+        "AuthMethod".to_string(),
         FieldSchema::Choice {
-            field_type: auth_method_field_type,
+            field_type: "AuthMethod".to_string(),
             default_value: 0,
             rank: 1,
             storage_scope: StorageScope::Configuration,
@@ -191,71 +215,79 @@ fn test_authentication_with_factory_restore_format() -> Result<()> {
         }
     );
     subject_schema.fields.insert(
-        active_field_type,
+        "Active".to_string(),
         FieldSchema::Bool {
-            field_type: active_field_type,
+            field_type: "Active".to_string(),
             default_value: true,
             rank: 2,
             storage_scope: StorageScope::Configuration,
         }
     );
     subject_schema.fields.insert(
-        failed_attempts_field_type,
+        "FailedAttempts".to_string(),
         FieldSchema::Int {
-            field_type: failed_attempts_field_type,
+            field_type: "FailedAttempts".to_string(),
             default_value: 0,
             rank: 3,
             storage_scope: StorageScope::Runtime,
         }
     );
     subject_schema.fields.insert(
-        locked_until_field_type,
+        "LockedUntil".to_string(),
         FieldSchema::Timestamp {
-            field_type: locked_until_field_type,
+            field_type: "LockedUntil".to_string(),
             default_value: crate::Timestamp::from_unix_timestamp(0).unwrap(),
             rank: 4,
             storage_scope: StorageScope::Runtime,
         }
     );
     subject_schema.fields.insert(
-        last_login_field_type,
+        "LastLogin".to_string(),
         FieldSchema::Timestamp {
-            field_type: last_login_field_type,
+            field_type: "LastLogin".to_string(),
             default_value: crate::Timestamp::from_unix_timestamp(0).unwrap(),
             rank: 5,
             storage_scope: StorageScope::Runtime,
         }
     );
-    let requests = vec![sschemaupdate!(subject_schema.to_string_schema(&store))];
+    let requests = vec![sschemaupdate!(subject_schema)];
     store.perform_mut(requests)?;
     
     // Create User schema
-    let user_entity_type = store.get_entity_type("User")?;
-    let user_schema = EntitySchema::<Single>::new(user_entity_type, vec![subject_entity_type]);
-    let requests = vec![sschemaupdate!(user_schema.to_string_schema(&store))];
+    let user_schema = EntitySchema::<Single, String, String>::new("User".to_string(), vec!["Subject".to_string()]);
+    let requests = vec![sschemaupdate!(user_schema)];
     store.perform_mut(requests)?;
+    
+    // Now we can get the interned types
+    let user_entity_type = store.get_entity_type("User")?;
     
     // Create a user entity as it would be created by factory restore
     let username = "qei";
     let password = "qei";
     
-    // Create the entity manually (simulating factory restore)
-    let user_id = EntityId::new(user_entity_type, 0); // This matches our factory restore format: User$0
-    
-    // Add the user entity to the store
-    let create_requests = vec![Request::Create {
-        entity_type: user_entity_type,
-        parent_id: None,
-        name: username.to_string(),
-        created_entity_id: Some(user_id),
-        timestamp: None,
-        originator: None,
-    }];
-    store.perform_mut(create_requests)?;
+    // Create the entity using the screate! macro instead of manual entity creation
+    let create_requests = store.perform_mut(vec![screate!(
+        user_entity_type,
+        username.to_string()
+    )])?;
+    let user_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
+        *id
+    } else {
+        panic!("Failed to create user entity");
+    };
     
     // Set the user fields as factory restore would
     let auth_config = AuthConfig::default();
     let password_hash = crate::auth::hash_password(password, &auth_config)?;
+    
+    // Get field types for setting values
+    let name_field_type = store.get_field_type("Name")?;
+    let secret_field_type = store.get_field_type("Secret")?;
+    let auth_method_field_type = store.get_field_type("AuthMethod")?;
+    let active_field_type = store.get_field_type("Active")?;
+    let failed_attempts_field_type = store.get_field_type("FailedAttempts")?;
+    let locked_until_field_type = store.get_field_type("LockedUntil")?;
+    let last_login_field_type = store.get_field_type("LastLogin")?;
     
     let field_requests = vec![
         Request::Write {
