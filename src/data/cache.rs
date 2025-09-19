@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 
+use rustc_hash::FxHashMap;
+
 use crate::{
     data::StoreTrait, EntityId, EntityType, FieldType, Notification, NotificationQueue, NotifyConfig, Request, Value
 };
@@ -17,7 +19,7 @@ pub struct Cache {
 
     // Mapping from entity ID to acquire other (context) fields.
     // For instance, an entity with a specific ID may have different values for the other fields.
-    pub fields_by_entity_id: HashMap<EntityId, HashMap<FieldType, Value>>,
+    pub fields_by_entity_id: FxHashMap<EntityId, FxHashMap<FieldType, Value>>,
 
     pub notify_queue: NotificationQueue,
 }
@@ -29,14 +31,14 @@ impl Cache {
         index_fields: Vec<FieldType>,
         other_fields: Vec<FieldType>,
     ) -> crate::Result<(Self, NotificationQueue)> {
-        let queue = crate::NotificationQueue::new();
+        let queue = NotificationQueue::new();
 
         // Register notifications for all fields
-        for field in index_fields.iter() {
+        for field_type in index_fields.iter() {
             store.register_notification(
-                crate::NotifyConfig::EntityType {
-                    entity_type: entity_type.clone(),
-                    field_type: field.clone(),
+                NotifyConfig::EntityType {
+                    entity_type,
+                    field_type: *field_type,
                     trigger_on_change: true,
                     context: vec![],
                 },
@@ -44,11 +46,11 @@ impl Cache {
             )?;
         }
 
-        for field in other_fields.iter() {
+        for field_type in other_fields.iter() {
             store.register_notification(
-                crate::NotifyConfig::EntityType {
+                NotifyConfig::EntityType {
                     entity_type: entity_type.clone(),
-                    field_type: field.clone(),
+                    field_type: *field_type,
                     trigger_on_change: true,
                     context: vec![],
                 },
@@ -60,15 +62,15 @@ impl Cache {
         let mut entity_ids_by_index_fields = HashMap::new();
         let mut fields_by_entity_id = HashMap::new();
 
-        let entity_ids = store.find_entities(&entity_type, None)?;
+        let entity_ids = store.find_entities(entity_type, None)?;
         for entity_id in entity_ids {
             let mut reqs = Vec::new();
             for field in index_fields.iter() {
-                reqs.push(crate::sread!(entity_id, field.clone()));
+                reqs.push(crate::sread!(entity_id, vec![*field]));
             }
             
             for field in other_fields.iter() {
-                reqs.push(crate::sread!(entity_id, field.clone()));
+                reqs.push(crate::sread!(entity_id, vec![*field]));
             }
 
             let reqs = store.perform_mut(reqs)?;
@@ -98,7 +100,7 @@ impl Cache {
                             }
                         }),
                 )
-                .collect::<HashMap<crate::FieldType, crate::Value>>();
+                .collect::<FxHashMap<FieldType, Value>>();
 
             entity_ids_by_index_fields
                 .entry(index_key)
