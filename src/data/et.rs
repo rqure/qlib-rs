@@ -12,31 +12,31 @@ pub const USER: &str = "User";
 pub const CANDIDATE: &str = "Candidate";
 
 pub struct ET {
-    pub fault_tolerance: EntityType,
-    pub folder: EntityType,
-    pub machine: EntityType,
-    pub object: EntityType,
-    pub permission: EntityType,
-    pub root: EntityType,
-    pub service: EntityType,
-    pub subject: EntityType,
-    pub user: EntityType,
-    pub candidate: EntityType,
+    pub fault_tolerance: Option<EntityType>,
+    pub folder: Option<EntityType>,
+    pub machine: Option<EntityType>,
+    pub object: Option<EntityType>,
+    pub permission: Option<EntityType>,
+    pub root: Option<EntityType>,
+    pub service: Option<EntityType>,
+    pub subject: Option<EntityType>,
+    pub user: Option<EntityType>,
+    pub candidate: Option<EntityType>,
 }
 
 impl ET {
     pub fn new(store: &impl StoreTrait) -> Self {
         ET {
-            fault_tolerance: store.get_entity_type(FAULT_TOLERANCE).unwrap(),
-            folder: store.get_entity_type(FOLDER).unwrap(),
-            machine: store.get_entity_type(MACHINE).unwrap(),
-            object: store.get_entity_type(OBJECT).unwrap(),
-            permission: store.get_entity_type(PERMISSION).unwrap(),
-            root: store.get_entity_type(ROOT).unwrap(),
-            service: store.get_entity_type(SERVICE).unwrap(),
-            subject: store.get_entity_type(SUBJECT).unwrap(),
-            user: store.get_entity_type(USER).unwrap(),
-            candidate: store.get_entity_type(CANDIDATE).unwrap(),
+            fault_tolerance: store.get_entity_type(FAULT_TOLERANCE).ok(),
+            folder: store.get_entity_type(FOLDER).ok(),
+            machine: store.get_entity_type(MACHINE).ok(),
+            object: store.get_entity_type(OBJECT).ok(),
+            permission: store.get_entity_type(PERMISSION).ok(),
+            root: store.get_entity_type(ROOT).ok(),
+            service: store.get_entity_type(SERVICE).ok(),
+            subject: store.get_entity_type(SUBJECT).ok(),
+            user: store.get_entity_type(USER).ok(),
+            candidate: store.get_entity_type(CANDIDATE).ok(),
         }
     }
 }

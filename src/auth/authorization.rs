@@ -27,8 +27,8 @@ pub fn get_scope(
     };
 
     let ft = store.ft.as_ref().unwrap();
-    let scope_ft = ft.scope;
-    let condition_ft = ft.condition;
+    let scope_ft = ft.scope.unwrap();
+    let condition_ft = ft.condition.unwrap();
 
     for entity_type in entity_types.iter() {
         let entity_type_str = store.resolve_entity_type(*entity_type)?;

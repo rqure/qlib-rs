@@ -142,9 +142,9 @@ impl Store {
         // Directly set fields in the entity's field map
         for (field_type, field_schema) in complete_schema.fields.iter() {
             let value = {
-                if *field_type == ft.name {
+                if *field_type == ft.name.unwrap() {
                     Value::String(name.to_string())
-                } else if *field_type == ft.parent {
+                } else if *field_type == ft.parent.unwrap() {
                     match &parent_id {
                         Some(parent) => Value::EntityReference(Some(*parent)),
                         None => field_schema.default_value(),
@@ -165,7 +165,7 @@ impl Store {
 
         // If we have a parent, add it to the parent's children list
         if let Some(parent) = &parent_id {
-            let children_field_key = (*parent, ft.children.clone());
+            let children_field_key = (*parent, ft.children.unwrap());
             if let Some(children_field) = self.fields.get_mut(&children_field_key) {
                 if let Value::EntityList(children) = &mut children_field.value {
                     children.push(entity_id);
@@ -174,7 +174,7 @@ impl Store {
             } else {
                 // Create the Children field if it doesn't exist
                 self.fields.insert(children_field_key, Field {
-                    field_type: ft.children.clone(),
+                    field_type: ft.children.unwrap(),
                     value: Value::EntityList(vec![entity_id]),
                     write_time: now(),
                     writer_id: None,
@@ -305,7 +305,7 @@ impl Store {
 
     pub fn entity_exists(&self, entity_id: EntityId) -> bool {
         let ft = self.ft.as_ref().unwrap();
-        self.fields.contains_key(&(entity_id, ft.name.clone()))
+        self.fields.contains_key(&(entity_id, ft.name.unwrap()))
     }
 
     pub fn field_exists(
@@ -466,6 +466,12 @@ impl Store {
 
                     // Get or create the entity type if it doesn't exist
                     let entity_type = EntityType(self.entity_type_interner.intern(schema.entity_type.as_str()) as u32);
+                    
+                    // Intern all field types before converting the schema
+                    for field_name in schema.fields.keys() {
+                        self.field_type_interner.intern(field_name.as_str());
+                    }
+                    
                     let schema = EntitySchema::<Single>::from_string_schema(schema.clone(), self);
                     
                     // Get a copy of the existing schema if it exists
@@ -607,7 +613,7 @@ impl Store {
         // Remove all children first (recursively)
         let children_field_key = {
             let ft = self.ft.as_ref().unwrap();
-            (entity_id, ft.children.clone())
+            (entity_id, ft.children.unwrap())
         };
         if let Some(children_field) = self.fields.get(&children_field_key) {
             if let Value::EntityList(children) = &children_field.value {
@@ -621,7 +627,7 @@ impl Store {
         // Remove from parent's children list
         let parent_field_key = {
             let ft = self.ft.as_ref().unwrap();
-            (entity_id, ft.parent)
+            (entity_id, ft.parent.unwrap())
         };
         let parent_id = if let Some(parent_field) = self.fields.get(&parent_field_key) {
             if let Value::EntityReference(Some(parent_id)) = &parent_field.value {
@@ -636,7 +642,7 @@ impl Store {
         if let Some(parent_id) = parent_id {
             let parent_children_key = {
                 let ft = self.ft.as_ref().unwrap();
-                (parent_id, ft.children.clone())
+                (parent_id, ft.children.unwrap())
             };
             if let Some(children_field) = self.fields.get_mut(&parent_children_key) {
                 if let Value::EntityList(children) = &mut children_field.value {
