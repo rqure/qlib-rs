@@ -333,8 +333,60 @@ impl Store {
                         resolve_indirection(self, *entity_id, &field_type)?;
                     self.read(indir.0.clone(), indir.1.clone(), value, write_time, writer_id)?;
                 }
+                Request::GetEntityType {
+                    name,
+                    entity_type
+                } => {
+                    match self.get_entity_type(name) {
+                        Ok(et) => {
+                            *entity_type = Some(et);
+                        },
+                        Err(_) => {
+                            *entity_type = None;
+                        }
+                    }
+                }
+                Request::ResolveEntityType {
+                    entity_type: et,
+                    name
+                } => {
+                    match self.resolve_entity_type(*et) {
+                        Ok(resolved_name) => {
+                            *name = Some(resolved_name);
+                        },
+                        Err(_) => {
+                            *name = None;
+                        }
+                    }
+                }
+                Request::GetFieldType {
+                    name,
+                    field_type
+                } => {
+                    match self.get_field_type(name) {
+                        Ok(ft) => {
+                            *field_type = Some(ft);
+                        },
+                        Err(_) => {
+                            *field_type = None;
+                        }
+                    }
+                }
+                Request::ResolveFieldType {
+                    field_type: ft,
+                    name
+                } => {
+                    match self.resolve_field_type(*ft) {
+                        Ok(resolved_name) => {
+                            *name = Some(resolved_name);
+                        },
+                        Err(_) => {
+                            *name = None;
+                        }
+                    }
+                }
                 _ => {
-                    return Err(Error::InvalidRequest("Perform without mutable access can only handle Read requests".to_string()));
+                    return Err(Error::InvalidRequest("Perform without mutable access can only handle Read, GetEntityType, ResolveEntityType, GetFieldType, and ResolveFieldType requests".to_string()));
                 }
             }
         }
