@@ -9,62 +9,123 @@ use crate::StoreTrait;
 use crate::{restore_json_snapshot, screate, sschemaupdate, swrite, take_json_snapshot, EntitySchema, EntityType, FieldSchema, FieldType, Request, Single, Store, Value};
 
 
-// NOTE: These tests need to be updated to work with the new EntityType/FieldType system
-// The main issues that need to be resolved:
-// 1. EntityType and FieldType are now u32/u64 wrappers instead of strings  
-// 2. Need to use store.get_entity_type() and store.get_field_type() to intern strings
-// 3. But these methods require the types to already be registered in the store
-// 4. There seems to be a bootstrap process needed to register basic types like "Object", "Name" etc.
-// 
-// For now, commenting out tests that don't work until the bootstrap issue is resolved
-
-/*
 #[test]
 fn test_json_snapshot_functionality() {
+    // Create a new store
+    let mut store = Store::new();
 
-    // Create the remaining schemas with interned types
-    let root_entity_type = store.get_entity_type("Root").unwrap_or_else(|_| {
-        // If Root doesn't exist, we need to create it as a string schema first
-        let mut root_schema = EntitySchema::<Single, String, String>::new("Root".to_string(), vec!["Object".to_string()]);
-        root_schema.fields.insert(
-            "CreatedEntity".to_string(),
-            FieldSchema::String {
-                field_type: "CreatedEntity".to_string(),
-                default_value: "".to_string(),
-                rank: 10,
-                storage_scope: StorageScope::Runtime,
-            },
-        );
-        root_schema.fields.insert(
-            "DeletedEntity".to_string(),
-            FieldSchema::String {
-                field_type: "DeletedEntity".to_string(),
-                default_value: "".to_string(),
-                rank: 11,
-                storage_scope: StorageScope::Runtime,
-            },
-        );
-        root_schema.fields.insert(
-            "SchemaChange".to_string(),
-            FieldSchema::String {
-                field_type: "SchemaChange".to_string(),
-                default_value: "".to_string(),
-                rank: 12,
-                storage_scope: StorageScope::Runtime,
-            },
-        );
-        store.perform_mut(vec![sschemaupdate!(root_schema)]).unwrap();
-        store.get_entity_type("Root").unwrap()
-    });
+#[test]
+fn test_json_snapshot_functionality() {
+    // Create a new store
+    let mut store = Store::new();
 
+    // HACK: Since there's no public API to bootstrap types, we'll use an unsafe approach
+    // This should be replaced with a proper public API once available
+    
+    // First, we need to intern the type strings to get IDs
+    // We'll use unsafe code to access the private fields
+    unsafe {
+        let store_ptr = &mut store as *mut Store;
+        let interner_ptr = &mut (*store_ptr).entity_type_interner as *mut crate::data::interner::Interner;
+        let field_interner_ptr = &mut (*store_ptr).field_type_interner as *mut crate::data::interner::Interner;
+        
+        // Intern the entity type strings we need
+        (*interner_ptr).intern("Object");
+        (*interner_ptr).intern("Root");  
+        (*interner_ptr).intern("Machine");
+        (*interner_ptr).intern("Sensor");
+        (*interner_ptr).intern("TemperatureSensor");
+        
+        // Intern the field type strings we need
+        (*field_interner_ptr).intern("Name");
+        (*field_interner_ptr).intern("Description");
+        (*field_interner_ptr).intern("Children");
+        (*field_interner_ptr).intern("Status");
+        (*field_interner_ptr).intern("CurrentValue");
+        (*field_interner_ptr).intern("Unit");
+        (*field_interner_ptr).intern("LastUpdated");
+        (*field_interner_ptr).intern("CalibrationOffset");
+    }
+
+    // Now we can get the interned types
+    let object_entity_type = store.get_entity_type("Object").unwrap();
+    let root_entity_type = store.get_entity_type("Root").unwrap();
     let machine_entity_type = store.get_entity_type("Machine").unwrap();
+    let sensor_entity_type = store.get_entity_type("Sensor").unwrap();
+    let temp_sensor_entity_type = store.get_entity_type("TemperatureSensor").unwrap();
+    
+    let name_field_type = store.get_field_type("Name").unwrap();
+    let description_field_type = store.get_field_type("Description").unwrap();
+    let children_field_type = store.get_field_type("Children").unwrap();
     let status_field_type = store.get_field_type("Status").unwrap();
+    let current_value_field_type = store.get_field_type("CurrentValue").unwrap();
+    let unit_field_type = store.get_field_type("Unit").unwrap();
+    let calibration_offset_field_type = store.get_field_type("CalibrationOffset").unwrap();
 
-    let mut machine_schema = EntitySchema::<Single>::new(machine_entity_type, vec![object_entity_type]);
+    // Create schemas using the interned types
+    let mut object_schema = EntitySchema::<Single>::new(object_entity_type, vec![]);
+    object_schema.fields.insert(
+        FieldType::from("Name"),
+        FieldSchema::String {
+            field_type: FieldType::from("Name"),
+            default_value: "".to_string(),
+            rank: 0,
+            storage_scope: StorageScope::Configuration,
+        },
+    );
+    object_schema.fields.insert(
+        FieldType::from("Description"),
+        FieldSchema::String {
+            field_type: FieldType::from("Description"),
+            default_value: "".to_string(),
+            rank: 1,
+            storage_scope: StorageScope::Configuration,
+        },
+    );
+    object_schema.fields.insert(
+        FieldType::from("Children"),
+        FieldSchema::EntityList {
+            field_type: FieldType::from("Children"),
+            default_value: vec![],
+            rank: 2,
+            storage_scope: StorageScope::Configuration,
+        },
+    );
+
+    let mut root_schema = EntitySchema::<Single>::new("Root", vec![EntityType::from("Object")]);
+    root_schema.fields.insert(
+        FieldType::from("CreatedEntity"),
+        FieldSchema::String {
+            field_type: FieldType::from("CreatedEntity"),
+            default_value: "".to_string(),
+            rank: 10,
+            storage_scope: StorageScope::Runtime,
+        },
+    );
+    root_schema.fields.insert(
+        FieldType::from("DeletedEntity"),
+        FieldSchema::String {
+            field_type: FieldType::from("DeletedEntity"),
+            default_value: "".to_string(),
+            rank: 11,
+            storage_scope: StorageScope::Runtime,
+        },
+    );
+    root_schema.fields.insert(
+        FieldType::from("SchemaChange"),
+        FieldSchema::String {
+            field_type: FieldType::from("SchemaChange"),
+            default_value: "".to_string(),
+            rank: 12,
+            storage_scope: StorageScope::Runtime,
+        },
+    );
+
+    let mut machine_schema = EntitySchema::<Single>::new("Machine", vec![EntityType::from("Object")]);
     machine_schema.fields.insert(
-        status_field_type,
+        FieldType::from("Status"),
         FieldSchema::Choice {
-            field_type: status_field_type,
+            field_type: FieldType::from("Status"),
             default_value: 1, // "Offline"
             rank: 10,
             storage_scope: StorageScope::Configuration,
@@ -72,48 +133,40 @@ fn test_json_snapshot_functionality() {
         },
     );
 
-    let sensor_entity_type = store.get_entity_type("Sensor").unwrap();
-    let current_value_field_type = store.get_field_type("CurrentValue").unwrap();
-    let unit_field_type = store.get_field_type("Unit").unwrap();
-    let last_updated_field_type = store.get_field_type("LastUpdated").unwrap();
-
-    let mut sensor_schema = EntitySchema::<Single>::new(sensor_entity_type, vec![object_entity_type]);
+    let mut sensor_schema = EntitySchema::<Single>::new("Sensor", vec![EntityType::from("Object")]);
     sensor_schema.fields.insert(
-        current_value_field_type,
+        FieldType::from("CurrentValue"),
         FieldSchema::Float {
-            field_type: current_value_field_type,
+            field_type: FieldType::from("CurrentValue"),
             default_value: 0.0,
             rank: 10,
             storage_scope: StorageScope::Runtime,
         },
     );
     sensor_schema.fields.insert(
-        unit_field_type,
+        FieldType::from("Unit"),
         FieldSchema::String {
-            field_type: unit_field_type,
+            field_type: FieldType::from("Unit"),
             default_value: "".to_string(),
             rank: 11,
             storage_scope: StorageScope::Configuration,
         },
     );
     sensor_schema.fields.insert(
-        last_updated_field_type,
+        FieldType::from("LastUpdated"),
         FieldSchema::Timestamp {
-            field_type: last_updated_field_type,
+            field_type: FieldType::from("LastUpdated"),
             default_value: time::OffsetDateTime::UNIX_EPOCH,
             rank: 12,
             storage_scope: StorageScope::Runtime,
         },
     );
 
-    let temp_sensor_entity_type = store.get_entity_type("TemperatureSensor").unwrap();
-    let calibration_offset_field_type = store.get_field_type("CalibrationOffset").unwrap();
-
-    let mut temp_sensor_schema = EntitySchema::<Single>::new(temp_sensor_entity_type, vec![sensor_entity_type]);
+    let mut temp_sensor_schema = EntitySchema::<Single>::new("TemperatureSensor", vec![EntityType::from("Sensor")]);
     temp_sensor_schema.fields.insert(
-        calibration_offset_field_type,
+        FieldType::from("CalibrationOffset"),
         FieldSchema::Float {
-            field_type: calibration_offset_field_type,
+            field_type: FieldType::from("CalibrationOffset"),
             default_value: 0.0,
             rank: 13,
             storage_scope: StorageScope::Configuration,
@@ -122,17 +175,17 @@ fn test_json_snapshot_functionality() {
 
     // Add schemas to the store
     store.perform_mut(vec![
-        sschemaupdate!(object_schema.to_string_schema(&store)),
-        sschemaupdate!(root_schema.to_string_schema(&store)),
-        sschemaupdate!(machine_schema.to_string_schema(&store)),
-        sschemaupdate!(sensor_schema.to_string_schema(&store)),
-        sschemaupdate!(temp_sensor_schema.to_string_schema(&store)),
+        sschemaupdate!(object_schema),
+        sschemaupdate!(root_schema),
+        sschemaupdate!(machine_schema),
+        sschemaupdate!(sensor_schema),
+        sschemaupdate!(temp_sensor_schema),
     ]).unwrap();
 
     // Create entities - let the store generate IDs
     let create_requests = store.perform_mut(vec![
         Request::Create {
-            entity_type: root_entity_type,
+            entity_type: EntityType::from("Root"),
             parent_id: None,
             name: "DataStore".to_string(),
             created_entity_id: None,
@@ -149,7 +202,7 @@ fn test_json_snapshot_functionality() {
     };
 
     let machine_create_requests = store.perform_mut(vec![
-        screate!(machine_entity_type, "Server1".to_string(), root_id.clone()),
+        screate!(EntityType::from("Machine"), "Server1".to_string(), root_id.clone()),
     ]).unwrap();
     
     // Get the actual created machine ID
@@ -160,7 +213,7 @@ fn test_json_snapshot_functionality() {
     };
 
     let sensor_create_requests = store.perform_mut(vec![
-        screate!(temp_sensor_entity_type, "IntakeTemp".to_string(), machine_id.clone()),
+        screate!(EntityType::from("TemperatureSensor"), "IntakeTemp".to_string(), machine_id.clone()),
     ]).unwrap();
     
     // Get the actual created sensor ID
@@ -172,18 +225,18 @@ fn test_json_snapshot_functionality() {
 
     // Set field values
     store.perform_mut(vec![
-        swrite!(root_id.clone(), vec![name_field_type], Some(Value::String("DataStore".to_string()))),
-        swrite!(root_id.clone(), vec![description_field_type], Some(Value::String("Primary data store".to_string()))),
-        swrite!(root_id.clone(), vec![children_field_type], Some(Value::EntityList(vec![machine_id.clone()]))),
+        swrite!(root_id.clone(), FieldType::from("Name"), Some(Value::String("DataStore".to_string()))),
+        swrite!(root_id.clone(), FieldType::from("Description"), Some(Value::String("Primary data store".to_string()))),
+        swrite!(root_id.clone(), FieldType::from("Children"), Some(Value::EntityList(vec![machine_id.clone()]))),
         
-        swrite!(machine_id.clone(), vec![name_field_type], Some(Value::String("Server1".to_string()))),
-        swrite!(machine_id.clone(), vec![status_field_type], Some(Value::Choice(0))), // "Online"
-        swrite!(machine_id.clone(), vec![children_field_type], Some(Value::EntityList(vec![sensor_id.clone()]))),
+        swrite!(machine_id.clone(), FieldType::from("Name"), Some(Value::String("Server1".to_string()))),
+        swrite!(machine_id.clone(), FieldType::from("Status"), Some(Value::Choice(0))), // "Online"
+        swrite!(machine_id.clone(), FieldType::from("Children"), Some(Value::EntityList(vec![sensor_id.clone()]))),
         
-        swrite!(sensor_id.clone(), vec![name_field_type], Some(Value::String("IntakeTemp".to_string()))),
-        swrite!(sensor_id.clone(), vec![current_value_field_type], Some(Value::Float(72.5))),
-        swrite!(sensor_id.clone(), vec![unit_field_type], Some(Value::String("C".to_string()))),
-        swrite!(sensor_id.clone(), vec![calibration_offset_field_type], Some(Value::Float(0.5))),
+        swrite!(sensor_id.clone(), FieldType::from("Name"), Some(Value::String("IntakeTemp".to_string()))),
+        swrite!(sensor_id.clone(), FieldType::from("CurrentValue"), Some(Value::Float(72.5))),
+        swrite!(sensor_id.clone(), FieldType::from("Unit"), Some(Value::String("C".to_string()))),
+        swrite!(sensor_id.clone(), FieldType::from("CalibrationOffset"), Some(Value::Float(0.5))),
     ]).unwrap();
 
     // Take JSON snapshot
@@ -226,71 +279,58 @@ fn test_json_snapshot_functionality() {
     let json_str = serde_json::to_string_pretty(&snapshot).unwrap();
     println!("JSON Snapshot:\n{}", json_str);
 }
-*/
 
-/*
 #[test]
 fn test_json_snapshot_restore() {
     // Create and populate the first store
     let mut store1 = Store::new();
 
-    // Get entity and field types from store1
-    let object_entity_type = store1.get_entity_type("Object").unwrap();
-    let name_field_type = store1.get_field_type("Name").unwrap();
-    let description_field_type = store1.get_field_type("Description").unwrap();
-    let children_field_type = store1.get_field_type("Children").unwrap();
-    let status_field_type = store1.get_field_type("Status").unwrap();
-    let content_field_type = store1.get_field_type("Content").unwrap();
-
     // Define schemas
-    let mut object_schema = EntitySchema::<Single>::new(object_entity_type, vec![]);
+    let mut object_schema = EntitySchema::<Single>::new("Object", vec![]);
     object_schema.fields.insert(
-        name_field_type,
+        FieldType::from("Name"),
         FieldSchema::String {
-            field_type: name_field_type,
+            field_type: FieldType::from("Name"),
             default_value: "".to_string(),
             rank: 0,
             storage_scope: StorageScope::Configuration,
         },
     );
     object_schema.fields.insert(
-        description_field_type,
+        FieldType::from("Description"),
         FieldSchema::String {
-            field_type: description_field_type,
+            field_type: FieldType::from("Description"),
             default_value: "".to_string(),
             rank: 1,
             storage_scope: StorageScope::Configuration,
         },
     );
     object_schema.fields.insert(
-        children_field_type,
+        FieldType::from("Children"),
         FieldSchema::EntityList {
-            field_type: children_field_type,
+            field_type: FieldType::from("Children"),
             default_value: vec![],
             rank: 2,
             storage_scope: StorageScope::Configuration,
         },
     );
 
-    let root_entity_type = store1.get_entity_type("Root").unwrap();
-    let document_entity_type = store1.get_entity_type("Document").unwrap();
-
-    let mut root_schema = EntitySchema::<Single>::new(root_entity_type, vec![object_entity_type]);
+    let mut root_schema = EntitySchema::<Single>::new("Root", vec![EntityType::from("Object")]);
     root_schema.fields.insert(
-        status_field_type,
+        FieldType::from("Status"),
         FieldSchema::String {
-            field_type: status_field_type,
+            field_type: FieldType::from("Status"),
             default_value: "Active".to_string(),
             rank: 10,
             storage_scope: StorageScope::Configuration,
         },
     );
 
-    let mut document_schema = EntitySchema::<Single>::new(document_entity_type, vec![object_entity_type]);
+    let mut document_schema = EntitySchema::<Single>::new("Document", vec![EntityType::from("Object")]);
     document_schema.fields.insert(
-        content_field_type,
+        FieldType::from("Content"),
         FieldSchema::String {
-            field_type: content_field_type,
+            field_type: FieldType::from("Content"),
             default_value: "".to_string(),
             rank: 10,
             storage_scope: StorageScope::Configuration,
@@ -299,15 +339,15 @@ fn test_json_snapshot_restore() {
 
     // Add schemas to store1
     store1.perform_mut(vec![
-        sschemaupdate!(object_schema.to_string_schema(&store1)),
-        sschemaupdate!(root_schema.to_string_schema(&store1)),
-        sschemaupdate!(document_schema.to_string_schema(&store1)),
+        sschemaupdate!(object_schema),
+        sschemaupdate!(root_schema),
+        sschemaupdate!(document_schema),
     ]).unwrap();
 
     // Create entities in store1
     let create_requests = store1.perform_mut(vec![
         Request::Create {
-            entity_type: root_entity_type,
+            entity_type: EntityType::from("Root"),
             parent_id: None,
             name: "TestRoot".to_string(),
             created_entity_id: None,
@@ -323,7 +363,7 @@ fn test_json_snapshot_restore() {
     };
 
     let doc_create_requests = store1.perform_mut(vec![
-        screate!(document_entity_type, "TestDoc".to_string(), root_id.clone()),
+        screate!(EntityType::from("Document"), "TestDoc".to_string(), root_id.clone()),
     ]).unwrap();
     
     let doc_id = if let Some(Request::Create { created_entity_id: Some(ref id), .. }) = doc_create_requests.first() {
@@ -334,13 +374,13 @@ fn test_json_snapshot_restore() {
 
     // Set field values in store1
     store1.perform_mut(vec![
-        swrite!(root_id.clone(), vec![name_field_type], Some(Value::String("TestRoot".to_string()))),
-        swrite!(root_id.clone(), vec![description_field_type], Some(Value::String("Test root entity".to_string()))),
-        swrite!(root_id.clone(), vec![status_field_type], Some(Value::String("Active".to_string()))),
-        swrite!(root_id.clone(), vec![children_field_type], Some(Value::EntityList(vec![doc_id.clone()]))),
-        swrite!(doc_id.clone(), vec![name_field_type], Some(Value::String("TestDoc".to_string()))),
-        swrite!(doc_id.clone(), vec![description_field_type], Some(Value::String("Test document".to_string()))),
-        swrite!(doc_id.clone(), vec![content_field_type], Some(Value::String("Hello, World!".to_string()))),
+        swrite!(root_id.clone(), FieldType::from("Name"), Some(Value::String("TestRoot".to_string()))),
+        swrite!(root_id.clone(), FieldType::from("Description"), Some(Value::String("Test root entity".to_string()))),
+        swrite!(root_id.clone(), FieldType::from("Status"), Some(Value::String("Active".to_string()))),
+        swrite!(root_id.clone(), FieldType::from("Children"), Some(Value::EntityList(vec![doc_id.clone()]))),
+        swrite!(doc_id.clone(), FieldType::from("Name"), Some(Value::String("TestDoc".to_string()))),
+        swrite!(doc_id.clone(), FieldType::from("Description"), Some(Value::String("Test document".to_string()))),
+        swrite!(doc_id.clone(), FieldType::from("Content"), Some(Value::String("Hello, World!".to_string()))),
     ]).unwrap();
 
     // Take JSON snapshot from store1
@@ -353,24 +393,17 @@ fn test_json_snapshot_restore() {
     restore_json_snapshot(&mut store2, &snapshot).unwrap();
 
     // Verify that store2 now contains the same data
-    let root_entity_type_2 = store2.get_entity_type("Root").unwrap();
-    let entities = store2.find_entities(root_entity_type_2, None).unwrap();
+    let entities = store2.find_entities(EntityType::from("Root"), None).unwrap();
     assert_eq!(entities.len(), 1);
     
     let root_id_restored = &entities[0];
     
     // Check root entity fields
-    let name_field_type_2 = store2.get_field_type("Name").unwrap();
-    let description_field_type_2 = store2.get_field_type("Description").unwrap();
-    let status_field_type_2 = store2.get_field_type("Status").unwrap();
-    let children_field_type_2 = store2.get_field_type("Children").unwrap();
-    let content_field_type_2 = store2.get_field_type("Content").unwrap();
-    
     let read_requests = store2.perform_mut(vec![
-        crate::sread!(root_id_restored.clone(), vec![name_field_type_2]),
-        crate::sread!(root_id_restored.clone(), vec![description_field_type_2]),
-        crate::sread!(root_id_restored.clone(), vec![status_field_type_2]),
-        crate::sread!(root_id_restored.clone(), vec![children_field_type_2]),
+        crate::sread!(root_id_restored.clone(), FieldType::from("Name")),
+        crate::sread!(root_id_restored.clone(), FieldType::from("Description")),
+        crate::sread!(root_id_restored.clone(), FieldType::from("Status")),
+        crate::sread!(root_id_restored.clone(), FieldType::from("Children")),
     ]).unwrap();
     
     if let Some(Request::Read { value: Some(Value::String(name)), .. }) = read_requests.get(0) {
@@ -397,8 +430,8 @@ fn test_json_snapshot_restore() {
         // Check the document entity
         let doc_id_restored = &children[0];
         let doc_read_requests = store2.perform_mut(vec![
-            crate::sread!(doc_id_restored.clone(), vec![name_field_type_2]),
-            crate::sread!(doc_id_restored.clone(), vec![content_field_type_2]),
+            crate::sread!(doc_id_restored.clone(), FieldType::from("Name")),
+            crate::sread!(doc_id_restored.clone(), FieldType::from("Content")),
         ]).unwrap();
         
         if let Some(Request::Read { value: Some(Value::String(doc_name)), .. }) = doc_read_requests.get(0) {
@@ -418,9 +451,7 @@ fn test_json_snapshot_restore() {
 
     println!("JSON snapshot restore test passed successfully!");
 }
-*/
 
-/*
 #[test]
 fn test_json_snapshot_path_resolution() {
     // This test ensures that normal entity references (not Children) show paths
@@ -564,9 +595,7 @@ fn test_json_snapshot_path_resolution() {
 
     println!("Path resolution test completed successfully!");
 }
-*/
 
-/*
 #[test]
 fn test_json_snapshot_storage_scope() {
     // Test that storage scope is properly preserved in JSON snapshots
@@ -658,9 +687,7 @@ fn test_json_snapshot_storage_scope() {
 
     println!("Storage scope test completed successfully!");
 }
-*/
 
-/*
 #[test]
 fn test_json_snapshot_entity_list_paths() {
     // Test that EntityList fields with paths are properly handled during restore
@@ -808,7 +835,7 @@ fn test_json_snapshot_entity_list_paths() {
 
     // Now test the problematic restore operation
     // Create a new store and try to restore the snapshot
-    let mut store2 = Store::new();
+    let mut store2 = Store::new(snowflake2);
 
     // This should fail because json_value_to_value can't handle paths in EntityList
     let restore_result = restore_json_snapshot(&mut store2, &snapshot);
@@ -842,4 +869,3 @@ fn test_json_snapshot_entity_list_paths() {
 
     println!("EntityList path test completed!");
 }
-*/
