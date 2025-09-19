@@ -188,7 +188,7 @@ fn test_sread_macro() {
     match request {
         Request::Read {
             entity_id: req_entity_id,
-            field_types: field_types,
+            field_types,
             ..
         } => {
             assert_eq!(req_entity_id, entity_id);
@@ -209,7 +209,7 @@ fn test_swrite_macro() {
     match request1 {
         Request::Write {
             entity_id: req_entity_id,
-            field_types: field_types,
+            field_types,
             value,
             push_condition,
             adjust_behavior,
@@ -297,7 +297,7 @@ fn test_sadd_macro() {
     match request1 {
         Request::Write {
             entity_id: req_entity_id,
-            field_types: field_types,
+            field_types,
             value,
             push_condition,
             adjust_behavior,
@@ -419,7 +419,7 @@ fn test_ssub_macro() {
     match request1 {
         Request::Write {
             entity_id: req_entity_id,
-            field_types: field_types,
+            field_types,
             value,
             push_condition,
             adjust_behavior,
