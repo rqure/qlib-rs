@@ -1,40 +1,51 @@
 use crate::*;
 use crate::data::{EntityType, StorageScope};
 
+// Helper functions to get types from store
+fn et(store: &Store, name: &str) -> EntityType {
+    store.get_entity_type(name).unwrap()
+}
+
+fn ft(store: &Store, name: &str) -> FieldType {
+    store.get_field_type(name).unwrap()
+}
+
 // Helper to create an entity schema with basic fields
 fn create_entity_schema(store: &mut Store, entity_type: EntityType) -> Result<()> {
-    let mut schema = EntitySchema::<Single>::new(entity_type.clone(), vec![]);
-    let ft_name = FieldType::from("Name");
-    let ft_parent = FieldType::from("Parent");
-    let ft_children = FieldType::from("Children");
+    let mut schema = EntitySchema::<Single>::new(entity_type, vec![]);
+    let ft_name = ft(store, "Name");
+    let ft_parent = ft(store, "Parent");
+    let ft_children = ft(store, "Children");
 
     // Add default fields common to all entities
     let name_schema = FieldSchema::String {
-        field_type: ft_name.clone(),
+        field_type: ft_name,
         default_value: String::new(),
         rank: 0,
         storage_scope: StorageScope::Runtime,
     };
 
     let parent_schema = FieldSchema::EntityReference {
-        field_type: ft_parent.clone(),
+        field_type: ft_parent,
         default_value: None,
         rank: 1,
         storage_scope: StorageScope::Runtime,
     };
 
     let children_schema = FieldSchema::EntityList {
-        field_type: ft_children.clone(),
+        field_type: ft_children,
         default_value: Vec::new(),
         rank: 2,
         storage_scope: StorageScope::Runtime,
     };
 
-    schema.fields.insert(ft_name.clone(), name_schema);
-    schema.fields.insert(ft_parent.clone(), parent_schema);
-    schema.fields.insert(ft_children.clone(), children_schema);
+    schema.fields.insert(ft_name, name_schema);
+    schema.fields.insert(ft_parent, parent_schema);
+    schema.fields.insert(ft_children, children_schema);
 
-    let requests = vec![sschemaupdate!(schema)];
+    // Convert to string schema for SchemaUpdate request
+    let string_schema = schema.to_string_schema(store);
+    let requests = vec![sschemaupdate!(string_schema)];
     store.perform_mut(requests)?;
     Ok(())
 }
@@ -44,15 +55,15 @@ fn create_entity_schema(store: &mut Store, entity_type: EntityType) -> Result<()
 fn setup_test_database() -> Result<Store> {
     let mut store = Store::new();
 
-    let et_root = EntityType::from("Root");
-    let et_folder = EntityType::from("Folder");
-    let et_user = EntityType::from("User");
-    let et_role = EntityType::from("Role");
+    let et_root = et(&store, "Root");
+    let et_folder = et(&store, "Folder");
+    let et_user = et(&store, "User");
+    let et_role = et(&store, "Role");
 
-    create_entity_schema(&mut store, &et_root)?;
-    create_entity_schema(&mut store, &et_folder)?;
-    create_entity_schema(&mut store, &et_user)?;
-    create_entity_schema(&mut store, &et_role)?;
+    create_entity_schema(&mut store, et_root)?;
+    create_entity_schema(&mut store, et_folder)?;
+    create_entity_schema(&mut store, et_user)?;
+    create_entity_schema(&mut store, et_role)?;
 
     Ok(store)
 }
@@ -61,9 +72,9 @@ fn setup_test_database() -> Result<Store> {
 fn test_create_entity_hierarchy() -> Result<()> {
     let mut store = setup_test_database()?;
 
-    let et_root = EntityType::from("Root");
-    let et_folder = EntityType::from("Folder");
-    let et_user = EntityType::from("User");
+    let et_root = et(&store, "Root");
+    let et_folder = et(&store, "Folder");
+    let et_user = et(&store, "User");
 
     // Find root entities (should be empty initially)
     let root_entities = store.find_entities(&et_root, None)?;
@@ -71,7 +82,7 @@ fn test_create_entity_hierarchy() -> Result<()> {
 
     // Create root entity
     let create_requests = vec![screate!(
-        et_folder.clone(),
+        et_folder,
         "Security Models".to_string()
     )];
     let create_requests = store.perform_mut(create_requests)?;
@@ -83,7 +94,7 @@ fn test_create_entity_hierarchy() -> Result<()> {
     let root_entity_id_ref = root_entity_id;
 
     let create_requests = vec![screate!(
-        et_folder.clone(),
+        et_folder,
         "Users".to_string(),
         root_entity_id_ref.clone()
     )];
@@ -96,7 +107,7 @@ fn test_create_entity_hierarchy() -> Result<()> {
     let users_folder_id_ref = users_folder_id.clone();
 
     let create_requests = vec![screate!(
-        et_folder.clone(),
+        et_folder,
         "Roles".to_string(),
         root_entity_id_ref.clone()
     )];
@@ -109,7 +120,7 @@ fn test_create_entity_hierarchy() -> Result<()> {
     let roles_folder_id_ref = roles_folder_id.clone();
 
     let create_requests = vec![screate!(
-        et_user.clone(),
+        et_user,
         "qei".to_string(),
         users_folder_id_ref.clone()
     )];
@@ -122,19 +133,19 @@ fn test_create_entity_hierarchy() -> Result<()> {
     let user_id_ref = user_id.clone();
 
     let create_requests = vec![screate!(
-        et_user.clone(),
+        et_user,
         "admin".to_string(),
         roles_folder_id_ref.clone()
     )];
     store.perform_mut(create_requests)?;
 
     // Test relationships
-    let ft_parent = FieldType::from("Parent");
-    let ft_name = FieldType::from("Name");
+    let ft_parent = ft(&store, "Parent");
+    let ft_name = ft(&store, "Name");
     
     let reqs = store.perform_mut(vec![
-        sread!(user_id_ref.clone(), ft_parent.clone()),
-        sread!(user_id_ref.clone(), ft_name.clone()),
+        sread!(user_id_ref.clone(), vec![ft_parent]),
+        sread!(user_id_ref.clone(), vec![ft_name]),
     ])?;
 
     if let Some(Request::Read { value: Some(Value::EntityReference(Some(parent_id))), .. }) = reqs.get(0) {
@@ -145,7 +156,7 @@ fn test_create_entity_hierarchy() -> Result<()> {
 
     // Verify name
     let reqs = store.perform_mut(vec![
-        sread!(users_folder_id_ref.clone(), ft_name.clone()),
+        sread!(users_folder_id_ref.clone(), vec![ft_name]),
     ])?;
 
     if let Some(Request::Read { value: Some(Value::String(name)), .. }) = reqs.get(0) {
@@ -161,11 +172,11 @@ fn test_create_entity_hierarchy() -> Result<()> {
 fn test_field_operations() -> Result<()> {
     let mut store = setup_test_database()?;
 
-    let et_folder = EntityType::from("Folder");
-    let et_user = EntityType::from("User");
+    let et_folder = et(&store, "Folder");
+    let et_user = et(&store, "User");
 
     let create_requests = vec![screate!(
-        et_folder.clone(),
+        et_folder,
         "Users".to_string()
     )];
     let create_requests = store.perform_mut(create_requests)?;
@@ -176,7 +187,7 @@ fn test_field_operations() -> Result<()> {
     };
 
     let create_requests = vec![screate!(
-        et_user.clone(),
+        et_user,
         "testuser".to_string(),
         users_folder_id
     )];
@@ -189,13 +200,13 @@ fn test_field_operations() -> Result<()> {
     let user_ref = user_id.clone();
 
     // Test write and read operations
-    let ft_name = FieldType::from("Name");
+    let ft_name = ft(&store, "Name");
     store.perform_mut(vec![
-        swrite!(user_ref.clone(), ft_name.clone(), sstr!("Updated User")),
+        swrite!(user_ref.clone(), vec![ft_name], sstr!("Updated User")),
     ])?;
 
     let reads = store.perform_mut(vec![
-        sread!(user_ref.clone(), ft_name.clone()),
+        sread!(user_ref.clone(), vec![ft_name]),
     ])?;
 
     if let Some(Request::Read { value: Some(Value::String(name)), .. }) = reads.get(0) {
@@ -206,11 +217,11 @@ fn test_field_operations() -> Result<()> {
 
     // Test field updates
     store.perform_mut(vec![
-        swrite!(user_ref.clone(), ft_name.clone(), sstr!("Final Name")),
+        swrite!(user_ref.clone(), vec![ft_name], sstr!("Final Name")),
     ])?;
 
     let verify = store.perform_mut(vec![
-        sread!(user_ref.clone(), ft_name.clone()),
+        sread!(user_ref.clone(), vec![ft_name]),
     ])?;
 
     if let Some(Request::Read { value: Some(Value::String(name)), .. }) = verify.get(0) {
@@ -226,12 +237,12 @@ fn test_field_operations() -> Result<()> {
 fn test_indirection_resolution() -> Result<()> {
     let mut store = setup_test_database()?;
 
-    let et_folder = EntityType::from("Folder");
-    let et_user = EntityType::from("User");
+    let et_folder = et(&store, "Folder");
+    let et_user = et(&store, "User");
 
     // Create entities
     let create_requests = vec![screate!(
-        et_folder.clone(),
+        et_folder,
         "Security".to_string()
     )];
     let create_requests = store.perform_mut(create_requests)?;
@@ -243,7 +254,7 @@ fn test_indirection_resolution() -> Result<()> {
     let security_folder_ref = security_folder_id.clone();
 
     let create_requests = vec![screate!(
-        et_folder.clone(),
+        et_folder,
         "Users".to_string(),
         security_folder_ref.clone()
     )];
@@ -256,7 +267,7 @@ fn test_indirection_resolution() -> Result<()> {
     let users_folder_ref = users_folder_id.clone();
 
     let create_requests = vec![screate!(
-        et_user.clone(),
+        et_user,
         "admin".to_string(),
         users_folder_ref.clone()
     )];
@@ -269,15 +280,15 @@ fn test_indirection_resolution() -> Result<()> {
     let admin_user_ref = admin_user_id.clone();
 
     // Test indirection: User->Parent->Name should resolve to "Users"
-    let parent_name_field = FieldType::from("Parent->Name");
+    let parent_name_field = ft(&store, "Parent->Name");
 
     store.perform_mut(vec![
-        swrite!(admin_user_ref.clone(), "Name".into(), sstr!("Administrator")),
+        swrite!(admin_user_ref.clone(), vec![ft(&store, "Name")], sstr!("Administrator")),
     ])?;
 
     // Test indirection resolution
     let indirect_reads = store.perform_mut(vec![
-        sread!(admin_user_ref.clone(), parent_name_field.clone()),
+        sread!(admin_user_ref.clone(), vec![parent_name_field.clone()]),
     ])?;
 
     if let Some(Request::Read { value: Some(Value::String(name)), .. }) = indirect_reads.get(0) {
@@ -293,11 +304,11 @@ fn test_indirection_resolution() -> Result<()> {
 fn test_entity_deletion() -> Result<()> {
     let mut store = setup_test_database()?;
 
-    let et_folder = EntityType::from("Folder");
-    let et_user = EntityType::from("User");
+    let et_folder = et(&store, "Folder");
+    let et_user = et(&store, "User");
 
     let create_requests = vec![screate!(
-        et_folder.clone(),
+        et_folder,
         "Users".to_string()
     )];
     let create_requests = store.perform_mut(create_requests)?;
@@ -308,7 +319,7 @@ fn test_entity_deletion() -> Result<()> {
     };
 
     let create_requests = vec![screate!(
-        et_user.clone(),
+        et_user,
         "testuser".to_string(),
         users_folder_id
     )];
@@ -321,16 +332,16 @@ fn test_entity_deletion() -> Result<()> {
     let user_ref = user_id.clone();
 
     // Verify entity exists
-    assert!(store.entity_exists(&user_ref));
+    assert!(store.entity_exists(user_ref));
 
     // Delete the entity
-    store.perform_mut(vec![sdelete!(user_ref.clone())])?;
+    store.perform_mut(vec![sdelete!(user_ref)])?;
 
     // Verify entity is gone
-    assert!(!store.entity_exists(&user_ref));
+    assert!(!store.entity_exists(user_ref));
 
     // Try to read from deleted entity - the request should succeed but return no value
-    let request = vec![sread!(user_ref.clone(), "Name".into())];
+    let request = vec![sread!(user_ref.clone(), vec![ft(&store, "Name")])];
     let result = store.perform_mut(request);
     
     // The request should fail for a deleted entity
@@ -351,11 +362,11 @@ fn test_entity_deletion() -> Result<()> {
 fn test_entity_listing_with_pagination() -> Result<()> {
     let mut store = setup_test_database()?;
 
-    let et_folder = EntityType::from("Folder");
-    let et_user = EntityType::from("User");
+    let et_folder = et(&store, "Folder");
+    let et_user = et(&store, "User");
 
     let create_requests = vec![screate!(
-        et_folder.clone(),
+        et_folder,
         "Users".to_string()
     )];
     let create_requests = store.perform_mut(create_requests)?;
@@ -368,7 +379,7 @@ fn test_entity_listing_with_pagination() -> Result<()> {
     // Create multiple users
     for i in 0..5 {
         let create_requests = vec![screate!(
-            et_user.clone(),
+            et_user,
             format!("user{}", i),
             users_folder_id.clone()
         )];
@@ -385,13 +396,13 @@ fn test_entity_listing_with_pagination() -> Result<()> {
 fn test_cel_filtering_parameters() -> Result<()> {
     let mut store = setup_test_database()?;
     
-    let et_user = et::user();
+    let et_user = et(&store, "User");
     
         // Create some test users
     let create_requests = vec![
-        screate!(et_user.clone(), "Alice".to_string()),
-        screate!(et_user.clone(), "Bob".to_string()),  
-        screate!(et_user.clone(), "Charlie".to_string()),
+        screate!(et_user, "Alice".to_string()),
+        screate!(et_user, "Bob".to_string()),  
+        screate!(et_user, "Charlie".to_string()),
     ];
     store.perform_mut(create_requests)?;
     
@@ -420,14 +431,14 @@ fn test_find_entities_comprehensive() -> Result<()> {
     // Create a fresh store without using setup_test_database
     let mut store = Store::new();
     
-    let et_user = EntityType::from("User");
+    let et_user = et(&store, "User");
     
     // Create a simple schema with just Name field
-    let mut user_schema = EntitySchema::<Single>::new(et_user.clone(), vec![]);
+    let mut user_schema = EntitySchema::<Single>::new(et_user, vec![]);
     user_schema.fields.insert(
-        FieldType::from("Name"),
+        ft(&store, "Name"),
         FieldSchema::String {
-            field_type: FieldType::from("Name"),
+            field_type: ft(&store, "Name"),
             default_value: String::new(),
             rank: 0,
             storage_scope: StorageScope::Runtime,
@@ -447,9 +458,9 @@ fn test_find_entities_comprehensive() -> Result<()> {
     
     // Create test entities with various field values
     let create_requests = vec![
-        screate!(et_user.clone(), "Alice".to_string()),
-        screate!(et_user.clone(), "Bob".to_string()),
-        screate!(et_user.clone(), "Charlie".to_string()),
+        screate!(et_user, "Alice".to_string()),
+        screate!(et_user, "Bob".to_string()),
+        screate!(et_user, "Charlie".to_string()),
     ];
     let create_requests = store.perform_mut(create_requests)?;
     
@@ -457,7 +468,7 @@ fn test_find_entities_comprehensive() -> Result<()> {
     let alice_id = create_requests[0].entity_id().unwrap().clone();
     
     // Verify the names were set correctly
-    let name_read = vec![sread!(alice_id.clone(), FieldType::from("Name"))];
+    let name_read = vec![sread!(alice_id.clone(), ft(&store, "Name"))];
     let name_read = store.perform_mut(name_read)?;
     if let Some(Request::Read { value: Some(Value::String(alice_name)), .. }) = name_read.get(0) {
         println!("Alice's name in store: '{}'", alice_name);
@@ -497,14 +508,14 @@ fn test_find_entities_comprehensive() -> Result<()> {
 fn test_find_entities_pagination() -> Result<()> {
     let mut store = Store::new();
     
-    let et_user = EntityType::from("User");
+    let et_user = et(&store, "User");
     
     // Create a simple schema
-    let mut user_schema = EntitySchema::<Single>::new(et_user.clone(), vec![]);
+    let mut user_schema = EntitySchema::<Single>::new(et_user, vec![]);
     user_schema.fields.insert(
-        FieldType::from("Name"),
+        ft(&store, "Name"),
         FieldSchema::String {
-            field_type: FieldType::from("Name"),
+            field_type: ft(&store, "Name"),
             default_value: String::new(),
             rank: 0,
             storage_scope: StorageScope::Runtime,
@@ -516,7 +527,7 @@ fn test_find_entities_pagination() -> Result<()> {
     // Create 10 test users
     for i in 0..10 {
         let create_requests = vec![screate!(
-            et_user.clone(), 
+            et_user, 
             format!("User{:02}", i)
         )];
         store.perform_mut(create_requests)?;
@@ -576,18 +587,18 @@ fn test_find_entities_inheritance() -> Result<()> {
     let mut store = Store::new();
     
     // Create inheritance hierarchy: Animal -> Mammal -> Dog/Cat
-    let et_animal = EntityType::from("Animal");
-    let et_mammal = EntityType::from("Mammal");
-    let et_dog = EntityType::from("Dog");
-    let et_cat = EntityType::from("Cat");
-    let et_bird = EntityType::from("Bird");
+    let et_animal = et(&store, "Animal");
+    let et_mammal = et(&store, "Mammal");
+    let et_dog = et(&store, "Dog");
+    let et_cat = et(&store, "Cat");
+    let et_bird = et(&store, "Bird");
     
     // Create base Animal schema
-    let mut animal_schema = EntitySchema::<Single>::new(et_animal.clone(), vec![]);
+    let mut animal_schema = EntitySchema::<Single>::new(et_animal, vec![]);
     animal_schema.fields.insert(
-        FieldType::from("Name"),
+        ft(&store, "Name"),
         FieldSchema::String {
-            field_type: FieldType::from("Name"),
+            field_type: ft(&store, "Name"),
             default_value: String::new(),
             rank: 0,
             storage_scope: StorageScope::Runtime,
@@ -597,11 +608,11 @@ fn test_find_entities_inheritance() -> Result<()> {
     store.perform_mut(requests)?;
     
     // Create Mammal schema (inherits from Animal)
-    let mut mammal_schema = EntitySchema::<Single>::new(et_mammal.clone(), vec![et_animal.clone()]);
+    let mut mammal_schema = EntitySchema::<Single>::new(et_mammal, vec![et_animal]);
     mammal_schema.fields.insert(
-        FieldType::from("FurColor"),
+        ft(&store, "FurColor"),
         FieldSchema::String {
-            field_type: FieldType::from("FurColor"),
+            field_type: ft(&store, "FurColor"),
             default_value: String::new(),
             rank: 1,
             storage_scope: StorageScope::Runtime,
@@ -611,11 +622,11 @@ fn test_find_entities_inheritance() -> Result<()> {
     store.perform_mut(requests)?;
     
     // Create Dog schema (inherits from Mammal)
-    let mut dog_schema = EntitySchema::<Single>::new(et_dog.clone(), vec![et_mammal.clone()]);
+    let mut dog_schema = EntitySchema::<Single>::new(et_dog, vec![et_mammal]);
     dog_schema.fields.insert(
-        FieldType::from("Breed"),
+        ft(&store, "Breed"),
         FieldSchema::String {
-            field_type: FieldType::from("Breed"),
+            field_type: ft(&store, "Breed"),
             default_value: String::new(),
             rank: 2,
             storage_scope: StorageScope::Runtime,
@@ -625,11 +636,11 @@ fn test_find_entities_inheritance() -> Result<()> {
     store.perform_mut(requests)?;
     
     // Create Cat schema (inherits from Mammal)
-    let mut cat_schema = EntitySchema::<Single>::new(et_cat.clone(), vec![et_mammal.clone()]);
+    let mut cat_schema = EntitySchema::<Single>::new(et_cat, vec![et_mammal]);
     cat_schema.fields.insert(
-        FieldType::from("IndoorOutdoor"),
+        ft(&store, "IndoorOutdoor"),
         FieldSchema::String {
-            field_type: FieldType::from("IndoorOutdoor"),
+            field_type: ft(&store, "IndoorOutdoor"),
             default_value: String::new(),
             rank: 2,
             storage_scope: StorageScope::Runtime,
@@ -639,11 +650,11 @@ fn test_find_entities_inheritance() -> Result<()> {
     store.perform_mut(requests)?;
     
     // Create Bird schema (inherits from Animal, not Mammal)
-    let mut bird_schema = EntitySchema::<Single>::new(et_bird.clone(), vec![et_animal.clone()]);
+    let mut bird_schema = EntitySchema::<Single>::new(et_bird, vec![et_animal]);
     bird_schema.fields.insert(
-        FieldType::from("CanFly"),
+        ft(&store, "CanFly"),
         FieldSchema::Bool {
-            field_type: FieldType::from("CanFly"),
+            field_type: ft(&store, "CanFly"),
             default_value: true,
             rank: 1,
             storage_scope: StorageScope::Runtime,
@@ -654,13 +665,13 @@ fn test_find_entities_inheritance() -> Result<()> {
     
     // Create test entities
     let create_requests = vec![
-        screate!(et_animal.clone(), "Generic Animal".to_string()),
-        screate!(et_mammal.clone(), "Generic Mammal".to_string()),
-        screate!(et_dog.clone(), "Rex".to_string()),
-        screate!(et_dog.clone(), "Buddy".to_string()),
-        screate!(et_cat.clone(), "Whiskers".to_string()),
-        screate!(et_cat.clone(), "Mittens".to_string()),
-        screate!(et_bird.clone(), "Tweety".to_string()),
+        screate!(et_animal, "Generic Animal".to_string()),
+        screate!(et_mammal, "Generic Mammal".to_string()),
+        screate!(et_dog, "Rex".to_string()),
+        screate!(et_dog, "Buddy".to_string()),
+        screate!(et_cat, "Whiskers".to_string()),
+        screate!(et_cat, "Mittens".to_string()),
+        screate!(et_bird, "Tweety".to_string()),
     ];
     store.perform_mut(create_requests)?;
     
@@ -710,7 +721,7 @@ fn test_find_entities_inheritance() -> Result<()> {
 fn test_find_entities_nonexistent_types() -> Result<()> {
     let store = setup_test_database()?;
     
-    let et_nonexistent = EntityType::from("NonExistentType");
+    let et_nonexistent = et(&store, "NonExistentType");
     
     // Test finding entities of a type that doesn't exist
     let empty_result = store.find_entities(&et_nonexistent, None)?;
@@ -733,14 +744,14 @@ fn test_find_entities_nonexistent_types() -> Result<()> {
 fn test_find_entities_cel_edge_cases() -> Result<()> {
     let mut store = Store::new();
     
-    let et_user = EntityType::from("User");
+    let et_user = et(&store, "User");
     
     // Create a simple schema
-    let mut user_schema = EntitySchema::<Single>::new(et_user.clone(), vec![]);
+    let mut user_schema = EntitySchema::<Single>::new(et_user, vec![]);
     user_schema.fields.insert(
-        FieldType::from("Name"),
+        ft(&store, "Name"),
         FieldSchema::String {
-            field_type: FieldType::from("Name"),
+            field_type: ft(&store, "Name"),
             default_value: String::new(),
             rank: 0,
             storage_scope: StorageScope::Runtime,
@@ -751,8 +762,8 @@ fn test_find_entities_cel_edge_cases() -> Result<()> {
     
     // Create test users
     let create_requests = vec![
-        screate!(et_user.clone(), "Alice".to_string()),
-        screate!(et_user.clone(), "Bob".to_string()),
+        screate!(et_user, "Alice".to_string()),
+        screate!(et_user, "Bob".to_string()),
     ];
     store.perform_mut(create_requests)?;
     
@@ -779,12 +790,12 @@ fn test_complete_entity_schema_caching() -> Result<()> {
     let mut store = Store::new();
     
     // Create base entity type
-    let et_base = EntityType::from("BaseEntity");
-    let mut base_schema = EntitySchema::<Single>::new(et_base.clone(), vec![]);
+    let et_base = et(&store, "BaseEntity");
+    let mut base_schema = EntitySchema::<Single>::new(et_base, vec![]);
     base_schema.fields.insert(
-        FieldType::from("BaseField"),
+        ft(&store, "BaseField"),
         FieldSchema::String {
-            field_type: FieldType::from("BaseField"),
+            field_type: ft(&store, "BaseField"),
             default_value: "base_default".to_string(),
             rank: 0,
             storage_scope: StorageScope::Runtime,
@@ -795,12 +806,12 @@ fn test_complete_entity_schema_caching() -> Result<()> {
     store.perform_mut(requests)?;
     
     // Create derived entity type that inherits from base
-    let et_derived = EntityType::from("DerivedEntity");
-    let mut derived_schema = EntitySchema::<Single>::new(et_derived.clone(), vec![et_base.clone()]);
+    let et_derived = et(&store, "DerivedEntity");
+    let mut derived_schema = EntitySchema::<Single>::new(et_derived, vec![et_base]);
     derived_schema.fields.insert(
-        FieldType::from("DerivedField"),
+        ft(&store, "DerivedField"),
         FieldSchema::String {
-            field_type: FieldType::from("DerivedField"),
+            field_type: ft(&store, "DerivedField"),
             default_value: "derived_default".to_string(),
             rank: 1,
             storage_scope: StorageScope::Runtime,
@@ -812,31 +823,31 @@ fn test_complete_entity_schema_caching() -> Result<()> {
     
     // First call to get_complete_entity_schema should populate the cache
     let complete_schema_1 = store.get_complete_entity_schema(&et_derived)?;
-    assert!(complete_schema_1.fields.contains_key(FieldType::from("BaseField")));
-    assert!(complete_schema_1.fields.contains_key(FieldType::from("DerivedField")));
+    assert!(complete_schema_1.fields.contains_key(ft(&store, "BaseField")));
+    assert!(complete_schema_1.fields.contains_key(ft(&store, "DerivedField")));
     
     // Second call should use the cache (no way to directly verify this without exposing cache, 
     // but this tests that the cache doesn't break functionality)
     let complete_schema_2 = store.get_complete_entity_schema(&et_derived)?;
     assert_eq!(complete_schema_1.fields.len(), complete_schema_2.fields.len());
-    assert!(complete_schema_2.fields.contains_key(FieldType::from("BaseField")));
-    assert!(complete_schema_2.fields.contains_key(FieldType::from("DerivedField")));
+    assert!(complete_schema_2.fields.contains_key(ft(&store, "BaseField")));
+    assert!(complete_schema_2.fields.contains_key(ft(&store, "DerivedField")));
     
     // Update the base schema - this should invalidate the cache
-    let mut updated_base_schema = EntitySchema::<Single>::new(et_base.clone(), vec![]);
+    let mut updated_base_schema = EntitySchema::<Single>::new(et_base, vec![]);
     updated_base_schema.fields.insert(
-        FieldType::from("BaseField"),
+        ft(&store, "BaseField"),
         FieldSchema::String {
-            field_type: FieldType::from("BaseField"),
+            field_type: ft(&store, "BaseField"),
             default_value: "updated_base_default".to_string(),
             rank: 0,
             storage_scope: StorageScope::Runtime,
         }
     );
     updated_base_schema.fields.insert(
-        FieldType::from("NewBaseField"),
+        ft(&store, "NewBaseField"),
         FieldSchema::String {
-            field_type: FieldType::from("NewBaseField"),
+            field_type: ft(&store, "NewBaseField"),
             default_value: "new_base_field".to_string(),
             rank: 0,
             storage_scope: StorageScope::Runtime,
@@ -848,9 +859,9 @@ fn test_complete_entity_schema_caching() -> Result<()> {
     
     // After update, cache should be invalidated and the complete schema should include the new field
     let complete_schema_3 = store.get_complete_entity_schema(&et_derived)?;
-    assert!(complete_schema_3.fields.contains_key(FieldType::from("BaseField")));
-    assert!(complete_schema_3.fields.contains_key(FieldType::from("DerivedField")));
-    assert!(complete_schema_3.fields.contains_key(FieldType::from("NewBaseField")));
+    assert!(complete_schema_3.fields.contains_key(ft(&store, "BaseField")));
+    assert!(complete_schema_3.fields.contains_key(ft(&store, "DerivedField")));
+    assert!(complete_schema_3.fields.contains_key(ft(&store, "NewBaseField")));
     assert_eq!(complete_schema_3.fields.len(), 3); // BaseField, DerivedField, NewBaseField
     
     Ok(())
