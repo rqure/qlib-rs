@@ -95,6 +95,59 @@ impl Store {
         }
     }
 
+    /// Bootstrap method for tests - interns basic type strings
+    /// TODO: This should be replaced with a proper public API for type registration
+    #[cfg(test)]
+    pub fn bootstrap_types(&mut self) {
+        // Intern all predefined entity types from et.rs
+        self.entity_type_interner.intern("FaultTolerance");
+        self.entity_type_interner.intern("Folder");
+        self.entity_type_interner.intern("Machine");
+        self.entity_type_interner.intern("Object");
+        self.entity_type_interner.intern("Permission");
+        self.entity_type_interner.intern("Root");
+        self.entity_type_interner.intern("Service");
+        self.entity_type_interner.intern("Subject");
+        self.entity_type_interner.intern("User");
+        self.entity_type_interner.intern("Candidate");
+        
+        // Intern custom entity types used in tests
+        self.entity_type_interner.intern("Sensor");
+        self.entity_type_interner.intern("TemperatureSensor");
+        
+        // Intern all predefined field types from ft.rs
+        self.field_type_interner.intern("Active");
+        self.field_type_interner.intern("AuthMethod");
+        self.field_type_interner.intern("AvailableList");
+        self.field_type_interner.intern("CandidateList");
+        self.field_type_interner.intern("Children");
+        self.field_type_interner.intern("Condition");
+        self.field_type_interner.intern("CurrentLeader");
+        self.field_type_interner.intern("DeathDetectionTimeout");
+        self.field_type_interner.intern("Description");
+        self.field_type_interner.intern("FailedAttempts");
+        self.field_type_interner.intern("Heartbeat");
+        self.field_type_interner.intern("LastLogin");
+        self.field_type_interner.intern("LockedUntil");
+        self.field_type_interner.intern("MakeMe");
+        self.field_type_interner.intern("Name");
+        self.field_type_interner.intern("Parent");
+        self.field_type_interner.intern("Password");
+        self.field_type_interner.intern("ResourceField");
+        self.field_type_interner.intern("ResourceType");
+        self.field_type_interner.intern("Scope");
+        self.field_type_interner.intern("Secret");
+        self.field_type_interner.intern("StartTime");
+        self.field_type_interner.intern("Status");
+        self.field_type_interner.intern("SyncStatus");
+        
+        // Intern custom field types used in tests
+        self.field_type_interner.intern("CurrentValue");
+        self.field_type_interner.intern("Unit");
+        self.field_type_interner.intern("LastUpdated");
+        self.field_type_interner.intern("CalibrationOffset");
+    }
+
     /// Internal entity creation that doesn't use perform to avoid recursion
     pub fn create_entity_internal(
         &mut self,

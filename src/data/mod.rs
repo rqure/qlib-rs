@@ -4,7 +4,7 @@ mod entity_schema;
 mod field_schema;
 mod field;
 pub mod ft;
-mod interner;
+pub mod interner;
 mod indirection;
 mod json_snapshot;
 mod notifications;
