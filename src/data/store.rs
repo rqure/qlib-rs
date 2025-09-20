@@ -1489,6 +1489,10 @@ impl Store {
         self.entity_type_interner = snapshot.entity_type_interner;
         self.field_type_interner = snapshot.field_type_interner;
         
+        // Re-initialize ET and FT after restoring snapshot data
+        self.et = Some(ET::new(self));
+        self.ft = Some(FT::new(self));
+        
         // Convert nested fields structure to flattened structure
         self.fields.clear();
         for (entity_id, entity_fields) in snapshot.fields {
@@ -1499,6 +1503,7 @@ impl Store {
         
         // Clear the cache since schema structure may have changed
         self.complete_entity_schema_cache.clear();
+        
         // Rebuild inheritance map after restoring (this will also rebuild the cache)
         self.rebuild_inheritance_map();
     }
