@@ -1,7 +1,6 @@
 use anyhow::Result;
 use serde::{Serialize, Deserialize};
 use crate::{Snapshot};
-use rkyv::Deserialize as RkyvDeserialize;
 
 /// Magic bytes to identify protocol messages (4 bytes)
 const PROTOCOL_MAGIC: [u8; 4] = [0x51, 0x43, 0x4F, 0x52]; // "QCOR" in ASCII
@@ -67,13 +66,10 @@ impl MessageHeader {
 pub enum MessageType {
     // Core store messages (1000-1999)
     StoreMessage = 1000,        // Uses bincode for existing StoreMessage compatibility
-    FastStoreMessage = 1001,    // Uses rkyv for high-performance operations
     
     // Peer messages (2000-2999)
-    PeerStartup = 2000,
     PeerFullSyncRequest = 2001,
     PeerFullSyncResponse = 2002,
-    PeerSyncRequest = 2003,
     
     // Response messages (9000-9999)
     Response = 9000,
@@ -84,11 +80,8 @@ impl MessageType {
     pub fn from_u32(value: u32) -> Option<Self> {
         match value {
             1000 => Some(Self::StoreMessage),
-            1001 => Some(Self::FastStoreMessage),
-            2000 => Some(Self::PeerStartup),
             2001 => Some(Self::PeerFullSyncRequest),
             2002 => Some(Self::PeerFullSyncResponse),
-            2003 => Some(Self::PeerSyncRequest),
             9000 => Some(Self::Response),
             9999 => Some(Self::Error),
             _ => None,
@@ -100,78 +93,12 @@ impl MessageType {
     }
 }
 
-/// Fast Store operations that can be serialized with rkyv for zero-copy
-#[derive(Debug, Clone)]
-#[derive(rkyv::Archive, rkyv::Deserialize, rkyv::Serialize)]
-#[archive(check_bytes)]
-pub struct FastStoreRequest {
-    pub id: String,
-    pub operation: FastOperation,
-}
-
-#[derive(Debug, Clone)]
-#[derive(rkyv::Archive, rkyv::Deserialize, rkyv::Serialize)]
-#[archive(check_bytes)]
-pub enum FastOperation {
-    /// Fast entity existence check - just needs entity ID bytes
-    EntityExists { entity_id_bytes: Vec<u8> },
-    /// Fast field existence check 
-    FieldExists { entity_type: String, field_type: String },
-    /// Fast notification (pre-serialized)
-    Notification { data: Vec<u8> },
-    /// Fast write requests (pre-serialized)
-    WriteRequests { data: Vec<u8> },
-}
-
-#[derive(Debug, Clone)]
-#[derive(rkyv::Archive, rkyv::Deserialize, rkyv::Serialize)]
-#[archive(check_bytes)]
-pub struct FastStoreResponse {
-    pub id: String,
-    pub result: FastResult,
-}
-
-#[derive(Debug, Clone)]
-#[derive(rkyv::Archive, rkyv::Deserialize, rkyv::Serialize)]
-#[archive(check_bytes)]
-pub enum FastResult {
-    /// Boolean result for existence checks
-    Bool(bool),
-    /// Success indicator for write operations
-    Success,
-    /// Error with message
-    Error(String),
-    /// Raw data response (pre-serialized)
-    Data(Vec<u8>),
-}
-
-/// Peer startup message for rkyv serialization
-#[derive(Debug, Clone)]
-#[derive(rkyv::Archive, rkyv::Deserialize, rkyv::Serialize)]
-#[archive(check_bytes)]
-pub struct PeerStartup {
-    pub machine_id: String,
-    pub startup_time: u64,
-}
-
-/// Peer sync request for rkyv serialization  
-#[derive(Debug, Clone)]
-#[derive(rkyv::Archive, rkyv::Deserialize, rkyv::Serialize)]
-#[archive(check_bytes)]
-pub struct PeerSyncRequest {
-    pub requests_data: Vec<u8>, // Pre-serialized requests
-}
-
 /// Protocol message wrapper
 #[derive(Debug)]
 pub enum ProtocolMessage {
     Store(crate::data::StoreMessage),           // Uses bincode (compatibility)
-    FastStore(FastStoreRequest),                // Uses rkyv (performance)
-    FastStoreResponse(FastStoreResponse),       // Uses rkyv (performance)
-    PeerStartup(PeerStartup),                   // Uses rkyv (performance)
     PeerFullSyncRequest { machine_id: String }, // Simple - uses bincode
     PeerFullSyncResponse { snapshot: Snapshot }, // Uses bincode (large data)
-    PeerSyncRequest(PeerSyncRequest),           // Uses rkyv (performance)
     Response { id: String, data: Vec<u8> },     // Raw response data
     Error { id: Option<String>, message: String },
 }
@@ -181,11 +108,8 @@ impl ProtocolMessage {
     pub fn message_type(&self) -> MessageType {
         match self {
             Self::Store(_) => MessageType::StoreMessage,
-            Self::FastStore(_) | Self::FastStoreResponse(_) => MessageType::FastStoreMessage,
-            Self::PeerStartup(_) => MessageType::PeerStartup,
             Self::PeerFullSyncRequest { .. } => MessageType::PeerFullSyncRequest,
             Self::PeerFullSyncResponse { .. } => MessageType::PeerFullSyncResponse,
-            Self::PeerSyncRequest(_) => MessageType::PeerSyncRequest,
             Self::Response { .. } => MessageType::Response,
             Self::Error { .. } => MessageType::Error,
         }
@@ -198,30 +122,6 @@ impl ProtocolMessage {
             Self::Store(msg) => bincode::serialize(msg)
                 .map_err(|e| anyhow::anyhow!("Failed to serialize store message: {}", e)),
                 
-            // Use rkyv for high-performance operations
-            Self::FastStore(req) => {
-                rkyv::to_bytes::<_, 256>(req)
-                    .map(|bytes| bytes.into_vec())
-                    .map_err(|e| anyhow::anyhow!("Failed to serialize fast store request: {}", e))
-            },
-            Self::FastStoreResponse(resp) => {
-                rkyv::to_bytes::<_, 256>(resp)
-                    .map(|bytes| bytes.into_vec())
-                    .map_err(|e| anyhow::anyhow!("Failed to serialize fast store response: {}", e))
-            },
-            
-            // Use rkyv for peer messages (high frequency)
-            Self::PeerStartup(startup) => {
-                rkyv::to_bytes::<_, 256>(startup)
-                    .map(|bytes| bytes.into_vec())
-                    .map_err(|e| anyhow::anyhow!("Failed to serialize peer startup: {}", e))
-            },
-            Self::PeerSyncRequest(sync_req) => {
-                rkyv::to_bytes::<_, 256>(sync_req)
-                    .map(|bytes| bytes.into_vec())
-                    .map_err(|e| anyhow::anyhow!("Failed to serialize peer sync request: {}", e))
-            },
-            
             // Use bincode for larger/less frequent messages
             Self::PeerFullSyncRequest { machine_id } => {
                 #[derive(Serialize)]
@@ -268,27 +168,6 @@ impl ProtocolMessage {
                     .map_err(|e| anyhow::anyhow!("Failed to deserialize store message: {}", e))?;
                 Ok(Self::Store(msg))
             },
-            MessageType::FastStoreMessage => {
-                // Try to deserialize as request first, then response
-                if let Ok(archived) = rkyv::check_archived_root::<FastStoreRequest>(payload) {
-                    let req: FastStoreRequest = RkyvDeserialize::deserialize(archived, &mut rkyv::Infallible)
-                        .map_err(|e| anyhow::anyhow!("Failed to deserialize fast store request: {:?}", e))?;
-                    Ok(Self::FastStore(req))
-                } else if let Ok(archived) = rkyv::check_archived_root::<FastStoreResponse>(payload) {
-                    let resp: FastStoreResponse = RkyvDeserialize::deserialize(archived, &mut rkyv::Infallible)
-                        .map_err(|e| anyhow::anyhow!("Failed to deserialize fast store response: {:?}", e))?;
-                    Ok(Self::FastStoreResponse(resp))
-                } else {
-                    Err(anyhow::anyhow!("Failed to deserialize fast store message"))
-                }
-            },
-            MessageType::PeerStartup => {
-                let archived = rkyv::check_archived_root::<PeerStartup>(payload)
-                    .map_err(|e| anyhow::anyhow!("Failed to check archived peer startup: {}", e))?;
-                let startup: PeerStartup = RkyvDeserialize::deserialize(archived, &mut rkyv::Infallible)
-                    .map_err(|e| anyhow::anyhow!("Failed to deserialize peer startup: {:?}", e))?;
-                Ok(Self::PeerStartup(startup))
-            },
             MessageType::PeerFullSyncRequest => {
                 #[derive(Deserialize)]
                 struct PeerFullSyncRequestPayload {
@@ -304,13 +183,6 @@ impl ProtocolMessage {
                 let snapshot: Snapshot = bincode::deserialize(payload)
                     .map_err(|e| anyhow::anyhow!("Failed to deserialize snapshot: {}", e))?;
                 Ok(Self::PeerFullSyncResponse { snapshot })
-            },
-            MessageType::PeerSyncRequest => {
-                let archived = rkyv::check_archived_root::<PeerSyncRequest>(payload)
-                    .map_err(|e| anyhow::anyhow!("Failed to check archived peer sync request: {}", e))?;
-                let sync_req: PeerSyncRequest = RkyvDeserialize::deserialize(archived, &mut rkyv::Infallible)
-                    .map_err(|e| anyhow::anyhow!("Failed to deserialize peer sync request: {:?}", e))?;
-                Ok(Self::PeerSyncRequest(sync_req))
             },
             MessageType::Response => {
                 #[derive(Deserialize)]
