@@ -191,7 +191,7 @@ fn test_authentication_with_factory_restore_format() -> Result<()> {
     store.perform_mut(requests)?;
     
     // Now we can get the interned types
-    let object_entity_type = store.get_entity_type("Object")?;
+    let _object_entity_type = store.get_entity_type("Object")?;
     
     // Create Subject schema
     let mut subject_schema = EntitySchema::<Single, String, String>::new("Subject".to_string(), vec!["Object".to_string()]);
@@ -283,11 +283,11 @@ fn test_authentication_with_factory_restore_format() -> Result<()> {
     // Get field types for setting values
     let name_field_type = store.get_field_type("Name")?;
     let secret_field_type = store.get_field_type("Secret")?;
-    let auth_method_field_type = store.get_field_type("AuthMethod")?;
+    let _auth_method_field_type = store.get_field_type("AuthMethod")?;
     let active_field_type = store.get_field_type("Active")?;
-    let failed_attempts_field_type = store.get_field_type("FailedAttempts")?;
-    let locked_until_field_type = store.get_field_type("LockedUntil")?;
-    let last_login_field_type = store.get_field_type("LastLogin")?;
+    let _failed_attempts_field_type = store.get_field_type("FailedAttempts")?;
+    let _locked_until_field_type = store.get_field_type("LockedUntil")?;
+    let _last_login_field_type = store.get_field_type("LastLogin")?;
     
     let field_requests = vec![
         Request::Write {

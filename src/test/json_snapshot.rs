@@ -6,7 +6,7 @@ use crate::data::StorageScope;
 use crate::StoreTrait;
 
 #[allow(unused_imports)]
-use crate::{restore_json_snapshot, screate, sschemaupdate, swrite, take_json_snapshot, EntitySchema, EntityType, FieldSchema, FieldType, Request, Single, Store, Value};
+use crate::{restore_json_snapshot, screate, sschemaupdate, swrite, take_json_snapshot, EntitySchema, EntityType, FieldSchema, FieldType, Request, Single, Store, Value, now};
 
 
 #[test]
@@ -14,146 +14,164 @@ fn test_json_snapshot_functionality() {
     // Create a new store
     let mut store = Store::new();
 
-    // Define schemas as per the example
-    let object_et = store.get_entity_type("Object").unwrap();
-    let name_ft = store.get_field_type("Name").unwrap();
-    let description_ft = store.get_field_type("Description").unwrap();
-    let children_ft = store.get_field_type("Children").unwrap();
-    
-    let mut object_schema = EntitySchema::<Single>::new(object_et, vec![]);
+    // Define schemas using strings first
+    let mut object_schema = EntitySchema::<Single, String, String>::new("Object".to_string(), vec![]);
     object_schema.fields.insert(
-        name_ft,
+        "Name".to_string(),
         FieldSchema::String {
-            field_type: name_ft,
+            field_type: "Name".to_string(),
             default_value: "".to_string(),
             rank: 0,
             storage_scope: StorageScope::Configuration,
         },
     );
     object_schema.fields.insert(
-        description_ft,
+        "Description".to_string(),
         FieldSchema::String {
-            field_type: description_ft,
+            field_type: "Description".to_string(),
             default_value: "".to_string(),
             rank: 1,
             storage_scope: StorageScope::Configuration,
         },
     );
     object_schema.fields.insert(
-        children_ft,
-        FieldSchema::EntityList {
-            field_type: children_ft,
-            default_value: vec![],
+        "Parent".to_string(),
+        FieldSchema::EntityReference {
+            field_type: "Parent".to_string(),
+            default_value: None,
             rank: 2,
             storage_scope: StorageScope::Configuration,
         },
     );
-
-    let root_et = store.get_entity_type("Root").unwrap();
-    let created_entity_ft = store.get_field_type("CreatedEntity").unwrap();
-    let deleted_entity_ft = store.get_field_type("DeletedEntity").unwrap();
-    let schema_change_ft = store.get_field_type("SchemaChange").unwrap();
+    object_schema.fields.insert(
+        "Children".to_string(),
+        FieldSchema::EntityList {
+            field_type: "Children".to_string(),
+            default_value: vec![],
+            rank: 3,
+            storage_scope: StorageScope::Configuration,
+        },
+    );
     
-    let mut root_schema = EntitySchema::<Single>::new(root_et, vec![object_et]);
-    root_schema.fields.insert(
-        created_entity_ft,
-        FieldSchema::String {
-            field_type: created_entity_ft,
-            default_value: "".to_string(),
-            rank: 10,
-            storage_scope: StorageScope::Runtime,
-        },
-    );
-    root_schema.fields.insert(
-        deleted_entity_ft,
-        FieldSchema::String {
-            field_type: deleted_entity_ft,
-            default_value: "".to_string(),
-            rank: 11,
-            storage_scope: StorageScope::Runtime,
-        },
-    );
-    root_schema.fields.insert(
-        schema_change_ft,
-        FieldSchema::String {
-            field_type: schema_change_ft,
-            default_value: "".to_string(),
-            rank: 12,
-            storage_scope: StorageScope::Runtime,
-        },
-    );
+    store.perform_mut(vec![sschemaupdate!(object_schema)]).unwrap();
 
+    // Now get the interned types
+    let _object_et = store.get_entity_type("Object").unwrap();
+    let name_ft = store.get_field_type("Name").unwrap();
+    let description_ft = store.get_field_type("Description").unwrap();
+    let children_ft = store.get_field_type("Children").unwrap();
+
+    let mut root_schema = EntitySchema::<Single, String, String>::new("Root".to_string(), vec!["Object".to_string()]);
+    root_schema.fields.insert(
+        "CreatedEntity".to_string(),
+        FieldSchema::EntityReference {
+            field_type: "CreatedEntity".to_string(),
+            default_value: None,
+            rank: 3,
+            storage_scope: StorageScope::Runtime,
+        },
+    );
+    root_schema.fields.insert(
+        "DeletedEntity".to_string(),
+        FieldSchema::EntityReference {
+            field_type: "DeletedEntity".to_string(),
+            default_value: None,
+            rank: 4,
+            storage_scope: StorageScope::Runtime,
+        },
+    );
+    root_schema.fields.insert(
+        "SchemaChange".to_string(),
+        FieldSchema::String {
+            field_type: "SchemaChange".to_string(),
+            default_value: "".to_string(),
+            rank: 5,
+            storage_scope: StorageScope::Runtime,
+        },
+    );
+    
+    store.perform_mut(vec![sschemaupdate!(root_schema)]).unwrap();
+
+    // Now get the interned types
+    let root_et = store.get_entity_type("Root").unwrap();
+    let _created_entity_ft = store.get_field_type("CreatedEntity").unwrap();
+    let _deleted_entity_ft = store.get_field_type("DeletedEntity").unwrap();
+    let _schema_change_ft = store.get_field_type("SchemaChange").unwrap();
+
+    let mut machine_schema = EntitySchema::<Single, String, String>::new("Machine".to_string(), vec!["Object".to_string()]);
+    machine_schema.fields.insert(
+        "Status".to_string(),
+        FieldSchema::String {
+            field_type: "Status".to_string(),
+            default_value: "Unknown".to_string(),
+            rank: 6,
+            storage_scope: StorageScope::Configuration,
+        },
+    );
+    
+    store.perform_mut(vec![sschemaupdate!(machine_schema)]).unwrap();
+
+    // Now get the interned types
     let machine_et = store.get_entity_type("Machine").unwrap();
     let status_ft = store.get_field_type("Status").unwrap();
-    
-    let mut machine_schema = EntitySchema::<Single>::new(machine_et, vec![object_et]);
-    machine_schema.fields.insert(
-        status_ft,
-        FieldSchema::Choice {
-            field_type: status_ft,
-            default_value: 1, // "Offline"
-            rank: 10,
-            storage_scope: StorageScope::Configuration,
-            choices: vec!["Online".to_string(), "Offline".to_string()],
+
+    let mut sensor_schema = EntitySchema::<Single, String, String>::new("Sensor".to_string(), vec!["Object".to_string()]);
+    sensor_schema.fields.insert(
+        "CurrentValue".to_string(),
+        FieldSchema::Float {
+            field_type: "CurrentValue".to_string(),
+            default_value: 0.0,
+            rank: 7,
+            storage_scope: StorageScope::Runtime,
         },
     );
+    sensor_schema.fields.insert(
+        "Unit".to_string(),
+        FieldSchema::String {
+            field_type: "Unit".to_string(),
+            default_value: "".to_string(),
+            rank: 8,
+            storage_scope: StorageScope::Configuration,
+        },
+    );
+    sensor_schema.fields.insert(
+        "LastUpdated".to_string(),
+        FieldSchema::Timestamp {
+            field_type: "LastUpdated".to_string(),
+            default_value: now(),
+            rank: 9,
+            storage_scope: StorageScope::Runtime,
+        },
+    );
+    
+    store.perform_mut(vec![sschemaupdate!(sensor_schema)]).unwrap();
 
-    let sensor_et = store.get_entity_type("Sensor").unwrap();
+    // Now get the interned types
+    let _sensor_et = store.get_entity_type("Sensor").unwrap();
     let current_value_ft = store.get_field_type("CurrentValue").unwrap();
     let unit_ft = store.get_field_type("Unit").unwrap();
-    let last_updated_ft = store.get_field_type("LastUpdated").unwrap();
-    
-    let mut sensor_schema = EntitySchema::<Single>::new(sensor_et, vec![object_et]);
-    sensor_schema.fields.insert(
-        current_value_ft,
+    let _last_updated_ft = store.get_field_type("LastUpdated").unwrap();
+
+    let mut temp_sensor_schema = EntitySchema::<Single, String, String>::new("TemperatureSensor".to_string(), vec!["Sensor".to_string()]);
+    temp_sensor_schema.fields.insert(
+        "CalibrationOffset".to_string(),
         FieldSchema::Float {
-            field_type: current_value_ft,
+            field_type: "CalibrationOffset".to_string(),
             default_value: 0.0,
             rank: 10,
-            storage_scope: StorageScope::Runtime,
-        },
-    );
-    sensor_schema.fields.insert(
-        unit_ft,
-        FieldSchema::String {
-            field_type: unit_ft,
-            default_value: "".to_string(),
-            rank: 11,
             storage_scope: StorageScope::Configuration,
         },
     );
-    sensor_schema.fields.insert(
-        last_updated_ft,
-        FieldSchema::Timestamp {
-            field_type: last_updated_ft,
-            default_value: time::OffsetDateTime::UNIX_EPOCH,
-            rank: 12,
-            storage_scope: StorageScope::Runtime,
-        },
-    );
+    
+    store.perform_mut(vec![sschemaupdate!(temp_sensor_schema)]).unwrap();
 
+    // Now get the interned types
     let temp_sensor_et = store.get_entity_type("TemperatureSensor").unwrap();
     let calibration_offset_ft = store.get_field_type("CalibrationOffset").unwrap();
-    
-    let mut temp_sensor_schema = EntitySchema::<Single>::new(temp_sensor_et, vec![sensor_et]);
-    temp_sensor_schema.fields.insert(
-        calibration_offset_ft,
-        FieldSchema::Float {
-            field_type: calibration_offset_ft,
-            default_value: 0.0,
-            rank: 13,
-            storage_scope: StorageScope::Configuration,
-        },
-    );
 
-    // Add schemas to the store
-    store.perform_mut(vec![
-        sschemaupdate!(object_schema.to_string_schema(&store)),
-        sschemaupdate!(root_schema.to_string_schema(&store)),
-        sschemaupdate!(machine_schema.to_string_schema(&store)),
-        sschemaupdate!(sensor_schema.to_string_schema(&store)),
-        sschemaupdate!(temp_sensor_schema.to_string_schema(&store)),
-    ]).unwrap();
+    // Update the FT and ET structs after creating schemas
+    store.ft = Some(crate::ft::FT::new(&store));
+    store.et = Some(crate::et::ET::new(&store));
 
     // Create entities - let the store generate IDs
     let create_requests = store.perform_mut(vec![
@@ -203,7 +221,7 @@ fn test_json_snapshot_functionality() {
         swrite!(root_id.clone(), vec![children_ft], Some(Value::EntityList(vec![machine_id.clone()]))),
         
         swrite!(machine_id.clone(), vec![name_ft], Some(Value::String("Server1".to_string()))),
-        swrite!(machine_id.clone(), vec![status_ft], Some(Value::Choice(0))), // "Online"
+        swrite!(machine_id.clone(), vec![status_ft], Some(Value::String("Online".to_string()))),
         swrite!(machine_id.clone(), vec![children_ft], Some(Value::EntityList(vec![sensor_id.clone()]))),
         
         swrite!(sensor_id.clone(), vec![name_ft], Some(Value::String("IntakeTemp".to_string()))),
@@ -258,62 +276,69 @@ fn test_json_snapshot_restore() {
     // Create and populate the first store
     let mut store1 = Store::new();
 
-    // Define schemas
-    let object_et = store1.get_entity_type("Object").unwrap();
-    let name_ft = store1.get_field_type("Name").unwrap();
-    let description_ft = store1.get_field_type("Description").unwrap();
-    let children_ft = store1.get_field_type("Children").unwrap();
-    
-    let mut object_schema = EntitySchema::<Single>::new(object_et, vec![]);
+    // Define schemas using strings first  
+    let mut object_schema = EntitySchema::<Single, String, String>::new("Object".to_string(), vec![]);
     object_schema.fields.insert(
-        name_ft,
+        "Name".to_string(),
         FieldSchema::String {
-            field_type: name_ft,
+            field_type: "Name".to_string(),
             default_value: "".to_string(),
             rank: 0,
             storage_scope: StorageScope::Configuration,
         },
     );
     object_schema.fields.insert(
-        description_ft,
+        "Description".to_string(),
         FieldSchema::String {
-            field_type: description_ft,
+            field_type: "Description".to_string(),
             default_value: "".to_string(),
             rank: 1,
             storage_scope: StorageScope::Configuration,
         },
     );
     object_schema.fields.insert(
-        children_ft,
-        FieldSchema::EntityList {
-            field_type: children_ft,
-            default_value: vec![],
+        "Parent".to_string(),
+        FieldSchema::EntityReference {
+            field_type: "Parent".to_string(),
+            default_value: None,
             rank: 2,
             storage_scope: StorageScope::Configuration,
         },
     );
+    object_schema.fields.insert(
+        "Children".to_string(),
+        FieldSchema::EntityList {
+            field_type: "Children".to_string(),
+            default_value: vec![],
+            rank: 3,
+            storage_scope: StorageScope::Configuration,
+        },
+    );
 
-    let root_et = store1.get_entity_type("Root").unwrap();
-    let status_ft = store1.get_field_type("Status").unwrap();
-    let document_et = store1.get_entity_type("Document").unwrap();
-    let content_ft = store1.get_field_type("Content").unwrap();
+    store1.perform_mut(vec![sschemaupdate!(object_schema)]).unwrap();
+
+    // Now get the interned types
+    let _object_et = store1.get_entity_type("Object").unwrap();
+    let name_ft = store1.get_field_type("Name").unwrap();
+    let description_ft = store1.get_field_type("Description").unwrap();
+    let children_ft = store1.get_field_type("Children").unwrap();
     
-    let mut root_schema = EntitySchema::<Single>::new(root_et, vec![object_et]);
+    let mut root_schema = EntitySchema::<Single, String, String>::new("Root".to_string(), vec!["Object".to_string()]);
     root_schema.fields.insert(
-        status_ft,
+        "Status".to_string(),
         FieldSchema::String {
-            field_type: status_ft,
+            field_type: "Status".to_string(),
             default_value: "Active".to_string(),
             rank: 10,
             storage_scope: StorageScope::Configuration,
         },
     );
 
-    let mut document_schema = EntitySchema::<Single>::new(document_et, vec![object_et]);
+    let mut document_schema = EntitySchema::<Single, String, String>::new("Document".to_string(), vec!["Object".to_string()]);
     document_schema.fields.insert(
-        content_ft,
+        "Content".to_string(),
         FieldSchema::String {
-            field_type: content_ft,
+            field_type: "Content".to_string(),
             default_value: "".to_string(),
             rank: 10,
             storage_scope: StorageScope::Configuration,
@@ -322,10 +347,19 @@ fn test_json_snapshot_restore() {
 
     // Add schemas to store1
     store1.perform_mut(vec![
-        sschemaupdate!(object_schema.to_string_schema(&store1)),
-        sschemaupdate!(root_schema.to_string_schema(&store1)),
-        sschemaupdate!(document_schema.to_string_schema(&store1)),
+        sschemaupdate!(root_schema),
+        sschemaupdate!(document_schema),
     ]).unwrap();
+
+    // Now get the interned types for these new schemas
+    let root_et = store1.get_entity_type("Root").unwrap();
+    let status_ft = store1.get_field_type("Status").unwrap();
+    let document_et = store1.get_entity_type("Document").unwrap();
+    let content_ft = store1.get_field_type("Content").unwrap();
+
+    // Update the FT and ET structs after creating all schemas
+    store1.ft = Some(crate::ft::FT::new(&store1));
+    store1.et = Some(crate::et::ET::new(&store1));
 
     // Create entities in store1
     let create_requests = store1.perform_mut(vec![
