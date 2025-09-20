@@ -11,7 +11,7 @@ use crate::{
     Complete, EntityId, EntitySchema, EntityType, Error, FieldSchema, FieldType, Notification, NotificationQueue, NotifyConfig, hash_notify_config, PageOpts, PageResult, Request, Result, Single
 };
 use crate::data::StoreTrait;
-use crate::protocol::{MessageBuffer, encode_store_message, encode_fast_store_message, FastStoreMessage, FastStoreMessageType};
+use crate::protocol::{MessageBuffer, encode_store_message, encode_fast_store_message, FastStoreMessage};
 
 /// Result of authentication attempt
 #[derive(Debug, Clone, Serialize, Deserialize)]

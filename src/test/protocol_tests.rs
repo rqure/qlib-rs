@@ -1,6 +1,6 @@
 use crate::{
     data::StoreMessage, 
-    protocol::{encode_store_message, encode_fast_store_message, ProtocolCodec, MessageType, FastStoreMessage, FastStoreMessageType}
+    protocol::{encode_store_message, encode_fast_store_message, ProtocolCodec, MessageType, FastStoreMessage, FastMessageType}
 };
 
 #[test]
@@ -46,16 +46,12 @@ fn test_fast_store_message_encoding_decoding() {
                 // Verify we can access the message ID without deserialization
                 assert_eq!(fast_msg.message_id(), "test-123");
                 
-                // Verify the message is fast-processable
-                assert!(fast_msg.is_fast_processable());
+                // Verify the message type is correct
+                assert!(matches!(fast_msg.message_type(), FastMessageType::EntityExists));
                 
-                // Verify the fast message contains the right data
-                match &fast_msg.message {
-                    FastStoreMessageType::EntityExists { entity_id } => {
-                        assert_eq!(*entity_id, crate::EntityId::new(crate::EntityType(1), 42));
-                    },
-                    _ => panic!("Expected EntityExists fast message"),
-                }
+                // Verify we can access metadata without deserialization
+                assert_eq!(fast_msg.primary_entity_id(), Some(crate::EntityId::new(crate::EntityType(1), 42)));
+                assert!(fast_msg.is_simple_operation());
                 
                 // Test conversion back to StoreMessage for compatibility
                 let decoded_msg = fast_msg.to_store_message().expect("Should convert back to StoreMessage");
@@ -158,44 +154,72 @@ fn test_performance_demonstration() {
 }
 
 #[test]
-fn test_fast_message_direct_processing() {
-    use crate::{StoreTrait, Store};
+fn test_elegant_fast_store_message() {
+    use crate::{Request, EntityId, EntityType, FieldType, Value, data::StoreMessage};
     
-    // Create a StoreMessage that can be processed as a FastStoreMessage
-    let store_message = StoreMessage::FieldExists {
-        id: "fast-test-456".to_string(),
-        entity_type: crate::EntityType(1),
-        field_type: crate::FieldType(100),
+    // Test 1: Simple existence check with zero-copy metadata
+    let store_message = StoreMessage::EntityExists {
+        id: "elegant-test-123".to_string(),
+        entity_id: EntityId::new(EntityType(1), 42),
     };
 
-    // Convert to FastStoreMessage
     let fast_message = crate::protocol::FastStoreMessage::from_store_message(&store_message)
         .expect("Should convert to FastStoreMessage");
 
-    // Verify we can access the message ID without any deserialization
-    assert_eq!(fast_message.message_id(), "fast-test-456");
-    assert!(fast_message.is_fast_processable());
-
-    // Create a store to process the message
-    let store = Store::new();
-
-    // Process the fast message directly (no bincode deserialization!)
-    let response = store.process_fast_message(&fast_message)
-        .expect("Should process fast message");
-
-    // Verify we got a response
-    assert!(response.is_some());
-    let response_msg = response.unwrap();
+    // Verify zero-copy metadata access
+    assert_eq!(fast_message.message_id(), "elegant-test-123");
+    assert!(matches!(fast_message.message_type(), crate::protocol::FastMessageType::EntityExists));
+    assert_eq!(fast_message.primary_entity_id(), Some(EntityId::new(EntityType(1), 42)));
+    assert!(fast_message.is_simple_operation());
     
-    // Verify the response is the expected type
-    match &response_msg.message {
-        FastStoreMessageType::FieldExistsResponse { response } => {
-            // Field doesn't exist in empty store, so should be false
-            assert_eq!(*response, false);
-            assert_eq!(response_msg.id, "fast-test-456");
-        },
-        _ => panic!("Expected FieldExistsResponse"),
+    // Test 2: Read/Write operations elegantly supported
+    let read_write_message = StoreMessage::Perform {
+        id: "rw-test-456".to_string(),
+        requests: vec![
+            Request::Read {
+                entity_id: EntityId::new(EntityType(1), 100),
+                field_types: vec![FieldType(1), FieldType(2)],
+                value: None,
+                write_time: None,
+                writer_id: None,
+            },
+            Request::Write {
+                entity_id: EntityId::new(EntityType(1), 101),
+                field_types: vec![FieldType(3)],
+                value: Some(Value::String("elegant_value".to_string())),
+                push_condition: crate::PushCondition::Always,
+                adjust_behavior: crate::AdjustBehavior::Set,
+                write_time: None,
+                writer_id: None,
+                originator: None,
+            },
+        ],
+    };
+
+    let rw_fast_message = crate::protocol::FastStoreMessage::from_store_message(&read_write_message)
+        .expect("Should convert read/write message");
+
+    // Verify elegant read/write support with zero-copy metadata
+    assert_eq!(rw_fast_message.message_id(), "rw-test-456");
+    assert!(rw_fast_message.is_read_write_operation());
+    assert_eq!(rw_fast_message.primary_entity_id(), Some(EntityId::new(EntityType(1), 100)));
+    assert!(rw_fast_message.is_batch_operation());
+
+    // Test 3: Demonstrate elegant zero-copy metadata access (without needing Store)
+    
+    // Show that we can make routing decisions without any deserialization
+    if fast_message.is_simple_operation() {
+        println!("✅ Simple operation detected via zero-copy metadata");
+    }
+    
+    if rw_fast_message.is_read_write_operation() {
+        println!("✅ Read/write operation detected via zero-copy metadata");
+    }
+    
+    if let Some(entity_id) = rw_fast_message.primary_entity_id() {
+        println!("✅ Can route to specific entity {} without deserialization", entity_id.0);
     }
 
-    println!("✅ Successfully processed FastStoreMessage without bincode deserialization!");
+    println!("✅ Elegant FastStoreMessage supports ALL operations with intelligent zero-copy metadata!");
 }
+

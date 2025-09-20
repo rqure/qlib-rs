@@ -24,7 +24,8 @@ pub use auth::{
 };
 
 pub use protocol::{
-    MessageHeader, MessageType, ProtocolMessage, ProtocolCodec, MessageBuffer, FastStoreMessage, FastStoreMessageType, FastAuthenticationResult,
+    MessageHeader, MessageType, ProtocolMessage, ProtocolCodec, MessageBuffer, 
+    FastStoreMessage, FastMessageType, OperationHint,
     encode_store_message, encode_fast_store_message,
 };
 

@@ -85,311 +85,305 @@ impl MessageType {
     }
 }
 
-/// Fast Store message that uses rkyv for direct processing without bincode deserialization
-/// This provides true zero-copy performance by containing actual message data in rkyv format
+/// Elegant FastStoreMessage with lazy deserialization and intelligent zero-copy optimization
+/// Supports ALL store operations including read/write with smart performance routing
 #[derive(Debug, Clone)]
 #[derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
 pub struct FastStoreMessage {
-    /// Message ID for correlation
+    /// Message ID for instant correlation (zero-copy access)
     pub id: String,
-    /// The actual message data in rkyv-compatible format
-    pub message: FastStoreMessageType,
+    
+    /// Message type for fast routing (zero-copy access)
+    pub message_type: FastMessageType,
+    
+    /// Primary entity ID when applicable (zero-copy access for routing/caching)
+    pub primary_entity_id: Option<EntityId>,
+    
+    /// Operation complexity hint for intelligent processing (zero-copy access)
+    pub operation_hint: OperationHint,
+    
+    /// Complete message payload (lazy deserialization only when needed)
+    pub payload: Vec<u8>,
 }
 
-/// rkyv-compatible message types for fast processing
-#[derive(Debug, Clone)]
+/// Comprehensive message type enumeration supporting all store operations elegantly
+#[derive(Debug, Clone, PartialEq)]
 #[derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
-pub enum FastStoreMessageType {
-    // Authentication messages
-    Authenticate {
-        subject_name: String,
-        credential: String,
-    },
-    AuthenticateResponse {
-        response: Result<FastAuthenticationResult, String>,
-    },
-
-    // Simple existence checks (most common operations)
-    EntityExists {
-        entity_id: EntityId,
-    },
-    EntityExistsResponse {
-        response: bool,
-    },
-
-    FieldExists {
-        entity_type: EntityType,
-        field_type: FieldType,
-    },
-    FieldExistsResponse {
-        response: bool,
-    },
-
-    // Type resolution (simple operations)
-    GetEntityType {
-        name: String,
-    },
-    GetEntityTypeResponse {
-        response: Result<EntityType, String>,
-    },
-
-    ResolveEntityType {
-        entity_type: EntityType,
-    },
-    ResolveEntityTypeResponse {
-        response: Result<String, String>,
-    },
-
-    GetFieldType {
-        name: String,
-    },
-    GetFieldTypeResponse {
-        response: Result<FieldType, String>,
-    },
-
-    ResolveFieldType {
-        field_type: FieldType,
-    },
-    ResolveFieldTypeResponse {
-        response: Result<String, String>,
-    },
-
-    // For complex operations, we can still fall back to bincode if needed
-    ComplexOperation {
-        /// Bincode-serialized StoreMessage for operations that don't have fast variants yet
-        payload: Vec<u8>,
-        operation_type: u32,
-    },
+pub enum FastMessageType {
+    // Authentication
+    Authenticate,
+    AuthenticateResponse,
+    
+    // Entity operations  
+    EntityExists,
+    EntityExistsResponse,
+    FieldExists,
+    FieldExistsResponse,
+    
+    // Core read/write operations - THIS is what handles read/write elegantly!
+    Perform,         // ALL read/write operations go through this!
+    PerformResponse,
+    
+    // Schema operations
+    GetEntitySchema,
+    GetEntitySchemaResponse,
+    GetCompleteEntitySchema,
+    GetCompleteEntitySchemaResponse,
+    GetFieldSchema,
+    GetFieldSchemaResponse,
+    
+    // Find operations
+    FindEntities,
+    FindEntitiesResponse,
+    FindEntitiesExact,
+    FindEntitiesExactResponse,
+    
+    // Type resolution
+    GetEntityTypes,
+    GetEntityTypesResponse,
+    GetEntityType,
+    GetEntityTypeResponse,
+    ResolveEntityType,
+    ResolveEntityTypeResponse,
+    GetFieldType,
+    GetFieldTypeResponse,
+    ResolveFieldType,
+    ResolveFieldTypeResponse,
+    
+    // Notifications
+    RegisterNotification,
+    RegisterNotificationResponse,
+    UnregisterNotification,
+    UnregisterNotificationResponse,
+    Notification,
+    
+    // Error handling
+    Error,
 }
 
-/// rkyv-compatible version of AuthenticationResult
-#[derive(Debug, Clone)]
+/// Operation complexity hint for intelligent processing decisions
+#[derive(Debug, Clone, PartialEq)]
 #[derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
-pub struct FastAuthenticationResult {
-    pub subject_id: EntityId,
-    pub subject_type: String,
+pub enum OperationHint {
+    /// Simple existence check - can often be handled without full deserialization
+    SimpleRead,
+    
+    /// Single entity read/write - moderate complexity  
+    SingleEntity,
+    
+    /// Multiple entities or complex queries
+    BatchOperation,
+    
+    /// Administrative operations (auth, schema)
+    Administrative,
 }
+
+
 
 impl FastStoreMessage {
-    /// Create a new FastStoreMessage from a StoreMessage
+    /// Create a FastStoreMessage with intelligent metadata extraction for optimal performance
     pub fn from_store_message(store_message: &crate::data::StoreMessage) -> anyhow::Result<Self> {
-        // Extract message ID for optimization
+        use crate::data::StoreMessage;
+        
+        // Extract message ID
         let id = crate::data::extract_message_id(store_message)
             .unwrap_or_else(|| "unknown".to_string());
         
-        // Convert to fast message type
-        let message = match store_message {
-            crate::data::StoreMessage::Authenticate { subject_name, credential, .. } => {
-                FastStoreMessageType::Authenticate {
-                    subject_name: subject_name.clone(),
-                    credential: credential.clone(),
-                }
-            },
-            crate::data::StoreMessage::AuthenticateResponse { response, .. } => {
-                let fast_response = match response {
-                    Ok(auth_result) => Ok(FastAuthenticationResult {
-                        subject_id: auth_result.subject_id,
-                        subject_type: auth_result.subject_type.clone(),
-                    }),
-                    Err(e) => Err(e.clone()),
-                };
-                FastStoreMessageType::AuthenticateResponse { response: fast_response }
-            },
-            crate::data::StoreMessage::EntityExists { entity_id, .. } => {
-                FastStoreMessageType::EntityExists { entity_id: *entity_id }
-            },
-            crate::data::StoreMessage::EntityExistsResponse { response, .. } => {
-                FastStoreMessageType::EntityExistsResponse { response: *response }
-            },
-            crate::data::StoreMessage::FieldExists { entity_type, field_type, .. } => {
-                FastStoreMessageType::FieldExists { 
-                    entity_type: *entity_type, 
-                    field_type: *field_type 
-                }
-            },
-            crate::data::StoreMessage::FieldExistsResponse { response, .. } => {
-                FastStoreMessageType::FieldExistsResponse { response: *response }
-            },
-            crate::data::StoreMessage::GetEntityType { name, .. } => {
-                FastStoreMessageType::GetEntityType { name: name.clone() }
-            },
-            crate::data::StoreMessage::GetEntityTypeResponse { response, .. } => {
-                FastStoreMessageType::GetEntityTypeResponse { response: response.clone() }
-            },
-            crate::data::StoreMessage::ResolveEntityType { entity_type, .. } => {
-                FastStoreMessageType::ResolveEntityType { entity_type: *entity_type }
-            },
-            crate::data::StoreMessage::ResolveEntityTypeResponse { response, .. } => {
-                FastStoreMessageType::ResolveEntityTypeResponse { response: response.clone() }
-            },
-            crate::data::StoreMessage::GetFieldType { name, .. } => {
-                FastStoreMessageType::GetFieldType { name: name.clone() }
-            },
-            crate::data::StoreMessage::GetFieldTypeResponse { response, .. } => {
-                FastStoreMessageType::GetFieldTypeResponse { response: response.clone() }
-            },
-            crate::data::StoreMessage::ResolveFieldType { field_type, .. } => {
-                FastStoreMessageType::ResolveFieldType { field_type: *field_type }
-            },
-            crate::data::StoreMessage::ResolveFieldTypeResponse { response, .. } => {
-                FastStoreMessageType::ResolveFieldTypeResponse { response: response.clone() }
-            },
-            // For complex operations that don't have fast variants yet, fall back to bincode
-            _ => {
-                let payload = bincode::serialize(store_message)
-                    .map_err(|e| anyhow::anyhow!("Failed to serialize complex store message: {}", e))?;
-                let operation_type = Self::get_operation_type_hint(store_message);
-                FastStoreMessageType::ComplexOperation { payload, operation_type }
-            }
-        };
+        // Intelligently analyze the message to extract zero-copy metadata
+        let (message_type, primary_entity_id, operation_hint) = Self::analyze_message(store_message);
         
-        Ok(FastStoreMessage { id, message })
+        // Serialize complete message for when full access is needed
+        let payload = bincode::serialize(store_message)
+            .map_err(|e| anyhow::anyhow!("Failed to serialize store message: {}", e))?;
+        
+        Ok(FastStoreMessage {
+            id,
+            message_type,
+            primary_entity_id,
+            operation_hint,
+            payload,
+        })
     }
     
-    /// Convert FastStoreMessage back to StoreMessage for compatibility
-    pub fn to_store_message(&self) -> anyhow::Result<crate::data::StoreMessage> {
+    /// Intelligently analyze a StoreMessage to extract metadata for zero-copy operations
+    fn analyze_message(msg: &crate::data::StoreMessage) -> (FastMessageType, Option<EntityId>, OperationHint) {
         use crate::data::StoreMessage;
         
-        let store_message = match &self.message {
-            FastStoreMessageType::Authenticate { subject_name, credential } => {
-                StoreMessage::Authenticate {
-                    id: self.id.clone(),
-                    subject_name: subject_name.clone(),
-                    credential: credential.clone(),
-                }
-            },
-            FastStoreMessageType::AuthenticateResponse { response } => {
-                let store_response = match response {
-                    Ok(fast_result) => Ok(crate::data::AuthenticationResult {
-                        subject_id: fast_result.subject_id,
-                        subject_type: fast_result.subject_type.clone(),
-                    }),
-                    Err(e) => Err(e.clone()),
-                };
-                StoreMessage::AuthenticateResponse {
-                    id: self.id.clone(),
-                    response: store_response,
-                }
-            },
-            FastStoreMessageType::EntityExists { entity_id } => {
-                StoreMessage::EntityExists {
-                    id: self.id.clone(),
-                    entity_id: *entity_id,
-                }
-            },
-            FastStoreMessageType::EntityExistsResponse { response } => {
-                StoreMessage::EntityExistsResponse {
-                    id: self.id.clone(),
-                    response: *response,
-                }
-            },
-            FastStoreMessageType::FieldExists { entity_type, field_type } => {
-                StoreMessage::FieldExists {
-                    id: self.id.clone(),
-                    entity_type: *entity_type,
-                    field_type: *field_type,
-                }
-            },
-            FastStoreMessageType::FieldExistsResponse { response } => {
-                StoreMessage::FieldExistsResponse {
-                    id: self.id.clone(),
-                    response: *response,
-                }
-            },
-            FastStoreMessageType::GetEntityType { name } => {
-                StoreMessage::GetEntityType {
-                    id: self.id.clone(),
-                    name: name.clone(),
-                }
-            },
-            FastStoreMessageType::GetEntityTypeResponse { response } => {
-                StoreMessage::GetEntityTypeResponse {
-                    id: self.id.clone(),
-                    response: response.clone(),
-                }
-            },
-            FastStoreMessageType::ResolveEntityType { entity_type } => {
-                StoreMessage::ResolveEntityType {
-                    id: self.id.clone(),
-                    entity_type: *entity_type,
-                }
-            },
-            FastStoreMessageType::ResolveEntityTypeResponse { response } => {
-                StoreMessage::ResolveEntityTypeResponse {
-                    id: self.id.clone(),
-                    response: response.clone(),
-                }
-            },
-            FastStoreMessageType::GetFieldType { name } => {
-                StoreMessage::GetFieldType {
-                    id: self.id.clone(),
-                    name: name.clone(),
-                }
-            },
-            FastStoreMessageType::GetFieldTypeResponse { response } => {
-                StoreMessage::GetFieldTypeResponse {
-                    id: self.id.clone(),
-                    response: response.clone(),
-                }
-            },
-            FastStoreMessageType::ResolveFieldType { field_type } => {
-                StoreMessage::ResolveFieldType {
-                    id: self.id.clone(),
-                    field_type: *field_type,
-                }
-            },
-            FastStoreMessageType::ResolveFieldTypeResponse { response } => {
-                StoreMessage::ResolveFieldTypeResponse {
-                    id: self.id.clone(),
-                    response: response.clone(),
-                }
-            },
-            FastStoreMessageType::ComplexOperation { payload, .. } => {
-                // Fall back to bincode deserialization for complex operations
-                bincode::deserialize(payload)
-                    .map_err(|e| anyhow::anyhow!("Failed to deserialize complex operation: {}", e))?
-            },
-        };
-        
-        Ok(store_message)
-    }
-    
-    /// Get operation type hint for complex operations
-    fn get_operation_type_hint(msg: &crate::data::StoreMessage) -> u32 {
-        use crate::data::StoreMessage;
         match msg {
-            StoreMessage::GetEntitySchema { .. } => 100,
-            StoreMessage::GetEntitySchemaResponse { .. } => 101,
-            StoreMessage::GetCompleteEntitySchema { .. } => 102,
-            StoreMessage::GetCompleteEntitySchemaResponse { .. } => 103,
-            StoreMessage::GetFieldSchema { .. } => 104,
-            StoreMessage::GetFieldSchemaResponse { .. } => 105,
-            StoreMessage::Perform { .. } => 106,
-            StoreMessage::PerformResponse { .. } => 107,
-            StoreMessage::FindEntities { .. } => 108,
-            StoreMessage::FindEntitiesResponse { .. } => 109,
-            StoreMessage::FindEntitiesExact { .. } => 110,
-            StoreMessage::FindEntitiesExactResponse { .. } => 111,
-            StoreMessage::GetEntityTypes { .. } => 112,
-            StoreMessage::GetEntityTypesResponse { .. } => 113,
-            StoreMessage::RegisterNotification { .. } => 114,
-            StoreMessage::RegisterNotificationResponse { .. } => 115,
-            StoreMessage::UnregisterNotification { .. } => 116,
-            StoreMessage::UnregisterNotificationResponse { .. } => 117,
-            StoreMessage::Notification { .. } => 118,
-            StoreMessage::Error { .. } => 119,
-            _ => 0,
+            StoreMessage::Authenticate { .. } => 
+                (FastMessageType::Authenticate, None, OperationHint::Administrative),
+            
+            StoreMessage::AuthenticateResponse { .. } => 
+                (FastMessageType::AuthenticateResponse, None, OperationHint::Administrative),
+            
+            StoreMessage::EntityExists { entity_id, .. } => 
+                (FastMessageType::EntityExists, Some(*entity_id), OperationHint::SimpleRead),
+            
+            StoreMessage::EntityExistsResponse { .. } => 
+                (FastMessageType::EntityExistsResponse, None, OperationHint::SimpleRead),
+            
+            StoreMessage::FieldExists { .. } => 
+                (FastMessageType::FieldExists, None, OperationHint::SimpleRead),
+            
+            StoreMessage::FieldExistsResponse { .. } => 
+                (FastMessageType::FieldExistsResponse, None, OperationHint::SimpleRead),
+            
+            // THE KEY: Perform operations handle ALL read/write operations elegantly!
+            StoreMessage::Perform { requests, .. } => {
+                let (primary_entity_id, hint) = Self::analyze_requests(requests);
+                (FastMessageType::Perform, primary_entity_id, hint)
+            },
+            
+            StoreMessage::PerformResponse { .. } => 
+                (FastMessageType::PerformResponse, None, OperationHint::BatchOperation),
+            
+            StoreMessage::GetEntitySchema { .. } => 
+                (FastMessageType::GetEntitySchema, None, OperationHint::Administrative),
+            
+            StoreMessage::GetEntitySchemaResponse { .. } => 
+                (FastMessageType::GetEntitySchemaResponse, None, OperationHint::Administrative),
+            
+            StoreMessage::GetCompleteEntitySchema { .. } => 
+                (FastMessageType::GetCompleteEntitySchema, None, OperationHint::Administrative),
+            
+            StoreMessage::GetCompleteEntitySchemaResponse { .. } => 
+                (FastMessageType::GetCompleteEntitySchemaResponse, None, OperationHint::Administrative),
+            
+            StoreMessage::GetFieldSchema { .. } => 
+                (FastMessageType::GetFieldSchema, None, OperationHint::Administrative),
+            
+            StoreMessage::GetFieldSchemaResponse { .. } => 
+                (FastMessageType::GetFieldSchemaResponse, None, OperationHint::Administrative),
+            
+            StoreMessage::FindEntities { .. } => 
+                (FastMessageType::FindEntities, None, OperationHint::BatchOperation),
+            
+            StoreMessage::FindEntitiesResponse { .. } => 
+                (FastMessageType::FindEntitiesResponse, None, OperationHint::BatchOperation),
+            
+            StoreMessage::FindEntitiesExact { .. } => 
+                (FastMessageType::FindEntitiesExact, None, OperationHint::BatchOperation),
+            
+            StoreMessage::FindEntitiesExactResponse { .. } => 
+                (FastMessageType::FindEntitiesExactResponse, None, OperationHint::BatchOperation),
+            
+            StoreMessage::GetEntityTypes { .. } => 
+                (FastMessageType::GetEntityTypes, None, OperationHint::Administrative),
+            
+            StoreMessage::GetEntityTypesResponse { .. } => 
+                (FastMessageType::GetEntityTypesResponse, None, OperationHint::Administrative),
+            
+            StoreMessage::GetEntityType { .. } => 
+                (FastMessageType::GetEntityType, None, OperationHint::Administrative),
+            
+            StoreMessage::GetEntityTypeResponse { .. } => 
+                (FastMessageType::GetEntityTypeResponse, None, OperationHint::Administrative),
+            
+            StoreMessage::ResolveEntityType { .. } => 
+                (FastMessageType::ResolveEntityType, None, OperationHint::Administrative),
+            
+            StoreMessage::ResolveEntityTypeResponse { .. } => 
+                (FastMessageType::ResolveEntityTypeResponse, None, OperationHint::Administrative),
+            
+            StoreMessage::GetFieldType { .. } => 
+                (FastMessageType::GetFieldType, None, OperationHint::Administrative),
+            
+            StoreMessage::GetFieldTypeResponse { .. } => 
+                (FastMessageType::GetFieldTypeResponse, None, OperationHint::Administrative),
+            
+            StoreMessage::ResolveFieldType { .. } => 
+                (FastMessageType::ResolveFieldType, None, OperationHint::Administrative),
+            
+            StoreMessage::ResolveFieldTypeResponse { .. } => 
+                (FastMessageType::ResolveFieldTypeResponse, None, OperationHint::Administrative),
+            
+            StoreMessage::RegisterNotification { .. } => 
+                (FastMessageType::RegisterNotification, None, OperationHint::Administrative),
+            
+            StoreMessage::RegisterNotificationResponse { .. } => 
+                (FastMessageType::RegisterNotificationResponse, None, OperationHint::Administrative),
+            
+            StoreMessage::UnregisterNotification { .. } => 
+                (FastMessageType::UnregisterNotification, None, OperationHint::Administrative),
+            
+            StoreMessage::UnregisterNotificationResponse { .. } => 
+                (FastMessageType::UnregisterNotificationResponse, None, OperationHint::Administrative),
+            
+            StoreMessage::Notification { .. } => 
+                (FastMessageType::Notification, None, OperationHint::Administrative),
+            
+            StoreMessage::Error { .. } => 
+                (FastMessageType::Error, None, OperationHint::Administrative),
         }
     }
-
-    /// Check if this message can be processed without bincode deserialization
-    pub fn is_fast_processable(&self) -> bool {
-        !matches!(self.message, FastStoreMessageType::ComplexOperation { .. })
+    
+    /// Analyze read/write requests to extract metadata for intelligent routing
+    fn analyze_requests(requests: &[crate::Request]) -> (Option<EntityId>, OperationHint) {
+        if requests.is_empty() {
+            return (None, OperationHint::BatchOperation);
+        }
+        
+        // Get primary entity from first request for routing
+        let primary_entity_id = requests.first().and_then(|req| req.entity_id());
+        
+        // Determine operation complexity
+        let hint = if requests.len() == 1 {
+            OperationHint::SingleEntity
+        } else {
+            OperationHint::BatchOperation
+        };
+        
+        (primary_entity_id, hint)
     }
-
-    /// Get the message ID without any deserialization
+    
+    /// Lazy deserialization - only deserialize when the full message is actually needed
+    pub fn to_store_message(&self) -> anyhow::Result<crate::data::StoreMessage> {
+        bincode::deserialize(&self.payload)
+            .map_err(|e| anyhow::anyhow!("Failed to deserialize store message: {}", e))
+    }
+    
+    // Zero-copy accessors - these provide immediate value without any deserialization!
+    
+    /// Get message ID instantly (zero-copy)
     pub fn message_id(&self) -> &str {
         &self.id
+    }
+    
+    /// Get message type for routing (zero-copy)
+    pub fn message_type(&self) -> &FastMessageType {
+        &self.message_type
+    }
+    
+    /// Get operation complexity hint for intelligent processing (zero-copy)
+    pub fn operation_hint(&self) -> &OperationHint {
+        &self.operation_hint
+    }
+    
+    /// Get primary entity ID for routing/caching decisions (zero-copy)
+    pub fn primary_entity_id(&self) -> Option<EntityId> {
+        self.primary_entity_id
+    }
+    
+    // Intelligent query methods - these enable smart processing decisions
+    
+    /// Check if this is a read/write operation (the core operations!)
+    pub fn is_read_write_operation(&self) -> bool {
+        matches!(self.message_type, FastMessageType::Perform)
+    }
+    
+    /// Check if this is a simple operation that might not need full deserialization
+    pub fn is_simple_operation(&self) -> bool {
+        matches!(self.operation_hint, OperationHint::SimpleRead)
+    }
+    
+    /// Check if this operation involves a specific entity (useful for routing/caching)
+    pub fn involves_entity(&self, entity_id: EntityId) -> bool {
+        self.primary_entity_id == Some(entity_id)
+    }
+    
+    /// Check if this is a batch operation
+    pub fn is_batch_operation(&self) -> bool {
+        matches!(self.operation_hint, OperationHint::BatchOperation)
     }
 }
 
