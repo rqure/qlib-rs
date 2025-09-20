@@ -647,9 +647,112 @@ pub fn restore_json_snapshot<T: StoreTrait>(store: &mut T, json_snapshot: &JsonS
         // Store the maximum rank for this schema type
         max_ranks.insert(json_schema.entity_type.clone(), current_max_rank);
         
-        let schema = adjusted_schema.to_entity_schema(store)?;
+        // Use the JSON schema directly as a string schema - this avoids the entity type lookup issue
+        // The SchemaUpdate request will handle the interning of entity types and field types
+        let mut string_schema = EntitySchema::<Single, String, String>::new(
+            adjusted_schema.entity_type.clone(),
+            adjusted_schema.inherits_from.clone()
+        );
+        
+        // Add fields to the schema
+        for field in &adjusted_schema.fields {
+            let field_schema = match field.data_type.as_str() {
+                "Blob" => FieldSchema::Blob {
+                    field_type: field.name.clone(),
+                    default_value: field.default.as_array().map(|arr| arr.iter().filter_map(|v| v.as_u64().map(|n| n as u8)).collect()).unwrap_or_default(),
+                    rank: field.rank.unwrap_or(0),
+                    storage_scope: match field.storage_scope.as_ref().map(|s| s.as_str()).unwrap_or("Configuration") {
+                        "Runtime" => crate::data::StorageScope::Runtime,
+                        _ => crate::data::StorageScope::Configuration,
+                    },
+                },
+                "Bool" => FieldSchema::Bool {
+                    field_type: field.name.clone(),
+                    default_value: field.default.as_bool().unwrap_or(false),
+                    rank: field.rank.unwrap_or(0),
+                    storage_scope: match field.storage_scope.as_ref().map(|s| s.as_str()).unwrap_or("Configuration") {
+                        "Runtime" => crate::data::StorageScope::Runtime,
+                        _ => crate::data::StorageScope::Configuration,
+                    },
+                },
+                "Choice" => FieldSchema::Choice {
+                    field_type: field.name.clone(),
+                    default_value: field.choices.as_ref().and_then(|choices| {
+                        field.default.as_str().and_then(|s| choices.iter().position(|c| c == s)).map(|i| i as i64)
+                    }).unwrap_or(0),
+                    rank: field.rank.unwrap_or(0),
+                    choices: field.choices.clone().unwrap_or_default(),
+                    storage_scope: match field.storage_scope.as_ref().map(|s| s.as_str()).unwrap_or("Configuration") {
+                        "Runtime" => crate::data::StorageScope::Runtime,
+                        _ => crate::data::StorageScope::Configuration,
+                    },
+                },
+                "EntityList" => FieldSchema::EntityList {
+                    field_type: field.name.clone(),
+                    default_value: Vec::new(), // Will be populated during entity creation
+                    rank: field.rank.unwrap_or(0),
+                    storage_scope: match field.storage_scope.as_ref().map(|s| s.as_str()).unwrap_or("Configuration") {
+                        "Runtime" => crate::data::StorageScope::Runtime,
+                        _ => crate::data::StorageScope::Configuration,
+                    },
+                },
+                "EntityReference" => FieldSchema::EntityReference {
+                    field_type: field.name.clone(),
+                    default_value: None, // Will be populated during entity creation
+                    rank: field.rank.unwrap_or(0),
+                    storage_scope: match field.storage_scope.as_ref().map(|s| s.as_str()).unwrap_or("Configuration") {
+                        "Runtime" => crate::data::StorageScope::Runtime,
+                        _ => crate::data::StorageScope::Configuration,
+                    },
+                },
+                "Float" => FieldSchema::Float {
+                    field_type: field.name.clone(),
+                    default_value: field.default.as_f64().unwrap_or(0.0),
+                    rank: field.rank.unwrap_or(0),
+                    storage_scope: match field.storage_scope.as_ref().map(|s| s.as_str()).unwrap_or("Configuration") {
+                        "Runtime" => crate::data::StorageScope::Runtime,
+                        _ => crate::data::StorageScope::Configuration,
+                    },
+                },
+                "Int" => FieldSchema::Int {
+                    field_type: field.name.clone(),
+                    default_value: field.default.as_i64().unwrap_or(0),
+                    rank: field.rank.unwrap_or(0),
+                    storage_scope: match field.storage_scope.as_ref().map(|s| s.as_str()).unwrap_or("Configuration") {
+                        "Runtime" => crate::data::StorageScope::Runtime,
+                        _ => crate::data::StorageScope::Configuration,
+                    },
+                },
+                "String" => FieldSchema::String {
+                    field_type: field.name.clone(),
+                    default_value: field.default.as_str().unwrap_or("").to_string(),
+                    rank: field.rank.unwrap_or(0),
+                    storage_scope: match field.storage_scope.as_ref().map(|s| s.as_str()).unwrap_or("Configuration") {
+                        "Runtime" => crate::data::StorageScope::Runtime,
+                        _ => crate::data::StorageScope::Configuration,
+                    },
+                },
+                "Timestamp" => FieldSchema::Timestamp {
+                    field_type: field.name.clone(),
+                    default_value: crate::data::epoch(),
+                    rank: field.rank.unwrap_or(0),
+                    storage_scope: match field.storage_scope.as_ref().map(|s| s.as_str()).unwrap_or("Configuration") {
+                        "Runtime" => crate::data::StorageScope::Runtime,
+                        _ => crate::data::StorageScope::Configuration,
+                    },
+                },
+                _ => FieldSchema::String {
+                    field_type: field.name.clone(),
+                    default_value: "".to_string(),
+                    rank: field.rank.unwrap_or(0),
+                    storage_scope: crate::data::StorageScope::Configuration,
+                },
+            };
+            string_schema.fields.insert(field.name.clone(), field_schema);
+        }
+        
         schema_requests.push(crate::Request::SchemaUpdate { 
-            schema: schema.to_string_schema(store), 
+            schema: string_schema, 
             timestamp: None,
             originator: None 
         });
