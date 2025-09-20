@@ -551,11 +551,9 @@ fn test_json_snapshot_path_resolution() {
     store.perform_mut(vec![sschemaupdate!(file_schema)]).unwrap();
 
     // Now we can get the interned types
-    let object_et = store.get_entity_type("Object").unwrap();
     let root_et = store.get_entity_type("Root").unwrap();
     let folder_et = store.get_entity_type("Folder").unwrap();
     let file_et = store.get_entity_type("File").unwrap();
-    let name_ft = store.get_field_type("Name").unwrap();
     let children_ft = store.get_field_type("Children").unwrap();
     let parent_ft = store.get_field_type("Parent").unwrap();
     let parent_folder_ft = store.get_field_type("ParentFolder").unwrap();
@@ -696,8 +694,6 @@ fn test_json_snapshot_storage_scope() {
 
     // Now we can get the interned types
     let root_et = store.get_entity_type("Root").unwrap();
-    let config_field_ft = store.get_field_type("ConfigField").unwrap();
-    let runtime_field_ft = store.get_field_type("RuntimeField").unwrap();
 
     // Create a root entity
     store.perform_mut(vec![

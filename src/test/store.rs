@@ -544,7 +544,6 @@ fn test_find_entities_pagination() -> Result<()> {
     
     // Now get the interned types
     let et_user = store.get_entity_type("User")?;
-    let ft_name = store.get_field_type("Name")?;
     
     // Create 10 test users
     for i in 0..10 {
@@ -705,11 +704,6 @@ fn test_find_entities_inheritance() -> Result<()> {
     let et_cat = store.get_entity_type("Cat")?;
     let et_bird = store.get_entity_type("Bird")?;
     
-    // And field types
-    let ft_name = store.get_field_type("Name")?;
-    let ft_fur_color = store.get_field_type("FurColor")?;
-    let ft_breed = store.get_field_type("Breed")?;
-    
     // Create test entities
     let create_requests = vec![
         screate!(et_animal, "Generic Animal".to_string()),
@@ -825,7 +819,6 @@ fn test_find_entities_cel_edge_cases() -> Result<()> {
     
     // Now get the interned types
     let et_user = store.get_entity_type("User")?;
-    let ft_name = store.get_field_type("Name")?;
     
     // Create test users
     let create_requests = vec![
@@ -912,7 +905,6 @@ fn test_complete_entity_schema_caching() -> Result<()> {
     store.perform_mut(requests)?;
     
     // Now get the interned types
-    let et_base = store.get_entity_type("BaseEntity")?;
     let et_derived = store.get_entity_type("DerivedEntity")?;
     let ft_base_field = store.get_field_type("BaseField")?;
     let ft_derived_field = store.get_field_type("DerivedField")?;
