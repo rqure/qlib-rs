@@ -610,7 +610,7 @@ fn test_find_entities_inheritance() -> Result<()> {
     
     // Create inheritance hierarchy: Animal -> Mammal -> Dog/Cat using string schemas first
     
-    // Create base Animal schema
+    // Create base Animal schema with required fields
     let mut animal_schema = EntitySchema::<Single, String, String>::new("Animal".to_string(), vec![]);
     animal_schema.fields.insert(
         "Name".to_string(),
@@ -618,6 +618,24 @@ fn test_find_entities_inheritance() -> Result<()> {
             field_type: "Name".to_string(),
             default_value: String::new(),
             rank: 0,
+            storage_scope: StorageScope::Runtime,
+        }
+    );
+    animal_schema.fields.insert(
+        "Parent".to_string(),
+        FieldSchema::EntityReference {
+            field_type: "Parent".to_string(),
+            default_value: None,
+            rank: 1,
+            storage_scope: StorageScope::Runtime,
+        }
+    );
+    animal_schema.fields.insert(
+        "Children".to_string(),
+        FieldSchema::EntityList {
+            field_type: "Children".to_string(),
+            default_value: vec![],
+            rank: 2,
             storage_scope: StorageScope::Runtime,
         }
     );

@@ -367,7 +367,8 @@ fn test_cel_executor_execute_with_entity_reference_field() -> Result<()> {
     let (mut store, entity_id) = setup_test_store_with_entity()?;
     
     // Test expression using entity reference field
-    let result = executor.execute("Manager == 'Manager$123'", entity_id, &mut store)?;
+    // The Manager field contains EntityId(4294967419) which is the new u64-based format
+    let result = executor.execute("Manager == 'EntityId(4294967419)'", entity_id, &mut store)?;
     
     match result {
         cel::Value::Bool(value) => assert_eq!(value, true),
@@ -620,7 +621,132 @@ fn test_cel_executor_execute_with_deep_indirection() -> Result<()> {
     let mut executor = CelExecutor::new();
     let mut store = Store::new();
 
-    // Create a deeper indirection chain: Employee -> Department -> Company
+    // Create schemas using strings first - perform_mut will intern the types
+    
+    // Create Company schema with required fields
+    let mut company_schema = EntitySchema::<Single, String, String>::new("Company".to_string(), vec![]);
+    company_schema.fields.insert(
+        "Name".to_string(),
+        FieldSchema::String {
+            field_type: "Name".to_string(),
+            default_value: String::new(),
+            rank: 0,
+            storage_scope: StorageScope::Runtime,
+        }
+    );
+    company_schema.fields.insert(
+        "Parent".to_string(),
+        FieldSchema::EntityReference {
+            field_type: "Parent".to_string(),
+            default_value: None,
+            rank: 1,
+            storage_scope: StorageScope::Runtime,
+        }
+    );
+    company_schema.fields.insert(
+        "Children".to_string(),
+        FieldSchema::EntityList {
+            field_type: "Children".to_string(),
+            default_value: vec![],
+            rank: 2,
+            storage_scope: StorageScope::Runtime,
+        }
+    );
+    company_schema.fields.insert(
+        "Founded".to_string(),
+        FieldSchema::Int {
+            field_type: "Founded".to_string(),
+            default_value: 0,
+            rank: 3,
+            storage_scope: StorageScope::Runtime,
+        }
+    );
+    let requests = vec![sschemaupdate!(company_schema)];
+    store.perform_mut(requests)?;
+    
+    // Create Department schema with company reference and required fields
+    let mut dept_schema = EntitySchema::<Single, String, String>::new("Department".to_string(), vec![]);
+    dept_schema.fields.insert(
+        "Name".to_string(),
+        FieldSchema::String {
+            field_type: "Name".to_string(),
+            default_value: String::new(),
+            rank: 0,
+            storage_scope: StorageScope::Runtime,
+        }
+    );
+    dept_schema.fields.insert(
+        "Parent".to_string(),
+        FieldSchema::EntityReference {
+            field_type: "Parent".to_string(),
+            default_value: None,
+            rank: 1,
+            storage_scope: StorageScope::Runtime,
+        }
+    );
+    dept_schema.fields.insert(
+        "Children".to_string(),
+        FieldSchema::EntityList {
+            field_type: "Children".to_string(),
+            default_value: vec![],
+            rank: 2,
+            storage_scope: StorageScope::Runtime,
+        }
+    );
+    dept_schema.fields.insert(
+        "Company".to_string(),
+        FieldSchema::EntityReference {
+            field_type: "Company".to_string(),
+            default_value: None,
+            rank: 3,
+            storage_scope: StorageScope::Runtime,
+        }
+    );
+    let requests = vec![sschemaupdate!(dept_schema)];
+    store.perform_mut(requests)?;
+    
+    // Create Employee schema with department reference and required fields
+    let mut employee_schema = EntitySchema::<Single, String, String>::new("Employee".to_string(), vec![]);
+    employee_schema.fields.insert(
+        "Name".to_string(),
+        FieldSchema::String {
+            field_type: "Name".to_string(),
+            default_value: String::new(),
+            rank: 0,
+            storage_scope: StorageScope::Runtime,
+        }
+    );
+    employee_schema.fields.insert(
+        "Parent".to_string(),
+        FieldSchema::EntityReference {
+            field_type: "Parent".to_string(),
+            default_value: None,
+            rank: 1,
+            storage_scope: StorageScope::Runtime,
+        }
+    );
+    employee_schema.fields.insert(
+        "Children".to_string(),
+        FieldSchema::EntityList {
+            field_type: "Children".to_string(),
+            default_value: vec![],
+            rank: 2,
+            storage_scope: StorageScope::Runtime,
+        }
+    );
+    employee_schema.fields.insert(
+        "Department".to_string(),
+        FieldSchema::EntityReference {
+            field_type: "Department".to_string(),
+            default_value: None,
+            rank: 3,
+            storage_scope: StorageScope::Runtime,
+        }
+    );
+    let requests = vec![sschemaupdate!(employee_schema)];
+    store.perform_mut(requests)?;
+
+    // Now we can get the interned types
     let et_company = store.get_entity_type("Company")?;
     let et_department = store.get_entity_type("Department")?;
     let et_employee = store.get_entity_type("Employee")?;
@@ -628,76 +754,6 @@ fn test_cel_executor_execute_with_deep_indirection() -> Result<()> {
     let ft_founded = store.get_field_type("Founded")?;
     let ft_company = store.get_field_type("Company")?;
     let ft_department = store.get_field_type("Department")?;
-    
-    // Create Company schema
-    let mut company_schema = EntitySchema::<Single>::new(et_company, vec![]);
-    company_schema.fields.insert(
-        ft_name,
-        FieldSchema::String {
-            field_type: ft_name,
-            default_value: String::new(),
-            rank: 0,
-            storage_scope: StorageScope::Runtime,
-        }
-    );
-    company_schema.fields.insert(
-        ft_founded,
-        FieldSchema::Int {
-            field_type: ft_founded,
-            default_value: 0,
-            rank: 1,
-            storage_scope: StorageScope::Runtime,
-        }
-    );
-    
-    // Create Department schema with company reference
-    let mut dept_schema = EntitySchema::<Single>::new(et_department, vec![]);
-    dept_schema.fields.insert(
-        ft_name,
-        FieldSchema::String {
-            field_type: ft_name,
-            default_value: String::new(),
-            rank: 0,
-            storage_scope: StorageScope::Runtime,
-        }
-    );
-    dept_schema.fields.insert(
-        ft_company,
-        FieldSchema::EntityReference {
-            field_type: ft_company,
-            default_value: None,
-            rank: 1,
-            storage_scope: StorageScope::Runtime,
-        }
-    );
-    
-    // Create Employee schema with department reference
-    let mut employee_schema = EntitySchema::<Single>::new(et_employee, vec![]);
-    employee_schema.fields.insert(
-        ft_name,
-        FieldSchema::String {
-            field_type: ft_name,
-            default_value: String::new(),
-            rank: 0,
-            storage_scope: StorageScope::Runtime,
-        }
-    );
-    employee_schema.fields.insert(
-        ft_department,
-        FieldSchema::EntityReference {
-            field_type: ft_department,
-            default_value: None,
-            rank: 1,
-            storage_scope: StorageScope::Runtime,
-        }
-    );
-    
-    let requests = vec![
-        sschemaupdate!(company_schema.to_string_schema(&store)),
-        sschemaupdate!(dept_schema.to_string_schema(&store)),
-        sschemaupdate!(employee_schema.to_string_schema(&store))
-    ];
-    store.perform_mut(requests)?;
 
     // Create entities
     let create_requests = store.perform_mut(vec![screate!(et_company, "TechCorp".to_string())])?;
@@ -751,59 +807,96 @@ fn test_cel_executor_execute_with_indirection_and_entity_lists() -> Result<()> {
     let mut executor = CelExecutor::new();
     let mut store = Store::new();
 
-    // Create schema for testing indirection with entity lists
+    // Create schemas using strings first - perform_mut will intern the types
+    
+    // Create Project schema with required fields
+    let mut project_schema = EntitySchema::<Single, String, String>::new("Project".to_string(), vec![]);
+    project_schema.fields.insert(
+        "Name".to_string(),
+        FieldSchema::String {
+            field_type: "Name".to_string(),
+            default_value: String::new(),
+            rank: 0,
+            storage_scope: StorageScope::Runtime,
+        }
+    );
+    project_schema.fields.insert(
+        "Parent".to_string(),
+        FieldSchema::EntityReference {
+            field_type: "Parent".to_string(),
+            default_value: None,
+            rank: 1,
+            storage_scope: StorageScope::Runtime,
+        }
+    );
+    project_schema.fields.insert(
+        "Children".to_string(),
+        FieldSchema::EntityList {
+            field_type: "Children".to_string(),
+            default_value: vec![],
+            rank: 2,
+            storage_scope: StorageScope::Runtime,
+        }
+    );
+    project_schema.fields.insert(
+        "Priority".to_string(),
+        FieldSchema::Int {
+            field_type: "Priority".to_string(),
+            default_value: 0,
+            rank: 3,
+            storage_scope: StorageScope::Runtime,
+        }
+    );
+    let requests = vec![sschemaupdate!(project_schema)];
+    store.perform_mut(requests)?;
+    
+    // Create Team schema with projects list and required fields
+    let mut team_schema = EntitySchema::<Single, String, String>::new("Team".to_string(), vec![]);
+    team_schema.fields.insert(
+        "Name".to_string(),
+        FieldSchema::String {
+            field_type: "Name".to_string(),
+            default_value: String::new(),
+            rank: 0,
+            storage_scope: StorageScope::Runtime,
+        }
+    );
+    team_schema.fields.insert(
+        "Parent".to_string(),
+        FieldSchema::EntityReference {
+            field_type: "Parent".to_string(),
+            default_value: None,
+            rank: 1,
+            storage_scope: StorageScope::Runtime,
+        }
+    );
+    team_schema.fields.insert(
+        "Children".to_string(),
+        FieldSchema::EntityList {
+            field_type: "Children".to_string(),
+            default_value: vec![],
+            rank: 2,
+            storage_scope: StorageScope::Runtime,
+        }
+    );
+    team_schema.fields.insert(
+        "Projects".to_string(),
+        FieldSchema::EntityList {
+            field_type: "Projects".to_string(),
+            default_value: vec![],
+            rank: 3,
+            storage_scope: StorageScope::Runtime,
+        }
+    );
+    let requests = vec![sschemaupdate!(team_schema)];
+    store.perform_mut(requests)?;
+
+    // Now we can get the interned types
     let et_team = store.get_entity_type("Team")?;
     let et_project = store.get_entity_type("Project")?;
     let ft_name = store.get_field_type("Name")?;
     let ft_priority = store.get_field_type("Priority")?;
     let ft_projects = store.get_field_type("Projects")?;
-    
-    // Create Project schema
-    let mut project_schema = EntitySchema::<Single>::new(et_project, vec![]);
-    project_schema.fields.insert(
-        ft_name,
-        FieldSchema::String {
-            field_type: ft_name,
-            default_value: String::new(),
-            rank: 0,
-            storage_scope: StorageScope::Runtime,
-        }
-    );
-    project_schema.fields.insert(
-        ft_priority,
-        FieldSchema::Int {
-            field_type: ft_priority,
-            default_value: 0,
-            rank: 1,
-            storage_scope: StorageScope::Runtime,
-        }
-    );
-    
-    // Create Team schema with projects list
-    let mut team_schema = EntitySchema::<Single>::new(et_team, vec![]);
-    team_schema.fields.insert(
-        ft_name,
-        FieldSchema::String {
-            field_type: ft_name,
-            default_value: String::new(),
-            rank: 0,
-            storage_scope: StorageScope::Runtime,
-        }
-    );
-    team_schema.fields.insert(
-        ft_projects,
-        FieldSchema::EntityList {
-            field_type: ft_projects,
-            default_value: vec![],
-            rank: 1,
-            storage_scope: StorageScope::Runtime,
-        }
-    );
-    
-    store.perform_mut(vec![
-        sschemaupdate!(project_schema.to_string_schema(&store)),
-        sschemaupdate!(team_schema.to_string_schema(&store))
-    ])?;
 
     // Create project entities
     let create_requests = store.perform_mut(vec![screate!(et_project, "WebApp".to_string())])?;
@@ -867,21 +960,49 @@ fn test_cel_executor_execute_with_null_entity_reference() -> Result<()> {
     let mut executor = CelExecutor::new();
     let mut store = Store::new();
 
-    // Create entity with null entity reference
-    let et_user = store.get_entity_type("User")?;
-    let ft_manager = store.get_field_type("Manager")?;
-    let mut user_schema = EntitySchema::<Single>::new(et_user, vec![]);
+    // Create entity with null entity reference using string schema first
+    let mut user_schema = EntitySchema::<Single, String, String>::new("User".to_string(), vec![]);
     user_schema.fields.insert(
-        ft_manager,
-        FieldSchema::EntityReference {
-            field_type: ft_manager,
-            default_value: None,
+        "Name".to_string(),
+        FieldSchema::String {
+            field_type: "Name".to_string(),
+            default_value: String::new(),
             rank: 0,
             storage_scope: StorageScope::Runtime,
         }
     );
-    
-    store.perform_mut(vec![sschemaupdate!(user_schema.to_string_schema(&store))])?;
+    user_schema.fields.insert(
+        "Parent".to_string(),
+        FieldSchema::EntityReference {
+            field_type: "Parent".to_string(),
+            default_value: None,
+            rank: 1,
+            storage_scope: StorageScope::Runtime,
+        }
+    );
+    user_schema.fields.insert(
+        "Children".to_string(),
+        FieldSchema::EntityList {
+            field_type: "Children".to_string(),
+            default_value: vec![],
+            rank: 2,
+            storage_scope: StorageScope::Runtime,
+        }
+    );
+    user_schema.fields.insert(
+        "Manager".to_string(),
+        FieldSchema::EntityReference {
+            field_type: "Manager".to_string(),
+            default_value: None,
+            rank: 3,
+            storage_scope: StorageScope::Runtime,
+        }
+    );
+    let requests = vec![sschemaupdate!(user_schema)];
+    store.perform_mut(requests)?;
+
+    // Now we can get the interned types
+    let et_user = store.get_entity_type("User")?;
 
     let create_requests = store.perform_mut(vec![screate!(
         et_user,
@@ -974,60 +1095,96 @@ fn test_cel_executor_execute_with_mixed_field_access() -> Result<()> {
     let mut executor = CelExecutor::new();
     let mut store = Store::new();
 
-    // Create entities for mixed field access test
-    let et_user = store.get_entity_type("User")?;
-    let et_department = store.get_entity_type("Department")?;
-    let ft_name = store.get_field_type("Name")?;
-    let ft_age = store.get_field_type("Age")?;
-    let ft_department = store.get_field_type("Department")?;
+    // Create schemas using strings first - perform_mut will intern the types
     
-    // Create Department schema
-    let mut dept_schema = EntitySchema::<Single>::new(et_department, vec![]);
+    // Create Department schema with required fields
+    let mut dept_schema = EntitySchema::<Single, String, String>::new("Department".to_string(), vec![]);
     dept_schema.fields.insert(
-        ft_name,
+        "Name".to_string(),
         FieldSchema::String {
-            field_type: ft_name,
+            field_type: "Name".to_string(),
             default_value: String::new(),
             rank: 0,
             storage_scope: StorageScope::Runtime,
         }
     );
+    dept_schema.fields.insert(
+        "Parent".to_string(),
+        FieldSchema::EntityReference {
+            field_type: "Parent".to_string(),
+            default_value: None,
+            rank: 1,
+            storage_scope: StorageScope::Runtime,
+        }
+    );
+    dept_schema.fields.insert(
+        "Children".to_string(),
+        FieldSchema::EntityList {
+            field_type: "Children".to_string(),
+            default_value: vec![],
+            rank: 2,
+            storage_scope: StorageScope::Runtime,
+        }
+    );
+    let requests = vec![sschemaupdate!(dept_schema)];
+    store.perform_mut(requests)?;
     
-    // Create User schema with department reference
-    let mut user_schema = EntitySchema::<Single>::new(et_user, vec![]);
+    // Create User schema with department reference and required fields
+    let mut user_schema = EntitySchema::<Single, String, String>::new("User".to_string(), vec![]);
     user_schema.fields.insert(
-        ft_name,
+        "Name".to_string(),
         FieldSchema::String {
-            field_type: ft_name,
+            field_type: "Name".to_string(),
             default_value: String::new(),
             rank: 0,
             storage_scope: StorageScope::Runtime,
         }
     );
     user_schema.fields.insert(
-        ft_age,
-        FieldSchema::Int {
-            field_type: ft_age,
-            default_value: 0,
+        "Parent".to_string(),
+        FieldSchema::EntityReference {
+            field_type: "Parent".to_string(),
+            default_value: None,
             rank: 1,
             storage_scope: StorageScope::Runtime,
         }
     );
     user_schema.fields.insert(
-        ft_department,
-        FieldSchema::EntityReference {
-            field_type: ft_department,
-            default_value: None,
+        "Children".to_string(),
+        FieldSchema::EntityList {
+            field_type: "Children".to_string(),
+            default_value: vec![],
             rank: 2,
             storage_scope: StorageScope::Runtime,
         }
     );
-    
-    let requests = vec![
-        sschemaupdate!(dept_schema.to_string_schema(&store)),
-        sschemaupdate!(user_schema.to_string_schema(&store))
-    ];
+    user_schema.fields.insert(
+        "Age".to_string(),
+        FieldSchema::Int {
+            field_type: "Age".to_string(),
+            default_value: 0,
+            rank: 3,
+            storage_scope: StorageScope::Runtime,
+        }
+    );
+    user_schema.fields.insert(
+        "Department".to_string(),
+        FieldSchema::EntityReference {
+            field_type: "Department".to_string(),
+            default_value: None,
+            rank: 4,
+            storage_scope: StorageScope::Runtime,
+        }
+    );
+    let requests = vec![sschemaupdate!(user_schema)];
     store.perform_mut(requests)?;
+
+    // Now we can get the interned types
+    let et_user = store.get_entity_type("User")?;
+    let et_department = store.get_entity_type("Department")?;
+    let ft_name = store.get_field_type("Name")?;
+    let ft_age = store.get_field_type("Age")?;
+    let ft_department = store.get_field_type("Department")?;
 
     // Create department entity
     let create_requests = store.perform_mut(vec![screate!(
