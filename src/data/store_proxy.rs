@@ -415,20 +415,32 @@ impl StoreProxy {
             .ok_or_else(|| Error::StoreProxyError("Request missing ID".to_string()))?;
 
         // Send message
-        self.tcp_connection.borrow_mut().send_message(&request)
-            .map_err(|e| Error::StoreProxyError(format!("Failed to send message: {}", e)))?;
+        {
+            let mut conn = self.tcp_connection.borrow_mut();
+            conn.send_message(&request)
+                .map_err(|e| Error::StoreProxyError(format!("Failed to send message: {}", e)))?;
+        }
 
         // Wait for response by polling the TCP connection until we get our response
         loop {
             // Check if we already have the response
-            if let Some(response_json) = self.pending_requests.borrow_mut().remove(&id) {
-                let response: StoreMessage = serde_json::from_value(response_json)
-                    .map_err(|e| Error::StoreProxyError(format!("Failed to parse response: {}", e)))?;
-                return Ok(response);
+            {
+                let mut pending = self.pending_requests.borrow_mut();
+                if let Some(response_json) = pending.remove(&id) {
+                    drop(pending); // Explicitly drop the borrow
+                    let response: StoreMessage = serde_json::from_value(response_json)
+                        .map_err(|e| Error::StoreProxyError(format!("Failed to parse response: {}", e)))?;
+                    return Ok(response);
+                }
             }
 
             // Read next message from TCP connection
-            match self.tcp_connection.borrow_mut().try_receive_message() {
+            let message_result = {
+                let mut conn = self.tcp_connection.borrow_mut();
+                conn.try_receive_message()
+            };
+
+            match message_result {
                 Ok(Some(message)) => {
                     if let Err(_) = self.handle_incoming_message(&message) {
                         // Handle error if needed
@@ -436,7 +448,12 @@ impl StoreProxy {
                 }
                 Ok(None) => {
                     // No message available, wait for data to be ready using mio
-                    match self.tcp_connection.borrow_mut().wait_for_readable(Some(std::time::Duration::from_millis(10))) {
+                    let wait_result = {
+                        let mut conn = self.tcp_connection.borrow_mut();
+                        conn.wait_for_readable(Some(std::time::Duration::from_millis(10)))
+                    };
+                    
+                    match wait_result {
                         Ok(true) => {
                             // Data is ready, continue loop to try reading again
                             continue;
@@ -473,6 +490,9 @@ impl StoreProxy {
         match response {
             StoreMessage::GetEntityTypeResponse { response, .. } => {
                 response.map_err(|e| Error::StoreProxyError(e))
+            }
+            StoreMessage::Error { error, .. } => {
+                Err(Error::StoreProxyError(format!("Server error: {}", error)))
             }
             _ => Err(Error::StoreProxyError("Unexpected response type".to_string())),
         }
