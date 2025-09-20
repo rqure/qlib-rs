@@ -1,6 +1,7 @@
 use anyhow::Result;
 use serde::{Serialize, Deserialize};
 use crate::{Snapshot};
+use bytes::BytesMut;
 
 /// Magic bytes to identify protocol messages (4 bytes)
 const PROTOCOL_MAGIC: [u8; 4] = [0x51, 0x43, 0x4F, 0x52]; // "QCOR" in ASCII
@@ -261,11 +262,11 @@ impl ProtocolCodec {
     }
 }
 
-/// TCP message buffer for handling partial reads
+/// TCP message buffer for handling partial reads using BytesMut
 #[derive(Debug)]
 pub struct MessageBuffer {
-    buffer: Vec<u8>,
-    capacity: usize,
+    buffer: BytesMut,
+    max_capacity: usize,
 }
 
 impl MessageBuffer {
@@ -275,8 +276,8 @@ impl MessageBuffer {
     
     pub fn with_capacity(capacity: usize) -> Self {
         Self {
-            buffer: Vec::with_capacity(capacity),
-            capacity,
+            buffer: BytesMut::with_capacity(capacity),
+            max_capacity: capacity,
         }
     }
     
@@ -284,9 +285,12 @@ impl MessageBuffer {
     pub fn add_data(&mut self, data: &[u8]) {
         self.buffer.extend_from_slice(data);
         
-        // Prevent buffer from growing indefinitely
-        if self.buffer.capacity() > self.capacity * 4 {
-            self.buffer.shrink_to(self.capacity);
+        // Prevent buffer from growing indefinitely by compacting when it gets too large
+        if self.buffer.capacity() > self.max_capacity * 4 {
+            // Reserve space and copy data to compact the buffer
+            let mut new_buffer = BytesMut::with_capacity(self.max_capacity);
+            new_buffer.extend_from_slice(&self.buffer);
+            self.buffer = new_buffer;
         }
     }
     
@@ -295,8 +299,8 @@ impl MessageBuffer {
     pub fn try_decode(&mut self) -> Result<Option<ProtocolMessage>> {
         match ProtocolCodec::decode(&self.buffer)? {
             Some((message, bytes_consumed)) => {
-                // Remove consumed bytes from buffer
-                self.buffer.drain(0..bytes_consumed);
+                // Remove consumed bytes from buffer using BytesMut's efficient advance
+                let _ = self.buffer.split_to(bytes_consumed);
                 Ok(Some(message))
             },
             None => Ok(None),
