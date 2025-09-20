@@ -132,7 +132,7 @@ impl Cache {
 }
 
 impl Cache {
-    pub fn process_notification(&mut self) {
+    pub fn process_notifications(&mut self) {
         // Extract entity_id and field_type from the current request
         while let Some(notification) = self.notify_queue.pop() {
             if let Request::Read { entity_id, field_types, value: current_value, .. } = &notification.current {
