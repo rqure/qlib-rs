@@ -18,8 +18,6 @@ use crate::protocol::{MessageBuffer, encode_store_message};
 pub struct AuthenticationResult {
     /// The authenticated subject ID
     pub subject_id: EntityId,
-    /// Subject type (User or Service)
-    pub subject_type: String,
 }
 
 /// TCP message types for Store proxy communication
