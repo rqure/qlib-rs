@@ -47,7 +47,7 @@ pub fn resolve_indirection(
 
     let mut current_entity_id = entity_id;
 
-    for field in fields.iter() {
+    for (i, field) in fields.iter().enumerate() {
         // Normal field resolution
         let reqs = vec![crate::sread!(current_entity_id, vec![field.clone()])];
 
@@ -63,6 +63,12 @@ pub fn resolve_indirection(
         };
 
         if let crate::Request::Read { value, .. } = &reqs[0] {
+            // If this is the last field in the path, we're done - return the current entity and field
+            if i == fields.len() - 1 {
+                break;
+            }
+
+            // For intermediate fields, they must be EntityReferences
             if let Some(crate::Value::EntityReference(reference)) = value {
                 match reference {
                     Some(ref_id) => {

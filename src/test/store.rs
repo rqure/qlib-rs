@@ -413,22 +413,41 @@ fn test_find_entities_comprehensive() -> Result<()> {
     // Create a fresh store without using setup_test_database
     let mut store = Store::new();
     
-    let et_user = store.get_entity_type("User")?;
-    
-    // Create a simple schema with just Name field
-    let mut user_schema = EntitySchema::<Single>::new(et_user, vec![]);
-    let ft_name = store.get_field_type("Name")?;
+    // Create a simple schema with just Name field using string types first
+    let mut user_schema = EntitySchema::<Single, String, String>::new("User".to_string(), vec![]);
     user_schema.fields.insert(
-        ft_name,
+        "Name".to_string(),
         FieldSchema::String {
-            field_type: ft_name,
+            field_type: "Name".to_string(),
             default_value: String::new(),
             rank: 0,
             storage_scope: StorageScope::Runtime,
         }
     );
-    let requests = vec![sschemaupdate!(user_schema.to_string_schema(&store))];
+    user_schema.fields.insert(
+        "Parent".to_string(),
+        FieldSchema::EntityReference {
+            field_type: "Parent".to_string(),
+            default_value: None,
+            rank: 1,
+            storage_scope: StorageScope::Configuration,
+        }
+    );
+    user_schema.fields.insert(
+        "Children".to_string(),
+        FieldSchema::EntityList {
+            field_type: "Children".to_string(),
+            default_value: Vec::new(),
+            rank: 2,
+            storage_scope: StorageScope::Configuration,
+        }
+    );
+    let requests = vec![sschemaupdate!(user_schema)];
     store.perform_mut(requests)?;
+    
+    // Now we can get the interned types
+    let et_user = store.get_entity_type("User")?;
+    let ft_name = store.get_field_type("Name")?;
     
     // Test finding entities when none exist
     let empty_users = store.find_entities(et_user, None)?;
@@ -491,22 +510,41 @@ fn test_find_entities_comprehensive() -> Result<()> {
 fn test_find_entities_pagination() -> Result<()> {
     let mut store = Store::new();
     
-    let et_user = store.get_entity_type("User")?;
-    
-    // Create a simple schema
-    let mut user_schema = EntitySchema::<Single>::new(et_user, vec![]);
-    let ft_name = store.get_field_type("Name")?;
+    // Create a simple schema using string types first
+    let mut user_schema = EntitySchema::<Single, String, String>::new("User".to_string(), vec![]);
     user_schema.fields.insert(
-        ft_name,
+        "Name".to_string(),
         FieldSchema::String {
-            field_type: ft_name,
+            field_type: "Name".to_string(),
             default_value: String::new(),
             rank: 0,
             storage_scope: StorageScope::Runtime,
         }
     );
-    let requests = vec![sschemaupdate!(user_schema.to_string_schema(&store))];
+    user_schema.fields.insert(
+        "Parent".to_string(),
+        FieldSchema::EntityReference {
+            field_type: "Parent".to_string(),
+            default_value: None,
+            rank: 1,
+            storage_scope: StorageScope::Configuration,
+        }
+    );
+    user_schema.fields.insert(
+        "Children".to_string(),
+        FieldSchema::EntityList {
+            field_type: "Children".to_string(),
+            default_value: Vec::new(),
+            rank: 2,
+            storage_scope: StorageScope::Configuration,
+        }
+    );
+    let requests = vec![sschemaupdate!(user_schema)];
     store.perform_mut(requests)?;
+    
+    // Now get the interned types
+    let et_user = store.get_entity_type("User")?;
+    let ft_name = store.get_field_type("Name")?;
     
     // Create 10 test users
     for i in 0..10 {
@@ -570,87 +608,89 @@ fn test_find_entities_pagination() -> Result<()> {
 fn test_find_entities_inheritance() -> Result<()> {
     let mut store = Store::new();
     
-    // Create inheritance hierarchy: Animal -> Mammal -> Dog/Cat
+    // Create inheritance hierarchy: Animal -> Mammal -> Dog/Cat using string schemas first
+    
+    // Create base Animal schema
+    let mut animal_schema = EntitySchema::<Single, String, String>::new("Animal".to_string(), vec![]);
+    animal_schema.fields.insert(
+        "Name".to_string(),
+        FieldSchema::String {
+            field_type: "Name".to_string(),
+            default_value: String::new(),
+            rank: 0,
+            storage_scope: StorageScope::Runtime,
+        }
+    );
+    let requests = vec![sschemaupdate!(animal_schema)];
+    store.perform_mut(requests)?;
+    
+    // Create Mammal schema (inherits from Animal)
+    let mut mammal_schema = EntitySchema::<Single, String, String>::new("Mammal".to_string(), vec!["Animal".to_string()]);
+    mammal_schema.fields.insert(
+        "FurColor".to_string(),
+        FieldSchema::String {
+            field_type: "FurColor".to_string(),
+            default_value: String::new(),
+            rank: 1,
+            storage_scope: StorageScope::Runtime,
+        }
+    );
+    let requests = vec![sschemaupdate!(mammal_schema)];
+    store.perform_mut(requests)?;
+    
+    // Create Dog schema (inherits from Mammal)
+    let mut dog_schema = EntitySchema::<Single, String, String>::new("Dog".to_string(), vec!["Mammal".to_string()]);
+    dog_schema.fields.insert(
+        "Breed".to_string(),
+        FieldSchema::String {
+            field_type: "Breed".to_string(),
+            default_value: String::new(),
+            rank: 2,
+            storage_scope: StorageScope::Runtime,
+        }
+    );
+    let requests = vec![sschemaupdate!(dog_schema)];
+    store.perform_mut(requests)?;
+    
+    // Create Cat schema (inherits from Mammal)  
+    let mut cat_schema = EntitySchema::<Single, String, String>::new("Cat".to_string(), vec!["Mammal".to_string()]);
+    cat_schema.fields.insert(
+        "IndoorOutdoor".to_string(),
+        FieldSchema::String {
+            field_type: "IndoorOutdoor".to_string(),
+            default_value: String::new(),
+            rank: 2,
+            storage_scope: StorageScope::Runtime,
+        }
+    );
+    let requests = vec![sschemaupdate!(cat_schema)];
+    store.perform_mut(requests)?;
+    
+    // Create Bird schema (inherits from Animal)
+    let mut bird_schema = EntitySchema::<Single, String, String>::new("Bird".to_string(), vec!["Animal".to_string()]);
+    bird_schema.fields.insert(
+        "CanFly".to_string(),
+        FieldSchema::Bool {
+            field_type: "CanFly".to_string(),
+            default_value: true,
+            rank: 1,
+            storage_scope: StorageScope::Runtime,
+        }
+    );
+    let requests = vec![sschemaupdate!(bird_schema)];
+    store.perform_mut(requests)?;
+    
+    // Now we can get the interned entity types
     let et_animal = store.get_entity_type("Animal")?;
     let et_mammal = store.get_entity_type("Mammal")?;
     let et_dog = store.get_entity_type("Dog")?;
     let et_cat = store.get_entity_type("Cat")?;
     let et_bird = store.get_entity_type("Bird")?;
     
-    // Create base Animal schema
-    let mut animal_schema = EntitySchema::<Single>::new(et_animal, vec![]);
+    // And field types
     let ft_name = store.get_field_type("Name")?;
-    animal_schema.fields.insert(
-        ft_name,
-        FieldSchema::String {
-            field_type: ft_name,
-            default_value: String::new(),
-            rank: 0,
-            storage_scope: StorageScope::Runtime,
-        }
-    );
-    let requests = vec![sschemaupdate!(animal_schema.to_string_schema(&store))];
-    store.perform_mut(requests)?;
-    
-    // Create Mammal schema (inherits from Animal)
-    let mut mammal_schema = EntitySchema::<Single>::new(et_mammal, vec![et_animal]);
     let ft_fur_color = store.get_field_type("FurColor")?;
-    mammal_schema.fields.insert(
-        ft_fur_color,
-        FieldSchema::String {
-            field_type: ft_fur_color,
-            default_value: String::new(),
-            rank: 1,
-            storage_scope: StorageScope::Runtime,
-        }
-    );
-    let requests = vec![sschemaupdate!(mammal_schema.to_string_schema(&store))];
-    store.perform_mut(requests)?;
-    
-    // Create Dog schema (inherits from Mammal)
-    let mut dog_schema = EntitySchema::<Single>::new(et_dog, vec![et_mammal]);
     let ft_breed = store.get_field_type("Breed")?;
-    dog_schema.fields.insert(
-        ft_breed,
-        FieldSchema::String {
-            field_type: ft_breed,
-            default_value: String::new(),
-            rank: 2,
-            storage_scope: StorageScope::Runtime,
-        }
-    );
-    let requests = vec![sschemaupdate!(dog_schema.to_string_schema(&store))];
-    store.perform_mut(requests)?;
-    
-    // Create Cat schema (inherits from Mammal)
-    let mut cat_schema = EntitySchema::<Single>::new(et_cat, vec![et_mammal]);
-    let ft_indoor_outdoor = store.get_field_type("IndoorOutdoor")?;
-    cat_schema.fields.insert(
-        ft_indoor_outdoor,
-        FieldSchema::String {
-            field_type: ft_indoor_outdoor,
-            default_value: String::new(),
-            rank: 2,
-            storage_scope: StorageScope::Runtime,
-        }
-    );
-    let requests = vec![sschemaupdate!(cat_schema.to_string_schema(&store))];
-    store.perform_mut(requests)?;
-    
-    // Create Bird schema (inherits from Animal, not Mammal)
-    let mut bird_schema = EntitySchema::<Single>::new(et_bird, vec![et_animal]);
-    let ft_can_fly = store.get_field_type("CanFly")?;
-    bird_schema.fields.insert(
-        ft_can_fly,
-        FieldSchema::Bool {
-            field_type: ft_can_fly,
-            default_value: true,
-            rank: 1,
-            storage_scope: StorageScope::Runtime,
-        }
-    );
-    let requests = vec![sschemaupdate!(bird_schema.to_string_schema(&store))];
-    store.perform_mut(requests)?;
     
     // Create test entities
     let create_requests = vec![
@@ -733,22 +773,41 @@ fn test_find_entities_nonexistent_types() -> Result<()> {
 fn test_find_entities_cel_edge_cases() -> Result<()> {
     let mut store = Store::new();
     
-    let et_user = store.get_entity_type("User")?;
-    
-    // Create a simple schema
-    let mut user_schema = EntitySchema::<Single>::new(et_user, vec![]);
-    let ft_name = store.get_field_type("Name")?;
+    // Create a simple schema using string types first
+    let mut user_schema = EntitySchema::<Single, String, String>::new("User".to_string(), vec![]);
     user_schema.fields.insert(
-        ft_name,
+        "Name".to_string(),
         FieldSchema::String {
-            field_type: ft_name,
+            field_type: "Name".to_string(),
             default_value: String::new(),
             rank: 0,
             storage_scope: StorageScope::Runtime,
         }
     );
-    let requests = vec![sschemaupdate!(user_schema.to_string_schema(&store))];
+    user_schema.fields.insert(
+        "Parent".to_string(),
+        FieldSchema::EntityReference {
+            field_type: "Parent".to_string(),
+            default_value: None,
+            rank: 1,
+            storage_scope: StorageScope::Configuration,
+        }
+    );
+    user_schema.fields.insert(
+        "Children".to_string(),
+        FieldSchema::EntityList {
+            field_type: "Children".to_string(),
+            default_value: Vec::new(),
+            rank: 2,
+            storage_scope: StorageScope::Configuration,
+        }
+    );
+    let requests = vec![sschemaupdate!(user_schema)];
     store.perform_mut(requests)?;
+    
+    // Now get the interned types
+    let et_user = store.get_entity_type("User")?;
+    let ft_name = store.get_field_type("Name")?;
     
     // Create test users
     let create_requests = vec![
@@ -779,39 +838,66 @@ fn test_find_entities_cel_edge_cases() -> Result<()> {
 fn test_complete_entity_schema_caching() -> Result<()> {
     let mut store = Store::new();
     
-    // Create base entity type
-    let et_base = store.get_entity_type("BaseEntity")?;
-    let mut base_schema = EntitySchema::<Single>::new(et_base, vec![]);
-    let ft_base_field = store.get_field_type("BaseField")?;
+    // Create base entity type using string schema first
+    let mut base_schema = EntitySchema::<Single, String, String>::new("BaseEntity".to_string(), vec![]);
     base_schema.fields.insert(
-        ft_base_field,
+        "Name".to_string(),
         FieldSchema::String {
-            field_type: ft_base_field,
-            default_value: "base_default".to_string(),
+            field_type: "Name".to_string(),
+            default_value: String::new(),
             rank: 0,
             storage_scope: StorageScope::Runtime,
         }
     );
-    
-    let requests = vec![sschemaupdate!(base_schema.to_string_schema(&store))];
+    base_schema.fields.insert(
+        "Parent".to_string(),
+        FieldSchema::EntityReference {
+            field_type: "Parent".to_string(),
+            default_value: None,
+            rank: 1,
+            storage_scope: StorageScope::Configuration,
+        }
+    );
+    base_schema.fields.insert(
+        "Children".to_string(),
+        FieldSchema::EntityList {
+            field_type: "Children".to_string(),
+            default_value: Vec::new(),
+            rank: 2,
+            storage_scope: StorageScope::Configuration,
+        }
+    );
+    base_schema.fields.insert(
+        "BaseField".to_string(),
+        FieldSchema::String {
+            field_type: "BaseField".to_string(),
+            default_value: "base_default".to_string(),
+            rank: 3,
+            storage_scope: StorageScope::Runtime,
+        }
+    );
+    let requests = vec![sschemaupdate!(base_schema)];
     store.perform_mut(requests)?;
     
-    // Create derived entity type that inherits from base
-    let et_derived = store.get_entity_type("DerivedEntity")?;
-    let mut derived_schema = EntitySchema::<Single>::new(et_derived, vec![et_base]);
-    let ft_derived_field = store.get_field_type("DerivedField")?;
+    // Create derived entity type
+    let mut derived_schema = EntitySchema::<Single, String, String>::new("DerivedEntity".to_string(), vec!["BaseEntity".to_string()]);
     derived_schema.fields.insert(
-        ft_derived_field,
+        "DerivedField".to_string(),
         FieldSchema::String {
-            field_type: ft_derived_field,
+            field_type: "DerivedField".to_string(),
             default_value: "derived_default".to_string(),
             rank: 1,
             storage_scope: StorageScope::Runtime,
         }
     );
-    
-    let requests = vec![sschemaupdate!(derived_schema.to_string_schema(&store))];
+    let requests = vec![sschemaupdate!(derived_schema)];
     store.perform_mut(requests)?;
+    
+    // Now get the interned types
+    let et_base = store.get_entity_type("BaseEntity")?;
+    let et_derived = store.get_entity_type("DerivedEntity")?;
+    let ft_base_field = store.get_field_type("BaseField")?;
+    let ft_derived_field = store.get_field_type("DerivedField")?;
     
     // First call to get_complete_entity_schema should populate the cache
     let complete_schema_1 = store.get_complete_entity_schema(et_derived)?;
@@ -826,36 +912,65 @@ fn test_complete_entity_schema_caching() -> Result<()> {
     assert!(complete_schema_2.fields.contains_key(&ft_derived_field));
     
     // Update the base schema - this should invalidate the cache
-    let mut updated_base_schema = EntitySchema::<Single>::new(et_base, vec![]);
+    let mut updated_base_schema = EntitySchema::<Single, String, String>::new("BaseEntity".to_string(), vec![]);
     updated_base_schema.fields.insert(
-        ft_base_field,
+        "Name".to_string(),
         FieldSchema::String {
-            field_type: ft_base_field,
-            default_value: "updated_base_default".to_string(),
+            field_type: "Name".to_string(),
+            default_value: String::new(),
             rank: 0,
             storage_scope: StorageScope::Runtime,
         }
     );
-    let ft_new_base_field = store.get_field_type("NewBaseField")?;
     updated_base_schema.fields.insert(
-        ft_new_base_field,
+        "Parent".to_string(),
+        FieldSchema::EntityReference {
+            field_type: "Parent".to_string(),
+            default_value: None,
+            rank: 1,
+            storage_scope: StorageScope::Configuration,
+        }
+    );
+    updated_base_schema.fields.insert(
+        "Children".to_string(),
+        FieldSchema::EntityList {
+            field_type: "Children".to_string(),
+            default_value: Vec::new(),
+            rank: 2,
+            storage_scope: StorageScope::Configuration,
+        }
+    );
+    updated_base_schema.fields.insert(
+        "BaseField".to_string(),
         FieldSchema::String {
-            field_type: ft_new_base_field,
+            field_type: "BaseField".to_string(),
+            default_value: "updated_base_default".to_string(),
+            rank: 3,
+            storage_scope: StorageScope::Runtime,
+        }
+    );
+    updated_base_schema.fields.insert(
+        "NewBaseField".to_string(),
+        FieldSchema::String {
+            field_type: "NewBaseField".to_string(),
             default_value: "new_base_field".to_string(),
-            rank: 0,
+            rank: 4,
             storage_scope: StorageScope::Runtime,
         }
     );
     
-    let requests = vec![sschemaupdate!(updated_base_schema.to_string_schema(&store))];
+    let requests = vec![sschemaupdate!(updated_base_schema)];
     store.perform_mut(requests)?;
+    
+    // Now get the new field type
+    let ft_new_base_field = store.get_field_type("NewBaseField")?;
     
     // After update, cache should be invalidated and the complete schema should include the new field
     let complete_schema_3 = store.get_complete_entity_schema(et_derived)?;
     assert!(complete_schema_3.fields.contains_key(&ft_base_field));
     assert!(complete_schema_3.fields.contains_key(&ft_derived_field));
     assert!(complete_schema_3.fields.contains_key(&ft_new_base_field));
-    assert_eq!(complete_schema_3.fields.len(), 3); // BaseField, DerivedField, NewBaseField
+    assert_eq!(complete_schema_3.fields.len(), 6); // Name, Parent, Children, BaseField, DerivedField, NewBaseField
     
     Ok(())
 }
