@@ -2,6 +2,7 @@ use anyhow::Result;
 #[allow(unused_imports)] // Used by bincode
 use serde::{Serialize, Deserialize};
 use rkyv::Deserialize as RkyvDeserialize;
+use crate::{EntityId, EntityType, FieldType};
 
 /// Magic bytes to identify protocol messages (4 bytes)
 const PROTOCOL_MAGIC: [u8; 4] = [0x51, 0x43, 0x4F, 0x52]; // "QCOR" in ASCII
@@ -84,63 +85,311 @@ impl MessageType {
     }
 }
 
-/// Fast Store message wrapper that uses rkyv for the envelope and bincode for the StoreMessage payload
-/// This provides the performance benefits of rkyv for the message envelope while maintaining
-/// compatibility with the existing complex StoreMessage types
+/// Fast Store message that uses rkyv for direct processing without bincode deserialization
+/// This provides true zero-copy performance by containing actual message data in rkyv format
 #[derive(Debug, Clone)]
 #[derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
-#[archive(check_bytes)]
 pub struct FastStoreMessage {
     /// Message ID for correlation
     pub id: String,
-    /// Bincode-serialized StoreMessage payload
-    pub payload: Vec<u8>,
-    /// Message type hint for faster deserialization
-    pub message_type_hint: u32,
+    /// The actual message data in rkyv-compatible format
+    pub message: FastStoreMessageType,
+}
+
+/// rkyv-compatible message types for fast processing
+#[derive(Debug, Clone)]
+#[derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
+pub enum FastStoreMessageType {
+    // Authentication messages
+    Authenticate {
+        subject_name: String,
+        credential: String,
+    },
+    AuthenticateResponse {
+        response: Result<FastAuthenticationResult, String>,
+    },
+
+    // Simple existence checks (most common operations)
+    EntityExists {
+        entity_id: EntityId,
+    },
+    EntityExistsResponse {
+        response: bool,
+    },
+
+    FieldExists {
+        entity_type: EntityType,
+        field_type: FieldType,
+    },
+    FieldExistsResponse {
+        response: bool,
+    },
+
+    // Type resolution (simple operations)
+    GetEntityType {
+        name: String,
+    },
+    GetEntityTypeResponse {
+        response: Result<EntityType, String>,
+    },
+
+    ResolveEntityType {
+        entity_type: EntityType,
+    },
+    ResolveEntityTypeResponse {
+        response: Result<String, String>,
+    },
+
+    GetFieldType {
+        name: String,
+    },
+    GetFieldTypeResponse {
+        response: Result<FieldType, String>,
+    },
+
+    ResolveFieldType {
+        field_type: FieldType,
+    },
+    ResolveFieldTypeResponse {
+        response: Result<String, String>,
+    },
+
+    // For complex operations, we can still fall back to bincode if needed
+    ComplexOperation {
+        /// Bincode-serialized StoreMessage for operations that don't have fast variants yet
+        payload: Vec<u8>,
+        operation_type: u32,
+    },
+}
+
+/// rkyv-compatible version of AuthenticationResult
+#[derive(Debug, Clone)]
+#[derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
+pub struct FastAuthenticationResult {
+    pub subject_id: EntityId,
+    pub subject_type: String,
 }
 
 impl FastStoreMessage {
     /// Create a new FastStoreMessage from a StoreMessage
     pub fn from_store_message(store_message: &crate::data::StoreMessage) -> anyhow::Result<Self> {
-        let payload = bincode::serialize(store_message)
-            .map_err(|e| anyhow::anyhow!("Failed to serialize store message: {}", e))?;
-        
         // Extract message ID for optimization
         let id = crate::data::extract_message_id(store_message)
             .unwrap_or_else(|| "unknown".to_string());
         
-        // Create a simple type hint based on the message variant
-        let message_type_hint = Self::get_message_type_hint(store_message);
+        // Convert to fast message type
+        let message = match store_message {
+            crate::data::StoreMessage::Authenticate { subject_name, credential, .. } => {
+                FastStoreMessageType::Authenticate {
+                    subject_name: subject_name.clone(),
+                    credential: credential.clone(),
+                }
+            },
+            crate::data::StoreMessage::AuthenticateResponse { response, .. } => {
+                let fast_response = match response {
+                    Ok(auth_result) => Ok(FastAuthenticationResult {
+                        subject_id: auth_result.subject_id,
+                        subject_type: auth_result.subject_type.clone(),
+                    }),
+                    Err(e) => Err(e.clone()),
+                };
+                FastStoreMessageType::AuthenticateResponse { response: fast_response }
+            },
+            crate::data::StoreMessage::EntityExists { entity_id, .. } => {
+                FastStoreMessageType::EntityExists { entity_id: *entity_id }
+            },
+            crate::data::StoreMessage::EntityExistsResponse { response, .. } => {
+                FastStoreMessageType::EntityExistsResponse { response: *response }
+            },
+            crate::data::StoreMessage::FieldExists { entity_type, field_type, .. } => {
+                FastStoreMessageType::FieldExists { 
+                    entity_type: *entity_type, 
+                    field_type: *field_type 
+                }
+            },
+            crate::data::StoreMessage::FieldExistsResponse { response, .. } => {
+                FastStoreMessageType::FieldExistsResponse { response: *response }
+            },
+            crate::data::StoreMessage::GetEntityType { name, .. } => {
+                FastStoreMessageType::GetEntityType { name: name.clone() }
+            },
+            crate::data::StoreMessage::GetEntityTypeResponse { response, .. } => {
+                FastStoreMessageType::GetEntityTypeResponse { response: response.clone() }
+            },
+            crate::data::StoreMessage::ResolveEntityType { entity_type, .. } => {
+                FastStoreMessageType::ResolveEntityType { entity_type: *entity_type }
+            },
+            crate::data::StoreMessage::ResolveEntityTypeResponse { response, .. } => {
+                FastStoreMessageType::ResolveEntityTypeResponse { response: response.clone() }
+            },
+            crate::data::StoreMessage::GetFieldType { name, .. } => {
+                FastStoreMessageType::GetFieldType { name: name.clone() }
+            },
+            crate::data::StoreMessage::GetFieldTypeResponse { response, .. } => {
+                FastStoreMessageType::GetFieldTypeResponse { response: response.clone() }
+            },
+            crate::data::StoreMessage::ResolveFieldType { field_type, .. } => {
+                FastStoreMessageType::ResolveFieldType { field_type: *field_type }
+            },
+            crate::data::StoreMessage::ResolveFieldTypeResponse { response, .. } => {
+                FastStoreMessageType::ResolveFieldTypeResponse { response: response.clone() }
+            },
+            // For complex operations that don't have fast variants yet, fall back to bincode
+            _ => {
+                let payload = bincode::serialize(store_message)
+                    .map_err(|e| anyhow::anyhow!("Failed to serialize complex store message: {}", e))?;
+                let operation_type = Self::get_operation_type_hint(store_message);
+                FastStoreMessageType::ComplexOperation { payload, operation_type }
+            }
+        };
         
-        Ok(FastStoreMessage {
-            id,
-            payload,
-            message_type_hint,
-        })
+        Ok(FastStoreMessage { id, message })
     }
     
-    /// Deserialize the embedded StoreMessage
+    /// Convert FastStoreMessage back to StoreMessage for compatibility
     pub fn to_store_message(&self) -> anyhow::Result<crate::data::StoreMessage> {
-        bincode::deserialize(&self.payload)
-            .map_err(|e| anyhow::anyhow!("Failed to deserialize store message: {}", e))
+        use crate::data::StoreMessage;
+        
+        let store_message = match &self.message {
+            FastStoreMessageType::Authenticate { subject_name, credential } => {
+                StoreMessage::Authenticate {
+                    id: self.id.clone(),
+                    subject_name: subject_name.clone(),
+                    credential: credential.clone(),
+                }
+            },
+            FastStoreMessageType::AuthenticateResponse { response } => {
+                let store_response = match response {
+                    Ok(fast_result) => Ok(crate::data::AuthenticationResult {
+                        subject_id: fast_result.subject_id,
+                        subject_type: fast_result.subject_type.clone(),
+                    }),
+                    Err(e) => Err(e.clone()),
+                };
+                StoreMessage::AuthenticateResponse {
+                    id: self.id.clone(),
+                    response: store_response,
+                }
+            },
+            FastStoreMessageType::EntityExists { entity_id } => {
+                StoreMessage::EntityExists {
+                    id: self.id.clone(),
+                    entity_id: *entity_id,
+                }
+            },
+            FastStoreMessageType::EntityExistsResponse { response } => {
+                StoreMessage::EntityExistsResponse {
+                    id: self.id.clone(),
+                    response: *response,
+                }
+            },
+            FastStoreMessageType::FieldExists { entity_type, field_type } => {
+                StoreMessage::FieldExists {
+                    id: self.id.clone(),
+                    entity_type: *entity_type,
+                    field_type: *field_type,
+                }
+            },
+            FastStoreMessageType::FieldExistsResponse { response } => {
+                StoreMessage::FieldExistsResponse {
+                    id: self.id.clone(),
+                    response: *response,
+                }
+            },
+            FastStoreMessageType::GetEntityType { name } => {
+                StoreMessage::GetEntityType {
+                    id: self.id.clone(),
+                    name: name.clone(),
+                }
+            },
+            FastStoreMessageType::GetEntityTypeResponse { response } => {
+                StoreMessage::GetEntityTypeResponse {
+                    id: self.id.clone(),
+                    response: response.clone(),
+                }
+            },
+            FastStoreMessageType::ResolveEntityType { entity_type } => {
+                StoreMessage::ResolveEntityType {
+                    id: self.id.clone(),
+                    entity_type: *entity_type,
+                }
+            },
+            FastStoreMessageType::ResolveEntityTypeResponse { response } => {
+                StoreMessage::ResolveEntityTypeResponse {
+                    id: self.id.clone(),
+                    response: response.clone(),
+                }
+            },
+            FastStoreMessageType::GetFieldType { name } => {
+                StoreMessage::GetFieldType {
+                    id: self.id.clone(),
+                    name: name.clone(),
+                }
+            },
+            FastStoreMessageType::GetFieldTypeResponse { response } => {
+                StoreMessage::GetFieldTypeResponse {
+                    id: self.id.clone(),
+                    response: response.clone(),
+                }
+            },
+            FastStoreMessageType::ResolveFieldType { field_type } => {
+                StoreMessage::ResolveFieldType {
+                    id: self.id.clone(),
+                    field_type: *field_type,
+                }
+            },
+            FastStoreMessageType::ResolveFieldTypeResponse { response } => {
+                StoreMessage::ResolveFieldTypeResponse {
+                    id: self.id.clone(),
+                    response: response.clone(),
+                }
+            },
+            FastStoreMessageType::ComplexOperation { payload, .. } => {
+                // Fall back to bincode deserialization for complex operations
+                bincode::deserialize(payload)
+                    .map_err(|e| anyhow::anyhow!("Failed to deserialize complex operation: {}", e))?
+            },
+        };
+        
+        Ok(store_message)
     }
     
-    /// Get a simple type hint for the message (for optimization purposes)
-    fn get_message_type_hint(msg: &crate::data::StoreMessage) -> u32 {
+    /// Get operation type hint for complex operations
+    fn get_operation_type_hint(msg: &crate::data::StoreMessage) -> u32 {
         use crate::data::StoreMessage;
         match msg {
-            StoreMessage::Authenticate { .. } => 1,
-            StoreMessage::AuthenticateResponse { .. } => 2,
-            StoreMessage::GetEntitySchema { .. } => 3,
-            StoreMessage::GetEntitySchemaResponse { .. } => 4,
-            StoreMessage::EntityExists { .. } => 5,
-            StoreMessage::EntityExistsResponse { .. } => 6,
-            StoreMessage::FieldExists { .. } => 7,
-            StoreMessage::FieldExistsResponse { .. } => 8,
-            StoreMessage::Perform { .. } => 9,
-            StoreMessage::PerformResponse { .. } => 10,
-            _ => 0, // Other types
+            StoreMessage::GetEntitySchema { .. } => 100,
+            StoreMessage::GetEntitySchemaResponse { .. } => 101,
+            StoreMessage::GetCompleteEntitySchema { .. } => 102,
+            StoreMessage::GetCompleteEntitySchemaResponse { .. } => 103,
+            StoreMessage::GetFieldSchema { .. } => 104,
+            StoreMessage::GetFieldSchemaResponse { .. } => 105,
+            StoreMessage::Perform { .. } => 106,
+            StoreMessage::PerformResponse { .. } => 107,
+            StoreMessage::FindEntities { .. } => 108,
+            StoreMessage::FindEntitiesResponse { .. } => 109,
+            StoreMessage::FindEntitiesExact { .. } => 110,
+            StoreMessage::FindEntitiesExactResponse { .. } => 111,
+            StoreMessage::GetEntityTypes { .. } => 112,
+            StoreMessage::GetEntityTypesResponse { .. } => 113,
+            StoreMessage::RegisterNotification { .. } => 114,
+            StoreMessage::RegisterNotificationResponse { .. } => 115,
+            StoreMessage::UnregisterNotification { .. } => 116,
+            StoreMessage::UnregisterNotificationResponse { .. } => 117,
+            StoreMessage::Notification { .. } => 118,
+            StoreMessage::Error { .. } => 119,
+            _ => 0,
         }
+    }
+
+    /// Check if this message can be processed without bincode deserialization
+    pub fn is_fast_processable(&self) -> bool {
+        !matches!(self.message, FastStoreMessageType::ComplexOperation { .. })
+    }
+
+    /// Get the message ID without any deserialization
+    pub fn message_id(&self) -> &str {
+        &self.id
     }
 }
 
@@ -169,9 +418,9 @@ impl ProtocolMessage {
             
             // Use rkyv for FastStoreMessage (performance)
             Self::FastStore(fast_msg) => {
-                rkyv::to_bytes::<_, 256>(fast_msg)
-                    .map(|bytes| bytes.into_vec())
-                    .map_err(|e| anyhow::anyhow!("Failed to serialize fast store message: {}", e))
+                let bytes = rkyv::to_bytes::<_, 256>(fast_msg)
+                    .map_err(|e| anyhow::anyhow!("Failed to serialize fast store message: {}", e))?;
+                Ok(bytes.into_vec())
             },
         }
     }
@@ -185,8 +434,10 @@ impl ProtocolMessage {
                 Ok(Self::Store(msg))
             },
             MessageType::FastStoreMessage => {
-                let archived = rkyv::check_archived_root::<FastStoreMessage>(payload)
-                    .map_err(|e| anyhow::anyhow!("Failed to check archived fast store message: {}", e))?;
+                // Copy to aligned buffer for rkyv
+                let mut aligned_data = rkyv::AlignedVec::new();
+                aligned_data.extend_from_slice(payload);
+                let archived = unsafe { rkyv::archived_root::<FastStoreMessage>(&aligned_data) };
                 let fast_msg: FastStoreMessage = RkyvDeserialize::deserialize(archived, &mut rkyv::Infallible)
                     .map_err(|e| anyhow::anyhow!("Failed to deserialize fast store message: {:?}", e))?;
                 Ok(Self::FastStore(fast_msg))

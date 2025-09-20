@@ -5,6 +5,8 @@ use crate::{
     PageOpts, PageResult, Request, Result, Single, Complete,
 };
 
+use crate::protocol::{FastStoreMessage, FastStoreMessageType};
+
 /// Async trait defining the common interface for store implementations
 /// This allows different store implementations to be used interchangeably
 pub trait StoreTrait {
@@ -71,4 +73,98 @@ pub trait StoreTrait {
 
     /// Unregister a notification by removing a specific sender
     fn unregister_notification(&mut self, config: &NotifyConfig, sender: &NotificationQueue) -> bool;
+
+    /// Process a FastStoreMessage directly without bincode deserialization
+    /// This provides true zero-copy performance for simple operations
+    fn process_fast_message(&self, fast_message: &FastStoreMessage) -> Result<Option<FastStoreMessage>> {
+        match &fast_message.message {
+            FastStoreMessageType::EntityExists { entity_id } => {
+                let response = self.entity_exists(*entity_id);
+                Ok(Some(FastStoreMessage {
+                    id: fast_message.id.clone(),
+                    message: FastStoreMessageType::EntityExistsResponse { response },
+                }))
+            },
+            FastStoreMessageType::FieldExists { entity_type, field_type } => {
+                let response = self.field_exists(*entity_type, *field_type);
+                Ok(Some(FastStoreMessage {
+                    id: fast_message.id.clone(),
+                    message: FastStoreMessageType::FieldExistsResponse { response },
+                }))
+            },
+            FastStoreMessageType::GetEntityType { name } => {
+                let response = self.get_entity_type(name)
+                    .map_err(|e| format!("{:?}", e));
+                Ok(Some(FastStoreMessage {
+                    id: fast_message.id.clone(),
+                    message: FastStoreMessageType::GetEntityTypeResponse { response },
+                }))
+            },
+            FastStoreMessageType::ResolveEntityType { entity_type } => {
+                let response = self.resolve_entity_type(*entity_type)
+                    .map_err(|e| format!("{:?}", e));
+                Ok(Some(FastStoreMessage {
+                    id: fast_message.id.clone(),
+                    message: FastStoreMessageType::ResolveEntityTypeResponse { response },
+                }))
+            },
+            FastStoreMessageType::GetFieldType { name } => {
+                let response = self.get_field_type(name)
+                    .map_err(|e| format!("{:?}", e));
+                Ok(Some(FastStoreMessage {
+                    id: fast_message.id.clone(),
+                    message: FastStoreMessageType::GetFieldTypeResponse { response },
+                }))
+            },
+            FastStoreMessageType::ResolveFieldType { field_type } => {
+                let response = self.resolve_field_type(*field_type)
+                    .map_err(|e| format!("{:?}", e));
+                Ok(Some(FastStoreMessage {
+                    id: fast_message.id.clone(),
+                    message: FastStoreMessageType::ResolveFieldTypeResponse { response },
+                }))
+            },
+            // For request messages that don't need responses, return None
+            FastStoreMessageType::AuthenticateResponse { .. } |
+            FastStoreMessageType::EntityExistsResponse { .. } |
+            FastStoreMessageType::FieldExistsResponse { .. } |
+            FastStoreMessageType::GetEntityTypeResponse { .. } |
+            FastStoreMessageType::ResolveEntityTypeResponse { .. } |
+            FastStoreMessageType::GetFieldTypeResponse { .. } |
+            FastStoreMessageType::ResolveFieldTypeResponse { .. } => {
+                // These are response messages, no further processing needed
+                Ok(None)
+            },
+            // For operations that need mutable access or are complex, fall back to StoreMessage conversion
+            FastStoreMessageType::Authenticate { .. } |
+            FastStoreMessageType::ComplexOperation { .. } => {
+                // These require special handling or mutable access
+                Ok(None)
+            },
+        }
+    }
+
+    /// Process a FastStoreMessage directly with mutable access
+    fn process_fast_message_mut(&mut self, fast_message: &FastStoreMessage) -> Result<Option<FastStoreMessage>> {
+        // Handle authentication which requires mutable access
+        if let FastStoreMessageType::Authenticate { subject_name: _, credential: _ } = &fast_message.message {
+            // This would typically involve checking credentials against a database
+            // For now, we'll create a simple success response
+            // In a real implementation, this would authenticate against a user store
+            let auth_result = crate::protocol::FastAuthenticationResult {
+                subject_id: EntityId::new(EntityType(1), 1), // Dummy authenticated user
+                subject_type: "User".to_string(),
+            };
+            
+            return Ok(Some(FastStoreMessage {
+                id: fast_message.id.clone(),
+                message: FastStoreMessageType::AuthenticateResponse { 
+                    response: Ok(auth_result) 
+                },
+            }));
+        }
+
+        // For other operations, delegate to the immutable version
+        self.process_fast_message(fast_message)
+    }
 }

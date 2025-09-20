@@ -1,6 +1,6 @@
 use crate::{
     data::StoreMessage, 
-    protocol::{encode_store_message, encode_fast_store_message, ProtocolCodec, MessageType}
+    protocol::{encode_store_message, encode_fast_store_message, ProtocolCodec, MessageType, FastStoreMessage, FastStoreMessageType}
 };
 
 #[test]
@@ -43,8 +43,22 @@ fn test_fast_store_message_encoding_decoding() {
     if let Ok(Some((fast_decoded, _))) = ProtocolCodec::decode(&fast_encoded) {
         match fast_decoded {
             crate::protocol::ProtocolMessage::FastStore(fast_msg) => {
+                // Verify we can access the message ID without deserialization
+                assert_eq!(fast_msg.message_id(), "test-123");
+                
+                // Verify the message is fast-processable
+                assert!(fast_msg.is_fast_processable());
+                
+                // Verify the fast message contains the right data
+                match &fast_msg.message {
+                    FastStoreMessageType::EntityExists { entity_id } => {
+                        assert_eq!(*entity_id, crate::EntityId::new(crate::EntityType(1), 42));
+                    },
+                    _ => panic!("Expected EntityExists fast message"),
+                }
+                
+                // Test conversion back to StoreMessage for compatibility
                 let decoded_msg = fast_msg.to_store_message().expect("Should convert back to StoreMessage");
-                // Should be able to extract the same message
                 match (&store_message, &decoded_msg) {
                     (StoreMessage::EntityExists { id: id1, entity_id: eid1 }, 
                      StoreMessage::EntityExists { id: id2, entity_id: eid2 }) => {
@@ -141,4 +155,47 @@ fn test_performance_demonstration() {
     
     // This test doesn't assert performance - that's hardware dependent
     // But it demonstrates that both methods work and provides timing comparison
+}
+
+#[test]
+fn test_fast_message_direct_processing() {
+    use crate::{StoreTrait, Store};
+    
+    // Create a StoreMessage that can be processed as a FastStoreMessage
+    let store_message = StoreMessage::FieldExists {
+        id: "fast-test-456".to_string(),
+        entity_type: crate::EntityType(1),
+        field_type: crate::FieldType(100),
+    };
+
+    // Convert to FastStoreMessage
+    let fast_message = crate::protocol::FastStoreMessage::from_store_message(&store_message)
+        .expect("Should convert to FastStoreMessage");
+
+    // Verify we can access the message ID without any deserialization
+    assert_eq!(fast_message.message_id(), "fast-test-456");
+    assert!(fast_message.is_fast_processable());
+
+    // Create a store to process the message
+    let store = Store::new();
+
+    // Process the fast message directly (no bincode deserialization!)
+    let response = store.process_fast_message(&fast_message)
+        .expect("Should process fast message");
+
+    // Verify we got a response
+    assert!(response.is_some());
+    let response_msg = response.unwrap();
+    
+    // Verify the response is the expected type
+    match &response_msg.message {
+        FastStoreMessageType::FieldExistsResponse { response } => {
+            // Field doesn't exist in empty store, so should be false
+            assert_eq!(*response, false);
+            assert_eq!(response_msg.id, "fast-test-456");
+        },
+        _ => panic!("Expected FieldExistsResponse"),
+    }
+
+    println!("✅ Successfully processed FastStoreMessage without bincode deserialization!");
 }

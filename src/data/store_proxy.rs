@@ -11,7 +11,7 @@ use crate::{
     Complete, EntityId, EntitySchema, EntityType, Error, FieldSchema, FieldType, Notification, NotificationQueue, NotifyConfig, hash_notify_config, PageOpts, PageResult, Request, Result, Single
 };
 use crate::data::StoreTrait;
-use crate::protocol::{MessageBuffer, encode_store_message};
+use crate::protocol::{MessageBuffer, encode_store_message, encode_fast_store_message, FastStoreMessage, FastStoreMessageType};
 
 /// Result of authentication attempt
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -262,6 +262,13 @@ impl TcpConnection {
     
     pub fn send_message(&mut self, message: &StoreMessage) -> anyhow::Result<()> {
         let encoded = encode_store_message(message)?;
+        self.stream.write_all(&encoded)?;
+        self.stream.flush()?;
+        Ok(())
+    }
+
+    pub fn send_fast_message(&mut self, message: &StoreMessage) -> anyhow::Result<()> {
+        let encoded = encode_fast_store_message(message)?;
         self.stream.write_all(&encoded)?;
         self.stream.flush()?;
         Ok(())
