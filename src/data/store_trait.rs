@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::{Arc, RwLock}};
 
 use smallvec::SmallVec;
 
@@ -6,7 +6,7 @@ use crate::{
     Complete, EntityId, EntitySchema, EntityType, FieldSchema, FieldType, IndirectFieldType, NotificationQueue, NotifyConfig, PageOpts, PageResult, Request, Result, Single
 };
 
-pub type Requests = SmallVec<[Request; 32]>;
+pub type Requests = Arc<RwLock<Vec<Request>>>;
 
 /// Async trait defining the common interface for store implementations
 /// This allows different store implementations to be used interchangeably

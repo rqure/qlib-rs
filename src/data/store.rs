@@ -1,13 +1,23 @@
-use std::{mem::discriminant, sync::{Arc, Mutex}};
-use rustc_hash::FxHashMap;
 use crossbeam::queue::SegQueue;
 use itertools::Itertools;
+use rustc_hash::FxHashMap;
 use sorted_vec::SortedVec;
+use std::{
+    mem::discriminant,
+    sync::{Arc, Mutex},
+};
 
 use crate::{
     data::{
-        entity_schema::Complete, hash_notify_config, indirection::resolve_indirection, interner::Interner, now, request::PushCondition, EntityType, FieldType, Notification, NotificationQueue, NotifyConfig, StoreTrait, Timestamp,
-    }, et::ET, expr::CelExecutor, ft::FT, sread, sreq, AdjustBehavior, EntityId, EntitySchema, Error, Field, FieldSchema, IndirectFieldType, PageOpts, PageResult, Request, Requests, Result, Single, Snapshot, Value
+        entity_schema::Complete, hash_notify_config, indirection::resolve_indirection,
+        interner::Interner, now, request::PushCondition, EntityType, FieldType, Notification,
+        NotificationQueue, NotifyConfig, StoreTrait, Timestamp,
+    },
+    et::ET,
+    expr::CelExecutor,
+    ft::FT,
+    sread, sreq, AdjustBehavior, EntityId, EntitySchema, Error, Field, FieldSchema,
+    IndirectFieldType, PageOpts, PageResult, Request, Requests, Result, Single, Snapshot, Value,
 };
 
 pub struct Store {
@@ -39,8 +49,10 @@ pub struct Store {
 
     /// Notification senders indexed by entity type and field type
     /// Each config can have multiple senders
-    type_notifications:
-        FxHashMap<EntityType, FxHashMap<FieldType, FxHashMap<NotifyConfig, Vec<NotificationQueue>>>>,
+    type_notifications: FxHashMap<
+        EntityType,
+        FxHashMap<FieldType, FxHashMap<NotifyConfig, Vec<NotificationQueue>>>,
+    >,
 
     pub write_queue: SegQueue<Request>,
 
@@ -117,7 +129,12 @@ impl Store {
             if let Some(id) = created_entity_id {
                 id.clone()
             } else {
-                let last_id = self.entities.get(&entity_type).and_then(|v| v.last()).cloned().unwrap_or(EntityId::new(entity_type.clone(), 0));
+                let last_id = self
+                    .entities
+                    .get(&entity_type)
+                    .and_then(|v| v.last())
+                    .cloned()
+                    .unwrap_or(EntityId::new(entity_type.clone(), 0));
                 let entity_id = EntityId::new(entity_type.clone(), last_id.extract_id() + 1);
                 *created_entity_id = Some(entity_id);
                 entity_id
@@ -155,12 +172,15 @@ impl Store {
             };
 
             let field_key = (entity_id, *field_type);
-            self.fields.insert(field_key, Field {
-                field_type: *field_type,
-                value,
-                write_time: now(),
-                writer_id: None,
-            });
+            self.fields.insert(
+                field_key,
+                Field {
+                    field_type: *field_type,
+                    value,
+                    write_time: now(),
+                    writer_id: None,
+                },
+            );
         }
 
         // If we have a parent, add it to the parent's children list
@@ -173,22 +193,22 @@ impl Store {
                 }
             } else {
                 // Create the Children field if it doesn't exist
-                self.fields.insert(children_field_key, Field {
-                    field_type: ft.children.unwrap(),
-                    value: Value::EntityList(vec![entity_id]),
-                    write_time: now(),
-                    writer_id: None,
-                });
+                self.fields.insert(
+                    children_field_key,
+                    Field {
+                        field_type: ft.children.unwrap(),
+                        value: Value::EntityList(vec![entity_id]),
+                        write_time: now(),
+                        writer_id: None,
+                    },
+                );
             }
         }
 
         Ok(())
     }
 
-    pub fn get_entity_schema(
-        &self,
-        entity_type: EntityType,
-    ) -> Result<EntitySchema<Single>> {
+    pub fn get_entity_schema(&self, entity_type: EntityType) -> Result<EntitySchema<Single>> {
         self.schemas
             .get(&entity_type)
             .cloned()
@@ -214,20 +234,21 @@ impl Store {
         &self,
         entity_type: EntityType,
     ) -> Result<EntitySchema<Complete>> {
-        let mut schema = EntitySchema::<Complete>::from(self.get_entity_schema(entity_type.clone())?);
+        let mut schema =
+            EntitySchema::<Complete>::from(self.get_entity_schema(entity_type.clone())?);
         let mut visited_types = std::collections::HashSet::new();
         visited_types.insert(entity_type.clone());
 
         // Collect all fields from inheritance hierarchy with proper rank ordering
         let mut all_fields: Vec<(FieldType, FieldSchema)> = Vec::new();
-        
+
         // Add fields from the base schema first
         for (field_type, field_schema) in &schema.fields {
             all_fields.push((*field_type, field_schema.clone()));
         }
 
         // Use a queue to process inheritance in breadth-first manner
-        let mut inherit_queue: std::collections::VecDeque<EntityType> = 
+        let mut inherit_queue: std::collections::VecDeque<EntityType> =
             schema.inherit.clone().into_iter().collect();
 
         while let Some(inherit_type) = inherit_queue.pop_front() {
@@ -243,11 +264,14 @@ impl Store {
                 // Add inherited fields if they don't already exist in the derived schema
                 // Fields in the derived schema take precedence over inherited fields
                 for (field_type, field_schema) in &inherit_schema.fields {
-                    if !all_fields.iter().any(|(existing_field_type, _)| existing_field_type == field_type) {
+                    if !all_fields
+                        .iter()
+                        .any(|(existing_field_type, _)| existing_field_type == field_type)
+                    {
                         all_fields.push((*field_type, field_schema.clone()));
                     }
                 }
-                
+
                 // Add parent types to the queue for further processing
                 for parent in &inherit_schema.inherit {
                     if !visited_types.contains(parent) {
@@ -261,7 +285,7 @@ impl Store {
 
         // Sort all fields by rank to ensure proper ordering
         all_fields.sort_by_key(|(_, field_schema)| field_schema.rank());
-        
+
         // Rebuild the schema with properly ordered fields
         schema.fields.clear();
         for (field_type, field_schema) in all_fields {
@@ -295,11 +319,13 @@ impl Store {
     ) -> Result<()> {
         let mut entity_schema = self.get_entity_schema(entity_type)?;
 
-        entity_schema
-            .fields
-            .insert(field_type, field_schema);
+        entity_schema.fields.insert(field_type, field_schema);
 
-        let requests = sreq![Request::SchemaUpdate { schema: entity_schema.to_string_schema(self), timestamp: None, originator: None }];
+        let requests = sreq![Request::SchemaUpdate {
+            schema: entity_schema.to_string_schema(self),
+            timestamp: None,
+            originator: None
+        }];
         self.perform_mut(requests).map(|_| ())
     }
 
@@ -308,85 +334,79 @@ impl Store {
         self.fields.contains_key(&(entity_id, ft.name.unwrap()))
     }
 
-    pub fn field_exists(
-        &self,
-        entity_type: EntityType,
-        field_type: FieldType,
-    ) -> bool {
+    pub fn field_exists(&self, entity_type: EntityType, field_type: FieldType) -> bool {
         self.schemas
             .get(&entity_type)
             .map(|schema| schema.fields.contains_key(&field_type))
             .unwrap_or(false)
     }
 
-    pub fn perform(&self, mut requests: Requests) -> Result<Requests> {
-        for request in requests.iter_mut() {
-            match request {
-                Request::Read {
-                    entity_id,
-                    field_types: field_type,
-                    value,
-                    write_time,
-                    writer_id,
-                } => {
-                    let indir: (EntityId, FieldType) =
-                        resolve_indirection(self, *entity_id, &field_type)?;
-                    self.read(indir.0.clone(), indir.1.clone(), value, write_time, writer_id)?;
-                }
-                Request::GetEntityType {
-                    name,
-                    entity_type
-                } => {
-                    match self.get_entity_type(name) {
-                        Ok(et) => {
-                            *entity_type = Some(et);
-                        },
-                        Err(_) => {
-                            *entity_type = None;
+    pub fn perform(&self, requests: Requests) -> Result<Requests> {
+        {
+            let mut requests = requests.write().unwrap();
+
+            for request in requests.iter_mut() {
+                match request {
+                    Request::Read {
+                        entity_id,
+                        field_types: field_type,
+                        value,
+                        write_time,
+                        writer_id,
+                    } => {
+                        let indir: (EntityId, FieldType) =
+                            resolve_indirection(self, *entity_id, &field_type)?;
+                        self.read(
+                            indir.0.clone(),
+                            indir.1.clone(),
+                            value,
+                            write_time,
+                            writer_id,
+                        )?;
+                    }
+                    Request::GetEntityType { name, entity_type } => {
+                        match self.get_entity_type(name) {
+                            Ok(et) => {
+                                *entity_type = Some(et);
+                            }
+                            Err(_) => {
+                                *entity_type = None;
+                            }
                         }
                     }
-                }
-                Request::ResolveEntityType {
-                    entity_type: et,
-                    name
-                } => {
-                    match self.resolve_entity_type(*et) {
+                    Request::ResolveEntityType {
+                        entity_type: et,
+                        name,
+                    } => match self.resolve_entity_type(*et) {
                         Ok(resolved_name) => {
                             *name = Some(resolved_name);
-                        },
+                        }
                         Err(_) => {
                             *name = None;
                         }
-                    }
-                }
-                Request::GetFieldType {
-                    name,
-                    field_type
-                } => {
-                    match self.get_field_type(name) {
+                    },
+                    Request::GetFieldType { name, field_type } => match self.get_field_type(name) {
                         Ok(ft) => {
                             *field_type = Some(ft);
-                        },
+                        }
                         Err(_) => {
                             *field_type = None;
                         }
-                    }
-                }
-                Request::ResolveFieldType {
-                    field_type: ft,
-                    name
-                } => {
-                    match self.resolve_field_type(*ft) {
+                    },
+                    Request::ResolveFieldType {
+                        field_type: ft,
+                        name,
+                    } => match self.resolve_field_type(*ft) {
                         Ok(resolved_name) => {
                             *name = Some(resolved_name);
-                        },
+                        }
                         Err(_) => {
                             *name = None;
                         }
+                    },
+                    _ => {
+                        return Err(Error::InvalidRequest("Perform without mutable access can only handle Read, GetEntityType, ResolveEntityType, GetFieldType, and ResolveFieldType requests".to_string()));
                     }
-                }
-                _ => {
-                    return Err(Error::InvalidRequest("Perform without mutable access can only handle Read, GetEntityType, ResolveEntityType, GetFieldType, and ResolveFieldType requests".to_string()));
                 }
             }
         }
@@ -394,212 +414,209 @@ impl Store {
         Ok(requests)
     }
 
-    pub fn perform_mut(&mut self, mut requests: Requests) -> Result<Requests> {
-        for request in requests.iter_mut() {
-            match request {
-                Request::Read {
-                    entity_id,
-                    field_types,
-                    value,
-                    write_time,
-                    writer_id,
-                } => {
-                    let indir: (EntityId, FieldType) =
-                        resolve_indirection(self, *entity_id, &field_types)?;
-                    self.read(indir.0, indir.1, value, write_time, writer_id)?;
-                }
-                Request::Write {
-                    entity_id,
-                    field_types: field_type,
-                    value,
-                    write_time,
-                    writer_id,
-                    push_condition,
-                    adjust_behavior,
-                    ..
-                } => {
-                    let indir = resolve_indirection(self, *entity_id, &field_type)?;
-                    if self.write(
-                        indir.0,
-                        indir.1,
+    pub fn perform_mut(&mut self, requests: Requests) -> Result<Requests> {
+        {
+            let mut requests = requests.write().unwrap();
+            for request in requests.iter_mut() {
+                match request {
+                    Request::Read {
+                        entity_id,
+                        field_types,
+                        value,
+                        write_time,
+                        writer_id,
+                    } => {
+                        let indir: (EntityId, FieldType) =
+                            resolve_indirection(self, *entity_id, &field_types)?;
+                        self.read(indir.0, indir.1, value, write_time, writer_id)?;
+                    }
+                    Request::Write {
+                        entity_id,
+                        field_types: field_type,
                         value,
                         write_time,
                         writer_id,
                         push_condition,
                         adjust_behavior,
-                    )? {
+                        ..
+                    } => {
+                        let indir = resolve_indirection(self, *entity_id, &field_type)?;
+                        if self.write(
+                            indir.0,
+                            indir.1,
+                            value,
+                            write_time,
+                            writer_id,
+                            push_condition,
+                            adjust_behavior,
+                        )? {
+                            self.write_queue.push(request.clone());
+                        }
+                    }
+                    Request::Create {
+                        entity_type,
+                        parent_id,
+                        name,
+                        created_entity_id,
+                        timestamp,
+                        ..
+                    } => {
+                        self.create_entity_internal(
+                            *entity_type,
+                            parent_id.clone(),
+                            created_entity_id,
+                            name,
+                        )?;
+                        *timestamp = Some(now());
                         self.write_queue.push(request.clone());
                     }
-                }
-                Request::Create {
-                    entity_type,
-                    parent_id,
-                    name,
-                    created_entity_id,
-                    timestamp,
-                    ..
-                } => {
-                    self.create_entity_internal(*entity_type, parent_id.clone(), created_entity_id, name)?;
-                    *timestamp = Some(now());
-                    self.write_queue.push(request.clone());
-                }
-                Request::Delete {
-                    entity_id,
-                    timestamp,
-                    ..
-                } => {
-                    self.delete_entity_internal(*entity_id)?;
-                    *timestamp = Some(now());
-                    self.write_queue.push(request.clone());
-                }
-                Request::SchemaUpdate {
-                    schema,
-                    timestamp,
-                    ..
-                } => {
-                    // Validate whether inherited entity types exist or not:
-                    for parent in schema.inherit.iter() {
-                        self.entity_type_interner
-                            .get(parent.as_str())
-                            .ok_or_else(|| Error::EntityTypeStrNotFound(parent.clone()))?;
+                    Request::Delete {
+                        entity_id,
+                        timestamp,
+                        ..
+                    } => {
+                        self.delete_entity_internal(*entity_id)?;
+                        *timestamp = Some(now());
+                        self.write_queue.push(request.clone());
                     }
+                    Request::SchemaUpdate {
+                        schema, timestamp, ..
+                    } => {
+                        // Validate whether inherited entity types exist or not:
+                        for parent in schema.inherit.iter() {
+                            self.entity_type_interner
+                                .get(parent.as_str())
+                                .ok_or_else(|| Error::EntityTypeStrNotFound(parent.clone()))?;
+                        }
 
-                    // Get or create the entity type if it doesn't exist
-                    let entity_type = EntityType(self.entity_type_interner.intern(schema.entity_type.as_str()) as u32);
-                    
-                    // Intern all field types before converting the schema
-                    for field_name in schema.fields.keys() {
-                        self.field_type_interner.intern(field_name.as_str());
+                        // Get or create the entity type if it doesn't exist
+                        let entity_type = EntityType(
+                            self.entity_type_interner
+                                .intern(schema.entity_type.as_str())
+                                as u32,
+                        );
+
+                        // Intern all field types before converting the schema
+                        for field_name in schema.fields.keys() {
+                            self.field_type_interner.intern(field_name.as_str());
+                        }
+
+                        let schema =
+                            EntitySchema::<Single>::from_string_schema(schema.clone(), self);
+
+                        // Get a copy of the existing schema if it exists
+                        // We'll use this to see if any fields have been added or removed
+                        let complete_old_schema = self
+                            .get_complete_entity_schema(entity_type.clone())
+                            .unwrap_or_else(|_| EntitySchema::<Complete>::new(entity_type.clone()));
+
+                        self.schemas.insert(entity_type.clone(), schema.clone());
+
+                        if !self.entities.contains_key(&entity_type) {
+                            self.entities.insert(entity_type.clone(), SortedVec::new());
+                        }
+
+                        // Clear the complete entity schema cache since a schema was updated
+                        // This will be rebuilt by rebuild_inheritance_map()
+                        self.complete_entity_schema_cache.clear();
+
+                        // Get the complete schema for the entity type (will rebuild since cache is cleared)
+                        let complete_new_schema =
+                            self.build_complete_entity_schema(schema.entity_type.clone())?;
+
+                        for removed_field in complete_old_schema.diff(&complete_new_schema) {
+                            // If the field was removed, we need to remove it from all entities
+                            for entity_id in self
+                                .entities
+                                .get(&schema.entity_type)
+                                .unwrap_or(&SortedVec::new())
+                            {
+                                let field_key = (*entity_id, removed_field.field_type().clone());
+                                self.fields.remove(&field_key);
+                            }
+                        }
+
+                        for added_field in complete_new_schema.diff(&complete_old_schema) {
+                            // If the field was added, we need to add it to all entities
+                            for entity_id in self
+                                .entities
+                                .get(&schema.entity_type)
+                                .unwrap_or(&SortedVec::new())
+                            {
+                                let field_key = (*entity_id, added_field.field_type().clone());
+                                self.fields.insert(
+                                    field_key,
+                                    Field {
+                                        field_type: added_field.field_type().clone(),
+                                        value: added_field.default_value(),
+                                        write_time: now(),
+                                        writer_id: None,
+                                    },
+                                );
+                            }
+                        }
+
+                        self.et = Some(ET::new(self));
+                        self.ft = Some(FT::new(self));
+
+                        // Rebuild inheritance map after schema changes
+                        // This will also rebuild the complete entity schema cache
+                        self.rebuild_inheritance_map();
+                        *timestamp = Some(now());
+                        self.write_queue.push(request.clone());
                     }
-                    
-                    let schema = EntitySchema::<Single>::from_string_schema(schema.clone(), self);
-                    
-                    // Get a copy of the existing schema if it exists
-                    // We'll use this to see if any fields have been added or removed
-                    let complete_old_schema = self
-                        .get_complete_entity_schema(entity_type.clone())
-                        .unwrap_or_else(|_| EntitySchema::<Complete>::new(entity_type.clone()));
+                    Request::Snapshot { timestamp, .. } => {
+                        *timestamp = Some(now());
 
-                    self.schemas
-                        .insert(entity_type.clone(), schema.clone());
-
-                    if !self.entities.contains_key(&entity_type) {
-                        self.entities
-                            .insert(entity_type.clone(), SortedVec::new());
+                        // Snapshot requests are mainly for WAL marking purposes
+                        // The actual snapshot logic is handled elsewhere
+                        // We just log this event and include it in write requests for WAL persistence
+                        self.write_queue.push(request.clone());
                     }
-
-                    // Clear the complete entity schema cache since a schema was updated
-                    // This will be rebuilt by rebuild_inheritance_map()
-                    self.complete_entity_schema_cache.clear();
-
-                    // Get the complete schema for the entity type (will rebuild since cache is cleared)
-                    let complete_new_schema =
-                        self.build_complete_entity_schema(schema.entity_type.clone())?;
-
-                    for removed_field in complete_old_schema.diff(&complete_new_schema) {
-                        // If the field was removed, we need to remove it from all entities
-                        for entity_id in self
-                            .entities
-                            .get(&schema.entity_type)
-                            .unwrap_or(&SortedVec::new())
-                        {
-                            let field_key = (*entity_id, removed_field.field_type().clone());
-                            self.fields.remove(&field_key);
+                    Request::GetEntityType { name, entity_type } => {
+                        match self.get_entity_type(name) {
+                            Ok(et) => {
+                                *entity_type = Some(et);
+                            }
+                            Err(_) => {
+                                *entity_type = None;
+                            }
                         }
                     }
-
-                    for added_field in complete_new_schema.diff(&complete_old_schema) {
-                        // If the field was added, we need to add it to all entities
-                        for entity_id in self
-                            .entities
-                            .get(&schema.entity_type)
-                            .unwrap_or(&SortedVec::new())
-                        {
-                            let field_key = (*entity_id, added_field.field_type().clone());
-                            self.fields.insert(field_key, Field {
-                                field_type: added_field.field_type().clone(),
-                                value: added_field.default_value(),
-                                write_time: now(),
-                                writer_id: None,
-                            });
-                        }
-                    }
-                    
-                    self.et = Some(ET::new(self));
-                    self.ft = Some(FT::new(self));
-
-                    // Rebuild inheritance map after schema changes
-                    // This will also rebuild the complete entity schema cache
-                    self.rebuild_inheritance_map();
-                    *timestamp = Some(now());
-                    self.write_queue.push(request.clone());
-                }
-                Request::Snapshot {
-                    timestamp,
-                    ..
-                } => {
-                    *timestamp = Some(now());
-                    
-                    // Snapshot requests are mainly for WAL marking purposes
-                    // The actual snapshot logic is handled elsewhere
-                    // We just log this event and include it in write requests for WAL persistence
-                    self.write_queue.push(request.clone());
-                }
-                Request::GetEntityType {
-                    name,
-                    entity_type
-                } => {
-                    match self.get_entity_type(name) {
-                        Ok(et) => {
-                            *entity_type = Some(et);
-                        },
-                        Err(_) => {
-                            *entity_type = None;
-                        }
-                    }
-                }
-                Request::ResolveEntityType {
-                    entity_type: et,
-                    name
-                } => {
-                    match self.resolve_entity_type(*et) {
+                    Request::ResolveEntityType {
+                        entity_type: et,
+                        name,
+                    } => match self.resolve_entity_type(*et) {
                         Ok(resolved_name) => {
                             *name = Some(resolved_name);
-                        },
+                        }
                         Err(_) => {
                             *name = None;
                         }
-                    }
-                }
-                Request::GetFieldType {
-                    name,
-                    field_type
-                } => {
-                    match self.get_field_type(name) {
+                    },
+                    Request::GetFieldType { name, field_type } => match self.get_field_type(name) {
                         Ok(ft) => {
                             *field_type = Some(ft);
-                        },
+                        }
                         Err(_) => {
                             *field_type = None;
                         }
-                    }
-                }
-                Request::ResolveFieldType {
-                    field_type: ft,
-                    name
-                } => {
-                    match self.resolve_field_type(*ft) {
+                    },
+                    Request::ResolveFieldType {
+                        field_type: ft,
+                        name,
+                    } => match self.resolve_field_type(*ft) {
                         Ok(resolved_name) => {
                             *name = Some(resolved_name);
-                        },
+                        }
                         Err(_) => {
                             *name = None;
                         }
-                    }
+                    },
                 }
             }
         }
-        
+
         Ok(requests)
     }
 
@@ -798,7 +815,7 @@ impl Store {
         let mut current_filtered_idx = 0;
         let mut total_filtered = 0;
         let end_target = start_idx + opts.limit;
-        
+
         // Early termination flags
         let mut page_complete = false;
 
@@ -821,7 +838,7 @@ impl Store {
                         // Collect items for the current page
                         if current_filtered_idx >= start_idx && page_items.len() < opts.limit {
                             page_items.push(*entity_id);
-                            
+
                             // Check if we've filled the page
                             if page_items.len() >= opts.limit {
                                 page_complete = true;
@@ -987,7 +1004,11 @@ impl Store {
         let mut page_opts: Option<PageOpts> = None;
 
         loop {
-            let page_result = self.find_entities_paginated(entity_type.clone(), page_opts.clone(), filter.clone())?;
+            let page_result = self.find_entities_paginated(
+                entity_type.clone(),
+                page_opts.clone(),
+                filter.clone(),
+            )?;
             if page_result.items.is_empty() {
                 break;
             }
@@ -1009,8 +1030,7 @@ impl Store {
         let mut page_opts: Option<PageOpts> = None;
 
         loop {
-            let page_result = self
-                .get_entity_types_paginated(page_opts)?;
+            let page_result = self.get_entity_types_paginated(page_opts)?;
             if page_result.items.is_empty() {
                 break;
             }
@@ -1117,9 +1137,13 @@ impl Store {
 
     /// Unregister a notification by removing a specific sender
     /// Returns true if the sender was found and removed
-    pub fn unregister_notification(&mut self, target_config: &NotifyConfig, target_sender: &NotificationQueue) -> bool {
+    pub fn unregister_notification(
+        &mut self,
+        target_config: &NotifyConfig,
+        target_sender: &NotificationQueue,
+    ) -> bool {
         let mut removed_any = false;
-        
+
         match target_config {
             NotifyConfig::EntityId {
                 entity_id,
@@ -1133,7 +1157,7 @@ impl Store {
                             let original_len = senders.len();
                             senders.retain(|sender| !std::ptr::eq(sender, target_sender));
                             removed_any = senders.len() != original_len;
-                            
+
                             // Clean up empty entries
                             if senders.is_empty() {
                                 sender_map.remove(target_config);
@@ -1164,7 +1188,7 @@ impl Store {
                             let original_len = senders.len();
                             senders.retain(|sender| !std::ptr::eq(sender, target_sender));
                             removed_any = senders.len() != original_len;
-                            
+
                             // Clean up empty entries
                             if senders.is_empty() {
                                 sender_map.remove(target_config);
@@ -1239,18 +1263,21 @@ impl Store {
         write_option: &PushCondition,
         adjust_behavior: &AdjustBehavior,
     ) -> Result<bool> {
-        let entity_schema = self.get_complete_entity_schema( entity_id.extract_type())?;
+        let entity_schema = self.get_complete_entity_schema(entity_id.extract_type())?;
         let field_schema = entity_schema
             .fields
             .get(&field_type)
             .ok_or_else(|| Error::FieldTypeNotFound(entity_id, field_type))?;
 
-        let field = self.fields.entry((entity_id, field_type)).or_insert_with(|| Field {
-            field_type: field_type,
-            value: field_schema.default_value(),
-            write_time: now(),
-            writer_id: None,
-        });
+        let field = self
+            .fields
+            .entry((entity_id, field_type))
+            .or_insert_with(|| Field {
+                field_type: field_type,
+                value: field_schema.default_value(),
+                write_time: now(),
+                writer_id: None,
+            });
 
         let old_value = field.value.clone();
         let mut new_value = field_schema.default_value();
@@ -1400,7 +1427,7 @@ impl Store {
 
                     *write_time = Some(field.write_time);
                     *writer_id = field.writer_id.clone();
-                    
+
                     self.trigger_notifications(
                         entity_id,
                         field_type,
@@ -1415,7 +1442,9 @@ impl Store {
             PushCondition::Changes => {
                 // Changes write, only update if the value is different AND the write is newer
                 let incoming_time = write_time.unwrap_or_else(|| now());
-                if (write_time.is_none() || incoming_time >= field.write_time) && field.value != new_value {
+                if (write_time.is_none() || incoming_time >= field.write_time)
+                    && field.value != new_value
+                {
                     field.value = new_value;
                     field.write_time = incoming_time;
                     if let Some(writer_id) = writer_id {
@@ -1423,7 +1452,7 @@ impl Store {
                     } else {
                         field.writer_id = self.default_writer_id.clone();
                     }
-                    
+
                     // Trigger notifications after a write operation
                     let current_request = Request::Read {
                         entity_id: entity_id,
@@ -1444,7 +1473,7 @@ impl Store {
 
                     *write_time = Some(field.write_time);
                     *writer_id = field.writer_id.clone();
-                    
+
                     self.trigger_notifications(
                         entity_id,
                         field_type,
@@ -1478,11 +1507,11 @@ impl Store {
         self.entities = snapshot.entities;
         self.entity_type_interner = snapshot.entity_type_interner;
         self.field_type_interner = snapshot.field_type_interner;
-        
+
         // Re-initialize ET and FT after restoring snapshot data
         self.et = Some(ET::new(self));
         self.ft = Some(FT::new(self));
-        
+
         // Convert nested fields structure to flattened structure
         self.fields.clear();
         for (entity_id, entity_fields) in snapshot.fields {
@@ -1490,10 +1519,10 @@ impl Store {
                 self.fields.insert((entity_id, field_type), field);
             }
         }
-        
+
         // Clear the cache since schema structure may have changed
         self.complete_entity_schema_cache.clear();
-        
+
         // Rebuild inheritance map after restoring (this will also rebuild the cache)
         self.rebuild_inheritance_map();
     }
@@ -1506,11 +1535,19 @@ impl Store {
         self.complete_entity_schema_cache.clear();
 
         // For each entity type, find all types that inherit from it
-        for entity_type in self.entity_type_interner.ids().map(|id| EntityType(id as u32)) {
+        for entity_type in self
+            .entity_type_interner
+            .ids()
+            .map(|id| EntityType(id as u32))
+        {
             let mut derived_types = Vec::new();
 
             // Check all other types to see if they inherit from this type
-            for other_type in self.entity_type_interner.ids().map(|id| EntityType(id as u32)) {
+            for other_type in self
+                .entity_type_interner
+                .ids()
+                .map(|id| EntityType(id as u32))
+            {
                 if self.inherits_from(other_type.clone(), entity_type.clone()) {
                     derived_types.push(other_type.clone());
                 }
@@ -1531,11 +1568,16 @@ impl Store {
     /// This should be called after inheritance map changes or schema updates
     fn rebuild_complete_entity_schema_cache(&mut self) {
         self.complete_entity_schema_cache.clear();
-        
+
         // Build complete schemas for all entity types
-        for entity_type in self.entity_type_interner.ids().map(|id| EntityType(id as u32)) {
+        for entity_type in self
+            .entity_type_interner
+            .ids()
+            .map(|id| EntityType(id as u32))
+        {
             if let Ok(complete_schema) = self.build_complete_entity_schema(entity_type.clone()) {
-                self.complete_entity_schema_cache.insert(entity_type.clone(), complete_schema);
+                self.complete_entity_schema_cache
+                    .insert(entity_type.clone(), complete_schema);
             }
         }
     }
@@ -1558,7 +1600,7 @@ impl Store {
                     if *inherit_type == base_type {
                         return true;
                     }
-                    
+
                     // Add to queue if not already visited to prevent infinite loops
                     if !visited.contains(inherit_type) {
                         types_to_check.push_back(inherit_type.clone());
@@ -1578,7 +1620,7 @@ impl Store {
         let mut parent_types = Vec::new();
         let mut types_to_check = std::collections::VecDeque::new();
         let mut visited = std::collections::HashSet::new();
-        
+
         types_to_check.push_back(entity_type.clone());
         visited.insert(entity_type.clone());
 
@@ -1611,7 +1653,10 @@ impl Store {
             let requests = sreq![sread!(entity_id, field_types.clone())];
 
             if let Ok(updated_requests) = self.perform(requests) {
-                context_map.insert(context_field.clone(), updated_requests.into_iter().next().unwrap());
+                context_map.insert(
+                    context_field.clone(),
+                    updated_requests.into_iter().next().unwrap(),
+                );
             } else {
                 // If perform_mut fails, insert the original request
                 context_map.insert(context_field.clone(), sread!(entity_id, field_types));
@@ -1620,7 +1665,7 @@ impl Store {
 
         context_map
     }
-    
+
     /// Trigger notifications for a write operation
     fn trigger_notifications(
         &mut self,
@@ -1649,7 +1694,17 @@ impl Store {
                     {
                         let should_notify = if *trigger_on_change {
                             // Compare values from the requests
-                            if let (Request::Read { value: Some(current_val), .. }, Request::Read { value: Some(previous_val), .. }) = (&current_request, &previous_request) {
+                            if let (
+                                Request::Read {
+                                    value: Some(current_val),
+                                    ..
+                                },
+                                Request::Read {
+                                    value: Some(previous_val),
+                                    ..
+                                },
+                            ) = (&current_request, &previous_request)
+                            {
                                 current_val != previous_val
                             } else {
                                 true // Always notify if we can't compare values
@@ -1675,7 +1730,7 @@ impl Store {
         for entity_type_to_check in types_to_check {
             if let Some(field_map) = self.type_notifications.get(&entity_type_to_check) {
                 if let Some(sender_map) = field_map.get(&field_type) {
-                for (config, _) in sender_map {
+                    for (config, _) in sender_map {
                         if let NotifyConfig::EntityType {
                             trigger_on_change,
                             context,
@@ -1684,7 +1739,17 @@ impl Store {
                         {
                             let should_notify = if *trigger_on_change {
                                 // Compare values from the requests
-                                if let (Request::Read { value: Some(current_val), .. }, Request::Read { value: Some(previous_val), .. }) = (&current_request, &previous_request) {
+                                if let (
+                                    Request::Read {
+                                        value: Some(current_val),
+                                        ..
+                                    },
+                                    Request::Read {
+                                        value: Some(previous_val),
+                                        ..
+                                    },
+                                ) = (&current_request, &previous_request)
+                                {
                                     current_val != previous_val
                                 } else {
                                     true // Always notify if we can't compare values
@@ -1788,15 +1853,27 @@ impl StoreTrait for Store {
         self.get_entity_schema(entity_type)
     }
 
-    fn get_complete_entity_schema(&self, entity_type: EntityType) -> Result<EntitySchema<Complete>> {
+    fn get_complete_entity_schema(
+        &self,
+        entity_type: EntityType,
+    ) -> Result<EntitySchema<Complete>> {
         self.get_complete_entity_schema(entity_type)
     }
 
-    fn get_field_schema(&self, entity_type: EntityType, field_type: FieldType) -> Result<FieldSchema> {
+    fn get_field_schema(
+        &self,
+        entity_type: EntityType,
+        field_type: FieldType,
+    ) -> Result<FieldSchema> {
         self.get_field_schema(entity_type, field_type)
     }
 
-    fn set_field_schema(&mut self, entity_type: EntityType, field_type: FieldType, schema: FieldSchema) -> Result<()> {
+    fn set_field_schema(
+        &mut self,
+        entity_type: EntityType,
+        field_type: FieldType,
+        schema: FieldSchema,
+    ) -> Result<()> {
         self.set_field_schema(entity_type, field_type, schema)
     }
 
@@ -1816,15 +1893,29 @@ impl StoreTrait for Store {
         self.perform_mut(requests)
     }
 
-    fn find_entities_paginated(&self, entity_type: EntityType, page_opts: Option<PageOpts>, filter: Option<String>) -> Result<PageResult<EntityId>> {
+    fn find_entities_paginated(
+        &self,
+        entity_type: EntityType,
+        page_opts: Option<PageOpts>,
+        filter: Option<String>,
+    ) -> Result<PageResult<EntityId>> {
         self.find_entities_paginated(entity_type, page_opts, filter)
     }
 
-    fn find_entities_exact(&self, entity_type: EntityType, page_opts: Option<PageOpts>, filter: Option<String>) -> Result<PageResult<EntityId>> {
+    fn find_entities_exact(
+        &self,
+        entity_type: EntityType,
+        page_opts: Option<PageOpts>,
+        filter: Option<String>,
+    ) -> Result<PageResult<EntityId>> {
         self.find_entities_exact(entity_type, page_opts, filter)
     }
 
-    fn find_entities(&self, entity_type: EntityType, filter: Option<String>) -> Result<Vec<EntityId>> {
+    fn find_entities(
+        &self,
+        entity_type: EntityType,
+        filter: Option<String>,
+    ) -> Result<Vec<EntityId>> {
         self.find_entities(entity_type, filter)
     }
 
@@ -1832,15 +1923,26 @@ impl StoreTrait for Store {
         self.get_entity_types()
     }
 
-    fn get_entity_types_paginated(&self, page_opts: Option<PageOpts>) -> Result<PageResult<EntityType>> {
+    fn get_entity_types_paginated(
+        &self,
+        page_opts: Option<PageOpts>,
+    ) -> Result<PageResult<EntityType>> {
         self.get_entity_types_paginated(page_opts)
     }
 
-    fn register_notification(&mut self, config: NotifyConfig, sender: NotificationQueue) -> Result<()> {
+    fn register_notification(
+        &mut self,
+        config: NotifyConfig,
+        sender: NotificationQueue,
+    ) -> Result<()> {
         self.register_notification(config, sender)
     }
 
-    fn unregister_notification(&mut self, config: &NotifyConfig, sender: &NotificationQueue) -> bool {
+    fn unregister_notification(
+        &mut self,
+        config: &NotifyConfig,
+        sender: &NotificationQueue,
+    ) -> bool {
         self.unregister_notification(config, sender)
     }
 }
