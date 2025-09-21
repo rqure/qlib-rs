@@ -7,7 +7,7 @@ use sorted_vec::SortedVec;
 use crate::{
     data::{
         entity_schema::Complete, hash_notify_config, indirection::resolve_indirection, interner::Interner, now, request::PushCondition, EntityType, FieldType, Notification, NotificationQueue, NotifyConfig, StoreTrait, Timestamp,
-    }, et::ET, expr::CelExecutor, ft::FT, sread, AdjustBehavior, EntityId, EntitySchema, Error, Field, FieldSchema, IndirectFieldType, PageOpts, PageResult, Request, Result, Single, Snapshot, Value
+    }, et::ET, expr::CelExecutor, ft::FT, sread, sreq, AdjustBehavior, EntityId, EntitySchema, Error, Field, FieldSchema, IndirectFieldType, PageOpts, PageResult, Request, Requests, Result, Single, Snapshot, Value
 };
 
 pub struct Store {
@@ -299,7 +299,7 @@ impl Store {
             .fields
             .insert(field_type, field_schema);
 
-        let requests = vec![Request::SchemaUpdate { schema: entity_schema.to_string_schema(self), timestamp: None, originator: None }];
+        let requests = sreq![Request::SchemaUpdate { schema: entity_schema.to_string_schema(self), timestamp: None, originator: None }];
         self.perform_mut(requests).map(|_| ())
     }
 
@@ -319,7 +319,7 @@ impl Store {
             .unwrap_or(false)
     }
 
-    pub fn perform(&self, mut requests: Vec<Request>) -> Result<Vec<Request>> {
+    pub fn perform(&self, mut requests: Requests) -> Result<Requests> {
         for request in requests.iter_mut() {
             match request {
                 Request::Read {
@@ -394,7 +394,7 @@ impl Store {
         Ok(requests)
     }
 
-    pub fn perform_mut(&mut self, mut requests: Vec<Request>) -> Result<Vec<Request>> {
+    pub fn perform_mut(&mut self, mut requests: Requests) -> Result<Requests> {
         for request in requests.iter_mut() {
             match request {
                 Request::Read {
@@ -1608,7 +1608,7 @@ impl Store {
         for context_field in context_fields {
             // Use perform to handle indirection properly
             let field_types: IndirectFieldType = context_field.clone().into_iter().collect();
-            let requests = vec![sread!(entity_id, field_types.clone())];
+            let requests = sreq![sread!(entity_id, field_types.clone())];
 
             if let Ok(updated_requests) = self.perform(requests) {
                 context_map.insert(context_field.clone(), updated_requests.into_iter().next().unwrap());
@@ -1808,11 +1808,11 @@ impl StoreTrait for Store {
         self.field_exists(entity_type, field_type)
     }
 
-    fn perform(&self, requests: Vec<Request>) -> Result<Vec<Request>> {
+    fn perform(&self, requests: Requests) -> Result<Requests> {
         self.perform(requests)
     }
 
-    fn perform_mut(&mut self, requests: Vec<Request>) -> Result<Vec<Request>> {
+    fn perform_mut(&mut self, requests: Requests) -> Result<Requests> {
         self.perform_mut(requests)
     }
 

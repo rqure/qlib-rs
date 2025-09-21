@@ -1,3 +1,4 @@
+use crate::sreq;
 #[allow(unused_imports)]
 use crate::*;
 use crate::data::StorageScope;
@@ -125,7 +126,7 @@ fn setup_test_store_with_entity() -> Result<(Store, EntityId)> {
         }
     );
 
-    let requests = vec![sschemaupdate!(schema)];
+    let requests = sreq![sschemaupdate!(schema)];
     store.perform_mut(requests)?;
 
     // Now we can get the interned types
@@ -141,7 +142,7 @@ fn setup_test_store_with_entity() -> Result<(Store, EntityId)> {
     let ft_data = store.get_field_type("Data")?;
 
     // Create a test entity
-    let create_requests = store.perform_mut(vec![screate!(
+    let create_requests = store.perform_mut(sreq![screate!(
         et_test,
         "test_entity".to_string()
     )])?;
@@ -157,10 +158,10 @@ fn setup_test_store_with_entity() -> Result<(Store, EntityId)> {
     
     // Create additional entity types for Manager and Tag references
     let manager_schema = EntitySchema::<Single, String, String>::new("Manager".to_string(), vec![]);
-    store.perform_mut(vec![sschemaupdate!(manager_schema)])?;
+    store.perform_mut(sreq![sschemaupdate!(manager_schema)])?;
     
     let tag_schema = EntitySchema::<Single, String, String>::new("Tag".to_string(), vec![]);
-    store.perform_mut(vec![sschemaupdate!(tag_schema)])?;
+    store.perform_mut(sreq![sschemaupdate!(tag_schema)])?;
     
     let et_manager = store.get_entity_type("Manager")?;
     let et_tag = store.get_entity_type("Tag")?;
@@ -169,7 +170,7 @@ fn setup_test_store_with_entity() -> Result<(Store, EntityId)> {
     let tag2_id = EntityId::new(et_tag, 2);
     let test_data = vec![72, 101, 108, 108, 111]; // "Hello" in bytes
     
-    let field_requests = vec![
+    let field_requests = sreq![
         swrite!(entity_id, crate::sfield![ft_name], sstr!("John Doe")),
         swrite!(entity_id, crate::sfield![ft_age], sint!(30)),
         swrite!(entity_id, crate::sfield![ft_score], sfloat!(95.5)),
@@ -519,7 +520,7 @@ fn test_cel_executor_execute_with_indirection() -> Result<()> {
             storage_scope: StorageScope::Runtime,
         }
     );
-    let requests = vec![sschemaupdate!(dept_schema)];
+    let requests = sreq![sschemaupdate!(dept_schema)];
     store.perform_mut(requests)?;
     
     // Create User schema with department reference
@@ -560,7 +561,7 @@ fn test_cel_executor_execute_with_indirection() -> Result<()> {
             storage_scope: StorageScope::Runtime,
         }
     );
-    let requests = vec![sschemaupdate!(user_schema)];
+    let requests = sreq![sschemaupdate!(user_schema)];
     store.perform_mut(requests)?;
 
     // Now get the interned types
@@ -571,7 +572,7 @@ fn test_cel_executor_execute_with_indirection() -> Result<()> {
     let ft_department = store.get_field_type("Department")?;
 
     // Create department entity
-    let create_requests = store.perform_mut(vec![screate!(
+    let create_requests = store.perform_mut(sreq![screate!(
         et_department,
         "Engineering".to_string()
     )])?;
@@ -582,7 +583,7 @@ fn test_cel_executor_execute_with_indirection() -> Result<()> {
     };
 
     // Create user entity
-    let create_requests = store.perform_mut(vec![screate!(
+    let create_requests = store.perform_mut(sreq![screate!(
         et_user,
         "Alice".to_string()
     )])?;
@@ -593,7 +594,7 @@ fn test_cel_executor_execute_with_indirection() -> Result<()> {
     };
 
     // Set field values
-    let field_requests = vec![
+    let field_requests = sreq![
         swrite!(dept_id, crate::sfield![ft_name], sstr!("Engineering")),
         swrite!(dept_id, crate::sfield![ft_budget], sint!(100000)),
         swrite!(user_id, crate::sfield![ft_name], sstr!("Alice")),
@@ -661,7 +662,7 @@ fn test_cel_executor_execute_with_deep_indirection() -> Result<()> {
             storage_scope: StorageScope::Runtime,
         }
     );
-    let requests = vec![sschemaupdate!(company_schema)];
+    let requests = sreq![sschemaupdate!(company_schema)];
     store.perform_mut(requests)?;
     
     // Create Department schema with company reference and required fields
@@ -702,7 +703,7 @@ fn test_cel_executor_execute_with_deep_indirection() -> Result<()> {
             storage_scope: StorageScope::Runtime,
         }
     );
-    let requests = vec![sschemaupdate!(dept_schema)];
+    let requests = sreq![sschemaupdate!(dept_schema)];
     store.perform_mut(requests)?;
     
     // Create Employee schema with department reference and required fields
@@ -743,7 +744,7 @@ fn test_cel_executor_execute_with_deep_indirection() -> Result<()> {
             storage_scope: StorageScope::Runtime,
         }
     );
-    let requests = vec![sschemaupdate!(employee_schema)];
+    let requests = sreq![sschemaupdate!(employee_schema)];
     store.perform_mut(requests)?;
 
     // Now we can get the interned types
@@ -756,21 +757,21 @@ fn test_cel_executor_execute_with_deep_indirection() -> Result<()> {
     let ft_department = store.get_field_type("Department")?;
 
     // Create entities
-    let create_requests = store.perform_mut(vec![screate!(et_company, "TechCorp".to_string())])?;
+    let create_requests = store.perform_mut(sreq![screate!(et_company, "TechCorp".to_string())])?;
     let company_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
         *id
     } else {
         panic!("Expected created company ID");
     };
 
-    let create_requests = store.perform_mut(vec![screate!(et_department, "Engineering".to_string())])?;
+    let create_requests = store.perform_mut(sreq![screate!(et_department, "Engineering".to_string())])?;
     let dept_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
         *id
     } else {
         panic!("Expected created department ID");
     };
 
-    let create_requests = store.perform_mut(vec![screate!(et_employee, "Bob".to_string())])?;
+    let create_requests = store.perform_mut(sreq![screate!(et_employee, "Bob".to_string())])?;
     let employee_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
         *id
     } else {
@@ -778,7 +779,7 @@ fn test_cel_executor_execute_with_deep_indirection() -> Result<()> {
     };
 
     // Set up the entity relationships and data
-    store.perform_mut(vec![
+    store.perform_mut(sreq![
         swrite!(company_id, crate::sfield![ft_name], sstr!("TechCorp")),
         swrite!(company_id, crate::sfield![ft_founded], sint!(2010)),
         swrite!(dept_id, crate::sfield![ft_name], sstr!("Engineering")),
@@ -847,7 +848,7 @@ fn test_cel_executor_execute_with_indirection_and_entity_lists() -> Result<()> {
             storage_scope: StorageScope::Runtime,
         }
     );
-    let requests = vec![sschemaupdate!(project_schema)];
+    let requests = sreq![sschemaupdate!(project_schema)];
     store.perform_mut(requests)?;
     
     // Create Team schema with projects list and required fields
@@ -888,7 +889,7 @@ fn test_cel_executor_execute_with_indirection_and_entity_lists() -> Result<()> {
             storage_scope: StorageScope::Runtime,
         }
     );
-    let requests = vec![sschemaupdate!(team_schema)];
+    let requests = sreq![sschemaupdate!(team_schema)];
     store.perform_mut(requests)?;
 
     // Now we can get the interned types
@@ -899,14 +900,14 @@ fn test_cel_executor_execute_with_indirection_and_entity_lists() -> Result<()> {
     let ft_projects = store.get_field_type("Projects")?;
 
     // Create project entities
-    let create_requests = store.perform_mut(vec![screate!(et_project, "WebApp".to_string())])?;
+    let create_requests = store.perform_mut(sreq![screate!(et_project, "WebApp".to_string())])?;
     let project1_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
         *id
     } else {
         panic!("Expected created project ID");
     };
 
-    let create_requests = store.perform_mut(vec![screate!(et_project, "MobileApp".to_string())])?;
+    let create_requests = store.perform_mut(sreq![screate!(et_project, "MobileApp".to_string())])?;
     let project2_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
         *id
     } else {
@@ -914,7 +915,7 @@ fn test_cel_executor_execute_with_indirection_and_entity_lists() -> Result<()> {
     };
 
     // Create team entity
-    let create_requests = store.perform_mut(vec![screate!(et_team, "DevTeam".to_string())])?;
+    let create_requests = store.perform_mut(sreq![screate!(et_team, "DevTeam".to_string())])?;
     let team_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
         *id
     } else {
@@ -922,7 +923,7 @@ fn test_cel_executor_execute_with_indirection_and_entity_lists() -> Result<()> {
     };
 
     // Set up the data
-    let field_requests = vec![
+    let field_requests = sreq![
         swrite!(project1_id, crate::sfield![ft_name], sstr!("WebApp")),
         swrite!(project1_id, crate::sfield![ft_priority], sint!(1)),
         swrite!(project2_id, crate::sfield![ft_name], sstr!("MobileApp")),
@@ -998,13 +999,13 @@ fn test_cel_executor_execute_with_null_entity_reference() -> Result<()> {
             storage_scope: StorageScope::Runtime,
         }
     );
-    let requests = vec![sschemaupdate!(user_schema)];
+    let requests = sreq![sschemaupdate!(user_schema)];
     store.perform_mut(requests)?;
 
     // Now we can get the interned types
     let et_user = store.get_entity_type("User")?;
 
-    let create_requests = store.perform_mut(vec![screate!(
+    let create_requests = store.perform_mut(sreq![screate!(
         et_user,
         "User".to_string()
     )])?;
@@ -1126,7 +1127,7 @@ fn test_cel_executor_execute_with_mixed_field_access() -> Result<()> {
             storage_scope: StorageScope::Runtime,
         }
     );
-    let requests = vec![sschemaupdate!(dept_schema)];
+    let requests = sreq![sschemaupdate!(dept_schema)];
     store.perform_mut(requests)?;
     
     // Create User schema with department reference and required fields
@@ -1176,7 +1177,7 @@ fn test_cel_executor_execute_with_mixed_field_access() -> Result<()> {
             storage_scope: StorageScope::Runtime,
         }
     );
-    let requests = vec![sschemaupdate!(user_schema)];
+    let requests = sreq![sschemaupdate!(user_schema)];
     store.perform_mut(requests)?;
 
     // Now we can get the interned types
@@ -1187,7 +1188,7 @@ fn test_cel_executor_execute_with_mixed_field_access() -> Result<()> {
     let ft_department = store.get_field_type("Department")?;
 
     // Create department entity
-    let create_requests = store.perform_mut(vec![screate!(
+    let create_requests = store.perform_mut(sreq![screate!(
         et_department,
         "Sales".to_string()
     )])?;
@@ -1198,7 +1199,7 @@ fn test_cel_executor_execute_with_mixed_field_access() -> Result<()> {
     };
 
     // Create user entity
-    let create_requests = store.perform_mut(vec![screate!(
+    let create_requests = store.perform_mut(sreq![screate!(
         et_user,
         "John".to_string()
     )])?;
@@ -1209,7 +1210,7 @@ fn test_cel_executor_execute_with_mixed_field_access() -> Result<()> {
     };
 
     // Set field values
-    let field_requests = vec![
+    let field_requests = sreq![
         swrite!(dept_id, crate::sfield![ft_name], sstr!("Sales")),
         swrite!(user_id, crate::sfield![ft_name], sstr!("John")),
         swrite!(user_id, crate::sfield![ft_age], sint!(30)),

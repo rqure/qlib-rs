@@ -2,7 +2,7 @@ use cel::{Context, Program};
 use lru::LruCache;
 use std::num::NonZeroUsize;
 
-use crate::{sread, to_base64, EntityId, IndirectFieldType, Result, Store, StoreTrait, Value, INDIRECTION_DELIMITER};
+use crate::{sread, sreq, to_base64, EntityId, IndirectFieldType, Result, Store, StoreTrait, Value, INDIRECTION_DELIMITER};
 
 /// CelExecutor with LRU cache for compiled CEL programs
 #[derive(Debug)]
@@ -81,7 +81,7 @@ impl CelExecutor {
                 .collect();
             let field_types = field_types?;
             
-            let reqs = vec![
+            let reqs = sreq![
                 sread!(relative_id, field_types)
             ];
             let reqs = store.perform(reqs)?;

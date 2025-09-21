@@ -7,7 +7,7 @@ pub mod expr;
 pub use data::{
     BadIndirectionReason, Store, PageOpts,
     PageResult, NotificationQueue, hash_notify_config, Snapshot, EntityId, EntitySchema, Single, Complete, 
-    Field, FieldSchema, AdjustBehavior, PushCondition, Request, 
+    Field, FieldSchema, AdjustBehavior, PushCondition, Request, Requests,
     StoreProxy, StoreMessage, extract_message_id, Value, INDIRECTION_DELIMITER, NotifyConfig, Notification,
     AuthenticationResult,
     JsonSnapshot, JsonEntitySchema, JsonEntity, value_to_json_value, json_value_to_value, value_to_json_value_with_paths, build_json_entity_tree, take_json_snapshot, restore_json_snapshot,
@@ -125,6 +125,30 @@ macro_rules! sfield {
         {
             use smallvec::smallvec;
             smallvec![$($x),*]
+        }
+    };
+}
+
+/// Creates a SmallVec of Request for use in batch operations.
+///
+/// This macro creates a `Requests` that can be used with
+/// the `perform` and `perform_mut` methods. It functions like `vec!` but creates
+/// a SmallVec instead for better performance with small request lists.
+///
+/// # Arguments
+///
+/// * Elements can be provided as comma-separated Request values
+///
+/// # Returns
+///
+/// * `Requests` - A SmallVec containing the requests
+#[macro_export]
+macro_rules! sreq {
+    ($($x:expr),* $(,)?) => {
+        {
+            use smallvec::smallvec;
+            let result: crate::Requests = smallvec![$($x),*];
+            result
         }
     };
 }

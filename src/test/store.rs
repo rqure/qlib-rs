@@ -1,3 +1,4 @@
+use crate::sreq;
 use crate::*;
 use crate::data::StorageScope;
 
@@ -36,7 +37,7 @@ fn create_entity_schema_with_name(store: &mut Store, entity_type_name: &str) -> 
         }
     );
 
-    let requests = vec![sschemaupdate!(schema)];
+    let requests = sreq![sschemaupdate!(schema)];
     store.perform_mut(requests)?;
     Ok(())
 }
@@ -67,7 +68,7 @@ fn test_create_entity_hierarchy() -> Result<()> {
     assert_eq!(root_entities.len(), 0);
 
     // Create root entity
-    let create_requests = vec![screate!(
+    let create_requests = sreq![screate!(
         et_folder,
         "Security Models".to_string()
     )];
@@ -79,7 +80,7 @@ fn test_create_entity_hierarchy() -> Result<()> {
     };
     let root_entity_id_ref = root_entity_id;
 
-    let create_requests = vec![screate!(
+    let create_requests = sreq![screate!(
         et_folder,
         "Users".to_string(),
         root_entity_id_ref
@@ -92,7 +93,7 @@ fn test_create_entity_hierarchy() -> Result<()> {
     };
     let users_folder_id_ref = users_folder_id;
 
-    let create_requests = vec![screate!(
+    let create_requests = sreq![screate!(
         et_folder,
         "Roles".to_string(),
         root_entity_id_ref
@@ -105,7 +106,7 @@ fn test_create_entity_hierarchy() -> Result<()> {
     };
     let roles_folder_id_ref = roles_folder_id;
 
-    let create_requests = vec![screate!(
+    let create_requests = sreq![screate!(
         et_user,
         "qei".to_string(),
         users_folder_id_ref
@@ -118,7 +119,7 @@ fn test_create_entity_hierarchy() -> Result<()> {
     };
     let user_id_ref = user_id;
 
-    let create_requests = vec![screate!(
+    let create_requests = sreq![screate!(
         et_user,
         "admin".to_string(),
         roles_folder_id_ref
@@ -129,7 +130,7 @@ fn test_create_entity_hierarchy() -> Result<()> {
     let ft_parent = store.get_field_type("Parent")?;
     let ft_name = store.get_field_type("Name")?;
     
-    let reqs = store.perform_mut(vec![
+    let reqs = store.perform_mut(sreq![
         sread!(user_id_ref, crate::sfield![ft_parent]),
         sread!(user_id_ref, crate::sfield![ft_name]),
     ])?;
@@ -141,7 +142,7 @@ fn test_create_entity_hierarchy() -> Result<()> {
     }
 
     // Verify name
-    let reqs = store.perform_mut(vec![
+    let reqs = store.perform_mut(sreq![
         sread!(users_folder_id_ref, crate::sfield![ft_name]),
     ])?;
 
@@ -161,7 +162,7 @@ fn test_field_operations() -> Result<()> {
     let et_folder = store.get_entity_type("Folder")?;
     let et_user = store.get_entity_type("User")?;
 
-    let create_requests = vec![screate!(
+    let create_requests = sreq![screate!(
         et_folder,
         "Users".to_string()
     )];
@@ -172,7 +173,7 @@ fn test_field_operations() -> Result<()> {
         panic!("Expected created entity ID");
     };
 
-    let create_requests = vec![screate!(
+    let create_requests = sreq![screate!(
         et_user,
         "testuser".to_string(),
         users_folder_id
@@ -187,11 +188,11 @@ fn test_field_operations() -> Result<()> {
 
     // Test write and read operations
     let ft_name = store.get_field_type("Name")?;
-    store.perform_mut(vec![
+    store.perform_mut(sreq![
         swrite!(user_ref, crate::sfield![ft_name], sstr!("Updated User")),
     ])?;
 
-    let reads = store.perform_mut(vec![
+    let reads = store.perform_mut(sreq![
         sread!(user_ref, crate::sfield![ft_name]),
     ])?;
 
@@ -202,11 +203,11 @@ fn test_field_operations() -> Result<()> {
     }
 
     // Test field updates
-    store.perform_mut(vec![
+    store.perform_mut(sreq![
         swrite!(user_ref, crate::sfield![ft_name], sstr!("Final Name")),
     ])?;
 
-    let verify = store.perform_mut(vec![
+    let verify = store.perform_mut(sreq![
         sread!(user_ref, crate::sfield![ft_name]),
     ])?;
 
@@ -227,7 +228,7 @@ fn test_indirection_resolution() -> Result<()> {
     let et_user = store.get_entity_type("User")?;
 
     // Create entities
-    let create_requests = vec![screate!(
+    let create_requests = sreq![screate!(
         et_folder,
         "Security".to_string()
     )];
@@ -239,7 +240,7 @@ fn test_indirection_resolution() -> Result<()> {
     };
     let security_folder_ref = security_folder_id;
 
-    let create_requests = vec![screate!(
+    let create_requests = sreq![screate!(
         et_folder,
         "Users".to_string(),
         security_folder_ref
@@ -252,7 +253,7 @@ fn test_indirection_resolution() -> Result<()> {
     };
     let users_folder_ref = users_folder_id;
 
-    let create_requests = vec![screate!(
+    let create_requests = sreq![screate!(
         et_user,
         "admin".to_string(),
         users_folder_ref
@@ -270,12 +271,12 @@ fn test_indirection_resolution() -> Result<()> {
     let ft_name = store.get_field_type("Name")?;
     let parent_name_field = crate::sfield![ft_parent, ft_name];
 
-    store.perform_mut(vec![
+    store.perform_mut(sreq![
         swrite!(admin_user_ref, crate::sfield![ft_name], sstr!("Administrator")),
     ])?;
 
     // Test indirection resolution
-    let indirect_reads = store.perform_mut(vec![
+    let indirect_reads = store.perform_mut(sreq![
         sread!(admin_user_ref, parent_name_field),
     ])?;
 
@@ -295,7 +296,7 @@ fn test_entity_deletion() -> Result<()> {
     let et_folder = store.get_entity_type("Folder")?;
     let et_user = store.get_entity_type("User")?;
 
-    let create_requests = vec![screate!(
+    let create_requests = sreq![screate!(
         et_folder,
         "Users".to_string()
     )];
@@ -306,7 +307,7 @@ fn test_entity_deletion() -> Result<()> {
         panic!("Expected created entity ID");
     };
 
-    let create_requests = vec![screate!(
+    let create_requests = sreq![screate!(
         et_user,
         "testuser".to_string(),
         users_folder_id
@@ -323,14 +324,14 @@ fn test_entity_deletion() -> Result<()> {
     assert!(store.entity_exists(user_ref));
 
     // Delete the entity
-    store.perform_mut(vec![sdelete!(user_ref)])?;
+    store.perform_mut(sreq![sdelete!(user_ref)])?;
 
     // Verify entity is gone
     assert!(!store.entity_exists(user_ref));
 
     // Try to read from deleted entity - the request should succeed but return no value
     let ft_name = store.get_field_type("Name")?;
-    let request = vec![sread!(user_ref, crate::sfield![ft_name])];
+    let request = sreq![sread!(user_ref, crate::sfield![ft_name])];
     let result = store.perform_mut(request);
     
     // The request should fail for a deleted entity
@@ -349,7 +350,7 @@ fn test_entity_listing_with_pagination() -> Result<()> {
     let et_folder = store.get_entity_type("Folder")?;
     let et_user = store.get_entity_type("User")?;
 
-    let create_requests = vec![screate!(
+    let create_requests = sreq![screate!(
         et_folder,
         "Users".to_string()
     )];
@@ -362,7 +363,7 @@ fn test_entity_listing_with_pagination() -> Result<()> {
 
     // Create multiple users
     for i in 0..5 {
-        let create_requests = vec![screate!(
+        let create_requests = sreq![screate!(
             et_user,
             format!("user{}", i),
             users_folder_id
@@ -383,7 +384,7 @@ fn test_cel_filtering_parameters() -> Result<()> {
     let et_user = store.get_entity_type("User")?;
     
     // Create some test users
-    let create_requests = vec![
+    let create_requests = sreq![
         screate!(et_user, "user1".to_string()),
         screate!(et_user, "user2".to_string()),
         screate!(et_user, "user3".to_string()),
@@ -442,7 +443,7 @@ fn test_find_entities_comprehensive() -> Result<()> {
             storage_scope: StorageScope::Configuration,
         }
     );
-    let requests = vec![sschemaupdate!(user_schema)];
+    let requests = sreq![sschemaupdate!(user_schema)];
     store.perform_mut(requests)?;
     
     // Now we can get the interned types
@@ -459,7 +460,7 @@ fn test_find_entities_comprehensive() -> Result<()> {
     assert!(empty_paginated.next_cursor.is_none());
     
     // Create test entities with various field values
-    let create_requests = vec![
+    let create_requests = sreq![
         screate!(et_user, "Alice".to_string()),
         screate!(et_user, "Bob".to_string()),
         screate!(et_user, "Charlie".to_string()),
@@ -470,7 +471,7 @@ fn test_find_entities_comprehensive() -> Result<()> {
     let alice_id = create_requests[0].entity_id().unwrap();
     
     // Verify the names were set correctly
-    let name_read = vec![sread!(alice_id, crate::sfield![ft_name])];
+    let name_read = sreq![sread!(alice_id, crate::sfield![ft_name])];
     let name_read = store.perform_mut(name_read)?;
     if let Some(Request::Read { value: Some(Value::String(alice_name)), .. }) = name_read.get(0) {
         println!("Alice's name in store: '{}'", alice_name);
@@ -539,7 +540,7 @@ fn test_find_entities_pagination() -> Result<()> {
             storage_scope: StorageScope::Configuration,
         }
     );
-    let requests = vec![sschemaupdate!(user_schema)];
+    let requests = sreq![sschemaupdate!(user_schema)];
     store.perform_mut(requests)?;
     
     // Now get the interned types
@@ -547,7 +548,7 @@ fn test_find_entities_pagination() -> Result<()> {
     
     // Create 10 test users
     for i in 0..10 {
-        let create_requests = vec![screate!(
+        let create_requests = sreq![screate!(
             et_user, 
             format!("User{:02}", i)
         )];
@@ -638,7 +639,7 @@ fn test_find_entities_inheritance() -> Result<()> {
             storage_scope: StorageScope::Runtime,
         }
     );
-    let requests = vec![sschemaupdate!(animal_schema)];
+    let requests = sreq![sschemaupdate!(animal_schema)];
     store.perform_mut(requests)?;
     
     // Create Mammal schema (inherits from Animal)
@@ -652,7 +653,7 @@ fn test_find_entities_inheritance() -> Result<()> {
             storage_scope: StorageScope::Runtime,
         }
     );
-    let requests = vec![sschemaupdate!(mammal_schema)];
+    let requests = sreq![sschemaupdate!(mammal_schema)];
     store.perform_mut(requests)?;
     
     // Create Dog schema (inherits from Mammal)
@@ -666,7 +667,7 @@ fn test_find_entities_inheritance() -> Result<()> {
             storage_scope: StorageScope::Runtime,
         }
     );
-    let requests = vec![sschemaupdate!(dog_schema)];
+    let requests = sreq![sschemaupdate!(dog_schema)];
     store.perform_mut(requests)?;
     
     // Create Cat schema (inherits from Mammal)  
@@ -680,7 +681,7 @@ fn test_find_entities_inheritance() -> Result<()> {
             storage_scope: StorageScope::Runtime,
         }
     );
-    let requests = vec![sschemaupdate!(cat_schema)];
+    let requests = sreq![sschemaupdate!(cat_schema)];
     store.perform_mut(requests)?;
     
     // Create Bird schema (inherits from Animal)
@@ -694,7 +695,7 @@ fn test_find_entities_inheritance() -> Result<()> {
             storage_scope: StorageScope::Runtime,
         }
     );
-    let requests = vec![sschemaupdate!(bird_schema)];
+    let requests = sreq![sschemaupdate!(bird_schema)];
     store.perform_mut(requests)?;
     
     // Now we can get the interned entity types
@@ -705,7 +706,7 @@ fn test_find_entities_inheritance() -> Result<()> {
     let et_bird = store.get_entity_type("Bird")?;
     
     // Create test entities
-    let create_requests = vec![
+    let create_requests = sreq![
         screate!(et_animal, "Generic Animal".to_string()),
         screate!(et_mammal, "Generic Mammal".to_string()),
         screate!(et_dog, "Rex".to_string()),
@@ -814,14 +815,14 @@ fn test_find_entities_cel_edge_cases() -> Result<()> {
             storage_scope: StorageScope::Configuration,
         }
     );
-    let requests = vec![sschemaupdate!(user_schema)];
+    let requests = sreq![sschemaupdate!(user_schema)];
     store.perform_mut(requests)?;
     
     // Now get the interned types
     let et_user = store.get_entity_type("User")?;
     
     // Create test users
-    let create_requests = vec![
+    let create_requests = sreq![
         screate!(et_user, "Alice".to_string()),
         screate!(et_user, "Bob".to_string()),
     ];
@@ -887,7 +888,7 @@ fn test_complete_entity_schema_caching() -> Result<()> {
             storage_scope: StorageScope::Runtime,
         }
     );
-    let requests = vec![sschemaupdate!(base_schema)];
+    let requests = sreq![sschemaupdate!(base_schema)];
     store.perform_mut(requests)?;
     
     // Create derived entity type
@@ -901,7 +902,7 @@ fn test_complete_entity_schema_caching() -> Result<()> {
             storage_scope: StorageScope::Runtime,
         }
     );
-    let requests = vec![sschemaupdate!(derived_schema)];
+    let requests = sreq![sschemaupdate!(derived_schema)];
     store.perform_mut(requests)?;
     
     // Now get the interned types
@@ -969,7 +970,7 @@ fn test_complete_entity_schema_caching() -> Result<()> {
         }
     );
     
-    let requests = vec![sschemaupdate!(updated_base_schema)];
+    let requests = sreq![sschemaupdate!(updated_base_schema)];
     store.perform_mut(requests)?;
     
     // Now get the new field type

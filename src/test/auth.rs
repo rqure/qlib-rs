@@ -1,4 +1,7 @@
 #[allow(unused_imports)]
+use crate::sreq;
+
+#[allow(unused_imports)]
 use crate::*;
 
 #[allow(unused_imports)]
@@ -41,7 +44,7 @@ fn test_create_and_authenticate_user() -> Result<()> {
             storage_scope: StorageScope::Configuration,
         }
     );
-    let requests = vec![sschemaupdate!(object_schema)];
+    let requests = sreq![sschemaupdate!(object_schema)];
     store.perform_mut(requests)?;
     
     // Now we can get the interned types
@@ -105,16 +108,16 @@ fn test_create_and_authenticate_user() -> Result<()> {
             storage_scope: StorageScope::Runtime,
         }
     );
-    let requests = vec![sschemaupdate!(subject_schema)];
+    let requests = sreq![sschemaupdate!(subject_schema)];
     store.perform_mut(requests)?;
     
     // Create the User entity schema (inheriting from Subject)
     let user_schema = EntitySchema::<Single, String, String>::new("User".to_string(), vec!["Subject".to_string()]);
-    let requests = vec![sschemaupdate!(user_schema)];
+    let requests = sreq![sschemaupdate!(user_schema)];
     store.perform_mut(requests)?;
     
     // Create an object entity to serve as parent
-    let create_requests = store.perform_mut(vec![screate!(
+    let create_requests = store.perform_mut(sreq![screate!(
         object_entity_type,
         "TestParent".to_string()
     )])?;
@@ -187,7 +190,7 @@ fn test_authentication_with_factory_restore_format() -> Result<()> {
             storage_scope: StorageScope::Configuration,
         }
     );
-    let requests = vec![sschemaupdate!(object_schema)];
+    let requests = sreq![sschemaupdate!(object_schema)];
     store.perform_mut(requests)?;
     
     // Now we can get the interned types
@@ -250,12 +253,12 @@ fn test_authentication_with_factory_restore_format() -> Result<()> {
             storage_scope: StorageScope::Runtime,
         }
     );
-    let requests = vec![sschemaupdate!(subject_schema)];
+    let requests = sreq![sschemaupdate!(subject_schema)];
     store.perform_mut(requests)?;
     
     // Create User schema
     let user_schema = EntitySchema::<Single, String, String>::new("User".to_string(), vec!["Subject".to_string()]);
-    let requests = vec![sschemaupdate!(user_schema)];
+    let requests = sreq![sschemaupdate!(user_schema)];
     store.perform_mut(requests)?;
     
     // Now we can get the interned types
@@ -266,7 +269,7 @@ fn test_authentication_with_factory_restore_format() -> Result<()> {
     let password = "qei";
     
     // Create the entity using the screate! macro instead of manual entity creation
-    let create_requests = store.perform_mut(vec![screate!(
+    let create_requests = store.perform_mut(sreq![screate!(
         user_entity_type,
         username.to_string()
     )])?;
@@ -289,7 +292,7 @@ fn test_authentication_with_factory_restore_format() -> Result<()> {
     let _locked_until_field_type = store.get_field_type("LockedUntil")?;
     let _last_login_field_type = store.get_field_type("LastLogin")?;
     
-    let field_requests = vec![
+    let field_requests = sreq![
         Request::Write {
             entity_id: user_id,
             field_types: crate::sfield![name_field_type],

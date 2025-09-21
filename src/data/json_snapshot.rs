@@ -535,7 +535,7 @@ pub fn build_json_entity_tree<T: StoreTrait>(
     // Read all field values for this entity using perform()
     for (field_type, field_schema) in schema_fields {
         // Create a read request
-        let read_requests = vec![crate::Request::Read {
+        let read_requests = crate::sreq![crate::Request::Read {
             entity_id: entity_id,
             field_types: crate::sfield![*field_type],
             value: None,
@@ -619,7 +619,7 @@ pub fn restore_json_snapshot<T: StoreTrait>(store: &mut T, json_snapshot: &JsonS
     let mut max_ranks: std::collections::HashMap<String, i64> = std::collections::HashMap::new();
 
     // First, restore schemas in dependency order with proper rank adjustments
-    let mut schema_requests = Vec::new();
+    let mut schema_requests = crate::sreq![];
     for json_schema in &sorted_schemas {
         // Calculate rank offset based on ALL inherited schemas
         // For multiple inheritance, we need to accumulate offsets properly
@@ -780,7 +780,7 @@ pub fn restore_entity_recursive<T: StoreTrait>(
         .unwrap_or("Unknown")
         .to_string();
 
-    let create_requests = vec![crate::Request::Create {
+    let create_requests = crate::sreq![crate::Request::Create {
         entity_type: store.get_entity_type(&json_entity.entity_type)?,
         parent_id: parent_id.clone(),
         name: name.clone(),
@@ -802,7 +802,7 @@ pub fn restore_entity_recursive<T: StoreTrait>(
 
     // Debug: Print the complete schema fields
     // Set field values (except Children - we'll handle that last)
-    let mut write_requests = Vec::new();
+    let mut write_requests = crate::sreq![];
     for (field_name, json_value) in &json_entity.fields {
         if field_name == "Children" {
             continue; // Handle children separately
@@ -855,7 +855,7 @@ pub fn restore_entity_recursive<T: StoreTrait>(
 
             // Update the Children field with the created child IDs
             if !child_ids.is_empty() {
-                let children_write_requests = vec![crate::Request::Write {
+                let children_write_requests = crate::sreq![crate::Request::Write {
                     entity_id: entity_id,
                     field_types: crate::sfield![store.get_field_type("Children")?],
                     value: Some(crate::Value::EntityList(child_ids)),
@@ -992,7 +992,7 @@ fn apply_schema_diff(
         .map(|s| (s.entity_type.clone(), s))
         .collect();
     
-    let mut schema_requests = Vec::new();
+    let mut schema_requests = crate::sreq![];
     
     // Add or update schemas that are different
     for target_schema in target_schemas {
@@ -1062,7 +1062,7 @@ fn apply_entity_diff_recursive<'a>(
                 
             let mut found_entity_id = None;
             for entity_id in &entities {
-                let read_requests = vec![crate::Request::Read {
+                let read_requests = crate::sreq![crate::Request::Read {
                     entity_id: *entity_id,
                     field_types: crate::sfield![store.get_field_type("Name")?],
                     value: None,
@@ -1097,7 +1097,7 @@ fn apply_entity_diff_recursive<'a>(
     let entity_type = store.get_entity_type(&target_entity.entity_type)?;
     let complete_schema = store.get_complete_entity_schema(entity_type)?;
     
-    let mut write_requests = Vec::new();
+    let mut write_requests = crate::sreq![];
     for (field_name, json_value) in &target_entity.fields {
         if field_name == "Children" {
             continue; // Handle children separately
@@ -1159,7 +1159,7 @@ fn apply_entity_diff_recursive<'a>(
             
             // Update the Children field
             if !child_ids.is_empty() {
-                let children_write_requests = vec![crate::Request::Write {
+                let children_write_requests = crate::sreq![crate::Request::Write {
                     entity_id: entity_id,
                     field_types: crate::sfield![store.get_field_type("Children")?],
                     value: Some(crate::Value::EntityList(child_ids)),
@@ -1188,7 +1188,7 @@ fn create_entity_from_json(
         .unwrap_or("Unknown")
         .to_string();
 
-    let create_requests = vec![crate::Request::Create {
+    let create_requests = crate::sreq![crate::Request::Create {
         entity_type: store.get_entity_type(&json_entity.entity_type)?,
         parent_id,
         name,

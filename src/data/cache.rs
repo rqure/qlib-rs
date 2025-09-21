@@ -64,7 +64,7 @@ impl Cache {
 
         let entity_ids = store.find_entities(entity_type, None)?;
         for entity_id in entity_ids {
-            let mut reqs = Vec::new();
+            let mut reqs = crate::sreq![];
             for field in index_fields.iter() {
                 reqs.push(crate::sread!(entity_id, crate::sfield![*field]));
             }

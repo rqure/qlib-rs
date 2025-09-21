@@ -8,7 +8,7 @@ use anyhow;
 use mio::{Poll, Token, Interest, Events};
 
 use crate::{
-    Complete, EntityId, EntitySchema, EntityType, Error, FieldSchema, FieldType, Notification, NotificationQueue, NotifyConfig, hash_notify_config, PageOpts, PageResult, Request, Result, Single
+    Complete, EntityId, EntitySchema, EntityType, Error, FieldSchema, FieldType, Notification, NotificationQueue, NotifyConfig, hash_notify_config, PageOpts, PageResult, Request, Requests, Result, Single, sreq
 };
 use crate::data::StoreTrait;
 use crate::protocol::{MessageBuffer, encode_store_message};
@@ -84,11 +84,11 @@ pub enum StoreMessage {
 
     Perform {
         id: String,
-        requests: Vec<Request>,
+        requests: Requests,
     },
     PerformResponse {
         id: String,
-        response: std::result::Result<Vec<Request>, String>,
+        response: std::result::Result<Requests, String>,
     },
 
     FindEntities {
@@ -605,7 +605,7 @@ impl StoreProxy {
             .insert(field_type, schema);
 
         let string_schema = entity_schema.to_string_schema(self);
-        let requests = vec![Request::SchemaUpdate { 
+        let requests = sreq![Request::SchemaUpdate { 
             schema: string_schema, 
             timestamp: None, 
             originator: None 
@@ -682,17 +682,17 @@ impl StoreProxy {
     }
 
     /// Perform requests
-    pub fn perform(&self, requests: Vec<Request>) -> Result<Vec<Request>> {
+    pub fn perform(&self, requests: Requests) -> Result<Requests> {
         let request = StoreMessage::Perform {
             id: Uuid::new_v4().to_string(),
-            requests: requests.clone(),
+            requests: requests.clone().into_iter().collect(),
         };
 
         let response: StoreMessage = self.send_request(request)?;
         match response {
             StoreMessage::PerformResponse { response, .. } => match response {
                 Ok(updated_requests) => {
-                    Ok(updated_requests)
+                    Ok(updated_requests.into_iter().collect())
                 }
                 Err(e) => Err(Error::StoreProxyError(e)),
             },
@@ -932,11 +932,11 @@ impl StoreTrait for StoreProxy {
         self.field_exists(entity_type, field_type)
     }
 
-    fn perform(&self, requests: Vec<Request>) -> Result<Vec<Request>> {
+    fn perform(&self, requests: Requests) -> Result<Requests> {
         self.perform(requests)
     }
 
-    fn perform_mut(&mut self, requests: Vec<Request>) -> Result<Vec<Request>> {
+    fn perform_mut(&mut self, requests: Requests) -> Result<Requests> {
         self.perform(requests)
     }
 

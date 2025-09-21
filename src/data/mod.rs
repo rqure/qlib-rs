@@ -25,7 +25,7 @@ pub use field_schema::{FieldSchema, StorageScope};
 pub use request::{AdjustBehavior, PushCondition, Request};
 use serde::{Deserialize, Serialize};
 pub use store::{Store};
-pub use store_trait::StoreTrait;
+pub use store_trait::{StoreTrait, Requests};
 pub use indirection::{BadIndirectionReason, INDIRECTION_DELIMITER, resolve_indirection, path, path_to_entity_id};
 pub use pagination::{PageOpts, PageResult};
 pub use snapshots::Snapshot;

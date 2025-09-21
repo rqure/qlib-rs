@@ -1,8 +1,12 @@
 use std::collections::HashMap;
 
+use smallvec::SmallVec;
+
 use crate::{
     Complete, EntityId, EntitySchema, EntityType, FieldSchema, FieldType, IndirectFieldType, NotificationQueue, NotifyConfig, PageOpts, PageResult, Request, Result, Single
 };
+
+pub type Requests = SmallVec<[Request; 32]>;
 
 /// Async trait defining the common interface for store implementations
 /// This allows different store implementations to be used interchangeably
@@ -34,10 +38,10 @@ pub trait StoreTrait {
     fn field_exists(&self, entity_type: EntityType, field_type: FieldType) -> bool;
 
     /// Perform a batch of requests
-    fn perform(&self, requests: Vec<Request>) -> Result<Vec<Request>>;
-    fn perform_mut(&mut self, requests: Vec<Request>) -> Result<Vec<Request>>;
+    fn perform(&self, requests: Requests) -> Result<Requests>;
+    fn perform_mut(&mut self, requests: Requests) -> Result<Requests>;
 
-    fn perform_map(&self, requests: Vec<Request>) -> Result<HashMap<IndirectFieldType, Request>> {
+    fn perform_map(&self, requests: Requests) -> Result<HashMap<IndirectFieldType, Request>> {
         let updated_requests = self.perform(requests)?;
 
         let mut result_map = HashMap::new();

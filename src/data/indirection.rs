@@ -49,7 +49,7 @@ pub fn resolve_indirection(
 
     for (i, field) in fields.iter().enumerate() {
         // Normal field resolution
-        let reqs = vec![crate::sread!(current_entity_id, crate::sfield![field.clone()])];
+        let reqs = crate::sreq![crate::sread!(current_entity_id, crate::sfield![field.clone()])];
 
         let reqs = match store.perform(reqs) {
             Ok(reqs) => reqs,
@@ -145,7 +145,7 @@ pub fn path<T: StoreTrait>(store: &T, entity_id: EntityId) -> Result<String> {
         visited.insert(current_id.clone());
 
         // Read the name of the current entity
-        let name_requests = vec![crate::sread!(
+        let name_requests = crate::sreq![crate::sread!(
             current_id.clone(),
             crate::sfield![name_ft.clone()]
         )];
@@ -169,7 +169,7 @@ pub fn path<T: StoreTrait>(store: &T, entity_id: EntityId) -> Result<String> {
         path_parts.push(entity_name);
 
         // Read the parent of the current entity
-        let parent_requests = vec![crate::sread!(
+        let parent_requests = crate::sreq![crate::sread!(
             current_id.clone(),
             crate::sfield![parent_ft.clone()]
         )];
@@ -214,7 +214,7 @@ pub fn path_to_entity_id<T: StoreTrait>(store: &T, path: &str) -> Result<EntityI
     
     // Find the root entity that matches the first path part
     for root_id in root_entities {
-        let name_requests = vec![crate::sread!(
+        let name_requests = crate::sreq![crate::sread!(
             root_id.clone(),
             crate::sfield![name_ft.clone()]
         )];
@@ -239,7 +239,7 @@ pub fn path_to_entity_id<T: StoreTrait>(store: &T, path: &str) -> Result<EntityI
     
     // Traverse down the path by following Children relationships
     for part in &path_parts[1..] {
-        let children_requests = vec![crate::sread!(
+        let children_requests = crate::sreq![crate::sread!(
             current_id.clone(),
             crate::sfield![children_ft.clone()]
         )];
@@ -252,7 +252,7 @@ pub fn path_to_entity_id<T: StoreTrait>(store: &T, path: &str) -> Result<EntityI
             {
                 let mut found = false;
                 for child_id in children {
-                    let child_name_requests = vec![crate::sread!(
+                    let child_name_requests = crate::sreq![crate::sread!(
                         child_id.clone(),
                         crate::sfield![name_ft.clone()]
                     )];
