@@ -66,11 +66,11 @@ impl Cache {
         for entity_id in entity_ids {
             let mut reqs = Vec::new();
             for field in index_fields.iter() {
-                reqs.push(crate::sread!(entity_id, vec![*field]));
+                reqs.push(crate::sread!(entity_id, crate::sfield![*field]));
             }
             
             for field in other_fields.iter() {
-                reqs.push(crate::sread!(entity_id, vec![*field]));
+                reqs.push(crate::sread!(entity_id, crate::sfield![*field]));
             }
 
             let reqs = store.perform_mut(reqs)?;

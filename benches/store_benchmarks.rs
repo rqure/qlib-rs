@@ -130,7 +130,7 @@ fn bench_field_operations(c: &mut Criterion) {
             b.iter(|| {
                 let mut write_requests = Vec::new();
                 for (i, entity_id) in entity_subset.iter().enumerate() {
-                    write_requests.push(swrite!(*entity_id, vec![ft_score], sint!(i as i64)));
+                    write_requests.push(swrite!(*entity_id, crate::sfield![ft_score], sint!(i as i64)));
                 }
                 black_box(store.perform_mut(write_requests).unwrap());
             })
@@ -142,7 +142,7 @@ fn bench_field_operations(c: &mut Criterion) {
             b.iter(|| {
                 let mut read_requests = Vec::new();
                 for entity_id in &entity_subset {
-                    read_requests.push(sread!(*entity_id, vec![ft_name]));
+                    read_requests.push(sread!(*entity_id, crate::sfield![ft_name]));
                 }
                 black_box(store.perform(read_requests).unwrap());
             })

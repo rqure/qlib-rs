@@ -1,8 +1,7 @@
 use std::collections::HashMap;
 
 use crate::{
-    EntityId, EntitySchema, EntityType, FieldSchema, FieldType, NotificationQueue, NotifyConfig,
-    PageOpts, PageResult, Request, Result, Single, Complete,
+    Complete, EntityId, EntitySchema, EntityType, FieldSchema, FieldType, IndirectFieldType, NotificationQueue, NotifyConfig, PageOpts, PageResult, Request, Result, Single
 };
 
 /// Async trait defining the common interface for store implementations
@@ -38,7 +37,7 @@ pub trait StoreTrait {
     fn perform(&self, requests: Vec<Request>) -> Result<Vec<Request>>;
     fn perform_mut(&mut self, requests: Vec<Request>) -> Result<Vec<Request>>;
 
-    fn perform_map(&self, requests: Vec<Request>) -> Result<HashMap<Vec<FieldType>, Request>> {
+    fn perform_map(&self, requests: Vec<Request>) -> Result<HashMap<IndirectFieldType, Request>> {
         let updated_requests = self.perform(requests)?;
 
         let mut result_map = HashMap::new();

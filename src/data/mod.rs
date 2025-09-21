@@ -31,6 +31,7 @@ pub use pagination::{PageOpts, PageResult};
 pub use snapshots::Snapshot;
 pub use json_snapshot::{JsonSnapshot, JsonEntitySchema, JsonEntity, value_to_json_value, json_value_to_value, value_to_json_value_with_paths, build_json_entity_tree, take_json_snapshot, restore_json_snapshot, restore_entity_recursive, factory_restore_json_snapshot, restore_json_snapshot_via_proxy};
 pub use cache::Cache;
+pub use request::IndirectFieldType;
 
 pub use store_proxy::{StoreProxy, StoreMessage, extract_message_id, AuthenticationResult};
 pub use value::Value;

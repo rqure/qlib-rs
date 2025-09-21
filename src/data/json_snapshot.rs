@@ -537,7 +537,7 @@ pub fn build_json_entity_tree<T: StoreTrait>(
         // Create a read request
         let read_requests = vec![crate::Request::Read {
             entity_id: entity_id,
-            field_types: vec![*field_type],
+            field_types: crate::sfield![*field_type],
             value: None,
             write_time: None,
             writer_id: None,
@@ -822,7 +822,7 @@ pub fn restore_entity_recursive<T: StoreTrait>(
                 Ok(value) => {
                     write_requests.push(crate::Request::Write {
                         entity_id: entity_id,
-                        field_types: vec![field_type],
+                        field_types: crate::sfield![field_type],
                         value: Some(value),
                         push_condition: crate::PushCondition::Always,
                         adjust_behavior: crate::AdjustBehavior::Set,
@@ -857,7 +857,7 @@ pub fn restore_entity_recursive<T: StoreTrait>(
             if !child_ids.is_empty() {
                 let children_write_requests = vec![crate::Request::Write {
                     entity_id: entity_id,
-                    field_types: vec![store.get_field_type("Children")?],
+                    field_types: crate::sfield![store.get_field_type("Children")?],
                     value: Some(crate::Value::EntityList(child_ids)),
                     push_condition: crate::PushCondition::Always,
                     adjust_behavior: crate::AdjustBehavior::Set,
@@ -1064,7 +1064,7 @@ fn apply_entity_diff_recursive<'a>(
             for entity_id in &entities {
                 let read_requests = vec![crate::Request::Read {
                     entity_id: *entity_id,
-                    field_types: vec![store.get_field_type("Name")?],
+                    field_types: crate::sfield![store.get_field_type("Name")?],
                     value: None,
                     write_time: None,
                     writer_id: None,
@@ -1110,7 +1110,7 @@ fn apply_entity_diff_recursive<'a>(
                 if let Ok(value) = json_value_to_value(json_value, field_schema) {
                     write_requests.push(crate::Request::Write {
                         entity_id: entity_id,
-                        field_types: vec![field_type],
+                        field_types: crate::sfield![field_type],
                         value: Some(value),
                         push_condition: crate::PushCondition::Always,
                         adjust_behavior: crate::AdjustBehavior::Set,
@@ -1161,7 +1161,7 @@ fn apply_entity_diff_recursive<'a>(
             if !child_ids.is_empty() {
                 let children_write_requests = vec![crate::Request::Write {
                     entity_id: entity_id,
-                    field_types: vec![store.get_field_type("Children")?],
+                    field_types: crate::sfield![store.get_field_type("Children")?],
                     value: Some(crate::Value::EntityList(child_ids)),
                     push_condition: crate::PushCondition::Always,
                     adjust_behavior: crate::AdjustBehavior::Set,

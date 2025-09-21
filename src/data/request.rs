@@ -1,5 +1,8 @@
 use crate::{data::{EntityId, EntityType, FieldType, Timestamp, Value}, EntitySchema, Single};
 use serde::{Deserialize, Serialize};
+use smallvec::SmallVec;
+
+pub type IndirectFieldType = SmallVec<[FieldType; 4]>;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum PushCondition {
@@ -27,14 +30,14 @@ impl std::fmt::Display for AdjustBehavior {
 pub enum Request {
     Read {
         entity_id: EntityId,
-        field_types: Vec<FieldType>,
+        field_types: IndirectFieldType,
         value: Option<Value>,
         write_time: Option<Timestamp>,
         writer_id: Option<EntityId>,
     },
     Write {
         entity_id: EntityId,
-        field_types: Vec<FieldType>,
+        field_types: IndirectFieldType,
         value: Option<Value>,
         push_condition: PushCondition,
         adjust_behavior: AdjustBehavior,
@@ -99,7 +102,7 @@ impl Request {
         }
     }
 
-    pub fn field_type(&self) -> Option<&Vec<FieldType>> {
+    pub fn field_type(&self) -> Option<&IndirectFieldType> {
         match self {
             Request::Read { field_types, .. } => Some(field_types),
             Request::Write { field_types, .. } => Some(field_types),

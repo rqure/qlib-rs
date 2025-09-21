@@ -170,15 +170,15 @@ fn setup_test_store_with_entity() -> Result<(Store, EntityId)> {
     let test_data = vec![72, 101, 108, 108, 111]; // "Hello" in bytes
     
     let field_requests = vec![
-        swrite!(entity_id, vec![ft_name], sstr!("John Doe")),
-        swrite!(entity_id, vec![ft_age], sint!(30)),
-        swrite!(entity_id, vec![ft_score], sfloat!(95.5)),
-        swrite!(entity_id, vec![ft_is_active], sbool!(true)),
-        swrite!(entity_id, vec![ft_status], schoice!(1)),
-        swrite!(entity_id, vec![ft_manager], sref!(Some(manager_id))),
-        swrite!(entity_id, vec![ft_tags], sreflist![tag1_id, tag2_id]),
-        swrite!(entity_id, vec![ft_created_at], stimestamp!(now)),
-        swrite!(entity_id, vec![ft_data], sblob!(test_data)),
+        swrite!(entity_id, crate::sfield![ft_name], sstr!("John Doe")),
+        swrite!(entity_id, crate::sfield![ft_age], sint!(30)),
+        swrite!(entity_id, crate::sfield![ft_score], sfloat!(95.5)),
+        swrite!(entity_id, crate::sfield![ft_is_active], sbool!(true)),
+        swrite!(entity_id, crate::sfield![ft_status], schoice!(1)),
+        swrite!(entity_id, crate::sfield![ft_manager], sref!(Some(manager_id))),
+        swrite!(entity_id, crate::sfield![ft_tags], sreflist![tag1_id, tag2_id]),
+        swrite!(entity_id, crate::sfield![ft_created_at], stimestamp!(now)),
+        swrite!(entity_id, crate::sfield![ft_data], sblob!(test_data)),
     ];
     store.perform_mut(field_requests)?;
 
@@ -594,10 +594,10 @@ fn test_cel_executor_execute_with_indirection() -> Result<()> {
 
     // Set field values
     let field_requests = vec![
-        swrite!(dept_id, vec![ft_name], sstr!("Engineering")),
-        swrite!(dept_id, vec![ft_budget], sint!(100000)),
-        swrite!(user_id, vec![ft_name], sstr!("Alice")),
-        swrite!(user_id, vec![ft_department], sref!(Some(dept_id))),
+        swrite!(dept_id, crate::sfield![ft_name], sstr!("Engineering")),
+        swrite!(dept_id, crate::sfield![ft_budget], sint!(100000)),
+        swrite!(user_id, crate::sfield![ft_name], sstr!("Alice")),
+        swrite!(user_id, crate::sfield![ft_department], sref!(Some(dept_id))),
     ];
     store.perform_mut(field_requests)?;
 
@@ -779,12 +779,12 @@ fn test_cel_executor_execute_with_deep_indirection() -> Result<()> {
 
     // Set up the entity relationships and data
     store.perform_mut(vec![
-        swrite!(company_id, vec![ft_name], sstr!("TechCorp")),
-        swrite!(company_id, vec![ft_founded], sint!(2010)),
-        swrite!(dept_id, vec![ft_name], sstr!("Engineering")),
-        swrite!(dept_id, vec![ft_company], sref!(Some(company_id))),
-        swrite!(employee_id, vec![ft_name], sstr!("Bob")),
-        swrite!(employee_id, vec![ft_department], sref!(Some(dept_id))),
+        swrite!(company_id, crate::sfield![ft_name], sstr!("TechCorp")),
+        swrite!(company_id, crate::sfield![ft_founded], sint!(2010)),
+        swrite!(dept_id, crate::sfield![ft_name], sstr!("Engineering")),
+        swrite!(dept_id, crate::sfield![ft_company], sref!(Some(company_id))),
+        swrite!(employee_id, crate::sfield![ft_name], sstr!("Bob")),
+        swrite!(employee_id, crate::sfield![ft_department], sref!(Some(dept_id))),
     ])?;
 
     // Test direct field access since indirection syntax needs CelExecutor updates
@@ -923,12 +923,12 @@ fn test_cel_executor_execute_with_indirection_and_entity_lists() -> Result<()> {
 
     // Set up the data
     let field_requests = vec![
-        swrite!(project1_id, vec![ft_name], sstr!("WebApp")),
-        swrite!(project1_id, vec![ft_priority], sint!(1)),
-        swrite!(project2_id, vec![ft_name], sstr!("MobileApp")),
-        swrite!(project2_id, vec![ft_priority], sint!(2)),
-        swrite!(team_id, vec![ft_name], sstr!("DevTeam")),
-        swrite!(team_id, vec![ft_projects], sreflist![project1_id, project2_id]),
+        swrite!(project1_id, crate::sfield![ft_name], sstr!("WebApp")),
+        swrite!(project1_id, crate::sfield![ft_priority], sint!(1)),
+        swrite!(project2_id, crate::sfield![ft_name], sstr!("MobileApp")),
+        swrite!(project2_id, crate::sfield![ft_priority], sint!(2)),
+        swrite!(team_id, crate::sfield![ft_name], sstr!("DevTeam")),
+        swrite!(team_id, crate::sfield![ft_projects], sreflist![project1_id, project2_id]),
     ];
     store.perform_mut(field_requests)?;
 
@@ -1210,10 +1210,10 @@ fn test_cel_executor_execute_with_mixed_field_access() -> Result<()> {
 
     // Set field values
     let field_requests = vec![
-        swrite!(dept_id, vec![ft_name], sstr!("Sales")),
-        swrite!(user_id, vec![ft_name], sstr!("John")),
-        swrite!(user_id, vec![ft_age], sint!(30)),
-        swrite!(user_id, vec![ft_department], sref!(Some(dept_id))),
+        swrite!(dept_id, crate::sfield![ft_name], sstr!("Sales")),
+        swrite!(user_id, crate::sfield![ft_name], sstr!("John")),
+        swrite!(user_id, crate::sfield![ft_age], sint!(30)),
+        swrite!(user_id, crate::sfield![ft_department], sref!(Some(dept_id))),
     ];
     store.perform_mut(field_requests)?;
 

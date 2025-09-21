@@ -216,18 +216,18 @@ fn test_json_snapshot_functionality() {
 
     // Set field values
     store.perform_mut(vec![
-        swrite!(root_id.clone(), vec![name_ft], Some(Value::String("DataStore".to_string()))),
-        swrite!(root_id.clone(), vec![description_ft], Some(Value::String("Primary data store".to_string()))),
-        swrite!(root_id.clone(), vec![children_ft], Some(Value::EntityList(vec![machine_id.clone()]))),
+        swrite!(root_id.clone(), crate::sfield![name_ft], Some(Value::String("DataStore".to_string()))),
+        swrite!(root_id.clone(), crate::sfield![description_ft], Some(Value::String("Primary data store".to_string()))),
+        swrite!(root_id.clone(), crate::sfield![children_ft], Some(Value::EntityList(vec![machine_id.clone()]))),
         
-        swrite!(machine_id.clone(), vec![name_ft], Some(Value::String("Server1".to_string()))),
-        swrite!(machine_id.clone(), vec![status_ft], Some(Value::String("Online".to_string()))),
-        swrite!(machine_id.clone(), vec![children_ft], Some(Value::EntityList(vec![sensor_id.clone()]))),
+        swrite!(machine_id.clone(), crate::sfield![name_ft], Some(Value::String("Server1".to_string()))),
+        swrite!(machine_id.clone(), crate::sfield![status_ft], Some(Value::String("Online".to_string()))),
+        swrite!(machine_id.clone(), crate::sfield![children_ft], Some(Value::EntityList(vec![sensor_id.clone()]))),
         
-        swrite!(sensor_id.clone(), vec![name_ft], Some(Value::String("IntakeTemp".to_string()))),
-        swrite!(sensor_id.clone(), vec![current_value_ft], Some(Value::Float(72.5))),
-        swrite!(sensor_id.clone(), vec![unit_ft], Some(Value::String("C".to_string()))),
-        swrite!(sensor_id.clone(), vec![calibration_offset_ft], Some(Value::Float(0.5))),
+        swrite!(sensor_id.clone(), crate::sfield![name_ft], Some(Value::String("IntakeTemp".to_string()))),
+        swrite!(sensor_id.clone(), crate::sfield![current_value_ft], Some(Value::Float(72.5))),
+        swrite!(sensor_id.clone(), crate::sfield![unit_ft], Some(Value::String("C".to_string()))),
+        swrite!(sensor_id.clone(), crate::sfield![calibration_offset_ft], Some(Value::Float(0.5))),
     ]).unwrap();
 
     // Take JSON snapshot
@@ -391,13 +391,13 @@ fn test_json_snapshot_restore() {
 
     // Set field values in store1
     store1.perform_mut(vec![
-        swrite!(root_id.clone(), vec![name_ft], Some(Value::String("TestRoot".to_string()))),
-        swrite!(root_id.clone(), vec![description_ft], Some(Value::String("Test root entity".to_string()))),
-        swrite!(root_id.clone(), vec![status_ft], Some(Value::String("Active".to_string()))),
-        swrite!(root_id.clone(), vec![children_ft], Some(Value::EntityList(vec![doc_id.clone()]))),
-        swrite!(doc_id.clone(), vec![name_ft], Some(Value::String("TestDoc".to_string()))),
-        swrite!(doc_id.clone(), vec![description_ft], Some(Value::String("Test document".to_string()))),
-        swrite!(doc_id.clone(), vec![content_ft], Some(Value::String("Hello, World!".to_string()))),
+        swrite!(root_id.clone(), crate::sfield![name_ft], Some(Value::String("TestRoot".to_string()))),
+        swrite!(root_id.clone(), crate::sfield![description_ft], Some(Value::String("Test root entity".to_string()))),
+        swrite!(root_id.clone(), crate::sfield![status_ft], Some(Value::String("Active".to_string()))),
+        swrite!(root_id.clone(), crate::sfield![children_ft], Some(Value::EntityList(vec![doc_id.clone()]))),
+        swrite!(doc_id.clone(), crate::sfield![name_ft], Some(Value::String("TestDoc".to_string()))),
+        swrite!(doc_id.clone(), crate::sfield![description_ft], Some(Value::String("Test document".to_string()))),
+        swrite!(doc_id.clone(), crate::sfield![content_ft], Some(Value::String("Hello, World!".to_string()))),
     ]).unwrap();
 
     // Take JSON snapshot from store1
@@ -434,10 +434,10 @@ fn test_json_snapshot_restore() {
     
     // Check root entity fields
     let read_requests = store2.perform_mut(vec![
-        crate::sread!(root_id_restored.clone(), vec![name_ft2]),
-        crate::sread!(root_id_restored.clone(), vec![description_ft2]),
-        crate::sread!(root_id_restored.clone(), vec![status_ft2]),
-        crate::sread!(root_id_restored.clone(), vec![children_ft2]),
+        crate::sread!(root_id_restored.clone(), crate::sfield![name_ft2]),
+        crate::sread!(root_id_restored.clone(), crate::sfield![description_ft2]),
+        crate::sread!(root_id_restored.clone(), crate::sfield![status_ft2]),
+        crate::sread!(root_id_restored.clone(), crate::sfield![children_ft2]),
     ]).unwrap();
     
     if let Some(Request::Read { value: Some(Value::String(name)), .. }) = read_requests.get(0) {
@@ -465,8 +465,8 @@ fn test_json_snapshot_restore() {
         let doc_id_restored = &children[0];
         let content_ft2 = store2.get_field_type("Content").unwrap();
         let doc_read_requests = store2.perform_mut(vec![
-            crate::sread!(doc_id_restored.clone(), vec![name_ft2]),
-            crate::sread!(doc_id_restored.clone(), vec![content_ft2]),
+            crate::sread!(doc_id_restored.clone(), crate::sfield![name_ft2]),
+            crate::sread!(doc_id_restored.clone(), crate::sfield![content_ft2]),
         ]).unwrap();
         
         if let Some(Request::Read { value: Some(Value::String(doc_name)), .. }) = doc_read_requests.get(0) {
@@ -589,17 +589,17 @@ fn test_json_snapshot_path_resolution() {
     // Set up relationships
     store.perform_mut(vec![
         // Set folder as child of root (Children relationship)
-        swrite!(root_id.clone(), vec![children_ft], Some(Value::EntityList(vec![folder_id.clone()]))),
+        swrite!(root_id.clone(), crate::sfield![children_ft], Some(Value::EntityList(vec![folder_id.clone()]))),
         
         // Set file as child of folder (Children relationship)  
-        swrite!(folder_id.clone(), vec![children_ft], Some(Value::EntityList(vec![file_id.clone()]))),
+        swrite!(folder_id.clone(), crate::sfield![children_ft], Some(Value::EntityList(vec![file_id.clone()]))),
         
         // Set folder as parent of file (ParentFolder reference)
-        swrite!(file_id.clone(), vec![parent_folder_ft], Some(Value::EntityReference(Some(folder_id.clone())))),
+        swrite!(file_id.clone(), crate::sfield![parent_folder_ft], Some(Value::EntityReference(Some(folder_id.clone())))),
         
         // Set up Parent chain for path resolution (used by spath! macro)
-        swrite!(folder_id.clone(), vec![parent_ft], Some(Value::EntityReference(Some(root_id.clone())))),
-        swrite!(file_id.clone(), vec![parent_ft], Some(Value::EntityReference(Some(folder_id.clone())))),
+        swrite!(folder_id.clone(), crate::sfield![parent_ft], Some(Value::EntityReference(Some(root_id.clone())))),
+        swrite!(file_id.clone(), crate::sfield![parent_ft], Some(Value::EntityReference(Some(folder_id.clone())))),
     ]).unwrap();
 
     // Take snapshot
@@ -853,19 +853,19 @@ fn test_json_snapshot_entity_list_paths() {
     // Set up the entity relationships and Parent references for path resolution
     store.perform_mut(vec![
         // Set up Parent references for path resolution
-        swrite!(machine_a_id.clone(), vec![parent_ft], Some(Value::EntityReference(Some(root_id.clone())))),
-        swrite!(machine_b_id.clone(), vec![parent_ft], Some(Value::EntityReference(Some(root_id.clone())))),
-        swrite!(service_a_id.clone(), vec![parent_ft], Some(Value::EntityReference(Some(machine_a_id.clone())))),
-        swrite!(service_b_id.clone(), vec![parent_ft], Some(Value::EntityReference(Some(machine_b_id.clone())))),
-        swrite!(ft_id.clone(), vec![parent_ft], Some(Value::EntityReference(Some(root_id.clone())))),
+        swrite!(machine_a_id.clone(), crate::sfield![parent_ft], Some(Value::EntityReference(Some(root_id.clone())))),
+        swrite!(machine_b_id.clone(), crate::sfield![parent_ft], Some(Value::EntityReference(Some(root_id.clone())))),
+        swrite!(service_a_id.clone(), crate::sfield![parent_ft], Some(Value::EntityReference(Some(machine_a_id.clone())))),
+        swrite!(service_b_id.clone(), crate::sfield![parent_ft], Some(Value::EntityReference(Some(machine_b_id.clone())))),
+        swrite!(ft_id.clone(), crate::sfield![parent_ft], Some(Value::EntityReference(Some(root_id.clone())))),
         
         // Set up Children relationships
-        swrite!(root_id.clone(), vec![children_ft], Some(Value::EntityList(vec![machine_a_id.clone(), machine_b_id.clone(), ft_id.clone()]))),
-        swrite!(machine_a_id.clone(), vec![children_ft], Some(Value::EntityList(vec![service_a_id.clone()]))),
-        swrite!(machine_b_id.clone(), vec![children_ft], Some(Value::EntityList(vec![service_b_id.clone()]))),
+        swrite!(root_id.clone(), crate::sfield![children_ft], Some(Value::EntityList(vec![machine_a_id.clone(), machine_b_id.clone(), ft_id.clone()]))),
+        swrite!(machine_a_id.clone(), crate::sfield![children_ft], Some(Value::EntityList(vec![service_a_id.clone()]))),
+        swrite!(machine_b_id.clone(), crate::sfield![children_ft], Some(Value::EntityList(vec![service_b_id.clone()]))),
         
         // Set up CandidateList with entity references (not paths yet)
-        swrite!(ft_id.clone(), vec![candidate_list_ft], Some(Value::EntityList(vec![service_a_id.clone(), service_b_id.clone()]))),
+        swrite!(ft_id.clone(), crate::sfield![candidate_list_ft], Some(Value::EntityList(vec![service_a_id.clone(), service_b_id.clone()]))),
     ]).unwrap();
 
     // Take a snapshot
@@ -906,7 +906,7 @@ fn test_json_snapshot_entity_list_paths() {
             
             // Check if CandidateList was restored correctly
             let read_requests = store2.perform_mut(vec![
-                crate::sread!(restored_ft_id.clone(), vec![candidate_list_ft2]),
+                crate::sread!(restored_ft_id.clone(), crate::sfield![candidate_list_ft2]),
             ]).unwrap();
             
             if let Some(Request::Read { value: Some(Value::EntityList(candidates)), .. }) = read_requests.get(0) {

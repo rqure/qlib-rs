@@ -130,8 +130,8 @@ fn test_create_entity_hierarchy() -> Result<()> {
     let ft_name = store.get_field_type("Name")?;
     
     let reqs = store.perform_mut(vec![
-        sread!(user_id_ref, vec![ft_parent]),
-        sread!(user_id_ref, vec![ft_name]),
+        sread!(user_id_ref, crate::sfield![ft_parent]),
+        sread!(user_id_ref, crate::sfield![ft_name]),
     ])?;
 
     if let Some(Request::Read { value: Some(Value::EntityReference(Some(parent_id))), .. }) = reqs.get(0) {
@@ -142,7 +142,7 @@ fn test_create_entity_hierarchy() -> Result<()> {
 
     // Verify name
     let reqs = store.perform_mut(vec![
-        sread!(users_folder_id_ref, vec![ft_name]),
+        sread!(users_folder_id_ref, crate::sfield![ft_name]),
     ])?;
 
     if let Some(Request::Read { value: Some(Value::String(name)), .. }) = reqs.get(0) {
@@ -188,11 +188,11 @@ fn test_field_operations() -> Result<()> {
     // Test write and read operations
     let ft_name = store.get_field_type("Name")?;
     store.perform_mut(vec![
-        swrite!(user_ref, vec![ft_name], sstr!("Updated User")),
+        swrite!(user_ref, crate::sfield![ft_name], sstr!("Updated User")),
     ])?;
 
     let reads = store.perform_mut(vec![
-        sread!(user_ref, vec![ft_name]),
+        sread!(user_ref, crate::sfield![ft_name]),
     ])?;
 
     if let Some(Request::Read { value: Some(Value::String(name)), .. }) = reads.get(0) {
@@ -203,11 +203,11 @@ fn test_field_operations() -> Result<()> {
 
     // Test field updates
     store.perform_mut(vec![
-        swrite!(user_ref, vec![ft_name], sstr!("Final Name")),
+        swrite!(user_ref, crate::sfield![ft_name], sstr!("Final Name")),
     ])?;
 
     let verify = store.perform_mut(vec![
-        sread!(user_ref, vec![ft_name]),
+        sread!(user_ref, crate::sfield![ft_name]),
     ])?;
 
     if let Some(Request::Read { value: Some(Value::String(name)), .. }) = verify.get(0) {
@@ -268,10 +268,10 @@ fn test_indirection_resolution() -> Result<()> {
     // Test indirection: User->Parent->Name should resolve to "Users"
     let ft_parent = store.get_field_type("Parent")?;
     let ft_name = store.get_field_type("Name")?;
-    let parent_name_field = vec![ft_parent, ft_name];
+    let parent_name_field = crate::sfield![ft_parent, ft_name];
 
     store.perform_mut(vec![
-        swrite!(admin_user_ref, vec![ft_name], sstr!("Administrator")),
+        swrite!(admin_user_ref, crate::sfield![ft_name], sstr!("Administrator")),
     ])?;
 
     // Test indirection resolution
@@ -330,7 +330,7 @@ fn test_entity_deletion() -> Result<()> {
 
     // Try to read from deleted entity - the request should succeed but return no value
     let ft_name = store.get_field_type("Name")?;
-    let request = vec![sread!(user_ref, vec![ft_name])];
+    let request = vec![sread!(user_ref, crate::sfield![ft_name])];
     let result = store.perform_mut(request);
     
     // The request should fail for a deleted entity
@@ -470,7 +470,7 @@ fn test_find_entities_comprehensive() -> Result<()> {
     let alice_id = create_requests[0].entity_id().unwrap();
     
     // Verify the names were set correctly
-    let name_read = vec![sread!(alice_id, vec![ft_name])];
+    let name_read = vec![sread!(alice_id, crate::sfield![ft_name])];
     let name_read = store.perform_mut(name_read)?;
     if let Some(Request::Read { value: Some(Value::String(alice_name)), .. }) = name_read.get(0) {
         println!("Alice's name in store: '{}'", alice_name);

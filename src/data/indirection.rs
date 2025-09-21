@@ -1,5 +1,5 @@
 use crate::{
-    data::{store::Store, StoreTrait}, et, ft, EntityId, FieldType, Result
+    data::{store::Store, StoreTrait}, et, ft, EntityId, FieldType, IndirectFieldType, Result
 };
 
 pub const INDIRECTION_DELIMITER: &str = "->";
@@ -39,7 +39,7 @@ impl std::fmt::Display for BadIndirectionReason {
 pub fn resolve_indirection(
     store: &Store,
     entity_id: EntityId,
-    fields: &Vec<FieldType>,
+    fields: &IndirectFieldType,
 ) -> Result<(EntityId, FieldType)> {
     if fields.len() == 1 {
         return Ok((entity_id, fields[0].clone()));
@@ -49,14 +49,14 @@ pub fn resolve_indirection(
 
     for (i, field) in fields.iter().enumerate() {
         // Normal field resolution
-        let reqs = vec![crate::sread!(current_entity_id, vec![field.clone()])];
+        let reqs = vec![crate::sread!(current_entity_id, crate::sfield![field.clone()])];
 
         let reqs = match store.perform(reqs) {
             Ok(reqs) => reqs,
             Err(e) => {
                 return Err(crate::Error::BadIndirection(
                     current_entity_id,
-                    fields.clone(),
+                    fields.iter().cloned().collect(),
                     crate::BadIndirectionReason::FailedToResolveField(field.clone(), e.to_string()),
                 ));
             }
@@ -76,7 +76,7 @@ pub fn resolve_indirection(
                         if !store.entity_exists(ref_id.clone()) {
                             return Err(crate::Error::BadIndirection(
                                 current_entity_id,
-                                fields.clone(),
+                                fields.iter().cloned().collect(),
                                 crate::BadIndirectionReason::InvalidEntityId(ref_id.clone()),
                             ));
                         }
@@ -86,7 +86,7 @@ pub fn resolve_indirection(
                         // If the reference is None, this is an error
                         return Err(crate::Error::BadIndirection(
                             current_entity_id,
-                            fields.clone(),
+                            fields.iter().cloned().collect(),
                             crate::BadIndirectionReason::EmptyEntityReference,
                         ));
                     }
@@ -97,7 +97,7 @@ pub fn resolve_indirection(
 
             return Err(crate::Error::BadIndirection(
                 current_entity_id,
-                fields.clone(),
+                fields.iter().cloned().collect(),
                 crate::BadIndirectionReason::UnexpectedValueType(
                     field.clone(),
                     format!("{:?}", value),
@@ -111,7 +111,7 @@ pub fn resolve_indirection(
         fields.last().cloned().ok_or_else(|| {
             crate::Error::BadIndirection(
                 entity_id,
-                fields.clone(),
+                fields.iter().cloned().collect(),
                 crate::BadIndirectionReason::UnexpectedValueType(
                     FieldType(0),
                     "Empty field path".to_string(),
@@ -135,7 +135,7 @@ pub fn path<T: StoreTrait>(store: &T, entity_id: EntityId) -> Result<String> {
         if visited.contains(&current_id) {
             return Err(crate::Error::BadIndirection(
                 current_id.clone(),
-                vec![parent_ft.clone()],
+                vec![parent_ft.clone()], // Convert to Vec for error reporting
                 crate::BadIndirectionReason::UnexpectedValueType(
                     parent_ft.clone(),
                     "Circular reference detected in parent chain".to_string(),
@@ -147,7 +147,7 @@ pub fn path<T: StoreTrait>(store: &T, entity_id: EntityId) -> Result<String> {
         // Read the name of the current entity
         let name_requests = vec![crate::sread!(
             current_id.clone(),
-            vec![name_ft.clone()]
+            crate::sfield![name_ft.clone()]
         )];
 
         let entity_name = if let Ok(reqs) = store.perform(name_requests) {
@@ -171,7 +171,7 @@ pub fn path<T: StoreTrait>(store: &T, entity_id: EntityId) -> Result<String> {
         // Read the parent of the current entity
         let parent_requests = vec![crate::sread!(
             current_id.clone(),
-            vec![parent_ft.clone()]
+            crate::sfield![parent_ft.clone()]
         )];
 
         if let Ok(reqs) = store.perform(parent_requests) {
@@ -216,7 +216,7 @@ pub fn path_to_entity_id<T: StoreTrait>(store: &T, path: &str) -> Result<EntityI
     for root_id in root_entities {
         let name_requests = vec![crate::sread!(
             root_id.clone(),
-            vec![name_ft.clone()]
+            crate::sfield![name_ft.clone()]
         )];
         
         if let Ok(reqs) = store.perform(name_requests) {
@@ -241,7 +241,7 @@ pub fn path_to_entity_id<T: StoreTrait>(store: &T, path: &str) -> Result<EntityI
     for part in &path_parts[1..] {
         let children_requests = vec![crate::sread!(
             current_id.clone(),
-            vec![children_ft.clone()]
+            crate::sfield![children_ft.clone()]
         )];
         
         if let Ok(reqs) = store.perform(children_requests) {
@@ -254,7 +254,7 @@ pub fn path_to_entity_id<T: StoreTrait>(store: &T, path: &str) -> Result<EntityI
                 for child_id in children {
                     let child_name_requests = vec![crate::sread!(
                         child_id.clone(),
-                        vec![name_ft.clone()]
+                        crate::sfield![name_ft.clone()]
                     )];
                     
                     if let Ok(reqs) = store.perform(child_name_requests) {

@@ -7,7 +7,7 @@ use sorted_vec::SortedVec;
 use crate::{
     data::{
         entity_schema::Complete, hash_notify_config, indirection::resolve_indirection, interner::Interner, now, request::PushCondition, EntityType, FieldType, Notification, NotificationQueue, NotifyConfig, StoreTrait, Timestamp,
-    }, et::ET, expr::CelExecutor, ft::{FT}, sread, AdjustBehavior, EntityId, EntitySchema, Error, Field, FieldSchema, PageOpts, PageResult, Request, Result, Single, Snapshot, Value
+    }, et::ET, expr::CelExecutor, ft::FT, sread, AdjustBehavior, EntityId, EntitySchema, Error, Field, FieldSchema, IndirectFieldType, PageOpts, PageResult, Request, Result, Single, Snapshot, Value
 };
 
 pub struct Store {
@@ -1383,14 +1383,14 @@ impl Store {
                     // Trigger notifications after a write operation
                     let current_request = Request::Read {
                         entity_id: entity_id,
-                        field_types: vec![field_type],
+                        field_types: crate::sfield![field_type],
                         value: Some(notification_new_value.clone()),
                         write_time: Some(field.write_time),
                         writer_id: field.writer_id.clone(),
                     };
                     let previous_request = Request::Read {
                         entity_id: entity_id,
-                        field_types: vec![field_type],
+                        field_types: crate::sfield![field_type],
                         value: Some(notification_old_value.clone()),
                         write_time: Some(field.write_time), // Use the time before the write
                         writer_id: field.writer_id.clone(),
@@ -1427,14 +1427,14 @@ impl Store {
                     // Trigger notifications after a write operation
                     let current_request = Request::Read {
                         entity_id: entity_id,
-                        field_types: vec![field_type],
+                        field_types: crate::sfield![field_type],
                         value: Some(notification_new_value.clone()),
                         write_time: Some(field.write_time),
                         writer_id: field.writer_id.clone(),
                     };
                     let previous_request = Request::Read {
                         entity_id: entity_id,
-                        field_types: vec![field_type],
+                        field_types: crate::sfield![field_type],
                         value: Some(notification_old_value.clone()),
                         write_time: Some(field.write_time), // Use the time before the write
                         writer_id: field.writer_id.clone(),
@@ -1607,13 +1607,14 @@ impl Store {
 
         for context_field in context_fields {
             // Use perform to handle indirection properly
-            let requests = vec![sread!(entity_id, context_field.clone())];
+            let field_types: IndirectFieldType = context_field.clone().into_iter().collect();
+            let requests = vec![sread!(entity_id, field_types.clone())];
 
             if let Ok(updated_requests) = self.perform(requests) {
                 context_map.insert(context_field.clone(), updated_requests.into_iter().next().unwrap());
             } else {
                 // If perform_mut fails, insert the original request
-                context_map.insert(context_field.clone(), sread!(entity_id, context_field.clone()));
+                context_map.insert(context_field.clone(), sread!(entity_id, field_types));
             }
         }
 

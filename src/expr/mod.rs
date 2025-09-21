@@ -2,7 +2,7 @@ use cel::{Context, Program};
 use lru::LruCache;
 use std::num::NonZeroUsize;
 
-use crate::{sread, to_base64, EntityId, FieldType, Result, Store, StoreTrait, Value, INDIRECTION_DELIMITER};
+use crate::{sread, to_base64, EntityId, IndirectFieldType, Result, Store, StoreTrait, Value, INDIRECTION_DELIMITER};
 
 /// CelExecutor with LRU cache for compiled CEL programs
 #[derive(Debug)]
@@ -75,7 +75,7 @@ impl CelExecutor {
             let store_field = field.to_string().replace("_", INDIRECTION_DELIMITER);
             
             // Parse indirection: split by delimiter and convert each part to FieldType
-            let field_types: Result<Vec<FieldType>> = store_field
+            let field_types: Result<IndirectFieldType> = store_field
                 .split(INDIRECTION_DELIMITER)
                 .map(|field_name| store.get_field_type(field_name))
                 .collect();

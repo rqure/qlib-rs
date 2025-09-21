@@ -292,7 +292,7 @@ fn test_authentication_with_factory_restore_format() -> Result<()> {
     let field_requests = vec![
         Request::Write {
             entity_id: user_id,
-            field_types: vec![name_field_type],
+            field_types: crate::sfield![name_field_type],
             value: Some(Value::String(username.to_string())),
             push_condition: PushCondition::Always,
             adjust_behavior: AdjustBehavior::Set,
@@ -302,7 +302,7 @@ fn test_authentication_with_factory_restore_format() -> Result<()> {
         },
         Request::Write {
             entity_id: user_id,
-            field_types: vec![secret_field_type],
+            field_types: crate::sfield![secret_field_type],
             value: Some(Value::String(password_hash)),
             push_condition: PushCondition::Always,
             adjust_behavior: AdjustBehavior::Set,
@@ -312,7 +312,7 @@ fn test_authentication_with_factory_restore_format() -> Result<()> {
         },
         Request::Write {
             entity_id: user_id,
-            field_types: vec![active_field_type],
+            field_types: crate::sfield![active_field_type],
             value: Some(Value::Bool(true)),
             push_condition: PushCondition::Always,
             adjust_behavior: AdjustBehavior::Set,

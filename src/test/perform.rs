@@ -76,7 +76,7 @@ fn test_perform_read_requests() -> Result<()> {
     }
     
     // Test that Read requests still work
-    let read_request = vec![sread!(EntityId(0), vec![FieldType(0)])];
+    let read_request = vec![sread!(EntityId(0), crate::sfield![FieldType(0)])];
     let _read_result = store.perform(read_request);
     
     // This might fail because the entity doesn't exist, but that's expected behavior
@@ -92,7 +92,7 @@ fn test_perform_invalid_request() {
     let store = Store::new();
     
     // Test that Write requests still return an error when using immutable perform
-    let write_request = vec![swrite!(EntityId(0), vec![FieldType(0)], sstr!("test"))];
+    let write_request = vec![swrite!(EntityId(0), crate::sfield![FieldType(0)], sstr!("test"))];
     let result = store.perform(write_request);
     
     assert!(result.is_err(), "Write requests should fail with immutable perform");

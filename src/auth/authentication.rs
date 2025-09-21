@@ -159,7 +159,7 @@ pub fn authenticate_openid_connect(
 /// Get user authentication method
 pub fn get_user_auth_method(store: &mut Store, user_id: EntityId) -> Result<AuthMethod> {
     let ft = store.ft.as_ref().unwrap();
-    let requests = vec![sread!(user_id, vec![ft.auth_method.unwrap()])];
+    let requests = vec![sread!(user_id, crate::sfield![ft.auth_method.unwrap()])];
 
     let result = store.perform_mut(requests);
     
@@ -189,7 +189,7 @@ pub fn get_user_auth_method(store: &mut Store, user_id: EntityId) -> Result<Auth
 /// Get user secret (password hash for native auth, or other secret data)
 pub fn get_user_secret(store: &mut Store, user_id: EntityId) -> Result<String> {
     let ft = store.ft.as_ref().unwrap();
-    let requests = vec![sread!(user_id, vec![ft.secret.unwrap()])];
+    let requests = vec![sread!(user_id, crate::sfield![ft.secret.unwrap()])];
 
     let requests = store.perform_mut(requests)?;
 
@@ -230,7 +230,7 @@ pub fn change_password(
     let ft = store.ft.as_ref().unwrap();
     let requests = vec![swrite!(
         user_id,
-        vec![ft.secret.unwrap()],
+        crate::sfield![ft.secret.unwrap()],
         Some(Value::String(password_hash))
     )];
 
@@ -247,7 +247,7 @@ pub fn find_user_by_name(store: &Store, name: &str) -> Result<Option<EntityId>> 
 
     let ft = store.ft.as_ref().unwrap();
     for entity_id in entities {
-        let requests = vec![sread!(entity_id, vec![ft.name.unwrap()])];
+        let requests = vec![sread!(entity_id, crate::sfield![ft.name.unwrap()])];
 
         let requests = store.perform(requests)?;
 
@@ -270,7 +270,7 @@ pub fn find_user_by_name(store: &Store, name: &str) -> Result<Option<EntityId>> 
 /// Check if a user is active
 pub fn is_user_active(store: &mut Store, user_id: EntityId) -> Result<bool> {
     let ft = store.ft.as_ref().unwrap();
-    let requests = vec![sread!(user_id, vec![ft.active.unwrap()])];
+    let requests = vec![sread!(user_id, crate::sfield![ft.active.unwrap()])];
 
     let requests = store.perform_mut(requests)?;
 
@@ -292,7 +292,7 @@ pub fn is_user_active(store: &mut Store, user_id: EntityId) -> Result<bool> {
 /// Check if a user is locked
 pub fn is_user_locked(store: &mut Store, user_id: EntityId) -> Result<bool> {
     let ft = store.ft.as_ref().unwrap();
-    let requests = vec![sread!(user_id, vec![ft.locked_until.unwrap()])];
+    let requests = vec![sread!(user_id, crate::sfield![ft.locked_until.unwrap()])];
 
     let result = store.perform_mut(requests);
     
@@ -372,7 +372,7 @@ pub fn increment_failed_attempts(
     let failed_attempts_ft = ft.failed_attempts.unwrap();
     let locked_until_ft = ft.locked_until.unwrap();
     
-    let read_requests = vec![sread!(user_id, vec![failed_attempts_ft])];
+    let read_requests = vec![sread!(user_id, crate::sfield![failed_attempts_ft])];
 
     let read_requests = store.perform_mut(read_requests)?;
 
@@ -395,7 +395,7 @@ pub fn increment_failed_attempts(
     // Update failed attempts
     let mut write_requests = vec![swrite!(
         user_id,
-        vec![failed_attempts_ft],
+        crate::sfield![failed_attempts_ft],
         Some(Value::Int(new_attempts))
     )];
 
@@ -404,7 +404,7 @@ pub fn increment_failed_attempts(
         let lock_until = now() + config.lockout_duration;
         write_requests.push(swrite!(
             user_id,
-            vec![locked_until_ft],
+            crate::sfield![locked_until_ft],
             Some(Value::Timestamp(lock_until))
         ));
     }
@@ -417,7 +417,7 @@ pub fn increment_failed_attempts(
 /// Reset failed login attempts
 pub fn reset_failed_attempts(store: &mut Store, user_id: EntityId) -> Result<()> {
     let ft = store.ft.as_ref().unwrap();
-    let requests = vec![swrite!(user_id, vec![ft.failed_attempts.unwrap()], Some(Value::Int(0)))];
+    let requests = vec![swrite!(user_id, crate::sfield![ft.failed_attempts.unwrap()], Some(Value::Int(0)))];
 
     store.perform_mut(requests)?;
 
@@ -429,7 +429,7 @@ pub fn update_last_login(store: &mut Store, user_id: EntityId) -> Result<()> {
     let ft = store.ft.as_ref().unwrap();
     let requests = vec![swrite!(
         user_id,
-        vec![ft.last_login.unwrap()],
+        crate::sfield![ft.last_login.unwrap()],
         Some(Value::Timestamp(now()))
     )];
 
@@ -473,9 +473,9 @@ pub fn create_user(
     // Set authentication method and default values
     let ft = store.ft.as_ref().unwrap();
     let requests = vec![
-        swrite!(user_id, vec![ft.auth_method.unwrap()], Some(Value::Choice(i64::from(auth_method)))),
-        swrite!(user_id, vec![ft.active.unwrap()], Some(Value::Bool(true))),
-        swrite!(user_id, vec![ft.failed_attempts.unwrap()], Some(Value::Int(0))),
+        swrite!(user_id, crate::sfield![ft.auth_method.unwrap()], Some(Value::Choice(i64::from(auth_method)))),
+        swrite!(user_id, crate::sfield![ft.active.unwrap()], Some(Value::Bool(true))),
+        swrite!(user_id, crate::sfield![ft.failed_attempts.unwrap()], Some(Value::Int(0))),
     ];
 
     store.perform_mut(requests)?;
@@ -506,7 +506,7 @@ pub fn set_user_password(
     let ft = store.ft.as_ref().unwrap();
     let requests = vec![swrite!(
         user_id,
-        vec![ft.secret.unwrap()],
+        crate::sfield![ft.secret.unwrap()],
         Some(Value::String(password_hash))
     )];
 
@@ -524,7 +524,7 @@ pub fn set_user_auth_method(
     let ft = store.ft.as_ref().unwrap();
     let requests = vec![swrite!(
         user_id,
-        vec![ft.auth_method.unwrap()],
+        crate::sfield![ft.auth_method.unwrap()],
         Some(Value::Choice(i64::from(auth_method)))
     )];
 
@@ -566,7 +566,7 @@ pub fn find_subject_by_name(store: &mut Store, name: &str) -> Result<Option<Enti
     let ft = store.ft.as_ref().unwrap();
     let name_ft = ft.name.unwrap();
     for entity_id in entities {
-        let requests = vec![sread!(entity_id, vec![name_ft])];
+        let requests = vec![sread!(entity_id, crate::sfield![name_ft])];
         let requests = store.perform_mut(requests)?;
 
         if let Some(request) = requests.first() {
@@ -588,7 +588,7 @@ pub fn find_subject_by_name(store: &mut Store, name: &str) -> Result<Option<Enti
 /// Check if a service is active
 pub fn is_service_active(store: &mut Store, service_id: EntityId) -> Result<bool> {
     let ft = store.ft.as_ref().unwrap();
-    let requests = vec![sread!(service_id, vec![ft.active.unwrap()])];
+    let requests = vec![sread!(service_id, crate::sfield![ft.active.unwrap()])];
     let requests = store.perform_mut(requests)?;
 
     if let Some(request) = requests.first() {
@@ -609,7 +609,7 @@ pub fn is_service_active(store: &mut Store, service_id: EntityId) -> Result<bool
 /// Get service secret key
 pub fn get_service_secret(store: &mut Store, service_id: EntityId) -> Result<String> {
     let ft = store.ft.as_ref().unwrap();
-    let requests = vec![sread!(service_id, vec![ft.secret.unwrap()])];
+    let requests = vec![sread!(service_id, crate::sfield![ft.secret.unwrap()])];
     let requests = store.perform_mut(requests)?;
 
     if let Some(request) = requests.first() {
@@ -636,7 +636,7 @@ pub fn set_service_secret(
     let ft = store.ft.as_ref().unwrap();
     let requests = vec![swrite!(
         service_id,
-        vec![ft.secret.unwrap()],
+        crate::sfield![ft.secret.unwrap()],
         Some(Value::String(secret_key.to_string()))
     )];
 

@@ -183,7 +183,7 @@ fn test_sread_macro() {
     let entity_type = EntityType(1); // User
     let entity_id = EntityId::new(entity_type, 123);
     let field_type = FieldType(1); // Username
-    let request = sread!(entity_id, vec![field_type]);
+    let request = sread!(entity_id, crate::sfield![field_type]);
 
     match request {
         Request::Read {
@@ -192,7 +192,7 @@ fn test_sread_macro() {
             ..
         } => {
             assert_eq!(req_entity_id, entity_id);
-            assert_eq!(field_types, vec![field_type]);
+            assert_eq!(field_types, smallvec::SmallVec::<[FieldType; 4]>::from_slice(&[field_type]));
         }
         _ => panic!("Expected Request::Read"),
     }
@@ -205,7 +205,7 @@ fn test_swrite_macro() {
     let ft_username = FieldType(1); // Username
 
     // Basic write with just a value
-    let request1 = swrite!(entity_id, vec![ft_username], sstr!("alice"));
+    let request1 = swrite!(entity_id, crate::sfield![ft_username], sstr!("alice"));
     match request1 {
         Request::Write {
             entity_id: req_entity_id,
@@ -218,7 +218,7 @@ fn test_swrite_macro() {
             ..
         } => {
             assert_eq!(req_entity_id, entity_id);
-            assert_eq!(field_types, vec![ft_username]);
+            assert_eq!(field_types, smallvec::SmallVec::<[FieldType; 4]>::from_slice(&[ft_username]));
             assert!(matches!(value, Some(Value::String(s)) if s == "alice"));
             assert!(matches!(push_condition, PushCondition::Always));
             assert!(matches!(adjust_behavior, AdjustBehavior::Set));
@@ -229,7 +229,7 @@ fn test_swrite_macro() {
     }
 
     // Write with None (deletion)
-    let request2 = swrite!(entity_id, vec![ft_username], None);
+    let request2 = swrite!(entity_id, crate::sfield![ft_username], None);
     match request2 {
         Request::Write { value, .. } => assert!(value.is_none()),
         _ => panic!("Expected Request::Write"),
@@ -238,7 +238,7 @@ fn test_swrite_macro() {
     // Write with custom write option
     let request3 = swrite!(
         entity_id,
-        vec![ft_username],
+        crate::sfield![ft_username],
         sstr!("bob"),
         PushCondition::Changes
     );
@@ -254,7 +254,7 @@ fn test_swrite_macro() {
     let ft_last_login = FieldType(2); // LastLogin
     let request4 = swrite!(
         entity_id,
-        vec![ft_last_login],
+        crate::sfield![ft_last_login],
         stimestamp!(now),
         PushCondition::Always,
         Some(now)
@@ -269,7 +269,7 @@ fn test_swrite_macro() {
     let writer_id = EntityId::new(admin_type, 1);
     let request5 = swrite!(
         entity_id,
-        vec![ft_username],
+        crate::sfield![ft_username],
         sstr!("carol"),
         PushCondition::Always,
         Some(now),
@@ -293,7 +293,7 @@ fn test_sadd_macro() {
     let ft_counter = FieldType(3); // Counter
 
     // Basic add with just a value
-    let request1 = sadd!(entity_id, vec![ft_counter], sint!(5));
+    let request1 = sadd!(entity_id, crate::sfield![ft_counter], sint!(5));
     match request1 {
         Request::Write {
             entity_id: req_entity_id,
@@ -306,7 +306,7 @@ fn test_sadd_macro() {
             ..
         } => {
             assert_eq!(req_entity_id, entity_id);
-            assert_eq!(field_types, vec![ft_counter]);
+            assert_eq!(field_types, smallvec::SmallVec::<[FieldType; 4]>::from_slice(&[ft_counter]));
             assert!(matches!(value, Some(Value::Int(5))));
             assert!(matches!(push_condition, PushCondition::Always));
             assert!(matches!(adjust_behavior, AdjustBehavior::Add));
@@ -319,7 +319,7 @@ fn test_sadd_macro() {
     // Add with write option
     let request2 = sadd!(
         entity_id,
-        vec![ft_counter],
+        crate::sfield![ft_counter],
         sint!(10),
         PushCondition::Changes
     );
@@ -339,7 +339,7 @@ fn test_sadd_macro() {
     let now = now();
     let request3 = sadd!(
         entity_id,
-        vec![ft_counter],
+        crate::sfield![ft_counter],
         sint!(15),
         PushCondition::Always,
         Some(now)
@@ -361,7 +361,7 @@ fn test_sadd_macro() {
     let writer_id = EntityId::new(admin_type, 1);
     let request4 = sadd!(
         entity_id,
-        vec![ft_counter],
+        crate::sfield![ft_counter],
         sint!(20),
         PushCondition::Always,
         Some(now),
@@ -386,7 +386,7 @@ fn test_sadd_macro() {
     let tag2 = EntityId::new(tag_type, 2);
     let request5 = sadd!(
         entity_id,
-        vec![ft_tags],
+        crate::sfield![ft_tags],
         sreflist![tag1, tag2]
     );
     match request5 {
@@ -415,7 +415,7 @@ fn test_ssub_macro() {
     let ft_counter = FieldType(3); // Counter
 
     // Basic subtract with just a value
-    let request1 = ssub!(entity_id, vec![ft_counter], sint!(3));
+    let request1 = ssub!(entity_id, crate::sfield![ft_counter], sint!(3));
     match request1 {
         Request::Write {
             entity_id: req_entity_id,
@@ -428,7 +428,7 @@ fn test_ssub_macro() {
             ..
         } => {
             assert_eq!(req_entity_id, entity_id);
-            assert_eq!(field_types, vec![ft_counter]);
+            assert_eq!(field_types, smallvec::SmallVec::<[FieldType; 4]>::from_slice(&[ft_counter]));
             assert!(matches!(value, Some(Value::Int(3))));
             assert!(matches!(push_condition, PushCondition::Always));
             assert!(matches!(adjust_behavior, AdjustBehavior::Subtract));
@@ -441,7 +441,7 @@ fn test_ssub_macro() {
     // Subtract with write option
     let request2 = ssub!(
         entity_id,
-        vec![ft_counter],
+        crate::sfield![ft_counter],
         sint!(5),
         PushCondition::Changes
     );
@@ -461,7 +461,7 @@ fn test_ssub_macro() {
     let now = now();
     let request3 = ssub!(
         entity_id,
-        vec![ft_counter],
+        crate::sfield![ft_counter],
         sint!(8),
         PushCondition::Always,
         Some(now)
@@ -483,7 +483,7 @@ fn test_ssub_macro() {
     let writer_id = EntityId::new(admin_type, 1);
     let request4 = ssub!(
         entity_id,
-        vec![ft_counter],
+        crate::sfield![ft_counter],
         sint!(10),
         PushCondition::Always,
         Some(now),
@@ -505,7 +505,7 @@ fn test_ssub_macro() {
     let ft_tags = FieldType(4); // Tags
     let tag_type = EntityType(4); // Tag
     let tag1 = EntityId::new(tag_type, 1);
-    let request5 = ssub!(entity_id, vec![ft_tags], sreflist![tag1]);
+    let request5 = ssub!(entity_id, crate::sfield![ft_tags], sreflist![tag1]);
     match request5 {
         Request::Write {
             adjust_behavior,
