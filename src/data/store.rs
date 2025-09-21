@@ -96,7 +96,7 @@ impl Store {
     }
 
     /// Internal entity creation that doesn't use perform to avoid recursion
-    pub fn create_entity_internal(
+    fn create_entity_internal(
         &mut self,
         entity_type: EntityType,
         parent_id: Option<EntityId>,
@@ -1186,13 +1186,8 @@ impl Store {
         removed_any
     }
 
-    /// Get a reference to the schemas map
-    pub fn get_schemas(&self) -> &FxHashMap<EntityType, EntitySchema<Single>> {
-        &self.schemas
-    }
-
     /// Get a reference to the fields map (converts to nested structure for compatibility)
-    pub fn get_fields(&self) -> FxHashMap<EntityId, FxHashMap<FieldType, Field>> {
+    fn get_fields(&self) -> FxHashMap<EntityId, FxHashMap<FieldType, Field>> {
         let mut nested_fields = FxHashMap::default();
         for ((entity_id, field_type), field) in &self.fields {
             nested_fields
@@ -1211,11 +1206,6 @@ impl Store {
     /// Re-enable notifications
     pub fn enable_notifications(&mut self) {
         self.notifications_disabled = false;
-    }
-
-    /// Check if notifications are currently disabled
-    pub fn are_notifications_disabled(&self) -> bool {
-        self.notifications_disabled
     }
 
     fn read(
@@ -1552,7 +1542,7 @@ impl Store {
 
     /// Check if derived_type inherits from base_type (directly or indirectly)
     /// This method guards against circular inheritance by limiting the depth of inheritance traversal
-    pub fn inherits_from(&self, derived_type: EntityType, base_type: EntityType) -> bool {
+    fn inherits_from(&self, derived_type: EntityType, base_type: EntityType) -> bool {
         if derived_type == base_type {
             return false; // A type doesn't inherit from itself
         }
@@ -1584,7 +1574,7 @@ impl Store {
     /// Get all parent types in the inheritance chain for a given entity type
     /// Returns a vector of parent types (all ancestors in the inheritance hierarchy)
     /// For multi-inheritance, this includes all paths through the inheritance graph
-    pub fn get_parent_types(&self, entity_type: EntityType) -> Vec<EntityType> {
+    fn get_parent_types(&self, entity_type: EntityType) -> Vec<EntityType> {
         let mut parent_types = Vec::new();
         let mut types_to_check = std::collections::VecDeque::new();
         let mut visited = std::collections::HashSet::new();

@@ -21,7 +21,7 @@ pub fn get_scope(
 
     let entity_types = {
         let mut entity_types = store
-            .get_parent_types(resource_entity_id.extract_type());
+            .get_complete_entity_schema(resource_entity_id.extract_type())?.inherit;
         entity_types.push(resource_entity_id.extract_type());
         entity_types
     };
