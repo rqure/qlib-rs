@@ -932,6 +932,11 @@ impl StoreTrait for StoreProxy {
         self.field_exists(entity_type, field_type)
     }
 
+    fn resolve_indirection(&self, entity_id: EntityId, fields: &[FieldType]) -> Result<(EntityId, FieldType)> {
+        // For StoreProxy, we need to use the old approach via perform() since we don't have direct field access
+        crate::data::indirection::resolve_indirection_via_trait(self, entity_id, fields)
+    }
+
     fn perform(&self, requests: Requests) -> Result<Requests> {
         self.perform(requests)
     }

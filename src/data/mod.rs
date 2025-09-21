@@ -26,7 +26,7 @@ pub use request::{AdjustBehavior, PushCondition, Request, Requests};
 use serde::{Deserialize, Serialize};
 pub use store::{Store};
 pub use store_trait::{StoreTrait};
-pub use indirection::{BadIndirectionReason, INDIRECTION_DELIMITER, resolve_indirection, path, path_to_entity_id};
+pub use indirection::{BadIndirectionReason, INDIRECTION_DELIMITER, path, path_to_entity_id};
 pub use pagination::{PageOpts, PageResult};
 pub use snapshots::Snapshot;
 pub use json_snapshot::{JsonSnapshot, JsonEntitySchema, JsonEntity, value_to_json_value, json_value_to_value, value_to_json_value_with_paths, build_json_entity_tree, take_json_snapshot, restore_json_snapshot, restore_entity_recursive, factory_restore_json_snapshot, restore_json_snapshot_via_proxy};

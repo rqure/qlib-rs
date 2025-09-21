@@ -33,6 +33,9 @@ pub trait StoreTrait {
     /// Check if a field type exists for an entity type
     fn field_exists(&self, entity_type: EntityType, field_type: FieldType) -> bool;
 
+    /// Resolve indirection for field lookups
+    fn resolve_indirection(&self, entity_id: EntityId, fields: &[FieldType]) -> Result<(EntityId, FieldType)>;
+
     /// Perform a batch of requests
     fn perform(&self, requests: Requests) -> Result<Requests>;
     fn perform_mut(&mut self, requests: Requests) -> Result<Requests>;

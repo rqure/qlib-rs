@@ -1,5 +1,5 @@
 use crate::{
-    data::{store::Store, StoreTrait}, et, ft, EntityId, FieldType, IndirectFieldType, Result
+    data::StoreTrait, et, ft, EntityId, FieldType, Result
 };
 
 pub const INDIRECTION_DELIMITER: &str = "->";
@@ -36,10 +36,12 @@ impl std::fmt::Display for BadIndirectionReason {
     }
 }
 
-pub fn resolve_indirection(
-    store: &Store,
+/// Resolve indirection using the StoreTrait interface (for StoreProxy and other trait objects)
+/// This version uses the perform() method since it doesn't have direct field access
+pub fn resolve_indirection_via_trait<T: StoreTrait>(
+    store: &T,
     entity_id: EntityId,
-    fields: &IndirectFieldType,
+    fields: &[FieldType],
 ) -> Result<(EntityId, FieldType)> {
     if fields.len() == 1 {
         return Ok((entity_id, fields[0].clone()));
@@ -56,7 +58,7 @@ pub fn resolve_indirection(
             Err(e) => {
                 return Err(crate::Error::BadIndirection(
                     current_entity_id,
-                    fields.iter().cloned().collect(),
+                    fields.to_vec(),
                     crate::BadIndirectionReason::FailedToResolveField(field.clone(), e.to_string()),
                 ));
             }
@@ -76,7 +78,7 @@ pub fn resolve_indirection(
                         if !store.entity_exists(ref_id.clone()) {
                             return Err(crate::Error::BadIndirection(
                                 current_entity_id,
-                                fields.iter().cloned().collect(),
+                                fields.to_vec(),
                                 crate::BadIndirectionReason::InvalidEntityId(ref_id.clone()),
                             ));
                         }
@@ -86,7 +88,7 @@ pub fn resolve_indirection(
                         // If the reference is None, this is an error
                         return Err(crate::Error::BadIndirection(
                             current_entity_id,
-                            fields.iter().cloned().collect(),
+                            fields.to_vec(),
                             crate::BadIndirectionReason::EmptyEntityReference,
                         ));
                     }
@@ -97,7 +99,7 @@ pub fn resolve_indirection(
 
             return Err(crate::Error::BadIndirection(
                 current_entity_id,
-                fields.iter().cloned().collect(),
+                fields.to_vec(),
                 crate::BadIndirectionReason::UnexpectedValueType(
                     field.clone(),
                     format!("{:?}", value),
@@ -111,7 +113,7 @@ pub fn resolve_indirection(
         fields.last().cloned().ok_or_else(|| {
             crate::Error::BadIndirection(
                 entity_id,
-                fields.iter().cloned().collect(),
+                fields.to_vec(),
                 crate::BadIndirectionReason::UnexpectedValueType(
                     FieldType(0),
                     "Empty field path".to_string(),

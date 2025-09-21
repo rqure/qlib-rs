@@ -9,7 +9,7 @@ use std::{
 
 use crate::{
     data::{
-        entity_schema::Complete, hash_notify_config, indirection::resolve_indirection,
+        entity_schema::Complete, hash_notify_config,
         interner::Interner, now, request::PushCondition, EntityType, FieldType, Notification,
         NotificationQueue, NotifyConfig, StoreTrait, Timestamp,
     },
@@ -348,7 +348,7 @@ impl Store {
                     writer_id,
                 } => {
                     let indir: (EntityId, FieldType) =
-                        resolve_indirection(self, *entity_id, &field_type)?;
+                        self.resolve_indirection(*entity_id, &field_type)?;
                     self.read(
                         indir.0.clone(),
                         indir.1.clone(),
@@ -416,7 +416,7 @@ impl Store {
                     writer_id,
                 } => {
                     let indir: (EntityId, FieldType) =
-                        resolve_indirection(self, *entity_id, &field_types)?;
+                        self.resolve_indirection(*entity_id, &field_types)?;
                     self.read(indir.0, indir.1, value, write_time, writer_id)?;
                 }
                 Request::Write {
@@ -429,7 +429,7 @@ impl Store {
                     adjust_behavior,
                     ..
                 } => {
-                    let indir = resolve_indirection(self, *entity_id, &field_type)?;
+                    let indir = self.resolve_indirection(*entity_id, &field_type)?;
                     if self.write(
                         indir.0,
                         indir.1,
@@ -1654,6 +1654,93 @@ impl Store {
         context_map
     }
 
+    /// Resolve indirection for field lookups with direct field access for performance
+    /// This is an optimized version that bypasses the perform() method for faster lookups
+    pub fn resolve_indirection(
+        &self,
+        entity_id: EntityId,
+        fields: &[FieldType],
+    ) -> Result<(EntityId, FieldType)> {
+        use crate::{BadIndirectionReason, Error, Value};
+
+        if fields.len() == 1 {
+            return Ok((entity_id, fields[0].clone()));
+        }
+
+        let mut current_entity_id = entity_id;
+
+        for (i, field) in fields.iter().enumerate() {
+            // If this is the last field in the path, we're done - return the current entity and field
+            if i == fields.len() - 1 {
+                break;
+            }
+
+            // Direct field lookup using self.fields for performance
+            let field_key = (current_entity_id, field.clone());
+            let field_value = match self.fields.get(&field_key) {
+                Some(field) => &field.value,
+                None => {
+                    return Err(Error::BadIndirection(
+                        current_entity_id,
+                        fields.to_vec(),
+                        BadIndirectionReason::FailedToResolveField(
+                            field.clone(),
+                            "Field not found".to_string(),
+                        ),
+                    ));
+                }
+            };
+
+            // For intermediate fields, they must be EntityReferences
+            if let Value::EntityReference(reference) = field_value {
+                match reference {
+                    Some(ref_id) => {
+                        // Check if the reference is valid using direct entity existence check
+                        if !self.entity_exists(ref_id.clone()) {
+                            return Err(Error::BadIndirection(
+                                current_entity_id,
+                                fields.to_vec(),
+                                BadIndirectionReason::InvalidEntityId(ref_id.clone()),
+                            ));
+                        }
+                        current_entity_id = ref_id.clone();
+                    }
+                    None => {
+                        // If the reference is None, this is an error
+                        return Err(Error::BadIndirection(
+                            current_entity_id,
+                            fields.to_vec(),
+                            BadIndirectionReason::EmptyEntityReference,
+                        ));
+                    }
+                }
+            } else {
+                return Err(Error::BadIndirection(
+                    current_entity_id,
+                    fields.to_vec(),
+                    BadIndirectionReason::UnexpectedValueType(
+                        field.clone(),
+                        format!("{:?}", field_value),
+                    ),
+                ));
+            }
+        }
+
+        Ok((
+            current_entity_id,
+            fields.last().cloned().ok_or_else(|| {
+                Error::BadIndirection(
+                    entity_id,
+                    fields.to_vec(),
+                    BadIndirectionReason::UnexpectedValueType(
+                        FieldType(0),
+                        "Empty field path".to_string(),
+                    ),
+                )
+            })?,
+        ))
+    }
+
     /// Trigger notifications for a write operation
     fn trigger_notifications(
         &mut self,
@@ -1871,6 +1958,10 @@ impl StoreTrait for Store {
 
     fn field_exists(&self, entity_type: EntityType, field_type: FieldType) -> bool {
         self.field_exists(entity_type, field_type)
+    }
+
+    fn resolve_indirection(&self, entity_id: EntityId, fields: &[FieldType]) -> Result<(EntityId, FieldType)> {
+        self.resolve_indirection(entity_id, fields)
     }
 
     fn perform(&self, requests: Requests) -> Result<Requests> {
