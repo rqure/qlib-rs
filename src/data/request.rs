@@ -337,9 +337,9 @@ impl Requests {
         requests.push(request);
     }
 
-    pub fn extend(&self, other: Vec<Request>) {
+    pub fn extend(&self, other: Requests) {
         let mut requests = self.0.write().unwrap();
-        requests.extend(other);
+        requests.extend(other.read().clone());
     }
 
     pub fn read(&self) -> std::sync::RwLockReadGuard<'_, Vec<Request>> {
@@ -373,5 +373,5 @@ impl Requests {
     pub fn first(&self) -> Option<Request> {
         let requests = self.0.read().unwrap();
         requests.first().cloned()
-    }    
+    }
 }
