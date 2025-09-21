@@ -685,14 +685,14 @@ impl StoreProxy {
     pub fn perform(&self, requests: Requests) -> Result<Requests> {
         let request = StoreMessage::Perform {
             id: Uuid::new_v4().to_string(),
-            requests: requests.clone().into_iter().collect(),
+            requests,
         };
 
         let response: StoreMessage = self.send_request(request)?;
         match response {
             StoreMessage::PerformResponse { response, .. } => match response {
                 Ok(updated_requests) => {
-                    Ok(updated_requests.into_iter().collect())
+                    Ok(updated_requests)
                 }
                 Err(e) => Err(Error::StoreProxyError(e)),
             },

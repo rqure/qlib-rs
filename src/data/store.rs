@@ -1,8 +1,8 @@
-use crossbeam::queue::SegQueue;
 use itertools::Itertools;
 use rustc_hash::FxHashMap;
 use sorted_vec::SortedVec;
 use std::{
+    collections::VecDeque,
     mem::discriminant,
     sync::{Arc, Mutex},
 };
@@ -16,7 +16,7 @@ use crate::{
     et::ET,
     expr::CelExecutor,
     ft::FT,
-    sread, sreq, AdjustBehavior, EntityId, EntitySchema, Error, Field, FieldSchema,
+    sread, sreq, sschemaupdate, AdjustBehavior, EntityId, EntitySchema, Error, Field, FieldSchema,
     IndirectFieldType, PageOpts, PageResult, Request, Requests, Result, Single, Snapshot, Value,
 };
 
@@ -54,7 +54,7 @@ pub struct Store {
         FxHashMap<FieldType, FxHashMap<NotifyConfig, Vec<NotificationQueue>>>,
     >,
 
-    pub write_queue: SegQueue<Request>,
+    pub write_queue: VecDeque<Requests>,
 
     /// Flag to temporarily disable notifications (e.g., during WAL replay)
     notifications_disabled: bool,
@@ -100,7 +100,7 @@ impl Store {
             complete_entity_schema_cache: FxHashMap::default(),
             id_notifications: FxHashMap::default(),
             type_notifications: FxHashMap::default(),
-            write_queue: SegQueue::new(),
+            write_queue: VecDeque::new(),
             notifications_disabled: false,
             default_writer_id: None,
             cel_executor_cache: Arc::new(Mutex::new(CelExecutor::new())),
@@ -321,11 +321,7 @@ impl Store {
 
         entity_schema.fields.insert(field_type, field_schema);
 
-        let requests = sreq![Request::SchemaUpdate {
-            schema: entity_schema.to_string_schema(self),
-            timestamp: None,
-            originator: None
-        }];
+        let requests = sreq![sschemaupdate!(entity_schema.to_string_schema(self))];
         self.perform_mut(requests).map(|_| ())
     }
 
@@ -342,71 +338,65 @@ impl Store {
     }
 
     pub fn perform(&self, requests: Requests) -> Result<Requests> {
-        {
-            let mut requests = requests.write().unwrap();
-
-            for request in requests.iter_mut() {
-                match request {
-                    Request::Read {
-                        entity_id,
-                        field_types: field_type,
+        for request in requests.write().iter_mut() {
+            match request {
+                Request::Read {
+                    entity_id,
+                    field_types: field_type,
+                    value,
+                    write_time,
+                    writer_id,
+                } => {
+                    let indir: (EntityId, FieldType) =
+                        resolve_indirection(self, *entity_id, &field_type)?;
+                    self.read(
+                        indir.0.clone(),
+                        indir.1.clone(),
                         value,
                         write_time,
                         writer_id,
-                    } => {
-                        let indir: (EntityId, FieldType) =
-                            resolve_indirection(self, *entity_id, &field_type)?;
-                        self.read(
-                            indir.0.clone(),
-                            indir.1.clone(),
-                            value,
-                            write_time,
-                            writer_id,
-                        )?;
+                    )?;
+                }
+                Request::GetEntityType { name, entity_type } => match self.get_entity_type(name) {
+                    Ok(et) => {
+                        *entity_type = Some(et);
                     }
-                    Request::GetEntityType { name, entity_type } => {
-                        match self.get_entity_type(name) {
-                            Ok(et) => {
-                                *entity_type = Some(et);
-                            }
-                            Err(_) => {
-                                *entity_type = None;
-                            }
-                        }
+                    Err(_) => {
+                        *entity_type = None;
                     }
-                    Request::ResolveEntityType {
-                        entity_type: et,
-                        name,
-                    } => match self.resolve_entity_type(*et) {
-                        Ok(resolved_name) => {
-                            *name = Some(resolved_name);
-                        }
-                        Err(_) => {
-                            *name = None;
-                        }
-                    },
-                    Request::GetFieldType { name, field_type } => match self.get_field_type(name) {
-                        Ok(ft) => {
-                            *field_type = Some(ft);
-                        }
-                        Err(_) => {
-                            *field_type = None;
-                        }
-                    },
-                    Request::ResolveFieldType {
-                        field_type: ft,
-                        name,
-                    } => match self.resolve_field_type(*ft) {
-                        Ok(resolved_name) => {
-                            *name = Some(resolved_name);
-                        }
-                        Err(_) => {
-                            *name = None;
-                        }
-                    },
-                    _ => {
-                        return Err(Error::InvalidRequest("Perform without mutable access can only handle Read, GetEntityType, ResolveEntityType, GetFieldType, and ResolveFieldType requests".to_string()));
+                },
+                Request::ResolveEntityType {
+                    entity_type: et,
+                    name,
+                } => match self.resolve_entity_type(*et) {
+                    Ok(resolved_name) => {
+                        *name = Some(resolved_name);
                     }
+                    Err(_) => {
+                        *name = None;
+                    }
+                },
+                Request::GetFieldType { name, field_type } => match self.get_field_type(name) {
+                    Ok(ft) => {
+                        *field_type = Some(ft);
+                    }
+                    Err(_) => {
+                        *field_type = None;
+                    }
+                },
+                Request::ResolveFieldType {
+                    field_type: ft,
+                    name,
+                } => match self.resolve_field_type(*ft) {
+                    Ok(resolved_name) => {
+                        *name = Some(resolved_name);
+                    }
+                    Err(_) => {
+                        *name = None;
+                    }
+                },
+                _ => {
+                    return Err(Error::InvalidRequest("Perform without mutable access can only handle Read, GetEntityType, ResolveEntityType, GetFieldType, and ResolveFieldType requests".to_string()));
                 }
             }
         }
@@ -415,206 +405,206 @@ impl Store {
     }
 
     pub fn perform_mut(&mut self, requests: Requests) -> Result<Requests> {
-        {
-            let mut requests = requests.write().unwrap();
-            for request in requests.iter_mut() {
-                match request {
-                    Request::Read {
-                        entity_id,
-                        field_types,
-                        value,
-                        write_time,
-                        writer_id,
-                    } => {
-                        let indir: (EntityId, FieldType) =
-                            resolve_indirection(self, *entity_id, &field_types)?;
-                        self.read(indir.0, indir.1, value, write_time, writer_id)?;
-                    }
-                    Request::Write {
-                        entity_id,
-                        field_types: field_type,
+        let mut write_occurred = false;
+        for request in requests.write().iter_mut() {
+            match request {
+                Request::Read {
+                    entity_id,
+                    field_types,
+                    value,
+                    write_time,
+                    writer_id,
+                } => {
+                    let indir: (EntityId, FieldType) =
+                        resolve_indirection(self, *entity_id, &field_types)?;
+                    self.read(indir.0, indir.1, value, write_time, writer_id)?;
+                }
+                Request::Write {
+                    entity_id,
+                    field_types: field_type,
+                    value,
+                    write_time,
+                    writer_id,
+                    push_condition,
+                    adjust_behavior,
+                    ..
+                } => {
+                    let indir = resolve_indirection(self, *entity_id, &field_type)?;
+                    if self.write(
+                        indir.0,
+                        indir.1,
                         value,
                         write_time,
                         writer_id,
                         push_condition,
                         adjust_behavior,
-                        ..
-                    } => {
-                        let indir = resolve_indirection(self, *entity_id, &field_type)?;
-                        if self.write(
-                            indir.0,
-                            indir.1,
-                            value,
-                            write_time,
-                            writer_id,
-                            push_condition,
-                            adjust_behavior,
-                        )? {
-                            self.write_queue.push(request.clone());
-                        }
+                    )? {
+                        write_occurred = true;
                     }
-                    Request::Create {
-                        entity_type,
-                        parent_id,
-                        name,
-                        created_entity_id,
-                        timestamp,
-                        ..
-                    } => {
-                        self.create_entity_internal(
-                            *entity_type,
-                            parent_id.clone(),
-                            created_entity_id,
-                            name,
-                        )?;
-                        *timestamp = Some(now());
-                        self.write_queue.push(request.clone());
-                    }
-                    Request::Delete {
-                        entity_id,
-                        timestamp,
-                        ..
-                    } => {
-                        self.delete_entity_internal(*entity_id)?;
-                        *timestamp = Some(now());
-                        self.write_queue.push(request.clone());
-                    }
-                    Request::SchemaUpdate {
-                        schema, timestamp, ..
-                    } => {
-                        // Validate whether inherited entity types exist or not:
-                        for parent in schema.inherit.iter() {
-                            self.entity_type_interner
-                                .get(parent.as_str())
-                                .ok_or_else(|| Error::EntityTypeStrNotFound(parent.clone()))?;
-                        }
-
-                        // Get or create the entity type if it doesn't exist
-                        let entity_type = EntityType(
-                            self.entity_type_interner
-                                .intern(schema.entity_type.as_str())
-                                as u32,
-                        );
-
-                        // Intern all field types before converting the schema
-                        for field_name in schema.fields.keys() {
-                            self.field_type_interner.intern(field_name.as_str());
-                        }
-
-                        let schema =
-                            EntitySchema::<Single>::from_string_schema(schema.clone(), self);
-
-                        // Get a copy of the existing schema if it exists
-                        // We'll use this to see if any fields have been added or removed
-                        let complete_old_schema = self
-                            .get_complete_entity_schema(entity_type.clone())
-                            .unwrap_or_else(|_| EntitySchema::<Complete>::new(entity_type.clone()));
-
-                        self.schemas.insert(entity_type.clone(), schema.clone());
-
-                        if !self.entities.contains_key(&entity_type) {
-                            self.entities.insert(entity_type.clone(), SortedVec::new());
-                        }
-
-                        // Clear the complete entity schema cache since a schema was updated
-                        // This will be rebuilt by rebuild_inheritance_map()
-                        self.complete_entity_schema_cache.clear();
-
-                        // Get the complete schema for the entity type (will rebuild since cache is cleared)
-                        let complete_new_schema =
-                            self.build_complete_entity_schema(schema.entity_type.clone())?;
-
-                        for removed_field in complete_old_schema.diff(&complete_new_schema) {
-                            // If the field was removed, we need to remove it from all entities
-                            for entity_id in self
-                                .entities
-                                .get(&schema.entity_type)
-                                .unwrap_or(&SortedVec::new())
-                            {
-                                let field_key = (*entity_id, removed_field.field_type().clone());
-                                self.fields.remove(&field_key);
-                            }
-                        }
-
-                        for added_field in complete_new_schema.diff(&complete_old_schema) {
-                            // If the field was added, we need to add it to all entities
-                            for entity_id in self
-                                .entities
-                                .get(&schema.entity_type)
-                                .unwrap_or(&SortedVec::new())
-                            {
-                                let field_key = (*entity_id, added_field.field_type().clone());
-                                self.fields.insert(
-                                    field_key,
-                                    Field {
-                                        field_type: added_field.field_type().clone(),
-                                        value: added_field.default_value(),
-                                        write_time: now(),
-                                        writer_id: None,
-                                    },
-                                );
-                            }
-                        }
-
-                        self.et = Some(ET::new(self));
-                        self.ft = Some(FT::new(self));
-
-                        // Rebuild inheritance map after schema changes
-                        // This will also rebuild the complete entity schema cache
-                        self.rebuild_inheritance_map();
-                        *timestamp = Some(now());
-                        self.write_queue.push(request.clone());
-                    }
-                    Request::Snapshot { timestamp, .. } => {
-                        *timestamp = Some(now());
-
-                        // Snapshot requests are mainly for WAL marking purposes
-                        // The actual snapshot logic is handled elsewhere
-                        // We just log this event and include it in write requests for WAL persistence
-                        self.write_queue.push(request.clone());
-                    }
-                    Request::GetEntityType { name, entity_type } => {
-                        match self.get_entity_type(name) {
-                            Ok(et) => {
-                                *entity_type = Some(et);
-                            }
-                            Err(_) => {
-                                *entity_type = None;
-                            }
-                        }
-                    }
-                    Request::ResolveEntityType {
-                        entity_type: et,
-                        name,
-                    } => match self.resolve_entity_type(*et) {
-                        Ok(resolved_name) => {
-                            *name = Some(resolved_name);
-                        }
-                        Err(_) => {
-                            *name = None;
-                        }
-                    },
-                    Request::GetFieldType { name, field_type } => match self.get_field_type(name) {
-                        Ok(ft) => {
-                            *field_type = Some(ft);
-                        }
-                        Err(_) => {
-                            *field_type = None;
-                        }
-                    },
-                    Request::ResolveFieldType {
-                        field_type: ft,
-                        name,
-                    } => match self.resolve_field_type(*ft) {
-                        Ok(resolved_name) => {
-                            *name = Some(resolved_name);
-                        }
-                        Err(_) => {
-                            *name = None;
-                        }
-                    },
                 }
+                Request::Create {
+                    entity_type,
+                    parent_id,
+                    name,
+                    created_entity_id,
+                    timestamp,
+                    ..
+                } => {
+                    self.create_entity_internal(
+                        *entity_type,
+                        parent_id.clone(),
+                        created_entity_id,
+                        name,
+                    )?;
+                    *timestamp = Some(now());
+                    write_occurred = true;
+                }
+                Request::Delete {
+                    entity_id,
+                    timestamp,
+                    ..
+                } => {
+                    self.delete_entity_internal(*entity_id)?;
+                    *timestamp = Some(now());
+                    write_occurred = true;
+                }
+                Request::SchemaUpdate {
+                    schema, timestamp, ..
+                } => {
+                    // Validate whether inherited entity types exist or not:
+                    for parent in schema.inherit.iter() {
+                        self.entity_type_interner
+                            .get(parent.as_str())
+                            .ok_or_else(|| Error::EntityTypeStrNotFound(parent.clone()))?;
+                    }
+
+                    // Get or create the entity type if it doesn't exist
+                    let entity_type = EntityType(
+                        self.entity_type_interner
+                            .intern(schema.entity_type.as_str()) as u32,
+                    );
+
+                    // Intern all field types before converting the schema
+                    for field_name in schema.fields.keys() {
+                        self.field_type_interner.intern(field_name.as_str());
+                    }
+
+                    let schema = EntitySchema::<Single>::from_string_schema(schema.clone(), self);
+
+                    // Get a copy of the existing schema if it exists
+                    // We'll use this to see if any fields have been added or removed
+                    let complete_old_schema = self
+                        .get_complete_entity_schema(entity_type.clone())
+                        .unwrap_or_else(|_| EntitySchema::<Complete>::new(entity_type.clone()));
+
+                    self.schemas.insert(entity_type.clone(), schema.clone());
+
+                    if !self.entities.contains_key(&entity_type) {
+                        self.entities.insert(entity_type.clone(), SortedVec::new());
+                    }
+
+                    // Clear the complete entity schema cache since a schema was updated
+                    // This will be rebuilt by rebuild_inheritance_map()
+                    self.complete_entity_schema_cache.clear();
+
+                    // Get the complete schema for the entity type (will rebuild since cache is cleared)
+                    let complete_new_schema =
+                        self.build_complete_entity_schema(schema.entity_type.clone())?;
+
+                    for removed_field in complete_old_schema.diff(&complete_new_schema) {
+                        // If the field was removed, we need to remove it from all entities
+                        for entity_id in self
+                            .entities
+                            .get(&schema.entity_type)
+                            .unwrap_or(&SortedVec::new())
+                        {
+                            let field_key = (*entity_id, removed_field.field_type().clone());
+                            self.fields.remove(&field_key);
+                        }
+                    }
+
+                    for added_field in complete_new_schema.diff(&complete_old_schema) {
+                        // If the field was added, we need to add it to all entities
+                        for entity_id in self
+                            .entities
+                            .get(&schema.entity_type)
+                            .unwrap_or(&SortedVec::new())
+                        {
+                            let field_key = (*entity_id, added_field.field_type().clone());
+                            self.fields.insert(
+                                field_key,
+                                Field {
+                                    field_type: added_field.field_type().clone(),
+                                    value: added_field.default_value(),
+                                    write_time: now(),
+                                    writer_id: None,
+                                },
+                            );
+                        }
+                    }
+
+                    self.et = Some(ET::new(self));
+                    self.ft = Some(FT::new(self));
+
+                    // Rebuild inheritance map after schema changes
+                    // This will also rebuild the complete entity schema cache
+                    self.rebuild_inheritance_map();
+                    *timestamp = Some(now());
+                    write_occurred = true;
+                }
+                Request::Snapshot { timestamp, .. } => {
+                    *timestamp = Some(now());
+
+                    // Snapshot requests are mainly for WAL marking purposes
+                    // The actual snapshot logic is handled elsewhere
+                    // We just log this event and include it in write requests for WAL persistence
+                    write_occurred = true;
+                }
+                Request::GetEntityType { name, entity_type } => match self.get_entity_type(name) {
+                    Ok(et) => {
+                        *entity_type = Some(et);
+                    }
+                    Err(_) => {
+                        *entity_type = None;
+                    }
+                },
+                Request::ResolveEntityType {
+                    entity_type: et,
+                    name,
+                } => match self.resolve_entity_type(*et) {
+                    Ok(resolved_name) => {
+                        *name = Some(resolved_name);
+                    }
+                    Err(_) => {
+                        *name = None;
+                    }
+                },
+                Request::GetFieldType { name, field_type } => match self.get_field_type(name) {
+                    Ok(ft) => {
+                        *field_type = Some(ft);
+                    }
+                    Err(_) => {
+                        *field_type = None;
+                    }
+                },
+                Request::ResolveFieldType {
+                    field_type: ft,
+                    name,
+                } => match self.resolve_field_type(*ft) {
+                    Ok(resolved_name) => {
+                        *name = Some(resolved_name);
+                    }
+                    Err(_) => {
+                        *name = None;
+                    }
+                },
             }
+        }
+
+        // If any write occurred, push the requests to the write queue for WAL persistence
+        // and syncing to replicas
+        if write_occurred {
+            self.write_queue.push_back(requests.clone());
         }
 
         Ok(requests)
@@ -1650,12 +1640,10 @@ impl Store {
         for context_field in context_fields {
             // Use perform to handle indirection properly
             let field_types: IndirectFieldType = context_field.clone().into_iter().collect();
-            let requests = sreq![sread!(entity_id, field_types.clone())];
-
-            if let Ok(updated_requests) = self.perform(requests) {
+            if let Ok(updated_requests) = self.perform(sreq![sread!(entity_id, field_types.clone())]) {
                 context_map.insert(
                     context_field.clone(),
-                    updated_requests.into_iter().next().unwrap(),
+                    updated_requests.read().first().unwrap().clone(),
                 );
             } else {
                 // If perform_mut fails, insert the original request

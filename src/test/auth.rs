@@ -122,7 +122,7 @@ fn test_create_and_authenticate_user() -> Result<()> {
         "TestParent".to_string()
     )])?;
     let parent_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
-        *id
+        id
     } else {
         panic!("Failed to create parent entity");
     };
@@ -274,7 +274,7 @@ fn test_authentication_with_factory_restore_format() -> Result<()> {
         username.to_string()
     )])?;
     let user_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
-        *id
+        id
     } else {
         panic!("Failed to create user entity");
     };

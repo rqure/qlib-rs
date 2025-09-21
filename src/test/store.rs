@@ -74,7 +74,7 @@ fn test_create_entity_hierarchy() -> Result<()> {
     )];
     let create_requests = store.perform_mut(create_requests)?;
     let root_entity_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
-        *id
+        id
     } else {
         panic!("Expected created entity ID");
     };
@@ -87,7 +87,7 @@ fn test_create_entity_hierarchy() -> Result<()> {
     )];
     let create_requests = store.perform_mut(create_requests)?;
     let users_folder_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
-        *id
+        id
     } else {
         panic!("Expected created entity ID");
     };
@@ -100,7 +100,7 @@ fn test_create_entity_hierarchy() -> Result<()> {
     )];
     let create_requests = store.perform_mut(create_requests)?;
     let roles_folder_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
-        *id
+        id
     } else {
         panic!("Expected created entity ID");
     };
@@ -113,7 +113,7 @@ fn test_create_entity_hierarchy() -> Result<()> {
     )];
     let create_requests = store.perform_mut(create_requests)?;
     let user_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
-        *id
+        id
     } else {
         panic!("Expected created entity ID");
     };
@@ -136,7 +136,7 @@ fn test_create_entity_hierarchy() -> Result<()> {
     ])?;
 
     if let Some(Request::Read { value: Some(Value::EntityReference(Some(parent_id))), .. }) = reqs.get(0) {
-        assert_eq!(*parent_id, users_folder_id_ref);
+        assert_eq!(parent_id, users_folder_id_ref);
     } else {
         panic!("Expected parent reference");
     }
@@ -168,7 +168,7 @@ fn test_field_operations() -> Result<()> {
     )];
     let create_requests = store.perform_mut(create_requests)?;
     let users_folder_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
-        *id
+        id
     } else {
         panic!("Expected created entity ID");
     };
@@ -180,7 +180,7 @@ fn test_field_operations() -> Result<()> {
     )];
     let create_requests = store.perform_mut(create_requests)?;
     let user_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
-        *id
+        id
     } else {
         panic!("Expected created entity ID");
     };
@@ -234,7 +234,7 @@ fn test_indirection_resolution() -> Result<()> {
     )];
     let create_requests = store.perform_mut(create_requests)?;
     let security_folder_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
-        *id
+        id
     } else {
         panic!("Expected created entity ID");
     };
@@ -247,7 +247,7 @@ fn test_indirection_resolution() -> Result<()> {
     )];
     let create_requests = store.perform_mut(create_requests)?;
     let users_folder_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
-        *id
+        id
     } else {
         panic!("Expected created entity ID");
     };
@@ -260,7 +260,7 @@ fn test_indirection_resolution() -> Result<()> {
     )];
     let create_requests = store.perform_mut(create_requests)?;
     let admin_user_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
-        *id
+        id
     } else {
         panic!("Expected created entity ID");
     };
@@ -302,7 +302,7 @@ fn test_entity_deletion() -> Result<()> {
     )];
     let create_requests = store.perform_mut(create_requests)?;
     let users_folder_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
-        *id
+        id
     } else {
         panic!("Expected created entity ID");
     };
@@ -314,7 +314,7 @@ fn test_entity_deletion() -> Result<()> {
     )];
     let create_requests = store.perform_mut(create_requests)?;
     let user_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
-        *id
+        id
     } else {
         panic!("Expected created entity ID");
     };
@@ -356,7 +356,7 @@ fn test_entity_listing_with_pagination() -> Result<()> {
     )];
     let create_requests = store.perform_mut(create_requests)?;
     let users_folder_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
-        *id
+        id
     } else {
         panic!("Expected created entity ID");
     };
@@ -468,7 +468,7 @@ fn test_find_entities_comprehensive() -> Result<()> {
     let create_requests = store.perform_mut(create_requests)?;
     
     // Extract created entity IDs for later use
-    let alice_id = create_requests[0].entity_id().unwrap();
+    let alice_id = create_requests.read()[0].entity_id().unwrap();
     
     // Verify the names were set correctly
     let name_read = sreq![sread!(alice_id, crate::sfield![ft_name])];

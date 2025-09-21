@@ -62,7 +62,7 @@ pub fn resolve_indirection(
             }
         };
 
-        if let crate::Request::Read { value, .. } = &reqs[0] {
+        if let crate::Request::Read { value, .. } = &reqs.clone().read()[0] {
             // If this is the last field in the path, we're done - return the current entity and field
             if i == fields.len() - 1 {
                 break;
@@ -154,7 +154,7 @@ pub fn path<T: StoreTrait>(store: &T, entity_id: EntityId) -> Result<String> {
             if let crate::Request::Read {
                 value: Some(crate::Value::String(name)),
                 ..
-            } = &reqs[0]
+            } = &reqs.clone().read()[0]
             {
                 name.clone()
             } else {
@@ -178,7 +178,7 @@ pub fn path<T: StoreTrait>(store: &T, entity_id: EntityId) -> Result<String> {
             if let crate::Request::Read {
                 value: Some(crate::Value::EntityReference(Some(parent_id))),
                 ..
-            } = &reqs[0]
+            } = &reqs.clone().read()[0]
             {
                 current_id = parent_id.clone();
             } else {
@@ -223,7 +223,7 @@ pub fn path_to_entity_id<T: StoreTrait>(store: &T, path: &str) -> Result<EntityI
             if let crate::Request::Read {
                 value: Some(crate::Value::String(name)),
                 ..
-            } = &reqs[0]
+            } = &reqs.clone().read()[0]
             {
                 if name == path_parts[0] {
                     current_entity_id = Some(root_id);
@@ -248,7 +248,7 @@ pub fn path_to_entity_id<T: StoreTrait>(store: &T, path: &str) -> Result<EntityI
             if let crate::Request::Read {
                 value: Some(crate::Value::EntityList(children)),
                 ..
-            } = &reqs[0]
+            } = &reqs.clone().read()[0]
             {
                 let mut found = false;
                 for child_id in children {
@@ -261,7 +261,7 @@ pub fn path_to_entity_id<T: StoreTrait>(store: &T, path: &str) -> Result<EntityI
                         if let crate::Request::Read {
                             value: Some(crate::Value::String(child_name)),
                             ..
-                        } = &reqs[0]
+                        } = &reqs.clone().read()[0]
                         {
                             if child_name == part {
                                 current_id = child_id.clone();

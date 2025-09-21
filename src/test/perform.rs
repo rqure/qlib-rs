@@ -23,7 +23,7 @@ fn test_perform_read_requests() -> Result<()> {
     let results = store.perform(get_entity_type_request)?;
     
     // Verify that non-existent entity type returns None
-    if let Request::GetEntityType { entity_type, .. } = &results[0] {
+    if let Request::GetEntityType { entity_type, .. } = &results.read()[0] {
         assert!(entity_type.is_none(), "Non-existent entity type should be None");
     } else {
         panic!("Expected GetEntityType request");
@@ -40,7 +40,7 @@ fn test_perform_read_requests() -> Result<()> {
     let results = store.perform(get_field_type_request)?;
     
     // Verify that non-existent field type returns None
-    if let Request::GetFieldType { field_type, .. } = &results[0] {
+    if let Request::GetFieldType { field_type, .. } = &results.read()[0] {
         assert!(field_type.is_none(), "Non-existent field type should be None");
     } else {
         panic!("Expected GetFieldType request");
@@ -56,7 +56,7 @@ fn test_perform_read_requests() -> Result<()> {
     
     let results = store.perform(resolve_entity_type_request)?;
     
-    if let Request::ResolveEntityType { name, .. } = &results[0] {
+    if let Request::ResolveEntityType { name, .. } = &results.read()[0] {
         assert!(name.is_none(), "Non-existent entity type should resolve to None");
     } else {
         panic!("Expected ResolveEntityType request");
@@ -72,7 +72,7 @@ fn test_perform_read_requests() -> Result<()> {
     
     let results = store.perform(resolve_field_type_request)?;
     
-    if let Request::ResolveFieldType { name, .. } = &results[0] {
+    if let Request::ResolveFieldType { name, .. } = &results.read()[0] {
         assert!(name.is_none(), "Non-existent field type should resolve to None");
     } else {
         panic!("Expected ResolveFieldType request");

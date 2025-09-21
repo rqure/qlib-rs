@@ -1,3 +1,5 @@
+use std::sync::{Arc, RwLock};
+
 use crate::{data::{EntityId, EntityType, FieldType, Timestamp, Value}, EntitySchema, Single};
 use serde::{Deserialize, Serialize};
 use smallvec::SmallVec;
@@ -300,4 +302,76 @@ impl std::fmt::Display for Request {
             }
         }
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct Requests(Arc<RwLock<Vec<Request>>>);
+
+impl Serialize for Requests {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let requests = self.0.read().unwrap();
+        requests.serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for Requests {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let requests = Vec::<Request>::deserialize(deserializer)?;
+        Ok(Requests::new(requests))
+    }
+}
+
+impl Requests {
+    pub fn new(requests: Vec<Request>) -> Self {
+        Self(Arc::new(RwLock::new(requests)))
+    }
+
+    pub fn push(&self, request: Request) {
+        let mut requests = self.0.write().unwrap();
+        requests.push(request);
+    }
+
+    pub fn extend(&self, other: Vec<Request>) {
+        let mut requests = self.0.write().unwrap();
+        requests.extend(other);
+    }
+
+    pub fn read(&self) -> std::sync::RwLockReadGuard<'_, Vec<Request>> {
+        self.0.read().unwrap()
+    }
+
+    pub fn write(&self) -> std::sync::RwLockWriteGuard<'_, Vec<Request>> {
+        self.0.write().unwrap()
+    }
+
+    pub fn len(&self) -> usize {
+        let requests = self.0.read().unwrap();
+        requests.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        let requests = self.0.read().unwrap();
+        requests.is_empty()
+    }
+
+    pub fn get(&self, index: usize) -> Option<Request> {
+        let requests = self.0.read().unwrap();
+        requests.get(index).cloned()
+    }
+
+    pub fn clear(&self) {
+        let mut requests = self.0.write().unwrap();
+        requests.clear();
+    }
+
+    pub fn first(&self) -> Option<Request> {
+        let requests = self.0.read().unwrap();
+        requests.first().cloned()
+    }    
 }

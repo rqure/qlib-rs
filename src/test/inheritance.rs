@@ -100,7 +100,7 @@ fn test_inheritance_in_find_entities() -> Result<()> {
         "Buddy".to_string()
     )])?;
     let dog1_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
-        *id
+        id
     } else {
         panic!("Expected created entity ID");
     };
@@ -110,7 +110,7 @@ fn test_inheritance_in_find_entities() -> Result<()> {
         "Rex".to_string()
     )])?;
     let dog2_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
-        *id
+        id
     } else {
         panic!("Expected created entity ID");
     };
@@ -120,7 +120,7 @@ fn test_inheritance_in_find_entities() -> Result<()> {
         "Whiskers".to_string()
     )])?;
     let cat1_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
-        *id
+        id
     } else {
         panic!("Expected created entity ID");
     };
@@ -197,7 +197,7 @@ fn test_inheritance_with_direct_instances() -> Result<()> {
         "Generic Animal".to_string()
     )])?;
     let animal1_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
-        *id
+        id
     } else {
         panic!("Expected created entity ID");
     };
@@ -207,7 +207,7 @@ fn test_inheritance_with_direct_instances() -> Result<()> {
         "Generic Mammal".to_string()
     )])?;
     let mammal1_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
-        *id
+        id
     } else {
         panic!("Expected created entity ID");
     };
@@ -406,7 +406,7 @@ fn test_multi_inheritance() -> Result<()> {
         "Vampire Bat".to_string()
     )])?;
     let bat_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
-        *id
+        id
     } else {
         panic!("Expected created entity ID");
     };

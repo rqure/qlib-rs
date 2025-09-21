@@ -1,3 +1,5 @@
+use std::vec;
+
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use qlib_rs::*;
 use qlib_rs::data::StorageScope;
@@ -75,7 +77,7 @@ fn bench_entity_creation(c: &mut Criterion) {
                 create_entity_schema_with_name(&mut store, "User").unwrap();
                 let et_user = store.get_entity_type("User").unwrap();
                 
-                let mut create_requests = Requests::new();
+                let create_requests = Requests::new(vec![]);
                 for i in 0..batch_size {
                     create_requests.push(screate!(et_user, format!("User{}", i)));
                 }
@@ -98,13 +100,14 @@ fn bench_field_operations(c: &mut Criterion) {
         create_entity_schema_with_name(&mut store, "User").unwrap();
         let et_user = store.get_entity_type("User").unwrap();
         
-        let mut create_requests = Requests::new();
+        let create_requests = Requests::new(vec![]);
         for i in 0..1000 {
             create_requests.push(screate!(et_user, format!("User{}", i)));
         }
         let create_requests = store.perform_mut(create_requests).unwrap();
         
         let entity_ids: Vec<EntityId> = create_requests
+            .read()
             .iter()
             .filter_map(|req| {
                 if let Request::Create { created_entity_id: Some(id), .. } = req {
@@ -128,7 +131,7 @@ fn bench_field_operations(c: &mut Criterion) {
             let entity_subset: Vec<_> = entity_ids.iter().take(op_count).cloned().collect();
             
             b.iter(|| {
-                let mut write_requests = Requests::new();
+                let write_requests = Requests::new(vec![]);
                 for (i, entity_id) in entity_subset.iter().enumerate() {
                     write_requests.push(swrite!(*entity_id, crate::sfield![ft_score], sint!(i as i64)));
                 }
@@ -140,7 +143,7 @@ fn bench_field_operations(c: &mut Criterion) {
             let entity_subset: Vec<_> = entity_ids.iter().take(op_count).cloned().collect();
             
             b.iter(|| {
-                let mut read_requests = Requests::new();
+                let read_requests = Requests::new(vec![]);
                 for entity_id in &entity_subset {
                     read_requests.push(sread!(*entity_id, crate::sfield![ft_name]));
                 }
@@ -165,7 +168,7 @@ fn bench_entity_search(c: &mut Criterion) {
                 create_entity_schema_with_name(&mut store, "User").unwrap();
                 let et_user = store.get_entity_type("User").unwrap();
                 
-                let mut create_requests = Requests::new();
+                let create_requests = Requests::new(vec![]);
                 for i in 0..dataset_size {
                     create_requests.push(screate!(et_user, format!("User{:04}", i)));
                 }
@@ -187,7 +190,7 @@ fn bench_entity_search(c: &mut Criterion) {
                 create_entity_schema_with_name(&mut store, "User").unwrap();
                 let et_user = store.get_entity_type("User").unwrap();
                 
-                let mut create_requests = Requests::new();
+                let create_requests = Requests::new(vec![]);
                 for i in 0..dataset_size {
                     create_requests.push(screate!(et_user, format!("User{:04}", i)));
                 }
@@ -251,7 +254,7 @@ fn bench_inheritance_operations(c: &mut Criterion) {
         let et_admin = store.get_entity_type("AdminUser").unwrap();
         
         // Create entities
-        let mut create_requests = Requests::new();
+        let create_requests = Requests::new(vec![]);
         for i in 0..1000 {
             create_requests.push(screate!(et_entity, format!("Entity{}", i)));
             create_requests.push(screate!(et_user, format!("User{}", i)));
@@ -296,7 +299,7 @@ fn bench_pagination(c: &mut Criterion) {
         create_entity_schema_with_name(&mut store, "User").unwrap();
         let et_user = store.get_entity_type("User").unwrap();
         
-        let mut create_requests = Requests::new();
+        let create_requests = Requests::new(vec![]);
         for i in 0..10000 {
             create_requests.push(screate!(et_user, format!("User{:05}", i)));
         }

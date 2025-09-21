@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 
 use crate::{
-    EntityId, EntitySchema, EntityType, Error, FieldSchema, Result, Single, Store, Value
+    sschemaupdate, EntityId, EntitySchema, EntityType, Error, FieldSchema, Result, Single, Store, Value
 };
 use crate::data::{StoreTrait, StorageScope};
 
@@ -545,7 +545,7 @@ pub fn build_json_entity_tree<T: StoreTrait>(
 
         // Perform the read operation
         if let Ok(updated_requests) = store.perform_mut(read_requests) {
-            if let Some(crate::Request::Read { value: Some(ref value), .. }) = updated_requests.first() {
+            if let Some(crate::Request::Read { value: Some(ref value), .. }) = updated_requests.read().first() {
                 // Special handling for Children field - show nested entities instead of paths
                 if store.resolve_field_type(*field_type).unwrap_or_default() == "Children" {
                     if let crate::Value::EntityList(child_ids) = value {
@@ -619,7 +619,7 @@ pub fn restore_json_snapshot<T: StoreTrait>(store: &mut T, json_snapshot: &JsonS
     let mut max_ranks: std::collections::HashMap<String, i64> = std::collections::HashMap::new();
 
     // First, restore schemas in dependency order with proper rank adjustments
-    let mut schema_requests = crate::sreq![];
+    let schema_requests = crate::sreq![];
     for json_schema in &sorted_schemas {
         // Calculate rank offset based on ALL inherited schemas
         // For multiple inheritance, we need to accumulate offsets properly
@@ -750,12 +750,8 @@ pub fn restore_json_snapshot<T: StoreTrait>(store: &mut T, json_snapshot: &JsonS
             };
             string_schema.fields.insert(field.name.clone(), field_schema);
         }
-        
-        schema_requests.push(crate::Request::SchemaUpdate { 
-            schema: string_schema, 
-            timestamp: None,
-            originator: None 
-        });
+
+        schema_requests.write().push(sschemaupdate!(string_schema));
     }
 
     // Perform schema updates first
@@ -791,7 +787,7 @@ pub fn restore_entity_recursive<T: StoreTrait>(
     let create_requests = store.perform_mut(create_requests)?;
 
     // Get the created entity ID
-    let entity_id = if let Some(crate::Request::Create { created_entity_id: Some(ref id), .. }) = create_requests.first() {
+    let entity_id = if let Some(crate::Request::Create { created_entity_id: Some(ref id), .. }) = create_requests.read().first() {
         id.clone()
     } else {
         return Err(crate::Error::EntityNotFound(crate::EntityId::new(store.get_entity_type(&json_entity.entity_type).unwrap_or(EntityType(0)), 0)));
@@ -802,7 +798,7 @@ pub fn restore_entity_recursive<T: StoreTrait>(
 
     // Debug: Print the complete schema fields
     // Set field values (except Children - we'll handle that last)
-    let mut write_requests = crate::sreq![];
+    let write_requests = crate::sreq![];
     for (field_name, json_value) in &json_entity.fields {
         if field_name == "Children" {
             continue; // Handle children separately
@@ -992,7 +988,7 @@ fn apply_schema_diff(
         .map(|s| (s.entity_type.clone(), s))
         .collect();
     
-    let mut schema_requests = crate::sreq![];
+    let schema_requests = crate::sreq![];
     
     // Add or update schemas that are different
     for target_schema in target_schemas {
@@ -1097,7 +1093,7 @@ fn apply_entity_diff_recursive<'a>(
     let entity_type = store.get_entity_type(&target_entity.entity_type)?;
     let complete_schema = store.get_complete_entity_schema(entity_type)?;
     
-    let mut write_requests = crate::sreq![];
+    let write_requests = crate::sreq![];
     for (field_name, json_value) in &target_entity.fields {
         if field_name == "Children" {
             continue; // Handle children separately

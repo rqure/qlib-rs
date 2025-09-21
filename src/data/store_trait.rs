@@ -1,12 +1,8 @@
-use std::{collections::HashMap, sync::{Arc, RwLock}};
-
-use smallvec::SmallVec;
+use std::{collections::HashMap};
 
 use crate::{
-    Complete, EntityId, EntitySchema, EntityType, FieldSchema, FieldType, IndirectFieldType, NotificationQueue, NotifyConfig, PageOpts, PageResult, Request, Result, Single
+    data::request::Requests, Complete, EntityId, EntitySchema, EntityType, FieldSchema, FieldType, IndirectFieldType, NotificationQueue, NotifyConfig, PageOpts, PageResult, Request, Result, Single
 };
-
-pub type Requests = Arc<RwLock<Vec<Request>>>;
 
 /// Async trait defining the common interface for store implementations
 /// This allows different store implementations to be used interchangeably
@@ -45,7 +41,7 @@ pub trait StoreTrait {
         let updated_requests = self.perform(requests)?;
 
         let mut result_map = HashMap::new();
-        for request in updated_requests.iter() {
+        for request in updated_requests.read().iter() {
             if let Some(field_type) = request.field_type() {
                 result_map.insert(field_type.clone(), request.clone());
             }

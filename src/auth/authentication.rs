@@ -159,9 +159,7 @@ pub fn authenticate_openid_connect(
 /// Get user authentication method
 pub fn get_user_auth_method(store: &mut Store, user_id: EntityId) -> Result<AuthMethod> {
     let ft = store.ft.as_ref().unwrap();
-    let requests = sreq![sread!(user_id, crate::sfield![ft.auth_method.unwrap()])];
-
-    let result = store.perform_mut(requests);
+    let result = store.perform_mut(sreq![sread!(user_id, crate::sfield![ft.auth_method.unwrap()])]);
     
     // If the store operation failed, default to Native
     let requests = match result {
@@ -169,7 +167,7 @@ pub fn get_user_auth_method(store: &mut Store, user_id: EntityId) -> Result<Auth
         Err(_) => return Ok(AuthMethod::Native),
     };
 
-    if let Some(request) = requests.first() {
+    if let Some(request) = requests.clone().read().first() {
         if let Request::Read {
             value: Some(Value::Choice(method)),
             ..
@@ -270,11 +268,9 @@ pub fn find_user_by_name(store: &Store, name: &str) -> Result<Option<EntityId>> 
 /// Check if a user is active
 pub fn is_user_active(store: &mut Store, user_id: EntityId) -> Result<bool> {
     let ft = store.ft.as_ref().unwrap();
-    let requests = sreq![sread!(user_id, crate::sfield![ft.active.unwrap()])];
+    let requests = store.perform_mut(sreq![sread!(user_id, crate::sfield![ft.active.unwrap()])])?;
 
-    let requests = store.perform_mut(requests)?;
-
-    if let Some(request) = requests.first() {
+    if let Some(request) = requests.clone().read().first() {
         if let Request::Read {
             value: Some(Value::Bool(active)),
             ..
@@ -292,9 +288,7 @@ pub fn is_user_active(store: &mut Store, user_id: EntityId) -> Result<bool> {
 /// Check if a user is locked
 pub fn is_user_locked(store: &mut Store, user_id: EntityId) -> Result<bool> {
     let ft = store.ft.as_ref().unwrap();
-    let requests = sreq![sread!(user_id, crate::sfield![ft.locked_until.unwrap()])];
-
-    let result = store.perform_mut(requests);
+    let result = store.perform_mut(sreq![sread!(user_id, crate::sfield![ft.locked_until.unwrap()])]);
     
     // If the store operation failed, it might be because the field doesn't exist
     let requests = match result {
@@ -302,7 +296,7 @@ pub fn is_user_locked(store: &mut Store, user_id: EntityId) -> Result<bool> {
         Err(_) => return Ok(false),
     };
 
-    if let Some(request) = requests.first() {
+    if let Some(request) = requests.clone().read().first() {
         if let Request::Read {
             value: Some(Value::Timestamp(locked_until)),
             ..
@@ -371,12 +365,9 @@ pub fn increment_failed_attempts(
     let ft = store.ft.as_ref().unwrap();
     let failed_attempts_ft = ft.failed_attempts.unwrap();
     let locked_until_ft = ft.locked_until.unwrap();
-    
-    let read_requests = sreq![sread!(user_id, crate::sfield![failed_attempts_ft])];
+    let requests = store.perform_mut(sreq![sread!(user_id, crate::sfield![failed_attempts_ft])])?;
 
-    let read_requests = store.perform_mut(read_requests)?;
-
-    let current_attempts = if let Some(request) = read_requests.first() {
+    let current_attempts = if let Some(request) = requests.clone().read().first() {
         if let Request::Read {
             value: Some(Value::Int(attempts)),
             ..
@@ -393,7 +384,7 @@ pub fn increment_failed_attempts(
     let new_attempts = current_attempts + 1;
 
     // Update failed attempts
-    let mut write_requests = sreq![swrite!(
+    let write_requests = sreq![swrite!(
         user_id,
         crate::sfield![failed_attempts_ft],
         Some(Value::Int(new_attempts))
@@ -463,7 +454,7 @@ pub fn create_user(
     let requests = store.perform_mut(requests)?;
 
     // Get the created user ID
-    let user_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = requests.first() {
+    let user_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = requests.clone().read().first() {
         *id
     } else {
         let et = store.et.as_ref().unwrap();
@@ -588,10 +579,9 @@ pub fn find_subject_by_name(store: &mut Store, name: &str) -> Result<Option<Enti
 /// Check if a service is active
 pub fn is_service_active(store: &mut Store, service_id: EntityId) -> Result<bool> {
     let ft = store.ft.as_ref().unwrap();
-    let requests = sreq![sread!(service_id, crate::sfield![ft.active.unwrap()])];
-    let requests = store.perform_mut(requests)?;
+    let requests = store.perform_mut(sreq![sread!(service_id, crate::sfield![ft.active.unwrap()])])?;
 
-    if let Some(request) = requests.first() {
+    if let Some(request) = requests.clone().read().first() {
         if let Request::Read {
             value: Some(Value::Bool(active)),
             ..

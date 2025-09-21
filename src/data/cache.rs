@@ -64,7 +64,7 @@ impl Cache {
 
         let entity_ids = store.find_entities(entity_type, None)?;
         for entity_id in entity_ids {
-            let mut reqs = crate::sreq![];
+            let reqs = crate::sreq![];
             for field in index_fields.iter() {
                 reqs.push(crate::sread!(entity_id, crate::sfield![*field]));
             }
@@ -75,12 +75,12 @@ impl Cache {
 
             let reqs = store.perform_mut(reqs)?;
 
-            let index_key = reqs[..index_fields.len()]
+            let index_key = reqs.read()[..index_fields.len()]
                 .iter()
                 .filter_map(|req| req.value().cloned())
                 .collect::<Vec<crate::Value>>();
 
-            let all_fields = reqs[index_fields.len()..]
+            let all_fields = reqs.read()[index_fields.len()..]
                 .iter()
                 .filter_map(|req| {
                     if let (Some(field_types), Some(value)) = (req.field_type(), req.value()) {
@@ -95,7 +95,7 @@ impl Cache {
                     }
                 })
                 .chain(
-                    reqs[..index_fields.len()]
+                    reqs.read()[..index_fields.len()]
                         .iter()
                         .filter_map(|req| {
                             if let (Some(field_types), Some(value)) = (req.field_type(), req.value()) {

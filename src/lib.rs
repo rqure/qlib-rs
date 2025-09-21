@@ -146,8 +146,7 @@ macro_rules! sfield {
 macro_rules! sreq {
     ($($x:expr),* $(,)?) => {
         {
-            use smallvec::smallvec;
-            let result: crate::Requests = smallvec![$($x),*];
+            let result = crate::Requests::new(vec![$($x),*]);
             result
         }
     };

@@ -148,7 +148,7 @@ fn setup_test_store_with_entity() -> Result<(Store, EntityId)> {
     )])?;
     
     let entity_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
-        *id
+        id
     } else {
         panic!("Expected created entity ID");
     };
@@ -577,7 +577,7 @@ fn test_cel_executor_execute_with_indirection() -> Result<()> {
         "Engineering".to_string()
     )])?;
     let dept_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
-        *id
+        id
     } else {
         panic!("Expected created entity ID");
     };
@@ -588,7 +588,7 @@ fn test_cel_executor_execute_with_indirection() -> Result<()> {
         "Alice".to_string()
     )])?;
     let user_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
-        *id
+        id
     } else {
         panic!("Expected created entity ID");
     };
@@ -759,21 +759,21 @@ fn test_cel_executor_execute_with_deep_indirection() -> Result<()> {
     // Create entities
     let create_requests = store.perform_mut(sreq![screate!(et_company, "TechCorp".to_string())])?;
     let company_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
-        *id
+        id
     } else {
         panic!("Expected created company ID");
     };
 
     let create_requests = store.perform_mut(sreq![screate!(et_department, "Engineering".to_string())])?;
     let dept_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
-        *id
+        id
     } else {
         panic!("Expected created department ID");
     };
 
     let create_requests = store.perform_mut(sreq![screate!(et_employee, "Bob".to_string())])?;
     let employee_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
-        *id
+        id
     } else {
         panic!("Expected created employee ID");
     };
@@ -902,14 +902,14 @@ fn test_cel_executor_execute_with_indirection_and_entity_lists() -> Result<()> {
     // Create project entities
     let create_requests = store.perform_mut(sreq![screate!(et_project, "WebApp".to_string())])?;
     let project1_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
-        *id
+        id
     } else {
         panic!("Expected created project ID");
     };
 
     let create_requests = store.perform_mut(sreq![screate!(et_project, "MobileApp".to_string())])?;
     let project2_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
-        *id
+        id
     } else {
         panic!("Expected created project ID");
     };
@@ -917,7 +917,7 @@ fn test_cel_executor_execute_with_indirection_and_entity_lists() -> Result<()> {
     // Create team entity
     let create_requests = store.perform_mut(sreq![screate!(et_team, "DevTeam".to_string())])?;
     let team_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
-        *id
+        id
     } else {
         panic!("Expected created team ID");
     };
@@ -1011,7 +1011,7 @@ fn test_cel_executor_execute_with_null_entity_reference() -> Result<()> {
     )])?;
 
     let user_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
-        *id
+        id
     } else {
         panic!("Expected created entity ID");
     };
@@ -1193,7 +1193,7 @@ fn test_cel_executor_execute_with_mixed_field_access() -> Result<()> {
         "Sales".to_string()
     )])?;
     let dept_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
-        *id
+        id
     } else {
         panic!("Expected created entity ID");
     };
@@ -1204,7 +1204,7 @@ fn test_cel_executor_execute_with_mixed_field_access() -> Result<()> {
         "John".to_string()
     )])?;
     let user_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
-        *id
+        id
     } else {
         panic!("Expected created entity ID");
     };
