@@ -599,7 +599,7 @@ impl StoreProxy {
             StoreMessage::GetCompleteEntitySchemaResponse { response, .. } => {
                 response.map_err(|e| Error::StoreProxyError(e))
             }
-            _ => Err(Error::StoreProxyError("Unexpected response type".to_string())),
+            _ => Err(Error::StoreProxyError("Invalid response".to_string())),
         }
     }
 
@@ -923,8 +923,10 @@ impl StoreTrait for StoreProxy {
         self.get_entity_schema(entity_type)
     }
 
-    fn get_complete_entity_schema(&self, entity_type: EntityType) -> Result<EntitySchema<Complete>> {
-        self.get_complete_entity_schema(entity_type)
+    fn get_complete_entity_schema(&self, _entity_type: EntityType) -> Result<&EntitySchema<Complete>> {
+        // StoreProxy cannot return a reference since it gets data over network
+        // This is a limitation of the proxy pattern with the reference-based API
+        unimplemented!("StoreProxy cannot return references to remote data")
     }
 
     fn get_field_schema(&self, entity_type: EntityType, field_type: FieldType) -> Result<FieldSchema> {

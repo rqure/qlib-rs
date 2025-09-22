@@ -518,26 +518,29 @@ pub fn build_json_entity_tree<T: StoreTrait>(
     let complete_schema = store.get_complete_entity_schema(entity_type)?;
     
     // First, collect and sort all fields by rank to ensure correct processing order
-    let mut schema_fields: Vec<(&crate::FieldType, &crate::FieldSchema)> = complete_schema.fields
+    // Clone the data we need to avoid borrowing conflicts
+    let schema_fields: Vec<(crate::FieldType, crate::FieldSchema)> = complete_schema.fields
         .iter()
         .filter(|(_, field_schema)| {
             // Only include configuration fields in snapshots, excluding runtime fields
             !matches!(field_schema.storage_scope(), crate::data::StorageScope::Runtime)
         })
+        .map(|(ft, fs)| (*ft, fs.clone()))
         .collect();
     
     // Sort by rank to ensure consistent field ordering
-    schema_fields.sort_by_key(|(_, field_schema)| field_schema.rank());
+    let mut sorted_fields = schema_fields;
+    sorted_fields.sort_by_key(|(_, field_schema)| field_schema.rank());
     
     // Collect fields with their rank for ordering
     let mut field_data: Vec<(i64, String, serde_json::Value)> = Vec::new();
 
     // Read all field values for this entity using perform()
-    for (field_type, field_schema) in schema_fields {
+    for (field_type, field_schema) in sorted_fields {
         // Create a read request
         let read_requests = crate::sreq![crate::Request::Read {
             entity_id: entity_id,
-            field_types: crate::sfield![*field_type],
+            field_types: crate::sfield![field_type],
             value: None,
             write_time: None,
             writer_id: None,
@@ -546,8 +549,9 @@ pub fn build_json_entity_tree<T: StoreTrait>(
         // Perform the read operation
         if let Ok(updated_requests) = store.perform_mut(read_requests) {
             if let Some(crate::Request::Read { value: Some(ref value), .. }) = updated_requests.read().first() {
+                let field_rank = field_schema.rank();
                 // Special handling for Children field - show nested entities instead of paths
-                if store.resolve_field_type(*field_type).unwrap_or_default() == "Children" {
+                if store.resolve_field_type(field_type).unwrap_or_default() == "Children" {
                     if let crate::Value::EntityList(child_ids) = value {
                         let mut children = Vec::new();
                         for child_id in child_ids {
@@ -571,11 +575,11 @@ pub fn build_json_entity_tree<T: StoreTrait>(
                     // Use path resolution for EntityReference and EntityList fields (but not Children)
                     let json_value = match value {
                         crate::Value::EntityReference(_) | crate::Value::EntityList(_) => {
-                            value_to_json_value_with_paths(store, value, choices_ref)
+                            value_to_json_value_with_paths(store, value, choices_ref.as_ref())
                         },
-                        _ => value_to_json_value(value, choices_ref)
+                        _ => value_to_json_value(value, choices_ref.as_ref())
                     };
-                    field_data.push((field_schema.rank(), store.resolve_field_type(*field_type).unwrap_or_default(), json_value));
+                    field_data.push((field_rank, store.resolve_field_type(field_type).unwrap_or_default(), json_value));
                 }
             }
         }
@@ -795,6 +799,9 @@ pub fn restore_entity_recursive<T: StoreTrait>(
 
     // Get the entity schema to understand field types
     let complete_schema = store.get_complete_entity_schema(store.get_entity_type(&json_entity.entity_type)?)?;
+    
+    // Clone the fields map to avoid borrowing conflicts
+    let schema_fields = complete_schema.fields.clone();
 
     // Debug: Print the complete schema fields
     // Set field values (except Children - we'll handle that last)
@@ -805,7 +812,7 @@ pub fn restore_entity_recursive<T: StoreTrait>(
         }
 
         let field_type = store.get_field_type(field_name)?;
-        if let Some(field_schema) = complete_schema.fields.get(&field_type) {
+        if let Some(field_schema) = schema_fields.get(&field_type) {
             // Use path resolution for EntityReference and EntityList fields
             let value_result = match field_schema {
                 crate::FieldSchema::EntityList { .. } | crate::FieldSchema::EntityReference { .. } => {
@@ -1093,6 +1100,9 @@ fn apply_entity_diff_recursive<'a>(
     let entity_type = store.get_entity_type(&target_entity.entity_type)?;
     let complete_schema = store.get_complete_entity_schema(entity_type)?;
     
+    // Clone the fields map to avoid borrowing conflicts
+    let schema_fields = complete_schema.fields.clone();
+    
     let write_requests = crate::sreq![];
     for (field_name, json_value) in &target_entity.fields {
         if field_name == "Children" {
@@ -1100,7 +1110,7 @@ fn apply_entity_diff_recursive<'a>(
         }
         
         let field_type = store.get_field_type(field_name)?;
-        if let Some(field_schema) = complete_schema.fields.get(&field_type) {
+        if let Some(field_schema) = schema_fields.get(&field_type) {
             // Only update configuration fields
             if matches!(field_schema.storage_scope(), crate::data::StorageScope::Configuration) {
                 if let Ok(value) = json_value_to_value(json_value, field_schema) {

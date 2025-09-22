@@ -153,15 +153,21 @@ impl Store {
         }
 
         // Get the schema before accessing fields to avoid borrow issues
+        // The cache should be populated by rebuild_complete_entity_schema_cache()
         let complete_schema = self.get_complete_entity_schema(entity_type)?;
         let ft = self.ft.as_ref().unwrap();
+        
+        // Clone the fields we need to avoid borrowing conflicts
+        let schema_fields: Vec<(FieldType, FieldSchema)> = complete_schema.fields.iter()
+            .map(|(ft, fs)| (*ft, fs.clone()))
+            .collect();
 
         // Directly set fields in the entity's field map
-        for (field_type, field_schema) in complete_schema.fields.iter() {
+        for (field_type, field_schema) in schema_fields {
             let value = {
-                if *field_type == ft.name.unwrap() {
+                if field_type == ft.name.unwrap() {
                     Value::String(name.to_string())
-                } else if *field_type == ft.parent.unwrap() {
+                } else if field_type == ft.parent.unwrap() {
                     match &parent_id {
                         Some(parent) => Value::EntityReference(Some(*parent)),
                         None => field_schema.default_value(),
@@ -171,11 +177,11 @@ impl Store {
                 }
             };
 
-            let field_key = (entity_id, *field_type);
+            let field_key = (entity_id, field_type);
             self.fields.insert(
                 field_key,
                 Field {
-                    field_type: *field_type,
+                    field_type: field_type,
                     value,
                     write_time: now(),
                     writer_id: None,
@@ -218,14 +224,15 @@ impl Store {
     pub fn get_complete_entity_schema(
         &self,
         entity_type: EntityType,
-    ) -> Result<EntitySchema<Complete>> {
+    ) -> Result<&EntitySchema<Complete>> {
         // Check cache first
         if let Some(cached_schema) = self.complete_entity_schema_cache.get(&entity_type) {
-            return Ok(cached_schema.clone());
+            return Ok(cached_schema);
         }
 
-        // Build the complete schema if not in cache
-        self.build_complete_entity_schema(entity_type)
+        // If not in cache, we need to build it, but since we need to return a reference,
+        // we can't build it here. The cache must be pre-populated.
+        Err(Error::EntityTypeNotFound(entity_type))
     }
 
     /// Internal method to build a complete entity schema from inheritance hierarchy
@@ -495,6 +502,7 @@ impl Store {
                     // We'll use this to see if any fields have been added or removed
                     let complete_old_schema = self
                         .get_complete_entity_schema(entity_type.clone())
+                        .map(|schema| schema.clone())
                         .unwrap_or_else(|_| EntitySchema::<Complete>::new(entity_type.clone()));
 
                     self.schemas.insert(entity_type.clone(), schema.clone());
@@ -1253,32 +1261,36 @@ impl Store {
         write_option: &PushCondition,
         adjust_behavior: &AdjustBehavior,
     ) -> Result<bool> {
+        // Get the schema from cache (should be populated by rebuild_complete_entity_schema_cache())
         let entity_schema = self.get_complete_entity_schema(entity_id.extract_type())?;
-        let field_schema = entity_schema
-            .fields
-            .get(&field_type)
-            .ok_or_else(|| Error::FieldTypeNotFound(entity_id, field_type))?;
+        let default_value = {
+            let field_schema = entity_schema
+                .fields
+                .get(&field_type)
+                .ok_or_else(|| Error::FieldTypeNotFound(entity_id, field_type))?;
+            field_schema.default_value()
+        };
 
         let field = self
             .fields
             .entry((entity_id, field_type))
             .or_insert_with(|| Field {
                 field_type: field_type,
-                value: field_schema.default_value(),
+                value: default_value.clone(),
                 write_time: now(),
                 writer_id: None,
             });
 
         let old_value = field.value.clone();
-        let mut new_value = field_schema.default_value();
+        let mut new_value = default_value.clone();
         // Check that the value being written is the same type as the field schema
         // If the value is None, use the default value from the schema
         if let Some(value) = value {
-            if discriminant(value) != discriminant(&field_schema.default_value()) {
+            if discriminant(value) != discriminant(&default_value) {
                 return Err(Error::ValueTypeMismatch(
                     entity_id,
                     field_type,
-                    field_schema.default_value(),
+                    default_value,
                     value.clone(),
                 ));
             }
@@ -1931,7 +1943,7 @@ impl StoreTrait for Store {
     fn get_complete_entity_schema(
         &self,
         entity_type: EntityType,
-    ) -> Result<EntitySchema<Complete>> {
+    ) -> Result<&EntitySchema<Complete>> {
         self.get_complete_entity_schema(entity_type)
     }
 

@@ -19,7 +19,7 @@ pub trait StoreTrait {
     fn get_entity_schema(&self, entity_type: EntityType) -> Result<EntitySchema<Single>>;
 
     /// Get the complete schema for a specific entity type (including inherited fields)
-    fn get_complete_entity_schema(&self, entity_type: EntityType) -> Result<EntitySchema<Complete>>;
+    fn get_complete_entity_schema(&self, entity_type: EntityType) -> Result<&EntitySchema<Complete>>;
 
     /// Get the schema for a specific field
     fn get_field_schema(&self, entity_type: EntityType, field_type: FieldType) -> Result<FieldSchema>;
