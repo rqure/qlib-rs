@@ -3,7 +3,6 @@ use std::collections::HashMap;
 use std::rc::Rc;
 use std::cell::RefCell;
 use std::io::{Read, Write};
-use uuid::Uuid;
 use anyhow;
 use mio::{Poll, Token, Interest, Events};
 
@@ -26,154 +25,154 @@ pub struct AuthenticationResult {
 pub enum StoreMessage {
     // Authentication messages - MUST be first message from client
     Authenticate {
-        id: String,
+        id: u64,
         subject_name: String,
         credential: String, // Password for users, secret key for services
     },
     AuthenticateResponse {
-        id: String,
+        id: u64,
         response: std::result::Result<AuthenticationResult, String>,
     },
 
     GetEntitySchema {
-        id: String,
+        id: u64,
         entity_type: EntityType,
     },
     GetEntitySchemaResponse {
-        id: String,
+        id: u64,
         response: std::result::Result<Option<EntitySchema<Single>>, String>,
     },
 
     GetCompleteEntitySchema {
-        id: String,
+        id: u64,
         entity_type: EntityType,
     },
     GetCompleteEntitySchemaResponse {
-        id: String,
+        id: u64,
         response: std::result::Result<EntitySchema<Complete>, String>,
     },
 
     GetFieldSchema {
-        id: String,
+        id: u64,
         entity_type: EntityType,
         field_type: FieldType,
     },
     GetFieldSchemaResponse {
-        id: String,
+        id: u64,
         response: std::result::Result<Option<FieldSchema>, String>,
     },
 
     EntityExists {
-        id: String,
+        id: u64,
         entity_id: EntityId,
     },
     EntityExistsResponse {
-        id: String,
+        id: u64,
         response: bool,
     },
 
     FieldExists {
-        id: String,
+        id: u64,
         entity_type: EntityType,
         field_type: FieldType,
     },
     FieldExistsResponse {
-        id: String,
+        id: u64,
         response: bool,
     },
 
     Perform {
-        id: String,
+        id: u64,
         requests: Requests,
     },
     PerformResponse {
-        id: String,
+        id: u64,
         response: std::result::Result<Requests, String>,
     },
 
     FindEntities {
-        id: String,
+        id: u64,
         entity_type: EntityType,
         page_opts: Option<PageOpts>,
         filter: Option<String>,
     },
     FindEntitiesResponse {
-        id: String,
+        id: u64,
         response: std::result::Result<PageResult<EntityId>, String>,
     },
 
     FindEntitiesExact {
-        id: String,
+        id: u64,
         entity_type: EntityType,
         page_opts: Option<PageOpts>,
         filter: Option<String>,
     },
     FindEntitiesExactResponse {
-        id: String,
+        id: u64,
         response: std::result::Result<PageResult<EntityId>, String>,
     },
 
     GetEntityTypes {
-        id: String,
+        id: u64,
         page_opts: Option<PageOpts>,
     },
     GetEntityTypesResponse {
-        id: String,
+        id: u64,
         response: std::result::Result<PageResult<EntityType>, String>,
     },
 
     GetEntityType {
-        id: String,
+        id: u64,
         name: String,
     },
     GetEntityTypeResponse {
-        id: String,
+        id: u64,
         response: std::result::Result<EntityType, String>,
     },
 
     ResolveEntityType {
-        id: String,
+        id: u64,
         entity_type: EntityType,
     },
     ResolveEntityTypeResponse {
-        id: String,
+        id: u64,
         response: std::result::Result<String, String>,
     },
 
     GetFieldType {
-        id: String,
+        id: u64,
         name: String,
     },
     GetFieldTypeResponse {
-        id: String,
+        id: u64,
         response: std::result::Result<FieldType, String>,
     },
 
     ResolveFieldType {
-        id: String,
+        id: u64,
         field_type: FieldType,
     },
     ResolveFieldTypeResponse {
-        id: String,
+        id: u64,
         response: std::result::Result<String, String>,
     },
 
     // Notification support
     RegisterNotification {
-        id: String,
+        id: u64,
         config: NotifyConfig,
     },
     RegisterNotificationResponse {
-        id: String,
+        id: u64,
         response: std::result::Result<(), String>,
     },
 
     UnregisterNotification {
-        id: String,
+        id: u64,
         config: NotifyConfig,
     },
     UnregisterNotificationResponse {
-        id: String,
+        id: u64,
         response: bool,
     },
 
@@ -184,47 +183,47 @@ pub enum StoreMessage {
 
     // Connection management
     Error {
-        id: String,
+        id: u64,
         error: String,
     },
 }
 
 /// Extract the message ID from a StoreMessage
-pub fn extract_message_id(message: &StoreMessage) -> Option<String> {
+pub fn extract_message_id(message: &StoreMessage) -> Option<u64> {
     match message {
-        StoreMessage::Authenticate { id, .. } => Some(id.clone()),
-        StoreMessage::AuthenticateResponse { id, .. } => Some(id.clone()),
-        StoreMessage::GetEntitySchema { id, .. } => Some(id.clone()),
-        StoreMessage::GetEntitySchemaResponse { id, .. } => Some(id.clone()),
-        StoreMessage::GetCompleteEntitySchema { id, .. } => Some(id.clone()),
-        StoreMessage::GetCompleteEntitySchemaResponse { id, .. } => Some(id.clone()),
-        StoreMessage::GetFieldSchema { id, .. } => Some(id.clone()),
-        StoreMessage::GetFieldSchemaResponse { id, .. } => Some(id.clone()),
-        StoreMessage::EntityExists { id, .. } => Some(id.clone()),
-        StoreMessage::EntityExistsResponse { id, .. } => Some(id.clone()),
-        StoreMessage::FieldExists { id, .. } => Some(id.clone()),
-        StoreMessage::FieldExistsResponse { id, .. } => Some(id.clone()),
-        StoreMessage::Perform { id, .. } => Some(id.clone()),
-        StoreMessage::PerformResponse { id, .. } => Some(id.clone()),
-        StoreMessage::FindEntities { id, .. } => Some(id.clone()),
-        StoreMessage::FindEntitiesResponse { id, .. } => Some(id.clone()),
-        StoreMessage::FindEntitiesExact { id, .. } => Some(id.clone()),
-        StoreMessage::FindEntitiesExactResponse { id, .. } => Some(id.clone()),
-        StoreMessage::GetEntityTypes { id, .. } => Some(id.clone()),
-        StoreMessage::GetEntityTypesResponse { id, .. } => Some(id.clone()),
-        StoreMessage::GetEntityType { id, .. } => Some(id.clone()),
-        StoreMessage::GetEntityTypeResponse { id, .. } => Some(id.clone()),
-        StoreMessage::ResolveEntityType { id, .. } => Some(id.clone()),
-        StoreMessage::ResolveEntityTypeResponse { id, .. } => Some(id.clone()),
-        StoreMessage::GetFieldType { id, .. } => Some(id.clone()),
-        StoreMessage::GetFieldTypeResponse { id, .. } => Some(id.clone()),
-        StoreMessage::ResolveFieldType { id, .. } => Some(id.clone()),
-        StoreMessage::ResolveFieldTypeResponse { id, .. } => Some(id.clone()),
-        StoreMessage::RegisterNotification { id, .. } => Some(id.clone()),
-        StoreMessage::RegisterNotificationResponse { id, .. } => Some(id.clone()),
-        StoreMessage::UnregisterNotification { id, .. } => Some(id.clone()),
-        StoreMessage::UnregisterNotificationResponse { id, .. } => Some(id.clone()),
-        StoreMessage::Error { id, .. } => Some(id.clone()),
+        StoreMessage::Authenticate { id, .. } => Some(*id),
+        StoreMessage::AuthenticateResponse { id, .. } => Some(*id),
+        StoreMessage::GetEntitySchema { id, .. } => Some(*id),
+        StoreMessage::GetEntitySchemaResponse { id, .. } => Some(*id),
+        StoreMessage::GetCompleteEntitySchema { id, .. } => Some(*id),
+        StoreMessage::GetCompleteEntitySchemaResponse { id, .. } => Some(*id),
+        StoreMessage::GetFieldSchema { id, .. } => Some(*id),
+        StoreMessage::GetFieldSchemaResponse { id, .. } => Some(*id),
+        StoreMessage::EntityExists { id, .. } => Some(*id),
+        StoreMessage::EntityExistsResponse { id, .. } => Some(*id),
+        StoreMessage::FieldExists { id, .. } => Some(*id),
+        StoreMessage::FieldExistsResponse { id, .. } => Some(*id),
+        StoreMessage::Perform { id, .. } => Some(*id),
+        StoreMessage::PerformResponse { id, .. } => Some(*id),
+        StoreMessage::FindEntities { id, .. } => Some(*id),
+        StoreMessage::FindEntitiesResponse { id, .. } => Some(*id),
+        StoreMessage::FindEntitiesExact { id, .. } => Some(*id),
+        StoreMessage::FindEntitiesExactResponse { id, .. } => Some(*id),
+        StoreMessage::GetEntityTypes { id, .. } => Some(*id),
+        StoreMessage::GetEntityTypesResponse { id, .. } => Some(*id),
+        StoreMessage::GetEntityType { id, .. } => Some(*id),
+        StoreMessage::GetEntityTypeResponse { id, .. } => Some(*id),
+        StoreMessage::ResolveEntityType { id, .. } => Some(*id),
+        StoreMessage::ResolveEntityTypeResponse { id, .. } => Some(*id),
+        StoreMessage::GetFieldType { id, .. } => Some(*id),
+        StoreMessage::GetFieldTypeResponse { id, .. } => Some(*id),
+        StoreMessage::ResolveFieldType { id, .. } => Some(*id),
+        StoreMessage::ResolveFieldTypeResponse { id, .. } => Some(*id),
+        StoreMessage::RegisterNotification { id, .. } => Some(*id),
+        StoreMessage::RegisterNotificationResponse { id, .. } => Some(*id),
+        StoreMessage::UnregisterNotification { id, .. } => Some(*id),
+        StoreMessage::UnregisterNotificationResponse { id, .. } => Some(*id),
+        StoreMessage::Error { id, .. } => Some(*id),
         StoreMessage::Notification { .. } => None, // Notifications don't have request IDs
     }
 }
@@ -302,14 +301,24 @@ impl TcpConnection {
 #[derive(Debug)]
 pub struct StoreProxy {
     tcp_connection: Rc<RefCell<TcpConnection>>,
-    pending_requests: Rc<RefCell<HashMap<String, serde_json::Value>>>,
+    pending_requests: Rc<RefCell<HashMap<u64, serde_json::Value>>>,
     // Map from config hash to list of notification senders
     notification_configs: Rc<RefCell<HashMap<u64, Vec<NotificationQueue>>>>,
     // Authentication state - set once during connection
     authenticated_subject: Option<EntityId>,
+    // Counter for generating strictly increasing IDs
+    next_id: Rc<RefCell<u64>>,
 }
 
 impl StoreProxy {
+    /// Generate the next strictly increasing ID
+    fn next_id(&self) -> u64 {
+        let mut id = self.next_id.borrow_mut();
+        let current = *id;
+        *id += 1;
+        current
+    }
+
     /// Connect to TCP server and authenticate immediately
     /// If authentication fails, the connection will be closed by the server
     pub fn connect_and_authenticate(
@@ -330,7 +339,7 @@ impl StoreProxy {
 
         // Send authentication message immediately
         let auth_request = StoreMessage::Authenticate {
-            id: Uuid::new_v4().to_string(),
+            id: 1, // First message always has ID 1
             subject_name: subject_name.to_string(),
             credential: credential.to_string(),
         };
@@ -372,12 +381,14 @@ impl StoreProxy {
         let tcp_connection = Rc::new(RefCell::new(tcp_connection));
         let pending_requests = Rc::new(RefCell::new(HashMap::new()));
         let notification_configs = Rc::new(RefCell::new(HashMap::new()));
+        let next_id = Rc::new(RefCell::new(1u64)); // Start from 1
 
         Ok(StoreProxy {
             tcp_connection,
             pending_requests,
             notification_configs,
             authenticated_subject: Some(authenticated_subject),
+            next_id,
         })
     }
 
@@ -482,7 +493,7 @@ impl StoreProxy {
     /// Get entity type by name
     pub fn get_entity_type(&self, name: &str) -> Result<EntityType> {
         let request = StoreMessage::GetEntityType {
-            id: Uuid::new_v4().to_string(),
+            id: self.next_id(),
             name: name.to_string(),
         };
 
@@ -501,7 +512,7 @@ impl StoreProxy {
     /// Resolve entity type to name
     pub fn resolve_entity_type(&self, entity_type: EntityType) -> Result<String> {
         let request = StoreMessage::ResolveEntityType {
-            id: Uuid::new_v4().to_string(),
+            id: self.next_id(),
             entity_type,
         };
 
@@ -517,7 +528,7 @@ impl StoreProxy {
     /// Get field type by name
     pub fn get_field_type(&self, name: &str) -> Result<FieldType> {
         let request = StoreMessage::GetFieldType {
-            id: Uuid::new_v4().to_string(),
+            id: self.next_id(),
             name: name.to_string(),
         };
 
@@ -533,7 +544,7 @@ impl StoreProxy {
     /// Resolve field type to name
     pub fn resolve_field_type(&self, field_type: FieldType) -> Result<String> {
         let request = StoreMessage::ResolveFieldType {
-            id: Uuid::new_v4().to_string(),
+            id: self.next_id(),
             field_type,
         };
 
@@ -552,7 +563,7 @@ impl StoreProxy {
         entity_type: EntityType,
     ) -> Result<EntitySchema<Single>> {
         let request = StoreMessage::GetEntitySchema {
-            id: Uuid::new_v4().to_string(),
+            id: self.next_id(),
             entity_type: entity_type.clone(),
         };
 
@@ -579,7 +590,7 @@ impl StoreProxy {
         entity_type: EntityType,
     ) -> Result<EntitySchema<Complete>> {
         let request = StoreMessage::GetCompleteEntitySchema {
-            id: Uuid::new_v4().to_string(),
+            id: self.next_id(),
             entity_type: entity_type.clone(),
         };
 
@@ -620,7 +631,7 @@ impl StoreProxy {
         field_type: FieldType,
     ) -> Result<FieldSchema> {
         let request = StoreMessage::GetFieldSchema {
-            id: Uuid::new_v4().to_string(),
+            id: self.next_id(),
             entity_type: entity_type.clone(),
             field_type: field_type,
         };
@@ -645,7 +656,7 @@ impl StoreProxy {
     /// Check if entity exists
     pub fn entity_exists(&self, entity_id: EntityId) -> bool {
         let request = StoreMessage::EntityExists {
-            id: Uuid::new_v4().to_string(),
+            id: self.next_id(),
             entity_id: entity_id,
         };
 
@@ -666,7 +677,7 @@ impl StoreProxy {
         field_type: FieldType,
     ) -> bool {
         let request = StoreMessage::FieldExists {
-            id: Uuid::new_v4().to_string(),
+            id: self.next_id(),
             entity_type: entity_type.clone(),
             field_type: field_type,
         };
@@ -684,7 +695,7 @@ impl StoreProxy {
     /// Perform requests
     pub fn perform(&self, requests: Requests) -> Result<Requests> {
         let request = StoreMessage::Perform {
-            id: Uuid::new_v4().to_string(),
+            id: self.next_id(),
             requests,
         };
 
@@ -708,7 +719,7 @@ impl StoreProxy {
         filter: Option<String>,
     ) -> Result<PageResult<EntityId>> {
         let request = StoreMessage::FindEntities {
-            id: Uuid::new_v4().to_string(),
+            id: self.next_id(),
             entity_type: entity_type.clone(),
             page_opts,
             filter,
@@ -731,7 +742,7 @@ impl StoreProxy {
         filter: Option<String>,
     ) -> Result<PageResult<EntityId>> {
         let request = StoreMessage::FindEntitiesExact {
-            id: Uuid::new_v4().to_string(),
+            id: self.next_id(),
             entity_type: entity_type.clone(),
             page_opts,
             filter,
@@ -803,7 +814,7 @@ impl StoreProxy {
         page_opts: Option<PageOpts>,
     ) -> Result<PageResult<EntityType>> {
         let request = StoreMessage::GetEntityTypes {
-            id: Uuid::new_v4().to_string(),
+            id: self.next_id(),
             page_opts,
         };
 
@@ -825,7 +836,7 @@ impl StoreProxy {
         sender: NotificationQueue,
     ) -> Result<()> {
         let request = StoreMessage::RegisterNotification {
-            id: Uuid::new_v4().to_string(),
+            id: self.next_id(),
             config: config.clone(),
         };
 
@@ -872,7 +883,7 @@ impl StoreProxy {
         // If we removed a sender locally, also unregister from remote
         if removed_locally {
             let request = StoreMessage::UnregisterNotification {
-                id: Uuid::new_v4().to_string(),
+                id: self.next_id(),
                 config: target_config.clone(),
             };
 
