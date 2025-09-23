@@ -69,6 +69,7 @@ pub enum MessageType {
     StoreMessage = 1000,        // Uses bincode for existing StoreMessage compatibility
     
     // Peer messages (2000-2999)
+    PeerHandshake = 2000,
     PeerFullSyncRequest = 2001,
     PeerFullSyncResponse = 2002,
     
@@ -81,6 +82,7 @@ impl MessageType {
     pub fn from_u32(value: u32) -> Option<Self> {
         match value {
             1000 => Some(Self::StoreMessage),
+            2000 => Some(Self::PeerHandshake),
             2001 => Some(Self::PeerFullSyncRequest),
             2002 => Some(Self::PeerFullSyncResponse),
             9000 => Some(Self::Response),
@@ -98,7 +100,8 @@ impl MessageType {
 #[derive(Debug)]
 pub enum ProtocolMessage {
     Store(crate::data::StoreMessage),           // Uses bincode (compatibility)
-    PeerFullSyncRequest { machine_id: String }, // Simple - uses bincode
+    PeerHandshake { start_time: u64 }, // Handshake with start time
+    PeerFullSyncRequest, // Simple request for full sync
     PeerFullSyncResponse { snapshot: Snapshot }, // Uses bincode (large data)
     Response { id: String, data: Vec<u8> },     // Raw response data
     Error { id: Option<String>, message: String },
@@ -109,6 +112,7 @@ impl ProtocolMessage {
     pub fn message_type(&self) -> MessageType {
         match self {
             Self::Store(_) => MessageType::StoreMessage,
+            Self::PeerHandshake { .. } => MessageType::PeerHandshake,
             Self::PeerFullSyncRequest { .. } => MessageType::PeerFullSyncRequest,
             Self::PeerFullSyncResponse { .. } => MessageType::PeerFullSyncResponse,
             Self::Response { .. } => MessageType::Response,
@@ -123,15 +127,21 @@ impl ProtocolMessage {
             Self::Store(msg) => bincode::serialize(msg)
                 .map_err(|e| anyhow::anyhow!("Failed to serialize store message: {}", e)),
                 
-            // Use bincode for larger/less frequent messages
-            Self::PeerFullSyncRequest { machine_id } => {
+            // Use bincode for peer handshake messages
+            Self::PeerHandshake { start_time } => {
                 #[derive(Serialize)]
-                struct PeerFullSyncRequestPayload {
-                    machine_id: String,
+                struct PeerHandshakePayload {
+                    start_time: u64,
                 }
-                bincode::serialize(&PeerFullSyncRequestPayload {
-                    machine_id: machine_id.clone(),
-                }).map_err(|e| anyhow::anyhow!("Failed to serialize full sync request: {}", e))
+                bincode::serialize(&PeerHandshakePayload {
+                    start_time: *start_time,
+                }).map_err(|e| anyhow::anyhow!("Failed to serialize handshake: {}", e))
+            },
+            // Use bincode for larger/less frequent messages
+            Self::PeerFullSyncRequest => {
+                // Empty payload for simple request
+                bincode::serialize(&())
+                    .map_err(|e| anyhow::anyhow!("Failed to serialize full sync request: {}", e))
             },
             Self::PeerFullSyncResponse { snapshot } => bincode::serialize(snapshot)
                 .map_err(|e| anyhow::anyhow!("Failed to serialize snapshot: {}", e)),
@@ -169,16 +179,22 @@ impl ProtocolMessage {
                     .map_err(|e| anyhow::anyhow!("Failed to deserialize store message: {}", e))?;
                 Ok(Self::Store(msg))
             },
-            MessageType::PeerFullSyncRequest => {
+            MessageType::PeerHandshake => {
                 #[derive(Deserialize)]
-                struct PeerFullSyncRequestPayload {
-                    machine_id: String,
+                struct PeerHandshakePayload {
+                    start_time: u64,
                 }
-                let payload_data: PeerFullSyncRequestPayload = bincode::deserialize(payload)
-                    .map_err(|e| anyhow::anyhow!("Failed to deserialize full sync request: {}", e))?;
-                Ok(Self::PeerFullSyncRequest {
-                    machine_id: payload_data.machine_id,
+                let payload_data: PeerHandshakePayload = bincode::deserialize(payload)
+                    .map_err(|e| anyhow::anyhow!("Failed to deserialize handshake: {}", e))?;
+                Ok(Self::PeerHandshake {
+                    start_time: payload_data.start_time,
                 })
+            },
+            MessageType::PeerFullSyncRequest => {
+                // Empty payload for simple request
+                bincode::deserialize::<()>(payload)
+                    .map_err(|e| anyhow::anyhow!("Failed to deserialize full sync request: {}", e))?;
+                Ok(Self::PeerFullSyncRequest)
             },
             MessageType::PeerFullSyncResponse => {
                 let snapshot: Snapshot = bincode::deserialize(payload)
