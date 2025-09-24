@@ -100,7 +100,7 @@ fn test_perform_invalid_request() {
     
     assert!(result.is_err(), "Write requests should fail with immutable perform");
     if let Err(Error::InvalidRequest(msg)) = result {
-        assert!(msg.contains("can only handle Read, GetEntityType, ResolveEntityType, GetFieldType, and ResolveFieldType"));
+        assert!(msg.contains("can only handle read-only requests"));
     } else {
         panic!("Expected InvalidRequest error");
     }

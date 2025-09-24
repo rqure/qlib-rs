@@ -202,7 +202,7 @@ fn bench_entity_search(c: &mut Criterion) {
             b.iter(|| {
                 let et_user = store.get_entity_type("User").unwrap();
                 let page_opts = PageOpts::new(100, None);
-                black_box(store.find_entities_paginated(et_user, Some(page_opts), None).unwrap());
+                black_box(store.find_entities_paginated(et_user, Some(&page_opts), None).unwrap());
             })
         });
     }
@@ -313,7 +313,7 @@ fn bench_pagination(c: &mut Criterion) {
             b.iter(|| {
                 let et_user = store.get_entity_type("User").unwrap();
                 let page_opts = PageOpts::new(page_size, None);
-                black_box(store.find_entities_paginated(et_user, Some(page_opts), None).unwrap());
+                black_box(store.find_entities_paginated(et_user, Some(&page_opts), None).unwrap());
             })
         });
     }

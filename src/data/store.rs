@@ -439,7 +439,7 @@ impl Store {
                     *exists = Some(self.field_exists(*entity_type, *field_type));
                 },
                 Request::FindEntities { entity_type, page_opts, filter, result } => {
-                    match self.find_entities_paginated(*entity_type, page_opts.clone(), filter.clone()) {
+                    match self.find_entities_paginated(*entity_type, page_opts.as_ref(), filter.as_deref()) {
                         Ok(page_result) => {
                             *result = Some(page_result);
                         }
@@ -449,7 +449,7 @@ impl Store {
                     }
                 },
                 Request::FindEntitiesExact { entity_type, page_opts, filter, result } => {
-                    match self.find_entities_exact(*entity_type, page_opts.clone(), filter.clone()) {
+                    match self.find_entities_exact(*entity_type, page_opts.as_ref(), filter.as_deref()) {
                         Ok(page_result) => {
                             *result = Some(page_result);
                         }
@@ -459,7 +459,7 @@ impl Store {
                     }
                 },
                 Request::GetEntityTypes { page_opts, result } => {
-                    match self.get_entity_types_paginated(page_opts.clone()) {
+                    match self.get_entity_types_paginated(page_opts.as_ref()) {
                         Ok(page_result) => {
                             *result = Some(page_result);
                         }
@@ -709,7 +709,7 @@ impl Store {
                     *exists = Some(self.field_exists(*entity_type, *field_type));
                 },
                 Request::FindEntities { entity_type, page_opts, filter, result } => {
-                    match self.find_entities_paginated(*entity_type, page_opts.clone(), filter.clone()) {
+                    match self.find_entities_paginated(*entity_type, page_opts.as_ref(), filter.as_deref()) {
                         Ok(page_result) => {
                             *result = Some(page_result);
                         }
@@ -719,7 +719,7 @@ impl Store {
                     }
                 },
                 Request::FindEntitiesExact { entity_type, page_opts, filter, result } => {
-                    match self.find_entities_exact(*entity_type, page_opts.clone(), filter.clone()) {
+                    match self.find_entities_exact(*entity_type, page_opts.as_ref(), filter.as_deref()) {
                         Ok(page_result) => {
                             *result = Some(page_result);
                         }
@@ -729,7 +729,7 @@ impl Store {
                     }
                 },
                 Request::GetEntityTypes { page_opts, result } => {
-                    match self.get_entity_types_paginated(page_opts.clone()) {
+                    match self.get_entity_types_paginated(page_opts.as_ref()) {
                         Ok(page_result) => {
                             *result = Some(page_result);
                         }
@@ -832,10 +832,10 @@ impl Store {
     pub fn find_entities_paginated(
         &self,
         entity_type: EntityType,
-        page_opts: Option<PageOpts>,
-        filter: Option<String>,
+        page_opts: Option<&PageOpts>,
+        filter: Option<&str>,
     ) -> Result<PageResult<EntityId>> {
-        let opts = page_opts.unwrap_or_default();
+        let opts = page_opts.cloned().unwrap_or_default();
 
         // Get all entity types that match the requested type (including derived types)
         // Use reference to avoid cloning the entire vector
@@ -1011,10 +1011,10 @@ impl Store {
     pub fn find_entities_exact(
         &self,
         entity_type: EntityType,
-        page_opts: Option<PageOpts>,
-        filter: Option<String>,
+        page_opts: Option<&PageOpts>,
+        filter: Option<&str>,
     ) -> Result<PageResult<EntityId>> {
-        let opts = page_opts.unwrap_or_default();
+        let opts = page_opts.cloned().unwrap_or_default();
 
         // Check if entity type exists - early return if not
         let entities = match self.entities.get(&entity_type) {
@@ -1128,7 +1128,7 @@ impl Store {
     pub fn find_entities(
         &self,
         entity_type: EntityType,
-        filter: Option<String>,
+        filter: Option<&str>,
     ) -> Result<Vec<EntityId>> {
         let mut result = Vec::new();
         let mut page_opts: Option<PageOpts> = None;
@@ -1136,8 +1136,8 @@ impl Store {
         loop {
             let page_result = self.find_entities_paginated(
                 entity_type.clone(),
-                page_opts.clone(),
-                filter.clone(),
+                page_opts.as_ref(),
+                filter.as_deref(),
             )?;
             if page_result.items.is_empty() {
                 break;
@@ -1160,7 +1160,7 @@ impl Store {
         let mut page_opts: Option<PageOpts> = None;
 
         loop {
-            let page_result = self.get_entity_types_paginated(page_opts)?;
+            let page_result = self.get_entity_types_paginated(page_opts.as_ref())?;
             if page_result.items.is_empty() {
                 break;
             }
@@ -1180,9 +1180,9 @@ impl Store {
     /// Get all entity types with pagination
     pub fn get_entity_types_paginated(
         &self,
-        page_opts: Option<PageOpts>,
+        page_opts: Option<&PageOpts>,
     ) -> Result<PageResult<EntityType>> {
-        let opts = page_opts.unwrap_or_default();
+        let opts = page_opts.cloned().unwrap_or_default();
 
         // Collect all types from schema
         let all_types: Vec<EntityType> = self.schemas.keys().cloned().collect();
@@ -2119,8 +2119,8 @@ impl StoreTrait for Store {
     fn find_entities_paginated(
         &self,
         entity_type: EntityType,
-        page_opts: Option<PageOpts>,
-        filter: Option<String>,
+        page_opts: Option<&PageOpts>,
+        filter: Option<&str>,
     ) -> Result<PageResult<EntityId>> {
         self.find_entities_paginated(entity_type, page_opts, filter)
     }
@@ -2128,8 +2128,8 @@ impl StoreTrait for Store {
     fn find_entities_exact(
         &self,
         entity_type: EntityType,
-        page_opts: Option<PageOpts>,
-        filter: Option<String>,
+        page_opts: Option<&PageOpts>,
+        filter: Option<&str>,
     ) -> Result<PageResult<EntityId>> {
         self.find_entities_exact(entity_type, page_opts, filter)
     }
@@ -2137,7 +2137,7 @@ impl StoreTrait for Store {
     fn find_entities(
         &self,
         entity_type: EntityType,
-        filter: Option<String>,
+        filter: Option<&str>,
     ) -> Result<Vec<EntityId>> {
         self.find_entities(entity_type, filter)
     }
@@ -2148,7 +2148,7 @@ impl StoreTrait for Store {
 
     fn get_entity_types_paginated(
         &self,
-        page_opts: Option<PageOpts>,
+        page_opts: Option<&PageOpts>,
     ) -> Result<PageResult<EntityType>> {
         self.get_entity_types_paginated(page_opts)
     }

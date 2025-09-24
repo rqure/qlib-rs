@@ -402,10 +402,10 @@ fn test_cel_filtering_parameters() -> Result<()> {
     assert_eq!(exact_users.items.len(), 3);
 
     // Test with CEL filter
-    let all_filtered = store.find_entities(et_user, Some("true".to_string()))?;
+    let all_filtered = store.find_entities(et_user, Some("true"))?;
     assert_eq!(all_filtered.len(), 3); // "true" should match all entities
     
-    let none_filtered = store.find_entities(et_user, Some("false".to_string()))?;
+    let none_filtered = store.find_entities(et_user, Some("false"))?;
     assert_eq!(none_filtered.len(), 0); // "false" should match no entities
 
     Ok(())
@@ -490,7 +490,7 @@ fn test_find_entities_comprehensive() -> Result<()> {
     assert_eq!(exact_users.total, 3);
     
     // Test CEL filtering with string comparison
-    let name_filtered = store.find_entities(et_user, Some("Name == \"Alice\"".to_string()))?;
+    let name_filtered = store.find_entities(et_user, Some("Name == \"Alice\""))?;
     println!("Name filtered results: {:?}, expected 1", name_filtered.len());
     assert_eq!(name_filtered.len(), 1);
     if !name_filtered.is_empty() {
@@ -498,10 +498,10 @@ fn test_find_entities_comprehensive() -> Result<()> {
     }
     
     // Test basic boolean CEL filters
-    let all_filtered = store.find_entities(et_user, Some("true".to_string()))?;
+    let all_filtered = store.find_entities(et_user, Some("true"))?;
     assert_eq!(all_filtered.len(), 3); // "true" should match all entities
     
-    let none_filtered = store.find_entities(et_user, Some("false".to_string()))?;
+    let none_filtered = store.find_entities(et_user, Some("false"))?;
     assert_eq!(none_filtered.len(), 0); // "false" should match no entities
 
     Ok(())
@@ -557,48 +557,48 @@ fn test_find_entities_pagination() -> Result<()> {
     
     // Test pagination with different page sizes
     let page_opts = PageOpts::new(3, None);
-    let first_page = store.find_entities_paginated(et_user, Some(page_opts), None)?;
+    let first_page = store.find_entities_paginated(et_user, Some(&page_opts), None)?;
     assert_eq!(first_page.items.len(), 3);
     assert_eq!(first_page.total, 10);
     assert!(first_page.next_cursor.is_some());
     
     // Get second page using cursor
     let page_opts = PageOpts::new(3, first_page.next_cursor);
-    let second_page = store.find_entities_paginated(et_user, Some(page_opts), None)?;
+    let second_page = store.find_entities_paginated(et_user, Some(&page_opts), None)?;
     assert_eq!(second_page.items.len(), 3);
     assert_eq!(second_page.total, 10);
     assert!(second_page.next_cursor.is_some());
     
     // Get third page
     let page_opts = PageOpts::new(3, second_page.next_cursor);
-    let third_page = store.find_entities_paginated(et_user, Some(page_opts), None)?;
+    let third_page = store.find_entities_paginated(et_user, Some(&page_opts), None)?;
     assert_eq!(third_page.items.len(), 3);
     assert_eq!(third_page.total, 10);
     assert!(third_page.next_cursor.is_some());
     
     // Get fourth (final) page
     let page_opts = PageOpts::new(3, third_page.next_cursor);
-    let fourth_page = store.find_entities_paginated(et_user, Some(page_opts), None)?;
+    let fourth_page = store.find_entities_paginated(et_user, Some(&page_opts), None)?;
     assert_eq!(fourth_page.items.len(), 1); // Only 1 item left
     assert_eq!(fourth_page.total, 10);
     assert!(fourth_page.next_cursor.is_none()); // No more pages
     
     // Test large page size (should get all items)
     let large_page = PageOpts::new(20, None);
-    let all_page = store.find_entities_paginated(et_user, Some(large_page), None)?;
+    let all_page = store.find_entities_paginated(et_user, Some(&large_page), None)?;
     assert_eq!(all_page.items.len(), 10);
     assert_eq!(all_page.total, 10);
     assert!(all_page.next_cursor.is_none());
     
     // Test zero page size (should return no results)
     let zero_page = PageOpts::new(0, None);
-    let zero_result = store.find_entities_paginated(et_user, Some(zero_page), None)?;
+    let zero_result = store.find_entities_paginated(et_user, Some(&zero_page), None)?;
     assert_eq!(zero_result.items.len(), 0); // Zero limit should return no items
     assert_eq!(zero_result.total, 10); // But total should still be correct
     
     // Test with invalid cursor
     let invalid_page = PageOpts::new(5, Some("invalid".to_string()));
-    let invalid_result = store.find_entities_paginated(et_user, Some(invalid_page), None)?;
+    let invalid_result = store.find_entities_paginated(et_user, Some(&invalid_page), None)?;
     assert_eq!(invalid_result.items.len(), 5); // Should start from beginning
     
     Ok(())
@@ -750,10 +750,10 @@ fn test_find_entities_inheritance() -> Result<()> {
     assert_eq!(exact_birds.items.len(), 1); // Only the bird
     
     // Test with filtering on inherited and non-inherited searches
-    let filtered_animals = store.find_entities(et_animal, Some("Name == \"Rex\"".to_string()))?;
+    let filtered_animals = store.find_entities(et_animal, Some("Name == \"Rex\""))?;
     assert_eq!(filtered_animals.len(), 1); // Should find Rex the dog through inheritance
     
-    let filtered_exact_animals = store.find_entities_exact(et_animal, None, Some("Name == \"Rex\"".to_string()))?;
+    let filtered_exact_animals = store.find_entities_exact(et_animal, None, Some("Name == \"Rex\""))?;
     assert_eq!(filtered_exact_animals.items.len(), 0); // Rex is not an exact Animal type
     
     Ok(())
@@ -829,18 +829,18 @@ fn test_find_entities_cel_edge_cases() -> Result<()> {
     store.perform_mut(create_requests)?;
     
     // Test CEL expression that returns non-boolean
-    let non_boolean = store.find_entities(et_user, Some("42".to_string()))?;
+    let non_boolean = store.find_entities(et_user, Some("42"))?;
     assert_eq!(non_boolean.len(), 0);
     
     // Test CEL expression with undefined field (should be handled gracefully)
-    let undefined_field = store.find_entities(et_user, Some("UndefinedField == true".to_string()))?;
+    let undefined_field = store.find_entities(et_user, Some("UndefinedField == true"))?;
     assert_eq!(undefined_field.len(), 0);
     
     // Test basic true/false filters
-    let all_match = store.find_entities(et_user, Some("true".to_string()))?;
+    let all_match = store.find_entities(et_user, Some("true"))?;
     assert_eq!(all_match.len(), 2);
     
-    let none_match = store.find_entities(et_user, Some("false".to_string()))?;
+    let none_match = store.find_entities(et_user, Some("false"))?;
     assert_eq!(none_match.len(), 0);
     
     Ok(())

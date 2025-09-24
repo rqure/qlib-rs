@@ -611,13 +611,13 @@ impl StoreProxy {
     pub fn find_entities_paginated(
         &self,
         entity_type: EntityType,
-        page_opts: Option<PageOpts>,
-        filter: Option<String>,
+        page_opts: Option<&PageOpts>,
+        filter: Option<&str>,
     ) -> Result<PageResult<EntityId>> {
         let request = Request::FindEntities {
             entity_type,
-            page_opts,
-            filter,
+            page_opts: page_opts.cloned(),
+            filter: filter.map(|s| s.to_string()),
             result: None,
         };
         
@@ -640,13 +640,13 @@ impl StoreProxy {
     pub fn find_entities_exact(
         &self,
         entity_type: EntityType,
-        page_opts: Option<PageOpts>,
-        filter: Option<String>,
+        page_opts: Option<&PageOpts>,
+        filter: Option<&str>,
     ) -> Result<PageResult<EntityId>> {
         let request = Request::FindEntitiesExact {
             entity_type,
-            page_opts,
-            filter,
+            page_opts: page_opts.cloned(),
+            filter: filter.map(|s| s.to_string()),
             result: None,
         };
         
@@ -668,14 +668,14 @@ impl StoreProxy {
     pub fn find_entities(
         &self,
         entity_type: EntityType,
-        filter: Option<String>,
+        filter: Option<&str>,
     ) -> Result<Vec<EntityId>> {
         let mut result = Vec::new();
         let mut page_opts: Option<PageOpts> = None;
 
         loop {
             let page_result = self
-                .find_entities_paginated(entity_type.clone(), page_opts.clone(), filter.clone())?;
+                .find_entities_paginated(entity_type.clone(), page_opts.as_ref(), filter)?;
             if page_result.items.is_empty() {
                 break;
             }
@@ -698,7 +698,7 @@ impl StoreProxy {
 
         loop {
             let page_result = self
-                .get_entity_types_paginated(page_opts)
+                .get_entity_types_paginated(page_opts.as_ref())
                 ?;
             if page_result.items.is_empty() {
                 break;
@@ -719,10 +719,10 @@ impl StoreProxy {
     /// Get entity types
     pub fn get_entity_types_paginated(
         &self,
-        page_opts: Option<PageOpts>,
+        page_opts: Option<&PageOpts>,
     ) -> Result<PageResult<EntityType>> {
         let request = Request::GetEntityTypes {
-            page_opts,
+            page_opts: page_opts.cloned(),
             result: None,
         };
         
@@ -872,15 +872,15 @@ impl StoreTrait for StoreProxy {
         self.perform(requests)
     }
 
-    fn find_entities_paginated(&self, entity_type: EntityType, page_opts: Option<PageOpts>, filter: Option<String>) -> Result<PageResult<EntityId>> {
+    fn find_entities_paginated(&self, entity_type: EntityType, page_opts: Option<&PageOpts>, filter: Option<&str>) -> Result<PageResult<EntityId>> {
         self.find_entities_paginated(entity_type, page_opts, filter)
     }
 
-    fn find_entities_exact(&self, entity_type: EntityType, page_opts: Option<PageOpts>, filter: Option<String>) -> Result<PageResult<EntityId>> {
+    fn find_entities_exact(&self, entity_type: EntityType, page_opts: Option<&PageOpts>, filter: Option<&str>) -> Result<PageResult<EntityId>> {
         self.find_entities_exact(entity_type, page_opts, filter)
     }
 
-    fn find_entities(&self, entity_type: EntityType, filter: Option<String>) -> Result<Vec<EntityId>> {
+    fn find_entities(&self, entity_type: EntityType, filter: Option<&str>) -> Result<Vec<EntityId>> {
         self.find_entities(entity_type, filter)
     }
 
@@ -888,7 +888,7 @@ impl StoreTrait for StoreProxy {
         self.get_entity_types()
     }
 
-    fn get_entity_types_paginated(&self, page_opts: Option<PageOpts>) -> Result<PageResult<EntityType>> {
+    fn get_entity_types_paginated(&self, page_opts: Option<&PageOpts>) -> Result<PageResult<EntityType>> {
         self.get_entity_types_paginated(page_opts)
     }
 

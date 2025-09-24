@@ -54,19 +54,19 @@ pub trait StoreTrait {
     }
 
     /// Find entities of a specific type with pagination (includes inherited types)
-    fn find_entities_paginated(&self, entity_type: EntityType, page_opts: Option<PageOpts>, filter: Option<String>) -> Result<PageResult<EntityId>>;
+    fn find_entities_paginated(&self, entity_type: EntityType, page_opts: Option<&PageOpts>, filter: Option<&str>) -> Result<PageResult<EntityId>>;
 
     /// Find entities of exactly the specified type (no inheritance) with pagination
-    fn find_entities_exact(&self, entity_type: EntityType, page_opts: Option<PageOpts>, filter: Option<String>) -> Result<PageResult<EntityId>>;
+    fn find_entities_exact(&self, entity_type: EntityType, page_opts: Option<&PageOpts>, filter: Option<&str>) -> Result<PageResult<EntityId>>;
 
     /// Find all entities of a specific type (includes inherited types)
-    fn find_entities(&self, entity_type: EntityType, filter: Option<String>) -> Result<Vec<EntityId>>;
+    fn find_entities(&self, entity_type: EntityType, filter: Option<&str>) -> Result<Vec<EntityId>>;
 
     /// Get all entity types
     fn get_entity_types(&self) -> Result<Vec<EntityType>>;
 
     /// Get all entity types with pagination
-    fn get_entity_types_paginated(&self, page_opts: Option<PageOpts>) -> Result<PageResult<EntityType>>;
+    fn get_entity_types_paginated(&self, page_opts: Option<&PageOpts>) -> Result<PageResult<EntityType>>;
 
     /// Register a notification with a provided sender
     fn register_notification(&mut self, config: NotifyConfig, sender: NotificationQueue) -> Result<()>;
