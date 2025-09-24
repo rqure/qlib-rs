@@ -62,21 +62,21 @@ fn test_value_float_macro() {
 fn test_value_string_macro() {
     // Test with string literal
     let str_lit = sstr!("Hello");
-    assert!(matches!(str_lit, Some(Value::String(s)) if s == "Hello"));
+    assert!(matches!(str_lit, Some(Value::String(s)) if s.as_str() == "Hello"));
 
     // Test with String
     let string = String::from("World");
     let str_obj = sstr!(string);
-    assert!(matches!(str_obj, Some(Value::String(s)) if s == "World"));
+    assert!(matches!(str_obj, Some(Value::String(s)) if s.as_str() == "World"));
 
     // Test with &str
     let str_ref = "Reference";
     let str_ref_val = sstr!(str_ref);
-    assert!(matches!(str_ref_val, Some(Value::String(s)) if s == "Reference"));
+    assert!(matches!(str_ref_val, Some(Value::String(s)) if s.as_str() == "Reference"));
 
     // Test with string containing special chars
     let special = sstr!("Special & Chars: !@#$%^&*()");
-    assert!(matches!(special, Some(Value::String(s)) if s == "Special & Chars: !@#$%^&*()"));
+    assert!(matches!(special, Some(Value::String(s)) if s.as_str() == "Special & Chars: !@#$%^&*()"));
 }
 
 #[test]
@@ -152,7 +152,7 @@ fn test_blob_macro() {
     // Test with empty vector
     let empty = sblob!(Vec::<u8>::new());
     if let Some(Value::Blob(data)) = empty {
-        assert!(data.is_empty());
+        assert!(data.as_slice().is_empty());
     } else {
         panic!("Expected Some(Value::Blob)");
     }
@@ -161,7 +161,7 @@ fn test_blob_macro() {
     let hello = vec![0x48, 0x65, 0x6C, 0x6C, 0x6F]; // "Hello" in ASCII
     let bin_hello = sblob!(hello.clone());
     if let Some(Value::Blob(data)) = bin_hello {
-        assert_eq!(data, hello);
+        assert_eq!(data.as_slice(), hello.as_slice());
     } else {
         panic!("Expected Some(Value::Blob)");
     }
@@ -170,8 +170,8 @@ fn test_blob_macro() {
     let large_data = vec![0u8; 1024]; // 1KB of zeros
     let bin_large = sblob!(large_data.clone());
     if let Some(Value::Blob(data)) = bin_large {
-        assert_eq!(data.len(), 1024);
-        assert_eq!(data, large_data);
+        assert_eq!(data.as_slice().len(), 1024);
+        assert_eq!(data.as_slice(), large_data.as_slice());
     } else {
         panic!("Expected Some(Value::Blob)");
     }
@@ -219,7 +219,7 @@ fn test_swrite_macro() {
         } => {
             assert_eq!(req_entity_id, entity_id);
             assert_eq!(field_types, smallvec::SmallVec::<[FieldType; 4]>::from_slice(&[ft_username]));
-            assert!(matches!(value, Some(Value::String(s)) if s == "alice"));
+            assert!(matches!(value, Some(Value::String(s)) if s.as_str() == "alice"));
             assert!(matches!(push_condition, PushCondition::Always));
             assert!(matches!(adjust_behavior, AdjustBehavior::Set));
             assert!(write_time.is_none());

@@ -147,7 +147,7 @@ fn test_create_entity_hierarchy() -> Result<()> {
     ])?;
 
     if let Some(Request::Read { value: Some(Value::String(name)), .. }) = reqs.get(0) {
-        assert_eq!(name, "Users");
+        assert_eq!(name.as_str(), "Users");
     } else {
         panic!("Expected folder name");
     }
@@ -197,7 +197,7 @@ fn test_field_operations() -> Result<()> {
     ])?;
 
     if let Some(Request::Read { value: Some(Value::String(name)), .. }) = reads.get(0) {
-        assert_eq!(name, "Updated User");
+        assert_eq!(name.as_str(), "Updated User");
     } else {
         panic!("Expected updated name");
     }
@@ -212,7 +212,7 @@ fn test_field_operations() -> Result<()> {
     ])?;
 
     if let Some(Request::Read { value: Some(Value::String(name)), .. }) = verify.get(0) {
-        assert_eq!(name, "Final Name");
+        assert_eq!(name.as_str(), "Final Name");
     } else {
         panic!("Expected final name");
     }
@@ -281,7 +281,7 @@ fn test_indirection_resolution() -> Result<()> {
     ])?;
 
     if let Some(Request::Read { value: Some(Value::String(name)), .. }) = indirect_reads.get(0) {
-        assert_eq!(name, "Users");
+        assert_eq!(name.as_str(), "Users");
     } else {
         panic!("Expected indirection to resolve to parent name");
     }
@@ -475,7 +475,7 @@ fn test_find_entities_comprehensive() -> Result<()> {
     let name_read = store.perform_mut(name_read)?;
     if let Some(Request::Read { value: Some(Value::String(alice_name)), .. }) = name_read.get(0) {
         println!("Alice's name in store: '{}'", alice_name);
-        assert_eq!(alice_name, "Alice");
+        assert_eq!(alice_name.as_str(), "Alice");
     } else {
         panic!("Alice's name not found or wrong type");
     }

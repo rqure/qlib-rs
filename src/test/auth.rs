@@ -296,7 +296,7 @@ fn test_authentication_with_factory_restore_format() -> Result<()> {
         Request::Write {
             entity_id: user_id,
             field_types: crate::sfield![name_field_type],
-            value: Some(Value::String(username.to_string())),
+            value: Some(Value::String(username.to_string().into())),
             push_condition: PushCondition::Always,
             adjust_behavior: AdjustBehavior::Set,
             write_time: None,
@@ -305,7 +305,7 @@ fn test_authentication_with_factory_restore_format() -> Result<()> {
         Request::Write {
             entity_id: user_id,
             field_types: crate::sfield![secret_field_type],
-            value: Some(Value::String(password_hash)),
+            value: Some(Value::String(password_hash.into())),
             push_condition: PushCondition::Always,
             adjust_behavior: AdjustBehavior::Set,
             write_time: None,

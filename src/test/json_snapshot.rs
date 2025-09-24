@@ -5,7 +5,7 @@ use crate::sreq;
 use crate::data::StorageScope;
 
 #[allow(unused_imports)]
-use crate::StoreTrait;
+use crate::{StoreTrait, sstr};
 
 #[allow(unused_imports)]
 use crate::{restore_json_snapshot, screate, sschemaupdate, swrite, take_json_snapshot, EntitySchema, EntityType, FieldSchema, FieldType, Request, Single, Store, Value, now};
@@ -217,17 +217,17 @@ fn test_json_snapshot_functionality() {
 
     // Set field values
     store.perform_mut(sreq![
-        swrite!(root_id.clone(), crate::sfield![name_ft], Some(Value::String("DataStore".to_string()))),
-        swrite!(root_id.clone(), crate::sfield![description_ft], Some(Value::String("Primary data store".to_string()))),
+        swrite!(root_id.clone(), crate::sfield![name_ft], sstr!("DataStore")),
+        swrite!(root_id.clone(), crate::sfield![description_ft], sstr!("Primary data store")),
         swrite!(root_id.clone(), crate::sfield![children_ft], Some(Value::EntityList(vec![machine_id.clone()]))),
-        
-        swrite!(machine_id.clone(), crate::sfield![name_ft], Some(Value::String("Server1".to_string()))),
-        swrite!(machine_id.clone(), crate::sfield![status_ft], Some(Value::String("Online".to_string()))),
+
+        swrite!(machine_id.clone(), crate::sfield![name_ft], sstr!("Server1")),
+        swrite!(machine_id.clone(), crate::sfield![status_ft], sstr!("Online")),
         swrite!(machine_id.clone(), crate::sfield![children_ft], Some(Value::EntityList(vec![sensor_id.clone()]))),
-        
-        swrite!(sensor_id.clone(), crate::sfield![name_ft], Some(Value::String("IntakeTemp".to_string()))),
+
+        swrite!(sensor_id.clone(), crate::sfield![name_ft], sstr!("IntakeTemp")),
         swrite!(sensor_id.clone(), crate::sfield![current_value_ft], Some(Value::Float(72.5))),
-        swrite!(sensor_id.clone(), crate::sfield![unit_ft], Some(Value::String("C".to_string()))),
+        swrite!(sensor_id.clone(), crate::sfield![unit_ft], sstr!("C")),
         swrite!(sensor_id.clone(), crate::sfield![calibration_offset_ft], Some(Value::Float(0.5))),
     ]).unwrap();
 
@@ -391,13 +391,13 @@ fn test_json_snapshot_restore() {
 
     // Set field values in store1
     store1.perform_mut(sreq![
-        swrite!(root_id.clone(), crate::sfield![name_ft], Some(Value::String("TestRoot".to_string()))),
-        swrite!(root_id.clone(), crate::sfield![description_ft], Some(Value::String("Test root entity".to_string()))),
-        swrite!(root_id.clone(), crate::sfield![status_ft], Some(Value::String("Active".to_string()))),
+        swrite!(root_id.clone(), crate::sfield![name_ft], sstr!("TestRoot")),
+        swrite!(root_id.clone(), crate::sfield![description_ft], sstr!("Test root entity")),
+        swrite!(root_id.clone(), crate::sfield![status_ft], sstr!("Active")),
         swrite!(root_id.clone(), crate::sfield![children_ft], Some(Value::EntityList(vec![doc_id.clone()]))),
-        swrite!(doc_id.clone(), crate::sfield![name_ft], Some(Value::String("TestDoc".to_string()))),
-        swrite!(doc_id.clone(), crate::sfield![description_ft], Some(Value::String("Test document".to_string()))),
-        swrite!(doc_id.clone(), crate::sfield![content_ft], Some(Value::String("Hello, World!".to_string()))),
+        swrite!(doc_id.clone(), crate::sfield![name_ft], sstr!("TestDoc")),
+        swrite!(doc_id.clone(), crate::sfield![description_ft], sstr!("Test document")),
+        swrite!(doc_id.clone(), crate::sfield![content_ft], sstr!("Hello, World!")),
     ]).unwrap();
 
     // Take JSON snapshot from store1
@@ -441,19 +441,19 @@ fn test_json_snapshot_restore() {
     ]).unwrap();
     
     if let Some(Request::Read { value: Some(Value::String(name)), .. }) = read_requests.get(0) {
-        assert_eq!(name, "TestRoot");
+        assert_eq!(name.as_str(), "TestRoot");
     } else {
         panic!("Failed to read root name");
     }
-    
+
     if let Some(Request::Read { value: Some(Value::String(desc)), .. }) = read_requests.get(1) {
-        assert_eq!(desc, "Test root entity");
+        assert_eq!(desc.as_str(), "Test root entity");
     } else {
         panic!("Failed to read root description");
     }
     
     if let Some(Request::Read { value: Some(Value::String(status)), .. }) = read_requests.get(2) {
-        assert_eq!(status, "Active");
+        assert_eq!(status.as_str(), "Active");
     } else {
         panic!("Failed to read root status");
     }
@@ -470,13 +470,13 @@ fn test_json_snapshot_restore() {
         ]).unwrap();
         
         if let Some(Request::Read { value: Some(Value::String(doc_name)), .. }) = doc_read_requests.get(0) {
-            assert_eq!(doc_name, "TestDoc");
+            assert_eq!(doc_name.as_str(), "TestDoc");
         } else {
             panic!("Failed to read document name");
         }
         
         if let Some(Request::Read { value: Some(Value::String(content)), .. }) = doc_read_requests.get(1) {
-            assert_eq!(content, "Hello, World!");
+            assert_eq!(content.as_str(), "Hello, World!");
         } else {
             panic!("Failed to read document content");
         }
