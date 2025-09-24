@@ -95,7 +95,7 @@ impl MessageType {
 /// Peer message types for inter-node communication
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum PeerMessage {
-    Handshake { start_time: u64 },
+    Handshake { start_time: u64, is_response: bool, machine_id: String },
     FullSyncRequest,
     FullSyncResponse { snapshot: Snapshot },
     SyncWrite { requests: crate::data::Requests },
