@@ -69,9 +69,7 @@ pub enum MessageType {
     StoreMessage = 1000,        // Uses bincode for existing StoreMessage compatibility
     
     // Peer messages (2000-2999)
-    PeerHandshake = 2000,
-    PeerFullSyncRequest = 2001,
-    PeerFullSyncResponse = 2002,
+    PeerMessage = 2000,
     
     // Response messages (9000-9999)
     Response = 9000,
@@ -82,9 +80,7 @@ impl MessageType {
     pub fn from_u32(value: u32) -> Option<Self> {
         match value {
             1000 => Some(Self::StoreMessage),
-            2000 => Some(Self::PeerHandshake),
-            2001 => Some(Self::PeerFullSyncRequest),
-            2002 => Some(Self::PeerFullSyncResponse),
+            2000 => Some(Self::PeerMessage),
             9000 => Some(Self::Response),
             9999 => Some(Self::Error),
             _ => None,
@@ -96,13 +92,19 @@ impl MessageType {
     }
 }
 
+/// Peer message types for inter-node communication
+#[derive(Debug, Serialize, Deserialize)]
+pub enum PeerMessage {
+    Handshake { start_time: u64 },
+    FullSyncRequest,
+    FullSyncResponse { snapshot: Snapshot },
+}
+
 /// Protocol message wrapper
 #[derive(Debug)]
 pub enum ProtocolMessage {
     Store(crate::data::StoreMessage),           // Uses bincode (compatibility)
-    PeerHandshake { start_time: u64 }, // Handshake with start time
-    PeerFullSyncRequest, // Simple request for full sync
-    PeerFullSyncResponse { snapshot: Snapshot }, // Uses bincode (large data)
+    Peer(PeerMessage),                          // All peer-related messages
     Response { id: String, data: Vec<u8> },     // Raw response data
     Error { id: Option<String>, message: String },
 }
@@ -112,9 +114,7 @@ impl ProtocolMessage {
     pub fn message_type(&self) -> MessageType {
         match self {
             Self::Store(_) => MessageType::StoreMessage,
-            Self::PeerHandshake { .. } => MessageType::PeerHandshake,
-            Self::PeerFullSyncRequest { .. } => MessageType::PeerFullSyncRequest,
-            Self::PeerFullSyncResponse { .. } => MessageType::PeerFullSyncResponse,
+            Self::Peer(_) => MessageType::PeerMessage,
             Self::Response { .. } => MessageType::Response,
             Self::Error { .. } => MessageType::Error,
         }
@@ -127,24 +127,9 @@ impl ProtocolMessage {
             Self::Store(msg) => bincode::serialize(msg)
                 .map_err(|e| anyhow::anyhow!("Failed to serialize store message: {}", e)),
                 
-            // Use bincode for peer handshake messages
-            Self::PeerHandshake { start_time } => {
-                #[derive(Serialize)]
-                struct PeerHandshakePayload {
-                    start_time: u64,
-                }
-                bincode::serialize(&PeerHandshakePayload {
-                    start_time: *start_time,
-                }).map_err(|e| anyhow::anyhow!("Failed to serialize handshake: {}", e))
-            },
-            // Use bincode for larger/less frequent messages
-            Self::PeerFullSyncRequest => {
-                // Empty payload for simple request
-                bincode::serialize(&())
-                    .map_err(|e| anyhow::anyhow!("Failed to serialize full sync request: {}", e))
-            },
-            Self::PeerFullSyncResponse { snapshot } => bincode::serialize(snapshot)
-                .map_err(|e| anyhow::anyhow!("Failed to serialize snapshot: {}", e)),
+            // Use bincode for all peer messages
+            Self::Peer(peer_msg) => bincode::serialize(peer_msg)
+                .map_err(|e| anyhow::anyhow!("Failed to serialize peer message: {}", e)),
                 
             Self::Response { id, data } => {
                 #[derive(Serialize)]
@@ -179,27 +164,10 @@ impl ProtocolMessage {
                     .map_err(|e| anyhow::anyhow!("Failed to deserialize store message: {}", e))?;
                 Ok(Self::Store(msg))
             },
-            MessageType::PeerHandshake => {
-                #[derive(Deserialize)]
-                struct PeerHandshakePayload {
-                    start_time: u64,
-                }
-                let payload_data: PeerHandshakePayload = bincode::deserialize(payload)
-                    .map_err(|e| anyhow::anyhow!("Failed to deserialize handshake: {}", e))?;
-                Ok(Self::PeerHandshake {
-                    start_time: payload_data.start_time,
-                })
-            },
-            MessageType::PeerFullSyncRequest => {
-                // Empty payload for simple request
-                bincode::deserialize::<()>(payload)
-                    .map_err(|e| anyhow::anyhow!("Failed to deserialize full sync request: {}", e))?;
-                Ok(Self::PeerFullSyncRequest)
-            },
-            MessageType::PeerFullSyncResponse => {
-                let snapshot: Snapshot = bincode::deserialize(payload)
-                    .map_err(|e| anyhow::anyhow!("Failed to deserialize snapshot: {}", e))?;
-                Ok(Self::PeerFullSyncResponse { snapshot })
+            MessageType::PeerMessage => {
+                let peer_msg: PeerMessage = bincode::deserialize(payload)
+                    .map_err(|e| anyhow::anyhow!("Failed to deserialize peer message: {}", e))?;
+                Ok(Self::Peer(peer_msg))
             },
             MessageType::Response => {
                 #[derive(Deserialize)]
