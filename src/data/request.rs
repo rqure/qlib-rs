@@ -1,6 +1,6 @@
 use std::sync::{Arc, RwLock};
 
-use crate::{data::{EntityId, EntityType, FieldType, Timestamp, Value}, EntitySchema, Single};
+use crate::{data::{EntityId, EntityType, FieldType, Timestamp, Value}, EntitySchema, Single, Complete, FieldSchema, PageOpts, PageResult};
 use serde::{Deserialize, Serialize};
 use smallvec::SmallVec;
 
@@ -86,6 +86,44 @@ pub enum Request {
         field_type: FieldType,
         name: Option<String>,
     },
+    GetEntitySchema {
+        entity_type: EntityType,
+        schema: Option<EntitySchema<Single>>,
+    },
+    GetCompleteEntitySchema {
+        entity_type: EntityType,
+        schema: Option<EntitySchema<Complete>>,
+    },
+    GetFieldSchema {
+        entity_type: EntityType,
+        field_type: FieldType,
+        schema: Option<FieldSchema>,
+    },
+    EntityExists {
+        entity_id: EntityId,
+        exists: Option<bool>,
+    },
+    FieldExists {
+        entity_type: EntityType,
+        field_type: FieldType,
+        exists: Option<bool>,
+    },
+    FindEntities {
+        entity_type: EntityType,
+        page_opts: Option<PageOpts>,
+        filter: Option<String>,
+        result: Option<PageResult<EntityId>>,
+    },
+    FindEntitiesExact {
+        entity_type: EntityType,
+        page_opts: Option<PageOpts>,
+        filter: Option<String>,
+        result: Option<PageResult<EntityId>>,
+    },
+    GetEntityTypes {
+        page_opts: Option<PageOpts>,
+        result: Option<PageResult<EntityType>>,
+    },
 }
 
 impl Request {
@@ -101,6 +139,14 @@ impl Request {
             Request::ResolveEntityType { .. } => None,
             Request::GetFieldType { .. } => None,
             Request::ResolveFieldType { .. } => None,
+            Request::GetEntitySchema { .. } => None,
+            Request::GetCompleteEntitySchema { .. } => None,
+            Request::GetFieldSchema { .. } => None,
+            Request::EntityExists { entity_id, .. } => Some(*entity_id),
+            Request::FieldExists { .. } => None,
+            Request::FindEntities { .. } => None,
+            Request::FindEntitiesExact { .. } => None,
+            Request::GetEntityTypes { .. } => None,
         }
     }
 
@@ -116,6 +162,14 @@ impl Request {
             Request::ResolveEntityType { .. } => None,
             Request::GetFieldType { .. } => None,
             Request::ResolveFieldType { .. } => None,
+            Request::GetEntitySchema { .. } => None,
+            Request::GetCompleteEntitySchema { .. } => None,
+            Request::GetFieldSchema { .. } => None,
+            Request::EntityExists { .. } => None,
+            Request::FieldExists { .. } => None,
+            Request::FindEntities { .. } => None,
+            Request::FindEntitiesExact { .. } => None,
+            Request::GetEntityTypes { .. } => None,
         }
     }
 
@@ -131,6 +185,14 @@ impl Request {
             Request::ResolveEntityType { .. } => None,
             Request::GetFieldType { .. } => None,
             Request::ResolveFieldType { .. } => None,
+            Request::GetEntitySchema { .. } => None,
+            Request::GetCompleteEntitySchema { .. } => None,
+            Request::GetFieldSchema { .. } => None,
+            Request::EntityExists { .. } => None,
+            Request::FieldExists { .. } => None,
+            Request::FindEntities { .. } => None,
+            Request::FindEntitiesExact { .. } => None,
+            Request::GetEntityTypes { .. } => None,
         }
     }
 
@@ -158,6 +220,14 @@ impl Request {
             Request::ResolveEntityType { .. } => None,
             Request::GetFieldType { .. } => None,
             Request::ResolveFieldType { .. } => None,
+            Request::GetEntitySchema { .. } => None,
+            Request::GetCompleteEntitySchema { .. } => None,
+            Request::GetFieldSchema { .. } => None,
+            Request::EntityExists { .. } => None,
+            Request::FieldExists { .. } => None,
+            Request::FindEntities { .. } => None,
+            Request::FindEntitiesExact { .. } => None,
+            Request::GetEntityTypes { .. } => None,
         }
     }
 
@@ -205,6 +275,14 @@ impl Request {
             Request::ResolveEntityType { .. } => {}
             Request::GetFieldType { .. } => {}
             Request::ResolveFieldType { .. } => {}
+            Request::GetEntitySchema { .. } => {}
+            Request::GetCompleteEntitySchema { .. } => {}
+            Request::GetFieldSchema { .. } => {}
+            Request::EntityExists { .. } => {}
+            Request::FieldExists { .. } => {}
+            Request::FindEntities { .. } => {}
+            Request::FindEntitiesExact { .. } => {}
+            Request::GetEntityTypes { .. } => {}
         }
     }
 
@@ -224,6 +302,14 @@ impl Request {
             Request::ResolveEntityType { .. } => {}
             Request::GetFieldType { .. } => {}
             Request::ResolveFieldType { .. } => {}
+            Request::GetEntitySchema { .. } => {}
+            Request::GetCompleteEntitySchema { .. } => {}
+            Request::GetFieldSchema { .. } => {}
+            Request::EntityExists { .. } => {}
+            Request::FieldExists { .. } => {}
+            Request::FindEntities { .. } => {}
+            Request::FindEntitiesExact { .. } => {}
+            Request::GetEntityTypes { .. } => {}
         }
     }
 
@@ -263,6 +349,14 @@ impl Request {
             Request::ResolveEntityType { .. } => {}
             Request::GetFieldType { .. } => {}
             Request::ResolveFieldType { .. } => {}
+            Request::GetEntitySchema { .. } => {}
+            Request::GetCompleteEntitySchema { .. } => {}
+            Request::GetFieldSchema { .. } => {}
+            Request::EntityExists { .. } => {}
+            Request::FieldExists { .. } => {}
+            Request::FindEntities { .. } => {}
+            Request::FindEntitiesExact { .. } => {}
+            Request::GetEntityTypes { .. } => {}
         }
     }
 }
@@ -299,6 +393,30 @@ impl std::fmt::Display for Request {
             }
             Request::ResolveFieldType { field_type, name } => {
                 write!(f, "Resolve Field Type Request - Field Type: {:?}, Name: {:?}", field_type, name)
+            }
+            Request::GetEntitySchema { entity_type, schema } => {
+                write!(f, "Get Entity Schema Request - Entity Type: {:?}, Schema: {:?}", entity_type, schema.is_some())
+            }
+            Request::GetCompleteEntitySchema { entity_type, schema } => {
+                write!(f, "Get Complete Entity Schema Request - Entity Type: {:?}, Schema: {:?}", entity_type, schema.is_some())
+            }
+            Request::GetFieldSchema { entity_type, field_type, schema } => {
+                write!(f, "Get Field Schema Request - Entity Type: {:?}, Field Type: {:?}, Schema: {:?}", entity_type, field_type, schema.is_some())
+            }
+            Request::EntityExists { entity_id, exists } => {
+                write!(f, "Entity Exists Request - Entity ID: {:?}, Exists: {:?}", entity_id, exists)
+            }
+            Request::FieldExists { entity_type, field_type, exists } => {
+                write!(f, "Field Exists Request - Entity Type: {:?}, Field Type: {:?}, Exists: {:?}", entity_type, field_type, exists)
+            }
+            Request::FindEntities { entity_type, page_opts, filter, result } => {
+                write!(f, "Find Entities Request - Entity Type: {:?}, Page Options: {:?}, Filter: {:?}, Result: {:?}", entity_type, page_opts, filter, result.is_some())
+            }
+            Request::FindEntitiesExact { entity_type, page_opts, filter, result } => {
+                write!(f, "Find Entities Exact Request - Entity Type: {:?}, Page Options: {:?}, Filter: {:?}, Result: {:?}", entity_type, page_opts, filter, result.is_some())
+            }
+            Request::GetEntityTypes { page_opts, result } => {
+                write!(f, "Get Entity Types Request - Page Options: {:?}, Result: {:?}", page_opts, result.is_some())
             }
         }
     }

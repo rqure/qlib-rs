@@ -402,8 +402,74 @@ impl Store {
                         *name = None;
                     }
                 },
+                Request::GetEntitySchema { entity_type, schema } => {
+                    match self.get_entity_schema(*entity_type) {
+                        Ok(es) => {
+                            *schema = Some(es);
+                        }
+                        Err(_) => {
+                            *schema = None;
+                        }
+                    }
+                },
+                Request::GetCompleteEntitySchema { entity_type, schema } => {
+                    match self.get_complete_entity_schema(*entity_type) {
+                        Ok(es) => {
+                            *schema = Some(es.clone());
+                        }
+                        Err(_) => {
+                            *schema = None;
+                        }
+                    }
+                },
+                Request::GetFieldSchema { entity_type, field_type, schema } => {
+                    match self.get_field_schema(*entity_type, *field_type) {
+                        Ok(fs) => {
+                            *schema = Some(fs);
+                        }
+                        Err(_) => {
+                            *schema = None;
+                        }
+                    }
+                },
+                Request::EntityExists { entity_id, exists } => {
+                    *exists = Some(self.entity_exists(*entity_id));
+                },
+                Request::FieldExists { entity_type, field_type, exists } => {
+                    *exists = Some(self.field_exists(*entity_type, *field_type));
+                },
+                Request::FindEntities { entity_type, page_opts, filter, result } => {
+                    match self.find_entities_paginated(*entity_type, page_opts.clone(), filter.clone()) {
+                        Ok(page_result) => {
+                            *result = Some(page_result);
+                        }
+                        Err(_) => {
+                            *result = None;
+                        }
+                    }
+                },
+                Request::FindEntitiesExact { entity_type, page_opts, filter, result } => {
+                    match self.find_entities_exact(*entity_type, page_opts.clone(), filter.clone()) {
+                        Ok(page_result) => {
+                            *result = Some(page_result);
+                        }
+                        Err(_) => {
+                            *result = None;
+                        }
+                    }
+                },
+                Request::GetEntityTypes { page_opts, result } => {
+                    match self.get_entity_types_paginated(page_opts.clone()) {
+                        Ok(page_result) => {
+                            *result = Some(page_result);
+                        }
+                        Err(_) => {
+                            *result = None;
+                        }
+                    }
+                },
                 _ => {
-                    return Err(Error::InvalidRequest("Perform without mutable access can only handle Read, GetEntityType, ResolveEntityType, GetFieldType, and ResolveFieldType requests".to_string()));
+                    return Err(Error::InvalidRequest("Perform without mutable access can only handle read-only requests (Read, GetEntityType, ResolveEntityType, GetFieldType, ResolveFieldType, GetEntitySchema, GetCompleteEntitySchema, GetFieldSchema, EntityExists, FieldExists, FindEntities, FindEntitiesExact, GetEntityTypes)".to_string()));
                 }
             }
         }
@@ -604,6 +670,72 @@ impl Store {
                     }
                     Err(_) => {
                         *name = None;
+                    }
+                },
+                Request::GetEntitySchema { entity_type, schema } => {
+                    match self.get_entity_schema(*entity_type) {
+                        Ok(es) => {
+                            *schema = Some(es);
+                        }
+                        Err(_) => {
+                            *schema = None;
+                        }
+                    }
+                },
+                Request::GetCompleteEntitySchema { entity_type, schema } => {
+                    match self.get_complete_entity_schema(*entity_type) {
+                        Ok(es) => {
+                            *schema = Some(es.clone());
+                        }
+                        Err(_) => {
+                            *schema = None;
+                        }
+                    }
+                },
+                Request::GetFieldSchema { entity_type, field_type, schema } => {
+                    match self.get_field_schema(*entity_type, *field_type) {
+                        Ok(fs) => {
+                            *schema = Some(fs);
+                        }
+                        Err(_) => {
+                            *schema = None;
+                        }
+                    }
+                },
+                Request::EntityExists { entity_id, exists } => {
+                    *exists = Some(self.entity_exists(*entity_id));
+                },
+                Request::FieldExists { entity_type, field_type, exists } => {
+                    *exists = Some(self.field_exists(*entity_type, *field_type));
+                },
+                Request::FindEntities { entity_type, page_opts, filter, result } => {
+                    match self.find_entities_paginated(*entity_type, page_opts.clone(), filter.clone()) {
+                        Ok(page_result) => {
+                            *result = Some(page_result);
+                        }
+                        Err(_) => {
+                            *result = None;
+                        }
+                    }
+                },
+                Request::FindEntitiesExact { entity_type, page_opts, filter, result } => {
+                    match self.find_entities_exact(*entity_type, page_opts.clone(), filter.clone()) {
+                        Ok(page_result) => {
+                            *result = Some(page_result);
+                        }
+                        Err(_) => {
+                            *result = None;
+                        }
+                    }
+                },
+                Request::GetEntityTypes { page_opts, result } => {
+                    match self.get_entity_types_paginated(page_opts.clone()) {
+                        Ok(page_result) => {
+                            *result = Some(page_result);
+                        }
+                        Err(_) => {
+                            *result = None;
+                        }
                     }
                 },
             }

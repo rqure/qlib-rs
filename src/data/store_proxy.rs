@@ -34,53 +34,7 @@ pub enum StoreMessage {
         response: std::result::Result<AuthenticationResult, String>,
     },
 
-    GetEntitySchema {
-        id: u64,
-        entity_type: EntityType,
-    },
-    GetEntitySchemaResponse {
-        id: u64,
-        response: std::result::Result<Option<EntitySchema<Single>>, String>,
-    },
-
-    GetCompleteEntitySchema {
-        id: u64,
-        entity_type: EntityType,
-    },
-    GetCompleteEntitySchemaResponse {
-        id: u64,
-        response: std::result::Result<EntitySchema<Complete>, String>,
-    },
-
-    GetFieldSchema {
-        id: u64,
-        entity_type: EntityType,
-        field_type: FieldType,
-    },
-    GetFieldSchemaResponse {
-        id: u64,
-        response: std::result::Result<Option<FieldSchema>, String>,
-    },
-
-    EntityExists {
-        id: u64,
-        entity_id: EntityId,
-    },
-    EntityExistsResponse {
-        id: u64,
-        response: bool,
-    },
-
-    FieldExists {
-        id: u64,
-        entity_type: EntityType,
-        field_type: FieldType,
-    },
-    FieldExistsResponse {
-        id: u64,
-        response: bool,
-    },
-
+    // Perform operation using Request enum
     Perform {
         id: u64,
         requests: Requests,
@@ -90,74 +44,7 @@ pub enum StoreMessage {
         response: std::result::Result<Requests, String>,
     },
 
-    FindEntities {
-        id: u64,
-        entity_type: EntityType,
-        page_opts: Option<PageOpts>,
-        filter: Option<String>,
-    },
-    FindEntitiesResponse {
-        id: u64,
-        response: std::result::Result<PageResult<EntityId>, String>,
-    },
-
-    FindEntitiesExact {
-        id: u64,
-        entity_type: EntityType,
-        page_opts: Option<PageOpts>,
-        filter: Option<String>,
-    },
-    FindEntitiesExactResponse {
-        id: u64,
-        response: std::result::Result<PageResult<EntityId>, String>,
-    },
-
-    GetEntityTypes {
-        id: u64,
-        page_opts: Option<PageOpts>,
-    },
-    GetEntityTypesResponse {
-        id: u64,
-        response: std::result::Result<PageResult<EntityType>, String>,
-    },
-
-    GetEntityType {
-        id: u64,
-        name: String,
-    },
-    GetEntityTypeResponse {
-        id: u64,
-        response: std::result::Result<EntityType, String>,
-    },
-
-    ResolveEntityType {
-        id: u64,
-        entity_type: EntityType,
-    },
-    ResolveEntityTypeResponse {
-        id: u64,
-        response: std::result::Result<String, String>,
-    },
-
-    GetFieldType {
-        id: u64,
-        name: String,
-    },
-    GetFieldTypeResponse {
-        id: u64,
-        response: std::result::Result<FieldType, String>,
-    },
-
-    ResolveFieldType {
-        id: u64,
-        field_type: FieldType,
-    },
-    ResolveFieldTypeResponse {
-        id: u64,
-        response: std::result::Result<String, String>,
-    },
-
-    // Notification support
+    // Notification support - these need to remain separate due to NotificationQueue limitations
     RegisterNotification {
         id: u64,
         config: NotifyConfig,
@@ -193,32 +80,8 @@ pub fn extract_message_id(message: &StoreMessage) -> Option<u64> {
     match message {
         StoreMessage::Authenticate { id, .. } => Some(*id),
         StoreMessage::AuthenticateResponse { id, .. } => Some(*id),
-        StoreMessage::GetEntitySchema { id, .. } => Some(*id),
-        StoreMessage::GetEntitySchemaResponse { id, .. } => Some(*id),
-        StoreMessage::GetCompleteEntitySchema { id, .. } => Some(*id),
-        StoreMessage::GetCompleteEntitySchemaResponse { id, .. } => Some(*id),
-        StoreMessage::GetFieldSchema { id, .. } => Some(*id),
-        StoreMessage::GetFieldSchemaResponse { id, .. } => Some(*id),
-        StoreMessage::EntityExists { id, .. } => Some(*id),
-        StoreMessage::EntityExistsResponse { id, .. } => Some(*id),
-        StoreMessage::FieldExists { id, .. } => Some(*id),
-        StoreMessage::FieldExistsResponse { id, .. } => Some(*id),
         StoreMessage::Perform { id, .. } => Some(*id),
         StoreMessage::PerformResponse { id, .. } => Some(*id),
-        StoreMessage::FindEntities { id, .. } => Some(*id),
-        StoreMessage::FindEntitiesResponse { id, .. } => Some(*id),
-        StoreMessage::FindEntitiesExact { id, .. } => Some(*id),
-        StoreMessage::FindEntitiesExactResponse { id, .. } => Some(*id),
-        StoreMessage::GetEntityTypes { id, .. } => Some(*id),
-        StoreMessage::GetEntityTypesResponse { id, .. } => Some(*id),
-        StoreMessage::GetEntityType { id, .. } => Some(*id),
-        StoreMessage::GetEntityTypeResponse { id, .. } => Some(*id),
-        StoreMessage::ResolveEntityType { id, .. } => Some(*id),
-        StoreMessage::ResolveEntityTypeResponse { id, .. } => Some(*id),
-        StoreMessage::GetFieldType { id, .. } => Some(*id),
-        StoreMessage::GetFieldTypeResponse { id, .. } => Some(*id),
-        StoreMessage::ResolveFieldType { id, .. } => Some(*id),
-        StoreMessage::ResolveFieldTypeResponse { id, .. } => Some(*id),
         StoreMessage::RegisterNotification { id, .. } => Some(*id),
         StoreMessage::RegisterNotificationResponse { id, .. } => Some(*id),
         StoreMessage::UnregisterNotification { id, .. } => Some(*id),
@@ -492,95 +355,114 @@ impl StoreProxy {
 
     /// Get entity type by name
     pub fn get_entity_type(&self, name: &str) -> Result<EntityType> {
-        let request = StoreMessage::GetEntityType {
-            id: self.next_id(),
+        let request = Request::GetEntityType {
             name: name.to_string(),
+            entity_type: None,
         };
-
-        let response: StoreMessage = self.send_request(request)?;
-        match response {
-            StoreMessage::GetEntityTypeResponse { response, .. } => {
-                response.map_err(|e| Error::StoreProxyError(e))
+        
+        let requests = sreq![request];
+        let response = self.perform(requests)?;
+        
+        if let Some(req) = response.first() {
+            match req {
+                Request::GetEntityType { entity_type, .. } => {
+                    entity_type.clone().ok_or_else(|| Error::StoreProxyError("Entity type not found".to_string()))
+                }
+                _ => Err(Error::StoreProxyError("Unexpected response type".to_string())),
             }
-            StoreMessage::Error { error, .. } => {
-                Err(Error::StoreProxyError(format!("Server error: {}", error)))
-            }
-            _ => Err(Error::StoreProxyError("Unexpected response type".to_string())),
+        } else {
+            Err(Error::StoreProxyError("No response received".to_string()))
         }
     }
 
     /// Resolve entity type to name
     pub fn resolve_entity_type(&self, entity_type: EntityType) -> Result<String> {
-        let request = StoreMessage::ResolveEntityType {
-            id: self.next_id(),
+        let request = Request::ResolveEntityType {
             entity_type,
+            name: None,
         };
-
-        let response: StoreMessage = self.send_request(request)?;
-        match response {
-            StoreMessage::ResolveEntityTypeResponse { response, .. } => {
-                response.map_err(|e| Error::StoreProxyError(e))
+        
+        let requests = sreq![request];
+        let response = self.perform(requests)?;
+        
+        if let Some(req) = response.first() {
+            match req {
+                Request::ResolveEntityType { name, .. } => {
+                    name.clone().ok_or_else(|| Error::StoreProxyError("Entity type name not found".to_string()))
+                }
+                _ => Err(Error::StoreProxyError("Unexpected response type".to_string())),
             }
-            _ => Err(Error::StoreProxyError("Unexpected response type".to_string())),
+        } else {
+            Err(Error::StoreProxyError("No response received".to_string()))
         }
     }
 
     /// Get field type by name
     pub fn get_field_type(&self, name: &str) -> Result<FieldType> {
-        let request = StoreMessage::GetFieldType {
-            id: self.next_id(),
+        let request = Request::GetFieldType {
             name: name.to_string(),
+            field_type: None,
         };
-
-        let response: StoreMessage = self.send_request(request)?;
-        match response {
-            StoreMessage::GetFieldTypeResponse { response, .. } => {
-                response.map_err(|e| Error::StoreProxyError(e))
+        
+        let requests = sreq![request];
+        let response = self.perform(requests)?;
+        
+        if let Some(req) = response.first() {
+            match req {
+                Request::GetFieldType { field_type, .. } => {
+                    field_type.clone().ok_or_else(|| Error::StoreProxyError("Field type not found".to_string()))
+                }
+                _ => Err(Error::StoreProxyError("Unexpected response type".to_string())),
             }
-            _ => Err(Error::StoreProxyError("Unexpected response type".to_string())),
+        } else {
+            Err(Error::StoreProxyError("No response received".to_string()))
         }
     }
 
     /// Resolve field type to name
     pub fn resolve_field_type(&self, field_type: FieldType) -> Result<String> {
-        let request = StoreMessage::ResolveFieldType {
-            id: self.next_id(),
+        let request = Request::ResolveFieldType {
             field_type,
+            name: None,
         };
-
-        let response: StoreMessage = self.send_request(request)?;
-        match response {
-            StoreMessage::ResolveFieldTypeResponse { response, .. } => {
-                response.map_err(|e| Error::StoreProxyError(e))
+        
+        let requests = sreq![request];
+        let response = self.perform(requests)?;
+        
+        if let Some(req) = response.first() {
+            match req {
+                Request::ResolveFieldType { name, .. } => {
+                    name.clone().ok_or_else(|| Error::StoreProxyError("Field type name not found".to_string()))
+                }
+                _ => Err(Error::StoreProxyError("Unexpected response type".to_string())),
             }
-            _ => Err(Error::StoreProxyError("Unexpected response type".to_string())),
+        } else {
+            Err(Error::StoreProxyError("No response received".to_string()))
         }
     }
 
-    /// Check if entity exists
+    /// Get entity schema
     pub fn get_entity_schema(
         &self,
         entity_type: EntityType,
     ) -> Result<EntitySchema<Single>> {
-        let request = StoreMessage::GetEntitySchema {
-            id: self.next_id(),
-            entity_type: entity_type.clone(),
+        let request = Request::GetEntitySchema {
+            entity_type,
+            schema: None,
         };
-
-        let response: StoreMessage = self.send_request(request)?;
-        match response {
-            StoreMessage::GetEntitySchemaResponse { response, .. } => {
-                response
-                    .and_then(|s| {
-                        if let Some(s) = s {
-                            Ok(s)
-                        } else {
-                            Err("Schema not found".to_string())
-                        }
-                    })
-                    .map_err(|e| Error::StoreProxyError(e))
+        
+        let requests = sreq![request];
+        let response = self.perform(requests)?;
+        
+        if let Some(req) = response.first() {
+            match req {
+                Request::GetEntitySchema { schema, .. } => {
+                    schema.clone().ok_or_else(|| Error::StoreProxyError("Entity schema not found".to_string()))
+                }
+                _ => Err(Error::StoreProxyError("Unexpected response type".to_string())),
             }
-            _ => Err(Error::StoreProxyError("Unexpected response type".to_string())),
+        } else {
+            Err(Error::StoreProxyError("No response received".to_string()))
         }
     }
 
@@ -589,17 +471,23 @@ impl StoreProxy {
         &self,
         entity_type: EntityType,
     ) -> Result<EntitySchema<Complete>> {
-        let request = StoreMessage::GetCompleteEntitySchema {
-            id: self.next_id(),
-            entity_type: entity_type.clone(),
+        let request = Request::GetCompleteEntitySchema {
+            entity_type,
+            schema: None,
         };
-
-        let response: StoreMessage = self.send_request(request)?;
-        match response {
-            StoreMessage::GetCompleteEntitySchemaResponse { response, .. } => {
-                response.map_err(|e| Error::StoreProxyError(e))
+        
+        let requests = sreq![request];
+        let response = self.perform(requests)?;
+        
+        if let Some(req) = response.first() {
+            match req {
+                Request::GetCompleteEntitySchema { schema, .. } => {
+                    schema.clone().ok_or_else(|| Error::StoreProxyError("Complete entity schema not found".to_string()))
+                }
+                _ => Err(Error::StoreProxyError("Unexpected response type".to_string())),
             }
-            _ => Err(Error::StoreProxyError("Invalid response".to_string())),
+        } else {
+            Err(Error::StoreProxyError("No response received".to_string()))
         }
     }
 
@@ -630,40 +518,43 @@ impl StoreProxy {
         entity_type: EntityType,
         field_type: FieldType,
     ) -> Result<FieldSchema> {
-        let request = StoreMessage::GetFieldSchema {
-            id: self.next_id(),
-            entity_type: entity_type.clone(),
-            field_type: field_type,
+        let request = Request::GetFieldSchema {
+            entity_type,
+            field_type,
+            schema: None,
         };
-
-        let response: StoreMessage = self.send_request(request)?;
-        match response {
-            StoreMessage::GetFieldSchemaResponse { response, .. } => {
-                response
-                    .and_then(|s| {
-                        if let Some(s) = s {
-                            Ok(s)
-                        } else {
-                            Err("Field schema not found".to_string())
-                        }
-                    })
-                    .map_err(|e| Error::StoreProxyError(e))
+        
+        let requests = sreq![request];
+        let response = self.perform(requests)?;
+        
+        if let Some(req) = response.first() {
+            match req {
+                Request::GetFieldSchema { schema, .. } => {
+                    schema.clone().ok_or_else(|| Error::StoreProxyError("Field schema not found".to_string()))
+                }
+                _ => Err(Error::StoreProxyError("Unexpected response type".to_string())),
             }
-            _ => Err(Error::StoreProxyError("Unexpected response type".to_string())),
+        } else {
+            Err(Error::StoreProxyError("No response received".to_string()))
         }
     }
 
     /// Check if entity exists
     pub fn entity_exists(&self, entity_id: EntityId) -> bool {
-        let request = StoreMessage::EntityExists {
-            id: self.next_id(),
-            entity_id: entity_id,
+        let request = Request::EntityExists {
+            entity_id,
+            exists: None,
         };
-
-        if let Ok(response) = self.send_request(request) {
-            match response {
-                StoreMessage::EntityExistsResponse { response, .. } => response,
-                _ => false, // If we get an unexpected response, assume entity does not exist
+        
+        let requests = sreq![request];
+        if let Ok(response) = self.perform(requests) {
+            if let Some(req) = response.first() {
+                match req {
+                    Request::EntityExists { exists, .. } => exists.unwrap_or(false),
+                    _ => false,
+                }
+            } else {
+                false
             }
         } else {
             false
@@ -676,16 +567,21 @@ impl StoreProxy {
         entity_type: EntityType,
         field_type: FieldType,
     ) -> bool {
-        let request = StoreMessage::FieldExists {
-            id: self.next_id(),
-            entity_type: entity_type.clone(),
-            field_type: field_type,
+        let request = Request::FieldExists {
+            entity_type,
+            field_type,
+            exists: None,
         };
-
-        if let Ok(response) = self.send_request(request) {
-            match response {
-                StoreMessage::FieldExistsResponse { response, .. } => response,
-                _ => false, // If we get an unexpected response, assume field does not exist
+        
+        let requests = sreq![request];
+        if let Ok(response) = self.perform(requests) {
+            if let Some(req) = response.first() {
+                match req {
+                    Request::FieldExists { exists, .. } => exists.unwrap_or(false),
+                    _ => false,
+                }
+            } else {
+                false
             }
         } else {
             false
@@ -718,19 +614,25 @@ impl StoreProxy {
         page_opts: Option<PageOpts>,
         filter: Option<String>,
     ) -> Result<PageResult<EntityId>> {
-        let request = StoreMessage::FindEntities {
-            id: self.next_id(),
-            entity_type: entity_type.clone(),
+        let request = Request::FindEntities {
+            entity_type,
             page_opts,
             filter,
+            result: None,
         };
-
-        let response: StoreMessage = self.send_request(request)?;
-        match response {
-            StoreMessage::FindEntitiesResponse { response, .. } => {
-                response.map_err(|e| Error::StoreProxyError(e))
+        
+        let requests = sreq![request];
+        let response = self.perform(requests)?;
+        
+        if let Some(req) = response.first() {
+            match req {
+                Request::FindEntities { result, .. } => {
+                    result.clone().ok_or_else(|| Error::StoreProxyError("Find entities result not found".to_string()))
+                }
+                _ => Err(Error::StoreProxyError("Unexpected response type".to_string())),
             }
-            _ => Err(Error::StoreProxyError("Unexpected response type".to_string())),
+        } else {
+            Err(Error::StoreProxyError("No response received".to_string()))
         }
     }
 
@@ -741,19 +643,25 @@ impl StoreProxy {
         page_opts: Option<PageOpts>,
         filter: Option<String>,
     ) -> Result<PageResult<EntityId>> {
-        let request = StoreMessage::FindEntitiesExact {
-            id: self.next_id(),
-            entity_type: entity_type.clone(),
+        let request = Request::FindEntitiesExact {
+            entity_type,
             page_opts,
             filter,
+            result: None,
         };
-
-        let response: StoreMessage = self.send_request(request)?;
-        match response {
-            StoreMessage::FindEntitiesExactResponse { response, .. } => {
-                response.map_err(|e| Error::StoreProxyError(e))
+        
+        let requests = sreq![request];
+        let response = self.perform(requests)?;
+        
+        if let Some(req) = response.first() {
+            match req {
+                Request::FindEntitiesExact { result, .. } => {
+                    result.clone().ok_or_else(|| Error::StoreProxyError("Find entities exact result not found".to_string()))
+                }
+                _ => Err(Error::StoreProxyError("Unexpected response type".to_string())),
             }
-            _ => Err(Error::StoreProxyError("Unexpected response type".to_string())),
+        } else {
+            Err(Error::StoreProxyError("No response received".to_string()))
         }
     }
 
@@ -813,17 +721,23 @@ impl StoreProxy {
         &self,
         page_opts: Option<PageOpts>,
     ) -> Result<PageResult<EntityType>> {
-        let request = StoreMessage::GetEntityTypes {
-            id: self.next_id(),
+        let request = Request::GetEntityTypes {
             page_opts,
+            result: None,
         };
-
-        let response: StoreMessage = self.send_request(request)?;
-        match response {
-            StoreMessage::GetEntityTypesResponse { response, .. } => {
-                response.map_err(|e| Error::StoreProxyError(e))
+        
+        let requests = sreq![request];
+        let response = self.perform(requests)?;
+        
+        if let Some(req) = response.first() {
+            match req {
+                Request::GetEntityTypes { result, .. } => {
+                    result.clone().ok_or_else(|| Error::StoreProxyError("Get entity types result not found".to_string()))
+                }
+                _ => Err(Error::StoreProxyError("Unexpected response type".to_string())),
             }
-            _ => Err(Error::StoreProxyError("Unexpected response type".to_string())),
+        } else {
+            Err(Error::StoreProxyError("No response received".to_string()))
         }
     }
 
@@ -839,7 +753,7 @@ impl StoreProxy {
             id: self.next_id(),
             config: config.clone(),
         };
-
+        
         let response: StoreMessage = self.send_request(request)?;
         match response {
             StoreMessage::RegisterNotificationResponse { response, .. } => {
@@ -886,7 +800,7 @@ impl StoreProxy {
                 id: self.next_id(),
                 config: target_config.clone(),
             };
-
+            
             if let Ok(response) = self.send_request(request) {
                 match response {
                     StoreMessage::UnregisterNotificationResponse { response, .. } => response,
