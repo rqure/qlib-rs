@@ -303,6 +303,98 @@ impl Request {
             Request::GetEntityTypes { .. } => {}
         }
     }
+
+    // === Helper methods for elegant value extraction ===
+
+    /// Extract EntityList value from a Read request as a reference
+    pub fn extract_entity_list(&self) -> Option<&Vec<crate::EntityId>> {
+        match self {
+            Request::Read { value: Some(crate::Value::EntityList(list)), .. } => Some(list),
+            _ => None,
+        }
+    }
+
+    /// Extract EntityReference value from a Read request
+    pub fn extract_entity_reference(&self) -> Option<crate::EntityId> {
+        match self {
+            Request::Read { value: Some(crate::Value::EntityReference(entity_ref)), .. } => *entity_ref,
+            _ => None,
+        }
+    }
+
+    /// Extract Choice value from a Read request
+    pub fn extract_choice(&self) -> Option<i64> {
+        match self {
+            Request::Read { value: Some(crate::Value::Choice(choice)), .. } => Some(*choice),
+            _ => None,
+        }
+    }
+
+    /// Extract Int value from a Read request
+    pub fn extract_int(&self) -> Option<i64> {
+        match self {
+            Request::Read { value: Some(crate::Value::Int(int_val)), .. } => Some(*int_val),
+            _ => None,
+        }
+    }
+
+    /// Extract String value from a Read request as a reference
+    pub fn extract_string(&self) -> Option<&String> {
+        match self {
+            Request::Read { value: Some(crate::Value::String(string_val)), .. } => Some(string_val),
+            _ => None,
+        }
+    }
+
+    /// Extract Bool value from a Read request
+    pub fn extract_bool(&self) -> Option<bool> {
+        match self {
+            Request::Read { value: Some(crate::Value::Bool(bool_val)), .. } => Some(*bool_val),
+            _ => None,
+        }
+    }
+
+    /// Extract Blob value from a Read request as a reference
+    pub fn extract_blob(&self) -> Option<&Vec<u8>> {
+        match self {
+            Request::Read { value: Some(crate::Value::Blob(blob)), .. } => Some(blob),
+            _ => None,
+        }
+    }
+
+    /// Extract Float value from a Read request
+    pub fn extract_float(&self) -> Option<f64> {
+        match self {
+            Request::Read { value: Some(crate::Value::Float(float_val)), .. } => Some(*float_val),
+            _ => None,
+        }
+    }
+
+    /// Extract Timestamp value from a Read request
+    pub fn extract_timestamp(&self) -> Option<crate::Timestamp> {
+        match self {
+            Request::Read { value: Some(crate::Value::Timestamp(timestamp)), .. } => Some(*timestamp),
+            _ => None,
+        }
+    }
+
+    /// Extract write_time from a Read request
+    pub fn extract_write_time(&self) -> Option<crate::Timestamp> {
+        match self {
+            Request::Read { write_time, .. } => *write_time,
+            _ => None,
+        }
+    }
+
+    /// Check if this is a successful Read request (has a value)
+    pub fn has_value(&self) -> bool {
+        matches!(self, Request::Read { value: Some(_), .. })
+    }
+
+    /// Check if this is a Read request with no value
+    pub fn is_empty(&self) -> bool {
+        matches!(self, Request::Read { value: None, .. })
+    }
 }
 
 impl std::fmt::Display for Request {
@@ -467,5 +559,78 @@ impl Requests {
     pub fn first(&self) -> Option<Request> {
         let requests = self.0.read().unwrap();
         requests.first().cloned()
+    }
+
+    // === Helper methods for elegant access to request results ===
+    
+    /// Extract EntityList from the request at given index as a reference (no cloning)
+    /// Returns None if index is out of bounds or the request doesn't contain an EntityList
+    pub fn extract_entity_list(&self, index: usize) -> Option<Vec<crate::EntityId>> {
+        let requests = self.0.read().unwrap();
+        requests.get(index)
+            .and_then(|req| req.extract_entity_list().cloned())
+    }
+
+    /// Extract EntityReference from the request at given index
+    pub fn extract_entity_reference(&self, index: usize) -> Option<crate::EntityId> {
+        let requests = self.0.read().unwrap();
+        requests.get(index)
+            .and_then(|req| req.extract_entity_reference())
+    }
+
+    /// Extract Choice from the request at given index
+    pub fn extract_choice(&self, index: usize) -> Option<i64> {
+        let requests = self.0.read().unwrap();
+        requests.get(index)
+            .and_then(|req| req.extract_choice())
+    }
+
+    /// Extract Int from the request at given index
+    pub fn extract_int(&self, index: usize) -> Option<i64> {
+        let requests = self.0.read().unwrap();
+        requests.get(index)
+            .and_then(|req| req.extract_int())
+    }
+
+    /// Extract String from the request at given index (cloned to avoid lifetime issues)
+    pub fn extract_string(&self, index: usize) -> Option<String> {
+        let requests = self.0.read().unwrap();
+        requests.get(index)
+            .and_then(|req| req.extract_string().cloned())
+    }
+
+    /// Extract Bool from the request at given index
+    pub fn extract_bool(&self, index: usize) -> Option<bool> {
+        let requests = self.0.read().unwrap();
+        requests.get(index)
+            .and_then(|req| req.extract_bool())
+    }
+
+    /// Extract Blob from the request at given index (cloned to return owned Vec<u8>)
+    pub fn extract_blob(&self, index: usize) -> Option<Vec<u8>> {
+        let requests = self.0.read().unwrap();
+        requests.get(index)
+            .and_then(|req| req.extract_blob().cloned())
+    }
+
+    /// Extract Float from the request at given index
+    pub fn extract_float(&self, index: usize) -> Option<f64> {
+        let requests = self.0.read().unwrap();
+        requests.get(index)
+            .and_then(|req| req.extract_float())
+    }
+
+    /// Extract Timestamp from the request at given index
+    pub fn extract_timestamp(&self, index: usize) -> Option<crate::Timestamp> {
+        let requests = self.0.read().unwrap();
+        requests.get(index)
+            .and_then(|req| req.extract_timestamp())
+    }
+
+    /// Extract write_time from the request at given index
+    pub fn extract_write_time(&self, index: usize) -> Option<crate::Timestamp> {
+        let requests = self.0.read().unwrap();
+        requests.get(index)
+            .and_then(|req| req.extract_write_time())
     }
 }
