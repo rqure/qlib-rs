@@ -1,182 +1,237 @@
-# qlib-rs: A flexible in-memory database library
+# qlib-rs: A flexible database library
 
-`qlib-rs` provides a simple yet powerful in-memory database based on an
-Entity-Attribute-Value (EAV) model. It's designed for scenarios where you need to
-manage structured but flexible data, with a focus on relationships between
-entities.
+`qlib-rs` is a powerful database library based on an Entity-Attribute-Value (EAV) model. It supports both in-memory storage (`Store`) and remote database access (`StoreProxy`) via TCP, making it suitable for applications that need flexible, relationship-focused data management.
+
+## Quick Start
+
+Add to your `Cargo.toml`:
+```toml
+[dependencies]
+qlib-rs = "0.1"
+```
+
+### Basic Usage
+
+```rust
+use qlib_rs::*;
+
+// Create in-memory database
+let mut store = Store::new();
+
+// Define and register a schema
+let mut user_schema = EntitySchema::<Single, String, String>::new("User".to_string(), vec![]);
+user_schema.fields.insert("Name".to_string(), FieldSchema::String {
+    field_type: "Name".to_string(),
+    default_value: "".to_string(),
+    rank: 1,
+    storage_scope: StorageScope::Configuration,
+});
+store.perform_mut(sreq![sschemaupdate!(user_schema)])?;
+
+// Create and read entities
+let user_type = store.get_entity_type("User")?;
+let name_field = store.get_field_type("Name")?;
+
+let create_result = store.perform_mut(sreq![screate!(user_type, "John".to_string())])?;
+let user_id = /* extract entity ID from result */;
+
+let read_result = store.perform(sreq![sread!(user_id, sfield![name_field])])?;
+```
+
+### Remote Access
+
+```rust
+// Connect to remote server
+let stream = TcpStream::connect("127.0.0.1:8080")?;
+let mut proxy = StoreProxy::new(stream)?;
+proxy.authenticate("username", "password")?;
+
+// Same API as Store
+let users = proxy.find_entities(user_type, None)?;
+```
 
 ## Core Concepts
 
-The database is built around a few key concepts:
+### Data Model
+- **EntityType** and **FieldType**: Type identifiers obtained via `get_entity_type("Name")` and `get_field_type("Name")`
+- **Entity**: Objects identified by `EntityId`, containing fields with values
+- **Value**: Data types including `Bool`, `Int`, `Float`, `String`, `EntityReference`, `EntityList`, `Blob`, `Timestamp`, `Choice`
+- **Schema**: `EntitySchema` defines entity structure; `FieldSchema` defines field constraints and types
 
-*   **Entity**: An `Entity` is a unique object in the database, identified by an
-    `EntityId`. Each entity has a type (e.g., "User", "Folder") and a unique
-    ID. Entities are lightweight; they are primarily containers for fields.
+### Storage Options
+- **Store**: In-memory database for single-process applications
+- **StoreProxy**: TCP-based remote database access with authentication
 
-*   **Field**: A `Field` is a piece of data associated with an entity. It's
-    defined by a `FieldType` (e.g., "Name", "Email") and holds a `Value`.
+Both implement `StoreTrait` and provide identical APIs for seamless switching between local and remote storage.
 
-*   **Value**: The `Value` enum represents the actual data stored in a field. It
-    can be a primitive type (`Bool`, `Int`, `Float`, `String`), a timestamp,
-    binary data, or a reference to other entities (`EntityReference`,
-    `EntityList`).
+## Request System
 
-*   **Schema**: A `Schema` defines the structure for a given `EntityType`. The
-    `EntitySchema` specifies which fields an entity of that type can have. Each
-    field is further described by a `FieldSchema`, which defines its data type
-    (via a `default_value`), rank, and other constraints.
+Operations use a batch request system with these macros:
 
-## The `Store`
+### Request Creation
+```rust
+// Batch operations
+let requests = sreq![
+    sread!(entity_id, sfield![name_field, email_field]),
+    swrite!(entity_id, sfield![status_field], sstr!("active")),
+    screate!(entity_type, "New Entity".to_string()),
+];
 
-The `Store` is the central component of `qlib-rs`. It's the in-memory database
-that holds all entities, schemas, and their associated fields. All interactions
-with the database, such as creating entities, reading fields, or writing values,
-are performed through the `Store`.
+// Execute batch
+let results = store.perform_mut(requests)?;
+```
 
-Operations are batched into a `Vec<Request>` and processed by the `Store::perform`
-method. A `Request` can be either a `Read` or a `Write`.
+### Request Types
+- `sread!(entity_id, fields)` - Read field values
+- `swrite!(entity_id, fields, value)` - Write field values  
+- `sadd!(entity_id, fields, value)` - Add to numeric fields
+- `ssub!(entity_id, fields, value)` - Subtract from numeric fields
+- `screate!(type, name)` - Create entities
+- `sdelete!(entity_id)` - Delete entities
 
-### Database Structure
+### Value Creation
+```rust
+// Value macros for type safety
+let requests = sreq![
+    swrite!(id, sfield![name_field], sstr!("text")),
+    swrite!(id, sfield![count_field], sint!(42)),
+    swrite!(id, sfield![active_field], sbool!(true)),
+    swrite!(id, sfield![ref_field], sref!(Some(other_id))),
+    swrite!(id, sfield![list_field], sreflist![id1, id2, id3]),
+];
+```
 
-`qlib-rs` uses a structure similar to an Entity-Attribute-Value (EAV) model.
-Instead of rigid tables, data is stored in a more flexible way:
+## Schema Management
 
-*   `schemas`: A map from `EntityType` to `EntitySchema`, defining the data model.
-*   `entities`: A map from `EntityType` to a list of all `EntityId`s of that type.
-*   `fields`: The core data storage. It's a map where the key is an `EntityId`
-    and the value is another map from `FieldType` to the actual `Field` data
-    (which includes the `Value`).
+### Defining Schemas
+```rust
+use qlib_rs::*;
+use qlib_rs::data::field_schema::StorageScope;
 
-Relationships between entities are a key feature. They are not enforced by foreign
-keys but are managed through special `Value` types:
-*   `Value::EntityReference`: Represents a one-to-one or many-to-one relationship.
-    For example, a "User" entity might have a "Manager" field of this type.
-*   `Value::EntityList`: Represents a one-to-many relationship. For example, a
-    "Folder" entity would have a "Children" field of this type to list all the
-    entities it contains.
+// Define entity schema with inheritance
+let mut user_schema = EntitySchema::<Single, String, String>::new(
+    "User".to_string(), 
+    vec!["Object".to_string()]  // Inherits from Object
+);
 
-The library provides helpers like `create_entity` which automatically manage
-bidirectional parent-child relationships.
+// Add fields
+user_schema.fields.insert("Email".to_string(), FieldSchema::String {
+    field_type: "Email".to_string(),
+    default_value: "".to_string(),
+    rank: 2,
+    storage_scope: StorageScope::Configuration,
+});
+
+// Register schema
+store.perform_mut(sreq![sschemaupdate!(user_schema)])?;
+```
+
+### Field Types
+Available field schema types:
+- `FieldSchema::String` - Text data
+- `FieldSchema::Int` - Integer numbers  
+- `FieldSchema::Float` - Floating point numbers
+- `FieldSchema::Bool` - Boolean values
+- `FieldSchema::EntityReference` - Reference to another entity
+- `FieldSchema::EntityList` - List of entity references
+- `FieldSchema::Blob` - Binary data
+- `FieldSchema::Timestamp` - Time values
+- `FieldSchema::Choice` - Enumerated string values
 
 ## Indirection
 
-Indirection is a powerful feature that allows you to traverse relationships
-between entities in a single read or write request, without needing to perform
-multiple queries. An indirection path is a string composed of field names and
-list indices, separated by `->`.
-
-For example, consider a hierarchy: `Root -> Folder -> User`. To get the email of
-a user named "admin" inside a "Users" folder, you might use an indirection path
-like: `"Children->0->Email"`.
-
-Let's break down an example path: `Parent->Children->0->Name`
-1.  `Parent`: This resolves to the `Parent` field of the starting entity. This
-    field is expected to be an `EntityReference`. The store follows this
-    reference to the parent entity.
-2.  `Children`: Now on the parent entity, it looks for the `Children` field. This
-    is expected to be an `EntityList`.
-3.  `0`: This is an index into the `EntityList` from the previous step. It
-    selects the first entity in the list.
-4.  `Name`: Finally, it resolves the `Name` field on the entity selected by the
-    index.
-
-This allows for complex data retrieval in a concise and efficient manner. If any
-part of the path fails to resolve (e.g., an empty reference, an index out of
-bounds), the operation will fail with a `BadIndirection` error.
-
-# Entity Inheritance in qlib-rs
-
-The `qlib-rs` library supports an entity inheritance model similar to object-oriented programming. This allows you to define entity types that inherit fields and behavior from parent entity types.
-
-## How Inheritance Works
-
-1. **Entity Schema Definition**:
-   When defining an entity schema, you can specify a parent entity type using the `inherit` field:
-
-   ```rust
-   let mut schema = EntitySchema::<Single>::new("User".into(), Some("Object".into()));
-   ```
-
-2. **Field Inheritance**:
-   Child entity types automatically inherit all fields from their parent entity types. For example, if the "Object" type has "Name", "Parent", and "Children" fields, any entity type inheriting from "Object" will also have these fields.
-
-3. **Field Override**:
-   Child entity types can override fields defined by their parent types by defining fields with the same field type:
-
-   ```rust
-   // Parent "Object" has a default Name field, but User can override it with different properties
-   let name_schema = FieldSchema::String {
-       field_type: "Name".into(),
-       default_value: "New User".to_string(),  // Override default value
-       rank: 0,
-   };
-   ```
-
-4. **Multi-level Inheritance**:
-   The system supports multiple levels of inheritance. For example, "Employee" could inherit from "User", which inherits from "Object".
-
-5. **Complete Schema Resolution**:
-   When working with entities, the library automatically resolves the complete schema by combining all inherited fields:
-
-   ```rust
-   // This returns a schema with all inherited fields
-   let complete_schema = store.get_complete_entity_schema(&ctx, &entity_type)?;
-   ```
-
-## Base Type
-
-By convention, all entity types should inherit from the "Object" base type, which provides common fields:
-
-- `Name`: String type for naming the entity
-- `Parent`: EntityReference type to establish hierarchy
-- `Children`: EntityList type to track child entities
-
-## Benefits of Inheritance
-
-- **Code Reuse**: Define common fields once and reuse them across multiple entity types
-- **Consistency**: Ensure consistent field structure across related entity types
-- **Schema Evolution**: Easily evolve your data model by adding fields to parent types
-
-## Example Usage
+Navigate relationships in single operations using field paths:
 
 ```rust
-// Define a base Person type inheriting from Object
-let mut person_schema = EntitySchema::<Single>::new("Person".into(), Some("Object".into()));
+// Read parent's name through relationship
+let parent_name_field = sfield![parent_field, name_field];
+let result = store.perform(sreq![sread!(child_id, parent_name_field)])?;
 
-// Add Person-specific fields
-person_schema.fields.insert("Age".into(), FieldSchema::Int {
-    field_type: "Age".into(),
-    default_value: 0,
-    rank: 3,
-});
-
-// Register the schema
-store.set_entity_schema(&ctx, &person_schema)?;
-
-// Define an Employee type inheriting from Person
-let mut employee_schema = EntitySchema::<Single>::new("Employee".into(), Some("Person".into()));
-
-// Add Employee-specific fields
-employee_schema.fields.insert("Department".into(), FieldSchema::String {
-    field_type: "Department".into(),
-    default_value: "".to_string(),
-    rank: 4,
-});
-
-// Register the schema
-store.set_entity_schema(&ctx, &employee_schema)?;
-
-// Now Employee entities will have:
-// - Name, Parent, Children (from Object)
-// - Age (from Person)
-// - Department (from Employee)
+// Works with both Store and StoreProxy
+let (final_entity, final_field) = store.resolve_indirection(entity_id, &[parent_field, name_field])?;
 ```
 
-## Implementation Details
+Path utilities for navigation:
+```rust
+let entity_path = path(&store, entity_id)?;  // "/root/users/john"  
+let entity_id = path_to_entity_id(&store, "/root/users/john")?;
+```
 
-The library manages two versions of entity schemas:
+## Querying
 
-1. `EntitySchema<Single>`: Represents the schema as defined, without resolving inheritance
-2. `EntitySchema<Complete>`: Represents the fully resolved schema with all inherited fields
+### Find Entities
+```rust
+// Get all entities of type
+let all_users = store.find_entities(user_type, None)?;
 
-When querying or manipulating entities, the library uses the complete schema to ensure all inherited fields are available.
+// With server-side filtering
+let active_users = store.find_entities(user_type, Some("status='active'".to_string()))?;
+
+// Paginated results
+let page_result = store.find_entities_paginated(
+    user_type, 
+    Some(PageOpts { page_size: 10, page_number: 1 }), 
+    None
+)?;
+```
+
+### Entity Information
+```rust
+// Check existence
+let exists = store.entity_exists(entity_id);
+let has_field = store.field_exists(entity_type, field_type);
+
+// Get available types
+let entity_types = store.get_entity_types()?;
+let type_name = store.resolve_entity_type(entity_type)?;
+```
+
+## Notifications
+
+Monitor entity changes with the notification system:
+
+```rust
+// Configure notifications
+let notify_config = NotifyConfig::EntityType {
+    entity_type: user_type,
+    field_type: name_field,
+    trigger_on_change: true,
+    context: vec![vec![email_field]], // Include email in notifications
+};
+
+let queue = NotificationQueue::new();
+// Register with store (implementation-specific)
+
+// Process notifications
+while let Some(notification) = queue.pop() {
+    println!("Field changed: {:?} -> {:?}", 
+             notification.previous, 
+             notification.current);
+}
+```
+
+## Entity Inheritance
+
+Entities support inheritance for code reuse and consistency:
+
+```rust
+// Base schema
+let mut person_schema = EntitySchema::<Single, String, String>::new(
+    "Person".to_string(), 
+    vec!["Object".to_string()]
+);
+
+// Child schema inherits Person fields
+let mut employee_schema = EntitySchema::<Single, String, String>::new(
+    "Employee".to_string(),
+    vec!["Person".to_string()]
+);
+
+// Employee entities inherit all Person and Object fields
+```
+
+The library resolves inheritance automatically:
+- `EntitySchema<Single>` - Schema as defined
+- `EntitySchema<Complete>` - Fully resolved with inherited fields
+
+For more examples and advanced usage, see the test files in `src/test/`.
