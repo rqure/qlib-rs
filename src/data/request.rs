@@ -45,7 +45,6 @@ pub enum Request {
         adjust_behavior: AdjustBehavior,
         write_time: Option<Timestamp>,
         writer_id: Option<EntityId>,
-        originator: Option<String>,
     },
     Create {
         entity_type: EntityType,
@@ -53,22 +52,18 @@ pub enum Request {
         name: String,
         created_entity_id: Option<EntityId>,
         timestamp: Option<Timestamp>,
-        originator: Option<String>,
     },
     Delete {
         entity_id: EntityId,
         timestamp: Option<Timestamp>,
-        originator: Option<String>,
     },
     SchemaUpdate {
         schema: EntitySchema<Single, String, String>,
         timestamp: Option<Timestamp>,
-        originator: Option<String>,
     },
     Snapshot {
         snapshot_counter: u64,
         timestamp: Option<Timestamp>,
-        originator: Option<String>,
     },
     GetEntityType {
         name: String,
@@ -231,60 +226,9 @@ impl Request {
         }
     }
 
-    pub fn originator(&self) -> Option<&String> {
-        match self {
-            Request::Read { .. } => None,
-            Request::Write { originator, .. } => originator.as_ref(),
-            Request::Create { originator, .. } => originator.as_ref(),
-            Request::Delete { originator, .. } => originator.as_ref(),
-            Request::SchemaUpdate { originator, .. } => originator.as_ref(),
-            Request::Snapshot { originator, .. } => originator.as_ref(),
-            _ => None,
-        }
-    }
 
-    pub fn try_set_originator(&mut self, originator: String) {
-        match self {
-            Request::Read { .. } => {}
-            Request::Write { originator: o, .. } => {
-                if o.is_none() {
-                    *o = Some(originator);
-                }
-            }
-            Request::Create { originator: o, .. } => {
-                if o.is_none() {
-                    *o = Some(originator);
-                }
-            }
-            Request::Delete { originator: o, .. } => {
-                if o.is_none() {
-                    *o = Some(originator);
-                }
-            }
-            Request::SchemaUpdate { originator: o, .. } => {
-                if o.is_none() {
-                    *o = Some(originator);
-                }
-            }
-            Request::Snapshot { originator: o, .. } => {
-                if o.is_none() {
-                    *o = Some(originator);
-                }
-            }
-            Request::GetEntityType { .. } => {}
-            Request::ResolveEntityType { .. } => {}
-            Request::GetFieldType { .. } => {}
-            Request::ResolveFieldType { .. } => {}
-            Request::GetEntitySchema { .. } => {}
-            Request::GetCompleteEntitySchema { .. } => {}
-            Request::GetFieldSchema { .. } => {}
-            Request::EntityExists { .. } => {}
-            Request::FieldExists { .. } => {}
-            Request::FindEntities { .. } => {}
-            Request::FindEntitiesExact { .. } => {}
-            Request::GetEntityTypes { .. } => {}
-        }
-    }
+
+
 
     pub fn try_set_writer_id(&mut self, writer_id: EntityId) {
         match self {
@@ -367,20 +311,20 @@ impl std::fmt::Display for Request {
             Request::Read { entity_id, field_types: field_type, value, write_time, writer_id } => {
                 write!(f, "Read Request - Entity ID: {:?}, Field Type: {:?}, Value: {:?}, Write Time: {:?}, Writer ID: {:?}", entity_id, field_type, value, write_time, writer_id)
             }
-            Request::Write { entity_id, field_types: field_type, value, push_condition, adjust_behavior, write_time, writer_id, originator } => {
-                write!(f, "Write Request - Entity ID: {:?}, Field Type: {:?}, Value: {:?}, Push Condition: {:?}, Adjust Behavior: {}, Write Time: {:?}, Writer ID: {:?}, Originator: {:?}", entity_id, field_type, value, push_condition, adjust_behavior, write_time, writer_id, originator)
+            Request::Write { entity_id, field_types: field_type, value, push_condition, adjust_behavior, write_time, writer_id } => {
+                write!(f, "Write Request - Entity ID: {:?}, Field Type: {:?}, Value: {:?}, Push Condition: {:?}, Adjust Behavior: {}, Write Time: {:?}, Writer ID: {:?}", entity_id, field_type, value, push_condition, adjust_behavior, write_time, writer_id)
             }
-            Request::Create { entity_type, parent_id, name, created_entity_id, timestamp, originator } => {
-                write!(f, "Create Request - Entity Type: {:?}, Parent ID: {:?}, Name: {:?}, Created Entity ID: {:?}, Timestamp: {:?}, Originator: {:?}", entity_type, parent_id, name, created_entity_id, timestamp, originator)
+            Request::Create { entity_type, parent_id, name, created_entity_id, timestamp } => {
+                write!(f, "Create Request - Entity Type: {:?}, Parent ID: {:?}, Name: {:?}, Created Entity ID: {:?}, Timestamp: {:?}", entity_type, parent_id, name, created_entity_id, timestamp)
             }
-            Request::Delete { entity_id, timestamp, originator } => {
-                write!(f, "Delete Request - Entity ID: {:?}, Timestamp: {:?}, Originator: {:?}", entity_id, timestamp, originator)
+            Request::Delete { entity_id, timestamp } => {
+                write!(f, "Delete Request - Entity ID: {:?}, Timestamp: {:?}", entity_id, timestamp)
             }
-            Request::SchemaUpdate { schema, timestamp, originator } => {
-                write!(f, "Schema Update Request - Schema: {:?}, Timestamp: {:?}, Originator: {:?}", schema, timestamp, originator)
+            Request::SchemaUpdate { schema, timestamp } => {
+                write!(f, "Schema Update Request - Schema: {:?}, Timestamp: {:?}", schema, timestamp)
             }
-            Request::Snapshot { snapshot_counter, timestamp, originator } => {
-                write!(f, "Snapshot Request - Snapshot Counter: {:?}, Timestamp: {:?}, Originator: {:?}", snapshot_counter, timestamp, originator)
+            Request::Snapshot { snapshot_counter, timestamp } => {
+                write!(f, "Snapshot Request - Snapshot Counter: {:?}, Timestamp: {:?}", snapshot_counter, timestamp)
             }
             Request::GetEntityType { name, entity_type } => {
                 write!(f, "Get Entity Type Request - Name: {:?}, Entity Type: {:?}", name, entity_type)
@@ -423,15 +367,26 @@ impl std::fmt::Display for Request {
 }
 
 #[derive(Debug, Clone)]
-pub struct Requests(Arc<RwLock<Vec<Request>>>);
+pub struct Requests(Arc<RwLock<Vec<Request>>>, Arc<RwLock<Option<EntityId>>>);
 
 impl Serialize for Requests {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
     {
+        #[derive(Serialize)]
+        struct RequestsData {
+            requests: Vec<Request>,
+            originator: Option<EntityId>,
+        }
+        
         let requests = self.0.read().unwrap();
-        requests.serialize(serializer)
+        let originator = self.1.read().unwrap();
+        let data = RequestsData {
+            requests: requests.clone(),
+            originator: *originator,
+        };
+        data.serialize(serializer)
     }
 }
 
@@ -440,14 +395,23 @@ impl<'de> Deserialize<'de> for Requests {
     where
         D: serde::Deserializer<'de>,
     {
-        let requests = Vec::<Request>::deserialize(deserializer)?;
-        Ok(Requests::new(requests))
+        #[derive(Deserialize)]
+        struct RequestsData {
+            requests: Vec<Request>,
+            originator: Option<EntityId>,
+        }
+        
+        let data = RequestsData::deserialize(deserializer)?;
+        Ok(Requests(
+            Arc::new(RwLock::new(data.requests)),
+            Arc::new(RwLock::new(data.originator)),
+        ))
     }
 }
 
 impl Requests {
     pub fn new(requests: Vec<Request>) -> Self {
-        Self(Arc::new(RwLock::new(requests)))
+        Self(Arc::new(RwLock::new(requests)), Arc::new(RwLock::new(None)))
     }
 
     pub fn push(&self, request: Request) {
@@ -455,9 +419,21 @@ impl Requests {
         requests.push(request);
     }
 
+    pub fn originator(&self) -> Option<EntityId> {
+        *self.1.read().unwrap()
+    }
+
+    pub fn set_originator(&self, originator: Option<EntityId>) {
+        *self.1.write().unwrap() = originator;
+    }
+
     pub fn extend(&self, other: Requests) {
         let mut requests = self.0.write().unwrap();
         requests.extend(other.read().clone());
+        // If we don't have an originator but the other does, adopt it
+        if self.1.read().unwrap().is_none() && other.1.read().unwrap().is_some() {
+            *self.1.write().unwrap() = *other.1.read().unwrap();
+        }
     }
 
     pub fn read(&self) -> std::sync::RwLockReadGuard<'_, Vec<Request>> {

@@ -506,8 +506,7 @@ impl StoreProxy {
         let string_schema = entity_schema.to_string_schema(self);
         let requests = sreq![Request::SchemaUpdate { 
             schema: string_schema, 
-            timestamp: None, 
-            originator: None 
+            timestamp: None,
         }];
         self.perform(requests).map(|_| ())
     }

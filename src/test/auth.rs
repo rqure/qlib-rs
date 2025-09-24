@@ -300,8 +300,7 @@ fn test_authentication_with_factory_restore_format() -> Result<()> {
             push_condition: PushCondition::Always,
             adjust_behavior: AdjustBehavior::Set,
             write_time: None,
-            writer_id: None,
-            originator: None,
+            writer_id: None, 
         },
         Request::Write {
             entity_id: user_id,
@@ -311,7 +310,6 @@ fn test_authentication_with_factory_restore_format() -> Result<()> {
             adjust_behavior: AdjustBehavior::Set,
             write_time: None,
             writer_id: None,
-            originator: None,
         },
         Request::Write {
             entity_id: user_id,
@@ -321,7 +319,6 @@ fn test_authentication_with_factory_restore_format() -> Result<()> {
             adjust_behavior: AdjustBehavior::Set,
             write_time: None,
             writer_id: None,
-            originator: None,
         },
     ];
     store.perform_mut(field_requests)?;

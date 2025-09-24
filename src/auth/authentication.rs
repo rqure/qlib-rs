@@ -449,7 +449,6 @@ pub fn create_user(
         name: name.to_string(),
         created_entity_id: None,
         timestamp: None,
-        originator: None,
     }];
     let requests = store.perform_mut(requests)?;
 

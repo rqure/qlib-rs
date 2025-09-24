@@ -93,15 +93,16 @@ impl MessageType {
 }
 
 /// Peer message types for inter-node communication
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum PeerMessage {
     Handshake { start_time: u64 },
     FullSyncRequest,
     FullSyncResponse { snapshot: Snapshot },
+    SyncWrite { requests: crate::data::Requests },
 }
 
 /// Protocol message wrapper
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum ProtocolMessage {
     Store(crate::data::StoreMessage),           // Uses bincode (compatibility)
     Peer(PeerMessage),                          // All peer-related messages

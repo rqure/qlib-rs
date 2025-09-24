@@ -786,7 +786,6 @@ pub fn restore_entity_recursive<T: StoreTrait>(
         name: name.clone(),
         created_entity_id: None,
         timestamp: None,
-        originator: None,
     }];
     let create_requests = store.perform_mut(create_requests)?;
 
@@ -831,7 +830,6 @@ pub fn restore_entity_recursive<T: StoreTrait>(
                         adjust_behavior: crate::AdjustBehavior::Set,
                         write_time: None,
                         writer_id: None,
-                        originator: None,
                     });
                 }
                 Err(_) => {
@@ -866,7 +864,6 @@ pub fn restore_entity_recursive<T: StoreTrait>(
                     adjust_behavior: crate::AdjustBehavior::Set,
                     write_time: None,
                     writer_id: None,
-                    originator: None,
                 }];
                 store.perform_mut(children_write_requests)?;
             }
@@ -943,7 +940,6 @@ pub fn factory_restore_json_snapshot(
     let snapshot_request = crate::Request::Snapshot {
         snapshot_counter: 0,
         timestamp: None,
-        originator: Some("factory-restore".to_string()),
     };
     
     let serialized_request = serde_json::to_vec(&snapshot_request)
@@ -1013,7 +1009,6 @@ fn apply_schema_diff(
             schema_requests.push(crate::Request::SchemaUpdate { 
                 schema: schema.to_string_schema(store), 
                 timestamp: None,
-                originator: Some("restore-via-proxy".to_string()) 
             });
         }
         
@@ -1122,7 +1117,6 @@ fn apply_entity_diff_recursive<'a>(
                         adjust_behavior: crate::AdjustBehavior::Set,
                         write_time: None,
                         writer_id: None,
-                        originator: Some("restore-via-proxy".to_string()),
                     });
                 }
             }
@@ -1173,7 +1167,6 @@ fn apply_entity_diff_recursive<'a>(
                     adjust_behavior: crate::AdjustBehavior::Set,
                     write_time: None,
                     writer_id: None,
-                    originator: Some("restore-via-proxy".to_string()),
                 }];
                 store.perform_mut(children_write_requests)?;
             }
@@ -1200,7 +1193,6 @@ fn create_entity_from_json(
         name,
         created_entity_id: None,
         timestamp: None,
-        originator: Some("restore-via-proxy".to_string()),
     }];
     
     let create_requests = store.perform_mut(create_requests)?;

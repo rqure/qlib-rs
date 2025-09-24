@@ -183,7 +183,6 @@ fn test_json_snapshot_functionality() {
             name: "DataStore".to_string(),
             created_entity_id: None,
             timestamp: None,
-            originator: None,
         },
     ]).unwrap();
     
@@ -371,7 +370,6 @@ fn test_json_snapshot_restore() {
             name: "TestRoot".to_string(),
             created_entity_id: None,
             timestamp: None,
-            originator: None,
         },
     ]).unwrap();
     
