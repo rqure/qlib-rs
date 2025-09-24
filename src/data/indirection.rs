@@ -158,7 +158,7 @@ pub fn path<T: StoreTrait>(store: &T, entity_id: EntityId) -> Result<String> {
                 ..
             } = &reqs.clone().read()[0]
             {
-                name.clone()
+                name.as_str().to_string()
             } else {
                 // Fallback to entity ID if no name field
                 current_id.0.to_string()
@@ -227,7 +227,7 @@ pub fn path_to_entity_id<T: StoreTrait>(store: &T, path: &str) -> Result<EntityI
                 ..
             } = &reqs.clone().read()[0]
             {
-                if name == path_parts[0] {
+                if name.as_str() == path_parts[0] {
                     current_entity_id = Some(root_id);
                     break;
                 }
@@ -265,7 +265,7 @@ pub fn path_to_entity_id<T: StoreTrait>(store: &T, path: &str) -> Result<EntityI
                             ..
                         } = &reqs.clone().read()[0]
                         {
-                            if child_name == part {
+                            if child_name.as_str() == *part {
                                 current_id = child_id.clone();
                                 found = true;
                                 break;
