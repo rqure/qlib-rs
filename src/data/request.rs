@@ -339,9 +339,9 @@ impl Request {
     }
 
     /// Extract String value from a Read request as a reference
-    pub fn extract_string(&self) -> Option<&String> {
+    pub fn extract_string(&self) -> Option<&str> {
         match self {
-            Request::Read { value: Some(crate::Value::String(string_val)), .. } => Some(string_val),
+            Request::Read { value: Some(crate::Value::String(string_val)), .. } => Some(string_val.as_str()),
             _ => None,
         }
     }
@@ -355,9 +355,9 @@ impl Request {
     }
 
     /// Extract Blob value from a Read request as a reference
-    pub fn extract_blob(&self) -> Option<&Vec<u8>> {
+    pub fn extract_blob(&self) -> Option<&[u8]> {
         match self {
-            Request::Read { value: Some(crate::Value::Blob(blob)), .. } => Some(blob),
+            Request::Read { value: Some(crate::Value::Blob(blob)), .. } => Some(blob.as_slice()),
             _ => None,
         }
     }
@@ -562,7 +562,7 @@ impl Requests {
     }
 
     // === Helper methods for elegant access to request results ===
-    
+
     /// Extract EntityList from the request at given index as a reference (no cloning)
     /// Returns None if index is out of bounds or the request doesn't contain an EntityList
     pub fn extract_entity_list(&self, index: usize) -> Option<Vec<crate::EntityId>> {
@@ -596,7 +596,7 @@ impl Requests {
     pub fn extract_string(&self, index: usize) -> Option<String> {
         let requests = self.0.read().unwrap();
         requests.get(index)
-            .and_then(|req| req.extract_string().cloned())
+            .and_then(|req| req.extract_string().map(|s| s.to_string()))
     }
 
     /// Extract Bool from the request at given index
@@ -610,7 +610,7 @@ impl Requests {
     pub fn extract_blob(&self, index: usize) -> Option<Vec<u8>> {
         let requests = self.0.read().unwrap();
         requests.get(index)
-            .and_then(|req| req.extract_blob().cloned())
+            .and_then(|req| req.extract_blob().map(|b| b.to_vec()))
     }
 
     /// Extract Float from the request at given index

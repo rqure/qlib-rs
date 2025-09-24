@@ -166,7 +166,7 @@ impl Store {
         for (field_type, field_schema) in schema_fields {
             let value = {
                 if field_type == ft.name.unwrap() {
-                    Value::String(name.to_string())
+                    Value::String(name.to_string().into())
                 } else if field_type == ft.parent.unwrap() {
                     match &parent_id {
                         Some(parent) => Value::EntityReference(Some(*parent)),
@@ -1459,17 +1459,16 @@ impl Store {
                     new_value = Value::String(format!(
                         "{}{}",
                         old_string,
-                        new_value.as_string().cloned().unwrap_or_default()
-                    ));
+                        new_value.as_string().unwrap_or_default()
+                    ).into());
                 }
                 Value::Blob(old_file) => {
-                    new_value = Value::Blob(
-                        old_file
-                            .iter()
-                            .chain(new_value.as_blob().map_or(&Vec::new(), |f| &f).iter())
-                            .cloned()
-                            .collect(),
-                    );
+                    let combined_vec: Vec<u8> = old_file
+                        .iter()
+                        .chain(new_value.as_blob().unwrap_or(&[]).iter())
+                        .cloned()
+                        .collect();
+                    new_value = Value::Blob(combined_vec.into());
                 }
                 _ => {
                     return Err(Error::UnsupportedAdjustBehavior(

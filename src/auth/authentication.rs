@@ -211,7 +211,7 @@ pub fn get_user_secret(store: &mut Store, user_id: EntityId) -> Result<String> {
             ..
         } = request
         {
-            Ok(secret.clone())
+            Ok(secret.to_string())
         } else {
             Err(Error::SubjectNotFound)
         }
@@ -250,7 +250,7 @@ pub fn change_password(
     let requests = sreq![swrite!(
         user_id,
         crate::sfield![secret_ft],
-        Some(Value::String(password_hash))
+        Some(Value::String(password_hash.into()))
     )];
 
     store.perform_mut(requests)?;
@@ -605,7 +605,7 @@ pub fn set_user_password(
     let requests = sreq![swrite!(
         user_id,
         crate::sfield![secret_ft],
-        Some(Value::String(password_hash))
+        Some(Value::String(password_hash.into()))
     )];
 
     store.perform_mut(requests)?;
@@ -748,7 +748,7 @@ pub fn get_service_secret(store: &mut Store, service_id: EntityId) -> Result<Str
             ..
         } = request
         {
-            Ok(secret.clone())
+            Ok(secret.to_string())
         } else {
             Err(Error::SubjectNotFound)
         }
@@ -774,7 +774,7 @@ pub fn set_service_secret(
     let requests = sreq![swrite!(
         service_id,
         crate::sfield![secret_ft],
-        Some(Value::String(secret_key.to_string()))
+        Some(Value::String(secret_key.to_string().into()))
     )];
 
     store.perform_mut(requests)?;

@@ -91,7 +91,7 @@ impl CelExecutor {
 
             match value {
                 Value::Blob(v) => {
-                    context.add_variable_from_value(cel_field, to_base64(v.clone()));
+                    context.add_variable_from_value(cel_field, to_base64(v.to_vec()));
                 },
                 Value::Bool(v) => {
                     context.add_variable_from_value(cel_field, v);

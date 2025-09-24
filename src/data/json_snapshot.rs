@@ -279,7 +279,7 @@ pub fn value_to_json_value(value: &Value, choices: Option<&Vec<String>>) -> Json
             JsonValue::Number(serde_json::Number::from_f64(*v).unwrap_or_else(|| serde_json::Number::from(0)))
         },
         Value::Int(v) => JsonValue::Number(serde_json::Number::from(*v)),
-        Value::String(v) => JsonValue::String(v.clone()),
+        Value::String(v) => JsonValue::String(v.to_string()),
         Value::Timestamp(v) => serde_json::to_value(v.unix_timestamp()).unwrap_or(JsonValue::Null),
     }
 }
@@ -329,7 +329,7 @@ pub fn value_to_json_value_with_paths<T: StoreTrait>(
             JsonValue::Number(serde_json::Number::from_f64(*v).unwrap_or_else(|| serde_json::Number::from(0)))
         },
         Value::Int(v) => JsonValue::Number(serde_json::Number::from(*v)),
-        Value::String(v) => JsonValue::String(v.clone()),
+        Value::String(v) => JsonValue::String(v.to_string()),
         Value::Timestamp(v) => serde_json::to_value(v.unix_timestamp()).unwrap_or(JsonValue::Null),
     }
 }
@@ -340,7 +340,7 @@ pub fn json_value_to_value(json_value: &JsonValue, field_schema: &FieldSchema) -
         FieldSchema::Blob { .. } => {
             let blob: Vec<u8> = serde_json::from_value(json_value.clone())
                 .map_err(|_| Error::InvalidFieldValue("Invalid blob data".to_string()))?;
-            Ok(Value::Blob(blob))
+            Ok(Value::Blob(blob.into()))
         },
         FieldSchema::Bool { .. } => {
             let bool_val = json_value.as_bool()
@@ -398,14 +398,14 @@ pub fn json_value_to_value(json_value: &JsonValue, field_schema: &FieldSchema) -
                 let config = crate::auth::AuthConfig::default();
                 match crate::auth::hash_password(password, &config) {
                     Ok(hashed) => {
-                        Ok(Value::String(hashed))
+                        Ok(Value::String(hashed.into()))
                     },
                     Err(_) => {
                         Err(Error::InvalidFieldValue("Failed to hash password".to_string()))
                     }
                 }
             } else {
-                Ok(Value::String(string_val.to_string()))
+                Ok(Value::String(string_val.to_string().into()))
             }
         },
         FieldSchema::Timestamp { .. } => {
@@ -1070,7 +1070,7 @@ fn apply_entity_diff_recursive<'a>(
                 
                 if let Ok(read_requests) = store.perform_mut(read_requests) {
                     if let Some(crate::Request::Read { value: Some(crate::Value::String(name)), .. }) = read_requests.first() {
-                        if name == target_name {
+                        if name.as_str() == target_name {
                             found_entity_id = Some(*entity_id);
                             break;
                         }

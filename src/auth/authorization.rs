@@ -35,8 +35,8 @@ pub fn get_scope(
         let resource_field_str = store.resolve_field_type(resource_field)?;
         
         let permissions = permission_cache.get(vec![
-            Value::String(entity_type_str),
-            Value::String(resource_field_str),
+            Value::String(entity_type_str.into()),
+            Value::String(resource_field_str.into()),
         ]);
 
         if let Some(permissions) = permissions {
@@ -60,7 +60,7 @@ pub fn get_scope(
                 };
 
                 let result = executor.execute(
-                    &condition.as_str(),
+                    condition,
                     subject_entity_id,
                     store,
                 );
