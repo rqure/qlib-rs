@@ -193,6 +193,10 @@ impl StoreProxy {
         let stream = std::net::TcpStream::connect(address)
             .map_err(|e| Error::StoreProxyError(format!("Failed to connect to {}: {}", address, e)))?;
         
+        // Optimize TCP socket for low latency
+        stream.set_nodelay(true)
+            .map_err(|e| Error::StoreProxyError(format!("Failed to set TCP_NODELAY: {}", e)))?;
+        
         // Set to non-blocking for message handling
         stream.set_nonblocking(true)
             .map_err(|e| Error::StoreProxyError(format!("Failed to set non-blocking: {}", e)))?;
