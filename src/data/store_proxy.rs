@@ -222,9 +222,17 @@ impl StoreProxy {
             match tcp_connection.try_receive_message() {
                 Ok(Some(message)) => break message,
                 Ok(None) => {
-                    // No message yet, continue waiting
-                    std::thread::sleep(std::time::Duration::from_millis(10));
-                    continue;
+                    // No message yet, wait for data to be ready
+                    let remaining_timeout = auth_timeout.saturating_sub(auth_start.elapsed());
+                    if remaining_timeout.is_zero() {
+                        return Err(Error::StoreProxyError("Authentication timeout".to_string()));
+                    }
+                    
+                    match tcp_connection.wait_for_readable(Some(std::time::Duration::from_millis(10))) {
+                        Ok(true) => continue, // Data is ready, try reading again
+                        Ok(false) => continue, // Timeout, check overall timeout and try again
+                        Err(e) => return Err(Error::StoreProxyError(format!("Poll error during auth: {}", e))),
+                    }
                 }
                 Err(e) => return Err(Error::StoreProxyError(format!("TCP error during auth: {}", e))),
             }
