@@ -6,7 +6,7 @@ pub struct PageOpts {
     /// The maximum number of items to return
     pub limit: usize,
     /// The starting point for pagination
-    pub cursor: Option<String>,
+    pub cursor: Option<usize>,
 }
 
 impl Default for PageOpts {
@@ -19,7 +19,7 @@ impl Default for PageOpts {
 }
 
 impl PageOpts {
-    pub fn new(limit: usize, cursor: Option<String>) -> Self {
+    pub fn new(limit: usize, cursor: Option<usize>) -> Self {
         PageOpts { limit, cursor }
     }
 }
@@ -32,11 +32,11 @@ pub struct PageResult<T> {
     /// The total number of items available
     pub total: usize,
     /// Cursor for retrieving the next page, if available
-    pub next_cursor: Option<String>,
+    pub next_cursor: Option<usize>,
 }
 
 impl<T> PageResult<T> {
-    pub fn new(items: Vec<T>, total: usize, next_cursor: Option<String>) -> Self {
+    pub fn new(items: Vec<T>, total: usize, next_cursor: Option<usize>) -> Self {
         PageResult {
             items,
             total,

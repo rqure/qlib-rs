@@ -596,10 +596,11 @@ fn test_find_entities_pagination() -> Result<()> {
     assert_eq!(zero_result.items.len(), 0); // Zero limit should return no items
     assert_eq!(zero_result.total, 10); // But total should still be correct
     
-    // Test with invalid cursor
-    let invalid_page = PageOpts::new(5, Some("invalid".to_string()));
-    let invalid_result = store.find_entities_paginated(et_user, Some(&invalid_page), None)?;
-    assert_eq!(invalid_result.items.len(), 5); // Should start from beginning
+    // Test with out-of-bounds cursor (should return empty results)
+    let out_of_bounds_page = PageOpts::new(5, Some(15)); // cursor beyond total items (10)
+    let out_of_bounds_result = store.find_entities_paginated(et_user, Some(&out_of_bounds_page), None)?;
+    assert_eq!(out_of_bounds_result.items.len(), 0); // Should return no items when cursor is beyond range
+    assert_eq!(out_of_bounds_result.total, 10); // But total should still be correct
     
     Ok(())
 }

@@ -861,12 +861,8 @@ impl Store {
             });
         }
 
-        // Parse cursor early to avoid work if invalid
-        let start_idx = if let Some(cursor) = &opts.cursor {
-            cursor.parse::<usize>().unwrap_or(0)
-        } else {
-            0
-        };
+        // Get cursor value
+        let start_idx = opts.cursor.unwrap_or(0);
 
         if let Some(filter_expr) = filter {
             // Optimized path for filtered queries - lazy evaluation with early termination
@@ -921,7 +917,7 @@ impl Store {
         }
 
         let next_cursor = if end_idx < total {
-            Some(end_idx.to_string())
+            Some(end_idx)
         } else {
             None
         };
@@ -984,7 +980,7 @@ impl Store {
         }
 
         let next_cursor = if page_complete && total_filtered > end_target {
-            Some(end_target.to_string())
+            Some(end_target)
         } else {
             None
         };
@@ -1028,12 +1024,8 @@ impl Store {
             }
         };
 
-        // Parse cursor early
-        let start_idx = if let Some(cursor) = &opts.cursor {
-            cursor.parse::<usize>().unwrap_or(0)
-        } else {
-            0
-        };
+        // Get cursor value
+        let start_idx = opts.cursor.unwrap_or(0);
 
         if let Some(filter_expr) = filter {
             // Optimized filtered path - only evaluate what we need
@@ -1065,7 +1057,7 @@ impl Store {
         let items = entities[start_idx..end_idx].to_vec();
 
         let next_cursor = if end_idx < total {
-            Some(end_idx.to_string())
+            Some(end_idx)
         } else {
             None
         };
@@ -1113,7 +1105,7 @@ impl Store {
         }
 
         let next_cursor = if start_idx + opts.limit < total_filtered {
-            Some((start_idx + opts.limit).to_string())
+            Some(start_idx + opts.limit)
         } else {
             None
         };
@@ -1188,15 +1180,8 @@ impl Store {
         let all_types: Vec<EntityType> = self.schemas.keys().cloned().collect();
         let total = all_types.len();
 
-        // Find the starting index based on cursor
-        let start_idx = if let Some(cursor) = &opts.cursor {
-            match cursor.parse::<usize>() {
-                Ok(idx) => idx,
-                Err(_) => 0,
-            }
-        } else {
-            0
-        };
+        // Get the starting index based on cursor
+        let start_idx = opts.cursor.unwrap_or(0);
 
         // Get the slice of types for this page
         let end_idx = std::cmp::min(start_idx + opts.limit, total);
@@ -1208,7 +1193,7 @@ impl Store {
 
         // Calculate the next cursor
         let next_cursor = if end_idx < total {
-            Some(end_idx.to_string())
+            Some(end_idx)
         } else {
             None
         };
