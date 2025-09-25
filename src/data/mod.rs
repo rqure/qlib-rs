@@ -12,6 +12,7 @@ mod pagination;
 mod request;
 mod snapshots;
 mod store_proxy;
+mod async_store_proxy;
 mod store;
 mod store_trait;
 mod value;
@@ -34,6 +35,7 @@ pub use cache::Cache;
 pub use request::IndirectFieldType;
 
 pub use store_proxy::{StoreProxy, StoreMessage, extract_message_id, AuthenticationResult};
+pub use async_store_proxy::AsyncStoreProxy;
 pub use value::{Value, ArcString, ArcBlob};
 pub use notifications::{NotifyConfig, Notification, NotificationQueue, hash_notify_config};
 

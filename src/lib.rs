@@ -8,7 +8,7 @@ pub use data::{
     BadIndirectionReason, Store, PageOpts,
     PageResult, NotificationQueue, hash_notify_config, Snapshot, EntityId, EntitySchema, Single, Complete, 
     Field, FieldSchema, AdjustBehavior, PushCondition, Request, Requests,
-    StoreProxy, StoreMessage, extract_message_id, Value, ArcString, ArcBlob, INDIRECTION_DELIMITER, NotifyConfig, Notification,
+    StoreProxy, AsyncStoreProxy, StoreMessage, extract_message_id, Value, ArcString, ArcBlob, INDIRECTION_DELIMITER, NotifyConfig, Notification,
     AuthenticationResult,
     JsonSnapshot, JsonEntitySchema, JsonEntity, value_to_json_value, json_value_to_value, value_to_json_value_with_paths, build_json_entity_tree, take_json_snapshot, restore_json_snapshot,
     restore_entity_recursive, factory_restore_json_snapshot, restore_json_snapshot_via_proxy,
