@@ -3,7 +3,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use crate::{
-    Complete, EntityId, EntitySchema, EntityType, FieldSchema, FieldType,
+    EntityId, EntitySchema, EntityType, FieldSchema, FieldType,
     NotificationQueue, NotifyConfig, PageOpts, PageResult, Requests, Result, Single,
     StoreProxy, StoreTrait,
 };
@@ -102,35 +102,55 @@ enum StoreServiceMessage {
 
 /// StoreService that follows the actor pattern
 /// Provides wrapper functionality over StoreProxy using async Rust with mpsc and oneshot channels
+/// This is the actual actor that owns and manages the StoreProxy
 pub struct StoreService {
-    sender: mpsc::UnboundedSender<StoreServiceMessage>,
-    // We use RefCell + Rc to hold the store_proxy since it's not Send/Sync
+    receiver: mpsc::UnboundedReceiver<StoreServiceMessage>,
     store_proxy: Rc<RefCell<StoreProxy>>,
+}
+
+/// StoreHandle is a cloneable handle used by other service actors to communicate with the StoreService
+/// It provides a lightweight interface for sending messages to the StoreService actor
+#[derive(Debug, Clone)]
+pub struct StoreHandle {
+    sender: mpsc::UnboundedSender<StoreServiceMessage>,
 }
 
 impl std::fmt::Debug for StoreService {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("StoreService")
-            .field("sender", &"<mpsc::UnboundedSender>")
+            .field("receiver", &"<mpsc::UnboundedReceiver>")
             .field("store_proxy", &"<StoreProxy>")
             .finish()
     }
 }
 
 impl StoreService {
-    /// Create a new StoreService with the given StoreProxy
-    /// Uses the actor pattern with unbounded mpsc and oneshot channels
-    pub fn new(store_proxy: StoreProxy) -> Self {
-        let (sender, _receiver) = mpsc::unbounded_channel();
+    /// Create a new StoreService with the given StoreProxy and return both the service and a handle
+    /// The StoreService is the actor that owns the StoreProxy and processes messages
+    pub fn new(store_proxy: StoreProxy) -> (Self, StoreHandle) {
+        let (sender, receiver) = mpsc::unbounded_channel();
         
-        Self {
-            sender,
+        let service = Self {
+            receiver,
             store_proxy: Rc::new(RefCell::new(store_proxy)),
+        };
+        
+        let handle = StoreHandle {
+            sender,
+        };
+        
+        (service, handle)
+    }
+
+    /// Run the StoreService actor - this processes messages from the channel
+    /// This should be called in an async context to handle incoming messages
+    pub async fn run(mut self) {
+        while let Some(message) = self.receiver.recv().await {
+            self.process_message(message);
         }
     }
 
-    /// Process a message synchronously by directly calling the StoreProxy
-    /// This implements the actor pattern conceptually while maintaining synchronous behavior
+    /// Process a single message by calling the appropriate StoreProxy method
     fn process_message(&self, message: StoreServiceMessage) {
         let mut proxy = self.store_proxy.borrow_mut();
         match message {
@@ -212,7 +232,9 @@ impl StoreService {
             }
         }
     }
+}
 
+impl StoreHandle {
     /// Helper method to send a message and get the response synchronously
     fn send_and_receive<T, F>(&self, message_builder: F) -> T
     where
@@ -221,56 +243,57 @@ impl StoreService {
         let (tx, rx) = oneshot::channel();
         let message = message_builder(tx);
         
-        // Process the message directly since we can't use async here
-        self.process_message(message);
+        // Send the message to the StoreService actor
+        if self.sender.send(message).is_err() {
+            panic!("StoreService actor has been dropped");
+        }
         
         // Block on receiving the response
         rx.blocking_recv().unwrap_or_else(|_| panic!("Actor response channel closed"))
     }
-}
 
-impl StoreTrait for StoreService {
-    fn get_entity_type(&self, name: &str) -> Result<EntityType> {
+    /// Get entity type by name
+    pub fn get_entity_type(&self, name: &str) -> Result<EntityType> {
         self.send_and_receive(|respond_to| StoreServiceMessage::GetEntityType {
             name: name.to_string(),
             respond_to,
         })
     }
 
-    fn resolve_entity_type(&self, entity_type: EntityType) -> Result<String> {
+    /// Resolve entity type to name
+    pub fn resolve_entity_type(&self, entity_type: EntityType) -> Result<String> {
         self.send_and_receive(|respond_to| StoreServiceMessage::ResolveEntityType {
             entity_type,
             respond_to,
         })
     }
 
-    fn get_field_type(&self, name: &str) -> Result<FieldType> {
+    /// Get field type by name
+    pub fn get_field_type(&self, name: &str) -> Result<FieldType> {
         self.send_and_receive(|respond_to| StoreServiceMessage::GetFieldType {
             name: name.to_string(),
             respond_to,
         })
     }
 
-    fn resolve_field_type(&self, field_type: FieldType) -> Result<String> {
+    /// Resolve field type to name
+    pub fn resolve_field_type(&self, field_type: FieldType) -> Result<String> {
         self.send_and_receive(|respond_to| StoreServiceMessage::ResolveFieldType {
             field_type,
             respond_to,
         })
     }
 
-    fn get_entity_schema(&self, entity_type: EntityType) -> Result<EntitySchema<Single>> {
+    /// Get entity schema
+    pub fn get_entity_schema(&self, entity_type: EntityType) -> Result<EntitySchema<Single>> {
         self.send_and_receive(|respond_to| StoreServiceMessage::GetEntitySchema {
             entity_type,
             respond_to,
         })
     }
 
-    fn get_complete_entity_schema(&self, _entity_type: EntityType) -> Result<&EntitySchema<Complete>> {
-        // Similar to StoreProxy, we cannot return references to data obtained from actor
-        unimplemented!("StoreService cannot return references to remote data")
-    }
-
-    fn get_field_schema(&self, entity_type: EntityType, field_type: FieldType) -> Result<FieldSchema> {
+    /// Get field schema
+    pub fn get_field_schema(&self, entity_type: EntityType, field_type: FieldType) -> Result<FieldSchema> {
         self.send_and_receive(|respond_to| StoreServiceMessage::GetFieldSchema {
             entity_type,
             field_type,
@@ -278,7 +301,8 @@ impl StoreTrait for StoreService {
         })
     }
 
-    fn set_field_schema(&mut self, entity_type: EntityType, field_type: FieldType, schema: FieldSchema) -> Result<()> {
+    /// Set field schema
+    pub fn set_field_schema(&self, entity_type: EntityType, field_type: FieldType, schema: FieldSchema) -> Result<()> {
         self.send_and_receive(|respond_to| StoreServiceMessage::SetFieldSchema {
             entity_type,
             field_type,
@@ -287,14 +311,16 @@ impl StoreTrait for StoreService {
         })
     }
 
-    fn entity_exists(&self, entity_id: EntityId) -> bool {
+    /// Check if entity exists
+    pub fn entity_exists(&self, entity_id: EntityId) -> bool {
         self.send_and_receive(|respond_to| StoreServiceMessage::EntityExists {
             entity_id,
             respond_to,
         })
     }
 
-    fn field_exists(&self, entity_type: EntityType, field_type: FieldType) -> bool {
+    /// Check if field exists for entity type
+    pub fn field_exists(&self, entity_type: EntityType, field_type: FieldType) -> bool {
         self.send_and_receive(|respond_to| StoreServiceMessage::FieldExists {
             entity_type,
             field_type,
@@ -302,7 +328,8 @@ impl StoreTrait for StoreService {
         })
     }
 
-    fn resolve_indirection(&self, entity_id: EntityId, fields: &[FieldType]) -> Result<(EntityId, FieldType)> {
+    /// Resolve indirection
+    pub fn resolve_indirection(&self, entity_id: EntityId, fields: &[FieldType]) -> Result<(EntityId, FieldType)> {
         self.send_and_receive(|respond_to| StoreServiceMessage::ResolveIndirection {
             entity_id,
             fields: fields.to_vec(),
@@ -310,21 +337,24 @@ impl StoreTrait for StoreService {
         })
     }
 
-    fn perform(&self, requests: Requests) -> Result<Requests> {
+    /// Perform operations
+    pub fn perform(&self, requests: Requests) -> Result<Requests> {
         self.send_and_receive(|respond_to| StoreServiceMessage::Perform {
             requests,
             respond_to,
         })
     }
 
-    fn perform_mut(&mut self, requests: Requests) -> Result<Requests> {
+    /// Perform mutable operations
+    pub fn perform_mut(&self, requests: Requests) -> Result<Requests> {
         self.send_and_receive(|respond_to| StoreServiceMessage::PerformMut {
             requests,
             respond_to,
         })
     }
 
-    fn find_entities_paginated(&self, entity_type: EntityType, page_opts: Option<&PageOpts>, filter: Option<&str>) -> Result<PageResult<EntityId>> {
+    /// Find entities with pagination
+    pub fn find_entities_paginated(&self, entity_type: EntityType, page_opts: Option<&PageOpts>, filter: Option<&str>) -> Result<PageResult<EntityId>> {
         self.send_and_receive(|respond_to| StoreServiceMessage::FindEntitiesPaginated {
             entity_type,
             page_opts: page_opts.cloned(),
@@ -333,7 +363,8 @@ impl StoreTrait for StoreService {
         })
     }
 
-    fn find_entities_exact(&self, entity_type: EntityType, page_opts: Option<&PageOpts>, filter: Option<&str>) -> Result<PageResult<EntityId>> {
+    /// Find entities exactly with pagination
+    pub fn find_entities_exact(&self, entity_type: EntityType, page_opts: Option<&PageOpts>, filter: Option<&str>) -> Result<PageResult<EntityId>> {
         self.send_and_receive(|respond_to| StoreServiceMessage::FindEntitiesExact {
             entity_type,
             page_opts: page_opts.cloned(),
@@ -342,7 +373,8 @@ impl StoreTrait for StoreService {
         })
     }
 
-    fn find_entities(&self, entity_type: EntityType, filter: Option<&str>) -> Result<Vec<EntityId>> {
+    /// Find entities
+    pub fn find_entities(&self, entity_type: EntityType, filter: Option<&str>) -> Result<Vec<EntityId>> {
         self.send_and_receive(|respond_to| StoreServiceMessage::FindEntities {
             entity_type,
             filter: filter.map(|s| s.to_string()),
@@ -350,20 +382,23 @@ impl StoreTrait for StoreService {
         })
     }
 
-    fn get_entity_types(&self) -> Result<Vec<EntityType>> {
+    /// Get all entity types
+    pub fn get_entity_types(&self) -> Result<Vec<EntityType>> {
         self.send_and_receive(|respond_to| StoreServiceMessage::GetEntityTypes {
             respond_to,
         })
     }
 
-    fn get_entity_types_paginated(&self, page_opts: Option<&PageOpts>) -> Result<PageResult<EntityType>> {
+    /// Get entity types with pagination
+    pub fn get_entity_types_paginated(&self, page_opts: Option<&PageOpts>) -> Result<PageResult<EntityType>> {
         self.send_and_receive(|respond_to| StoreServiceMessage::GetEntityTypesPaginated {
             page_opts: page_opts.cloned(),
             respond_to,
         })
     }
 
-    fn register_notification(&mut self, config: NotifyConfig, sender: NotificationQueue) -> Result<()> {
+    /// Register notification
+    pub fn register_notification(&self, config: NotifyConfig, sender: NotificationQueue) -> Result<()> {
         self.send_and_receive(|respond_to| StoreServiceMessage::RegisterNotification {
             config,
             sender,
@@ -371,7 +406,8 @@ impl StoreTrait for StoreService {
         })
     }
 
-    fn unregister_notification(&mut self, config: &NotifyConfig, sender: &NotificationQueue) -> bool {
+    /// Unregister notification
+    pub fn unregister_notification(&self, config: &NotifyConfig, sender: &NotificationQueue) -> bool {
         self.send_and_receive(|respond_to| StoreServiceMessage::UnregisterNotification {
             config: config.clone(),
             sender: sender.clone(),
@@ -387,7 +423,7 @@ mod tests {
 
     #[test]
     fn test_store_service_creation() {
-        // This is a basic test to ensure StoreService can be created
+        // This is a basic test to ensure StoreService and StoreHandle can be created
         // In a real scenario, you would create a StoreProxy connected to a server
         // For this test, we'll skip actual connection testing since it requires a server
         
@@ -395,8 +431,8 @@ mod tests {
         // because StoreProxy::connect_and_authenticate requires a TCP server
         // This test mainly validates the type system and basic structure
         
-        // The main goal is to verify the StoreService compiles and provides the right interface
-        assert!(true, "StoreService compiles and exports correctly");
+        // The main goal is to verify the StoreService compiles and exports correctly
+        assert!(true, "StoreService and StoreHandle compile and export correctly");
     }
 
     #[test] 
@@ -414,10 +450,24 @@ mod tests {
     }
 
     #[test]
-    fn test_store_service_debug_impl() {
-        // Test that Debug is implemented
-        // We can't create a real StoreService without a connection, but we can test the type
+    fn test_store_handle_is_cloneable() {
+        // Test that StoreHandle is cloneable as requested
+        let (_tx, _rx): (mpsc::UnboundedSender<StoreServiceMessage>, _) = mpsc::unbounded_channel();
+        let handle = StoreHandle { sender: _tx };
+        let _cloned_handle = handle.clone();
+        
+        assert!(true, "StoreHandle is cloneable");
+    }
+
+    #[test]
+    fn test_debug_implementations() {
+        // Test that Debug is implemented for both StoreHandle and types
         let debug_string = format!("{:?}", std::marker::PhantomData::<StoreService>);
         assert!(debug_string.contains("PhantomData"), "Debug implementation works for related types");
+        
+        let (_tx, _rx): (mpsc::UnboundedSender<StoreServiceMessage>, _) = mpsc::unbounded_channel();
+        let handle = StoreHandle { sender: _tx };
+        let handle_debug = format!("{:?}", handle);
+        assert!(handle_debug.contains("StoreHandle"), "StoreHandle Debug implementation works");
     }
 }
