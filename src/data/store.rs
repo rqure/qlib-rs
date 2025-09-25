@@ -500,10 +500,11 @@ impl Store {
                     writer_id,
                     push_condition,
                     adjust_behavior,
+                    write_processed,
                     ..
                 } => {
                     let indir = self.resolve_indirection(*entity_id, &field_type)?;
-                    if self.write(
+                    let was_written = self.write(
                         indir.0,
                         indir.1,
                         value,
@@ -511,7 +512,9 @@ impl Store {
                         writer_id,
                         push_condition,
                         adjust_behavior,
-                    )? {
+                    )?;
+                    *write_processed = was_written;
+                    if was_written {
                         write_occurred = true;
                     }
                 }

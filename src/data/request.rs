@@ -45,6 +45,7 @@ pub enum Request {
         adjust_behavior: AdjustBehavior,
         write_time: Option<Timestamp>,
         writer_id: Option<EntityId>,
+        write_processed: bool,
     },
     Create {
         entity_type: EntityType,
@@ -403,8 +404,8 @@ impl std::fmt::Display for Request {
             Request::Read { entity_id, field_types: field_type, value, write_time, writer_id } => {
                 write!(f, "Read Request - Entity ID: {:?}, Field Type: {:?}, Value: {:?}, Write Time: {:?}, Writer ID: {:?}", entity_id, field_type, value, write_time, writer_id)
             }
-            Request::Write { entity_id, field_types: field_type, value, push_condition, adjust_behavior, write_time, writer_id } => {
-                write!(f, "Write Request - Entity ID: {:?}, Field Type: {:?}, Value: {:?}, Push Condition: {:?}, Adjust Behavior: {}, Write Time: {:?}, Writer ID: {:?}", entity_id, field_type, value, push_condition, adjust_behavior, write_time, writer_id)
+            Request::Write { entity_id, field_types: field_type, value, push_condition, adjust_behavior, write_time, writer_id, write_processed } => {
+                write!(f, "Write Request - Entity ID: {:?}, Field Type: {:?}, Value: {:?}, Push Condition: {:?}, Adjust Behavior: {}, Write Time: {:?}, Writer ID: {:?}, Write Processed: {}", entity_id, field_type, value, push_condition, adjust_behavior, write_time, writer_id, write_processed)
             }
             Request::Create { entity_type, parent_id, name, created_entity_id, timestamp } => {
                 write!(f, "Create Request - Entity Type: {:?}, Parent ID: {:?}, Name: {:?}, Created Entity ID: {:?}, Timestamp: {:?}", entity_type, parent_id, name, created_entity_id, timestamp)

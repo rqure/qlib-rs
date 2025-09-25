@@ -830,6 +830,7 @@ pub fn restore_entity_recursive<T: StoreTrait>(
                         adjust_behavior: crate::AdjustBehavior::Set,
                         write_time: None,
                         writer_id: None,
+                        write_processed: false,
                     });
                 }
                 Err(_) => {
@@ -864,6 +865,7 @@ pub fn restore_entity_recursive<T: StoreTrait>(
                     adjust_behavior: crate::AdjustBehavior::Set,
                     write_time: None,
                     writer_id: None,
+                    write_processed: false,
                 }];
                 store.perform_mut(children_write_requests)?;
             }
@@ -1117,6 +1119,7 @@ fn apply_entity_diff_recursive<'a>(
                         adjust_behavior: crate::AdjustBehavior::Set,
                         write_time: None,
                         writer_id: None,
+                        write_processed: false,
                     });
                 }
             }
@@ -1167,6 +1170,7 @@ fn apply_entity_diff_recursive<'a>(
                     adjust_behavior: crate::AdjustBehavior::Set,
                     write_time: None,
                     writer_id: None,
+                    write_processed: false,
                 }];
                 store.perform_mut(children_write_requests)?;
             }

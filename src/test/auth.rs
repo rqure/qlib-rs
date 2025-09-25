@@ -293,33 +293,9 @@ fn test_authentication_with_factory_restore_format() -> Result<()> {
     let _last_login_field_type = store.get_field_type("LastLogin")?;
     
     let field_requests = sreq![
-        Request::Write {
-            entity_id: user_id,
-            field_types: crate::sfield![name_field_type],
-            value: Some(Value::String(username.to_string().into())),
-            push_condition: PushCondition::Always,
-            adjust_behavior: AdjustBehavior::Set,
-            write_time: None,
-            writer_id: None, 
-        },
-        Request::Write {
-            entity_id: user_id,
-            field_types: crate::sfield![secret_field_type],
-            value: Some(Value::String(password_hash.into())),
-            push_condition: PushCondition::Always,
-            adjust_behavior: AdjustBehavior::Set,
-            write_time: None,
-            writer_id: None,
-        },
-        Request::Write {
-            entity_id: user_id,
-            field_types: crate::sfield![active_field_type],
-            value: Some(Value::Bool(true)),
-            push_condition: PushCondition::Always,
-            adjust_behavior: AdjustBehavior::Set,
-            write_time: None,
-            writer_id: None,
-        },
+        swrite!(user_id, crate::sfield![name_field_type], sstr!(username)),
+        swrite!(user_id, crate::sfield![secret_field_type], sstr!(password_hash)),
+        swrite!(user_id, crate::sfield![active_field_type], sbool!(true)),
     ];
     store.perform_mut(field_requests)?;
     
