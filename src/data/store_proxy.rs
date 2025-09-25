@@ -164,7 +164,7 @@ impl TcpConnection {
 #[derive(Debug)]
 pub struct StoreProxy {
     tcp_connection: Rc<RefCell<TcpConnection>>,
-    pending_requests: Rc<RefCell<HashMap<u64, serde_json::Value>>>,
+    pending_requests: Rc<RefCell<HashMap<u64, StoreMessage>>>,
     // Map from config hash to list of notification senders
     notification_configs: Rc<RefCell<HashMap<u64, Vec<NotificationQueue>>>>,
     // Authentication state - set once during connection
@@ -273,10 +273,9 @@ impl StoreProxy {
                 }
             }
             _ => {
-                // Handle response to pending request
+                // Handle response to pending request - store the message directly
                 if let Some(id) = extract_message_id(store_message) {
-                    let response_json = serde_json::to_value(store_message).unwrap_or_default();
-                    self.pending_requests.borrow_mut().insert(id, response_json);
+                    self.pending_requests.borrow_mut().insert(id, store_message.clone());
                 }
             }
         }
@@ -300,10 +299,8 @@ impl StoreProxy {
             // Check if we already have the response
             {
                 let mut pending = self.pending_requests.borrow_mut();
-                if let Some(response_json) = pending.remove(&id) {
+                if let Some(response) = pending.remove(&id) {
                     drop(pending); // Explicitly drop the borrow
-                    let response: StoreMessage = serde_json::from_value(response_json)
-                        .map_err(|e| Error::StoreProxyError(format!("Failed to parse response: {}", e)))?;
                     return Ok(response);
                 }
             }
