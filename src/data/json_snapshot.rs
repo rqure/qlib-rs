@@ -944,7 +944,7 @@ pub fn factory_restore_json_snapshot(
         timestamp: None,
     };
     
-    let serialized_request = serde_json::to_vec(&snapshot_request)
+    let serialized_request = bincode::serialize(&snapshot_request)
         .map_err(|e| crate::Error::StoreProxyError(format!("Failed to serialize snapshot request: {}", e)))?;
     
     // Write to WAL file with length prefix (matching QCore format)
