@@ -235,8 +235,8 @@ impl StoreService {
 }
 
 impl StoreHandle {
-    /// Helper method to send a message and get the response synchronously
-    fn send_and_receive<T, F>(&self, message_builder: F) -> T
+    /// Helper method to send a message and get the response asynchronously
+    async fn send_and_receive<T, F>(&self, message_builder: F) -> T
     where
         F: FnOnce(oneshot::Sender<T>) -> StoreServiceMessage,
     {
@@ -248,171 +248,171 @@ impl StoreHandle {
             panic!("StoreService actor has been dropped");
         }
         
-        // Block on receiving the response
-        rx.blocking_recv().unwrap_or_else(|_| panic!("Actor response channel closed"))
+        // Await the response
+        rx.await.unwrap_or_else(|_| panic!("Actor response channel closed"))
     }
 
     /// Get entity type by name
-    pub fn get_entity_type(&self, name: &str) -> Result<EntityType> {
+    pub async fn get_entity_type(&self, name: &str) -> Result<EntityType> {
         self.send_and_receive(|respond_to| StoreServiceMessage::GetEntityType {
             name: name.to_string(),
             respond_to,
-        })
+        }).await
     }
 
     /// Resolve entity type to name
-    pub fn resolve_entity_type(&self, entity_type: EntityType) -> Result<String> {
+    pub async fn resolve_entity_type(&self, entity_type: EntityType) -> Result<String> {
         self.send_and_receive(|respond_to| StoreServiceMessage::ResolveEntityType {
             entity_type,
             respond_to,
-        })
+        }).await
     }
 
     /// Get field type by name
-    pub fn get_field_type(&self, name: &str) -> Result<FieldType> {
+    pub async fn get_field_type(&self, name: &str) -> Result<FieldType> {
         self.send_and_receive(|respond_to| StoreServiceMessage::GetFieldType {
             name: name.to_string(),
             respond_to,
-        })
+        }).await
     }
 
     /// Resolve field type to name
-    pub fn resolve_field_type(&self, field_type: FieldType) -> Result<String> {
+    pub async fn resolve_field_type(&self, field_type: FieldType) -> Result<String> {
         self.send_and_receive(|respond_to| StoreServiceMessage::ResolveFieldType {
             field_type,
             respond_to,
-        })
+        }).await
     }
 
     /// Get entity schema
-    pub fn get_entity_schema(&self, entity_type: EntityType) -> Result<EntitySchema<Single>> {
+    pub async fn get_entity_schema(&self, entity_type: EntityType) -> Result<EntitySchema<Single>> {
         self.send_and_receive(|respond_to| StoreServiceMessage::GetEntitySchema {
             entity_type,
             respond_to,
-        })
+        }).await
     }
 
     /// Get field schema
-    pub fn get_field_schema(&self, entity_type: EntityType, field_type: FieldType) -> Result<FieldSchema> {
+    pub async fn get_field_schema(&self, entity_type: EntityType, field_type: FieldType) -> Result<FieldSchema> {
         self.send_and_receive(|respond_to| StoreServiceMessage::GetFieldSchema {
             entity_type,
             field_type,
             respond_to,
-        })
+        }).await
     }
 
     /// Set field schema
-    pub fn set_field_schema(&self, entity_type: EntityType, field_type: FieldType, schema: FieldSchema) -> Result<()> {
+    pub async fn set_field_schema(&self, entity_type: EntityType, field_type: FieldType, schema: FieldSchema) -> Result<()> {
         self.send_and_receive(|respond_to| StoreServiceMessage::SetFieldSchema {
             entity_type,
             field_type,
             schema,
             respond_to,
-        })
+        }).await
     }
 
     /// Check if entity exists
-    pub fn entity_exists(&self, entity_id: EntityId) -> bool {
+    pub async fn entity_exists(&self, entity_id: EntityId) -> bool {
         self.send_and_receive(|respond_to| StoreServiceMessage::EntityExists {
             entity_id,
             respond_to,
-        })
+        }).await
     }
 
     /// Check if field exists for entity type
-    pub fn field_exists(&self, entity_type: EntityType, field_type: FieldType) -> bool {
+    pub async fn field_exists(&self, entity_type: EntityType, field_type: FieldType) -> bool {
         self.send_and_receive(|respond_to| StoreServiceMessage::FieldExists {
             entity_type,
             field_type,
             respond_to,
-        })
+        }).await
     }
 
     /// Resolve indirection
-    pub fn resolve_indirection(&self, entity_id: EntityId, fields: &[FieldType]) -> Result<(EntityId, FieldType)> {
+    pub async fn resolve_indirection(&self, entity_id: EntityId, fields: &[FieldType]) -> Result<(EntityId, FieldType)> {
         self.send_and_receive(|respond_to| StoreServiceMessage::ResolveIndirection {
             entity_id,
             fields: fields.to_vec(),
             respond_to,
-        })
+        }).await
     }
 
     /// Perform operations
-    pub fn perform(&self, requests: Requests) -> Result<Requests> {
+    pub async fn perform(&self, requests: Requests) -> Result<Requests> {
         self.send_and_receive(|respond_to| StoreServiceMessage::Perform {
             requests,
             respond_to,
-        })
+        }).await
     }
 
     /// Perform mutable operations
-    pub fn perform_mut(&self, requests: Requests) -> Result<Requests> {
+    pub async fn perform_mut(&self, requests: Requests) -> Result<Requests> {
         self.send_and_receive(|respond_to| StoreServiceMessage::PerformMut {
             requests,
             respond_to,
-        })
+        }).await
     }
 
     /// Find entities with pagination
-    pub fn find_entities_paginated(&self, entity_type: EntityType, page_opts: Option<&PageOpts>, filter: Option<&str>) -> Result<PageResult<EntityId>> {
+    pub async fn find_entities_paginated(&self, entity_type: EntityType, page_opts: Option<&PageOpts>, filter: Option<&str>) -> Result<PageResult<EntityId>> {
         self.send_and_receive(|respond_to| StoreServiceMessage::FindEntitiesPaginated {
             entity_type,
             page_opts: page_opts.cloned(),
             filter: filter.map(|s| s.to_string()),
             respond_to,
-        })
+        }).await
     }
 
     /// Find entities exactly with pagination
-    pub fn find_entities_exact(&self, entity_type: EntityType, page_opts: Option<&PageOpts>, filter: Option<&str>) -> Result<PageResult<EntityId>> {
+    pub async fn find_entities_exact(&self, entity_type: EntityType, page_opts: Option<&PageOpts>, filter: Option<&str>) -> Result<PageResult<EntityId>> {
         self.send_and_receive(|respond_to| StoreServiceMessage::FindEntitiesExact {
             entity_type,
             page_opts: page_opts.cloned(),
             filter: filter.map(|s| s.to_string()),
             respond_to,
-        })
+        }).await
     }
 
     /// Find entities
-    pub fn find_entities(&self, entity_type: EntityType, filter: Option<&str>) -> Result<Vec<EntityId>> {
+    pub async fn find_entities(&self, entity_type: EntityType, filter: Option<&str>) -> Result<Vec<EntityId>> {
         self.send_and_receive(|respond_to| StoreServiceMessage::FindEntities {
             entity_type,
             filter: filter.map(|s| s.to_string()),
             respond_to,
-        })
+        }).await
     }
 
     /// Get all entity types
-    pub fn get_entity_types(&self) -> Result<Vec<EntityType>> {
+    pub async fn get_entity_types(&self) -> Result<Vec<EntityType>> {
         self.send_and_receive(|respond_to| StoreServiceMessage::GetEntityTypes {
             respond_to,
-        })
+        }).await
     }
 
     /// Get entity types with pagination
-    pub fn get_entity_types_paginated(&self, page_opts: Option<&PageOpts>) -> Result<PageResult<EntityType>> {
+    pub async fn get_entity_types_paginated(&self, page_opts: Option<&PageOpts>) -> Result<PageResult<EntityType>> {
         self.send_and_receive(|respond_to| StoreServiceMessage::GetEntityTypesPaginated {
             page_opts: page_opts.cloned(),
             respond_to,
-        })
+        }).await
     }
 
     /// Register notification
-    pub fn register_notification(&self, config: NotifyConfig, sender: NotificationQueue) -> Result<()> {
+    pub async fn register_notification(&self, config: NotifyConfig, sender: NotificationQueue) -> Result<()> {
         self.send_and_receive(|respond_to| StoreServiceMessage::RegisterNotification {
             config,
             sender,
             respond_to,
-        })
+        }).await
     }
 
     /// Unregister notification
-    pub fn unregister_notification(&self, config: &NotifyConfig, sender: &NotificationQueue) -> bool {
+    pub async fn unregister_notification(&self, config: &NotifyConfig, sender: &NotificationQueue) -> bool {
         self.send_and_receive(|respond_to| StoreServiceMessage::UnregisterNotification {
             config: config.clone(),
             sender: sender.clone(),
             respond_to,
-        })
+        }).await
     }
 }
 
