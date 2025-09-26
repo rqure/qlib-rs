@@ -1,7 +1,7 @@
 use std::sync::{Arc, RwLock};
 
 use crate::{data::{EntityId, EntityType, FieldType, Timestamp, Value}, EntitySchema, Single, Complete, FieldSchema, PageOpts, PageResult};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, ser::SerializeStruct};
 use smallvec::SmallVec;
 
 pub type IndirectFieldType = SmallVec<[FieldType; 4]>;
@@ -467,19 +467,13 @@ impl Serialize for Requests {
     where
         S: serde::Serializer,
     {
-        #[derive(Serialize)]
-        struct RequestsData {
-            requests: Vec<Request>,
-            originator: Option<EntityId>,
-        }
-        
         let requests = self.0.read().unwrap();
         let originator = self.1.read().unwrap();
-        let data = RequestsData {
-            requests: requests.clone(),
-            originator: *originator,
-        };
-        data.serialize(serializer)
+
+        let mut state = serializer.serialize_struct("RequestsData", 2)?;
+        state.serialize_field("requests", &*requests)?;
+        state.serialize_field("originator", &*originator)?;
+        state.end()
     }
 }
 

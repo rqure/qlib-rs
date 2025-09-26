@@ -2,6 +2,7 @@ use std::vec;
 
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use qlib_rs::*;
+use qlib_rs::protocol::{ProtocolCodec, ProtocolMessage};
 use qlib_rs::data::StorageScope;
 
 // Helper to create an entity schema with basic fields
@@ -62,6 +63,72 @@ fn create_entity_schema_with_name(store: &mut Store, entity_type_name: &str) -> 
     let requests = sreq![sschemaupdate!(schema)];
     store.perform_mut(requests)?;
     Ok(())
+}
+
+fn build_serialization_message(batch_size: usize) -> StoreMessage {
+    let entity_type = EntityType(1);
+    let value_field = FieldType(1);
+    let aux_field = FieldType(2);
+
+    let mut requests_vec = Vec::with_capacity(batch_size.saturating_mul(2).max(1));
+
+    for i in 0..batch_size {
+        let entity_id = EntityId::new(entity_type, i as u32 + 1);
+        requests_vec.push(swrite!(
+            entity_id,
+            sfield![value_field],
+            sint!(i as i64)
+        ));
+        requests_vec.push(sread!(
+            entity_id,
+            sfield![aux_field]
+        ));
+    }
+
+    if batch_size == 0 {
+        requests_vec.push(sread!(
+            EntityId::new(entity_type, 0),
+            sfield![value_field]
+        ));
+    }
+
+    let requests = Requests::new(requests_vec);
+    StoreMessage::Perform {
+        id: 42,
+        requests,
+    }
+}
+
+fn bench_store_message_serialization(c: &mut Criterion) {
+    let mut group = c.benchmark_group("store_message_serialization");
+    let batch_sizes = [1usize, 8, 64, 256];
+
+    for &batch_size in &batch_sizes {
+        group.throughput(Throughput::Elements(batch_size as u64));
+
+        let message = build_serialization_message(batch_size);
+
+        group.bench_function(BenchmarkId::new("encode", batch_size), |b| {
+            b.iter(|| {
+                black_box(encode_store_message(black_box(&message)).unwrap())
+            })
+        });
+
+        let encoded = encode_store_message(&message).unwrap();
+
+        group.bench_function(BenchmarkId::new("decode", batch_size), |b| {
+            b.iter(|| {
+                let (decoded, _consumed) = ProtocolCodec::decode(black_box(&encoded)).unwrap().unwrap();
+                if let ProtocolMessage::Store(store_message) = decoded {
+                    black_box(store_message);
+                } else {
+                    unreachable!("expected store message");
+                }
+            })
+        });
+    }
+
+    group.finish();
 }
 
 fn bench_entity_creation(c: &mut Criterion) {
@@ -360,6 +427,7 @@ fn bench_schema_operations(c: &mut Criterion) {
 
 criterion_group!(
     benches,
+    bench_store_message_serialization,
     bench_entity_creation,
     bench_field_operations,
     bench_entity_search,
