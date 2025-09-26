@@ -10,7 +10,7 @@ use std::{
 use crate::{
     data::{
         entity_schema::Complete, hash_notify_config, interner::Interner, now,
-        request::PushCondition, EntityType, FieldType, Notification, NotificationQueue,
+        request::{PushCondition, RequestsLike}, EntityType, FieldType, Notification, NotificationQueue,
         NotifyConfig, StoreTrait, Timestamp,
     },
     et::ET,
@@ -805,6 +805,38 @@ impl Store {
         }
 
         Ok(requests)
+    }
+
+    /// Perform requests from QrespRequestsRef (zero-copy version)
+    /// This converts the reference to owned Requests and processes them
+    pub fn perform_ref(&self, requests_ref: crate::data::QrespRequestsRef) -> Result<Requests> {
+        // Convert to owned for processing since we need to mutate results
+        let requests = requests_ref.to_owned_requests()
+            .map_err(|e| crate::Error::InvalidRequest(format!("Failed to convert QrespRequestsRef: {:?}", e)))?;
+        self.perform(requests)
+    }
+
+    /// Perform mutable requests from QrespRequestsRef (zero-copy version)
+    /// This converts the reference to owned Requests and processes them
+    pub fn perform_mut_ref(&mut self, requests_ref: crate::data::QrespRequestsRef) -> Result<Requests> {
+        // Convert to owned for processing since we need to mutate results
+        let requests = requests_ref.to_owned_requests()
+            .map_err(|e| crate::Error::InvalidRequest(format!("Failed to convert QrespRequestsRef: {:?}", e)))?;
+        self.perform_mut(requests)
+    }
+
+    /// Generic perform method that can handle both Requests and QrespRequestsRef
+    pub fn perform_any<T: crate::data::RequestsLike>(&self, requests: T) -> Result<Requests> {
+        let owned_requests = requests.to_owned_requests()
+            .map_err(|e| crate::Error::InvalidRequest(format!("Failed to convert to owned requests: {:?}", e)))?;
+        self.perform(owned_requests)
+    }
+
+    /// Generic perform_mut method that can handle both Requests and QrespRequestsRef  
+    pub fn perform_mut_any<T: crate::data::RequestsLike>(&mut self, requests: T) -> Result<Requests> {
+        let owned_requests = requests.to_owned_requests()
+            .map_err(|e| crate::Error::InvalidRequest(format!("Failed to convert to owned requests: {:?}", e)))?;
+        self.perform_mut(owned_requests)
     }
 
     /// Internal entity deletion that doesn't use perform to avoid recursion

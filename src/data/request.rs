@@ -11,6 +11,168 @@ use smallvec::SmallVec;
 
 pub type IndirectFieldType = SmallVec<[FieldType; 4]>;
 
+/// Trait that provides a common interface for both Requests and QrespRequestsRef
+/// This allows Store to handle both types polymorphically
+pub trait RequestsLike {
+    /// Get the originator entity ID
+    fn originator(&self) -> Option<EntityId>;
+    
+    /// Get the number of requests
+    fn len(&self) -> usize;
+    
+    /// Check if empty
+    fn is_empty(&self) -> bool;
+    
+    /// Convert to owned Requests (for cases where we need owned data)
+    fn to_owned_requests(&self) -> crate::qresp::Result<Requests>;
+    
+    /// Process requests with a closure that handles both owned and referenced requests
+    /// This is the key method that allows polymorphic processing
+    fn process_requests<F, R>(&self, f: F) -> crate::qresp::Result<R>
+    where
+        F: FnOnce(RequestProcessor) -> crate::qresp::Result<R>;
+}
+
+/// Enum that can hold either owned requests or request references for processing
+pub enum RequestProcessor<'a> {
+    Owned(&'a Requests),
+    Referenced(QrespRequestsRef<'a>),
+}
+
+impl<'a> RequestProcessor<'a> {
+    /// Get originator for either type
+    pub fn originator(&self) -> Option<EntityId> {
+        match self {
+            RequestProcessor::Owned(requests) => requests.originator(),
+            RequestProcessor::Referenced(requests_ref) => requests_ref.originator(),
+        }
+    }
+    
+    /// Process each request with a closure, handling both owned and referenced types
+    pub fn process_each<F>(&self, mut f: F) -> crate::qresp::Result<()>
+    where
+        F: FnMut(RequestItem) -> crate::qresp::Result<()>,
+    {
+        match self {
+            RequestProcessor::Owned(requests) => {
+                for request in requests.read().iter() {
+                    f(RequestItem::Owned(request))?;
+                }
+            }
+            RequestProcessor::Referenced(requests_ref) => {
+                for request_ref in requests_ref.iter() {
+                    let request_ref = request_ref?;
+                    f(RequestItem::Referenced(request_ref))?;
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+/// Enum that represents either an owned Request or a QrespRequestRef
+pub enum RequestItem<'a> {
+    Owned(&'a Request),
+    Referenced(QrespRequestRef<'a>),
+}
+
+impl<'a> RequestItem<'a> {
+    /// Get entity_id from either type of request
+    pub fn entity_id(&self) -> crate::qresp::Result<Option<EntityId>> {
+        match self {
+            RequestItem::Owned(request) => Ok(request.entity_id()),
+            RequestItem::Referenced(request_ref) => request_ref.entity_id(),
+        }
+    }
+    
+    /// Get the request type as a discriminator
+    pub fn request_type(&self) -> RequestType {
+        match self {
+            RequestItem::Owned(request) => RequestType::from_request(request),
+            RequestItem::Referenced(request_ref) => RequestType::from_ref_type(&request_ref.request_type),
+        }
+    }
+    
+    /// Convert to owned Request if needed
+    pub fn to_owned_request(&self) -> crate::qresp::Result<Request> {
+        match self {
+            RequestItem::Owned(request) => Ok((*request).clone()),
+            RequestItem::Referenced(request_ref) => request_ref.to_owned(),
+        }
+    }
+}
+
+/// Common request type enum to handle both owned and referenced requests
+#[derive(Debug, Clone, PartialEq)]
+pub enum RequestType {
+    Read,
+    Write,
+    Create,
+    Delete,
+    SchemaUpdate,
+    Snapshot,
+    GetEntityType,
+    ResolveEntityType,
+    GetFieldType,
+    ResolveFieldType,
+    GetEntitySchema,
+    GetCompleteEntitySchema,
+    GetFieldSchema,
+    EntityExists,
+    FieldExists,
+    FindEntities,
+    FindEntitiesExact,
+    GetEntityTypes,
+}
+
+impl RequestType {
+    fn from_request(request: &Request) -> Self {
+        match request {
+            Request::Read { .. } => RequestType::Read,
+            Request::Write { .. } => RequestType::Write,
+            Request::Create { .. } => RequestType::Create,
+            Request::Delete { .. } => RequestType::Delete,
+            Request::SchemaUpdate { .. } => RequestType::SchemaUpdate,
+            Request::Snapshot { .. } => RequestType::Snapshot,
+            Request::GetEntityType { .. } => RequestType::GetEntityType,
+            Request::ResolveEntityType { .. } => RequestType::ResolveEntityType,
+            Request::GetFieldType { .. } => RequestType::GetFieldType,
+            Request::ResolveFieldType { .. } => RequestType::ResolveFieldType,
+            Request::GetEntitySchema { .. } => RequestType::GetEntitySchema,
+            Request::GetCompleteEntitySchema { .. } => RequestType::GetCompleteEntitySchema,
+            Request::GetFieldSchema { .. } => RequestType::GetFieldSchema,
+            Request::EntityExists { .. } => RequestType::EntityExists,
+            Request::FieldExists { .. } => RequestType::FieldExists,
+            Request::FindEntities { .. } => RequestType::FindEntities,
+            Request::FindEntitiesExact { .. } => RequestType::FindEntitiesExact,
+            Request::GetEntityTypes { .. } => RequestType::GetEntityTypes,
+        }
+    }
+    
+    fn from_ref_type(ref_type: &QrespRequestType) -> Self {
+        match ref_type {
+            QrespRequestType::Read => RequestType::Read,
+            QrespRequestType::Write => RequestType::Write,
+            QrespRequestType::Create => RequestType::Create,
+            QrespRequestType::Delete => RequestType::Delete,
+            QrespRequestType::SchemaUpdate => RequestType::SchemaUpdate,
+            QrespRequestType::Snapshot => RequestType::Snapshot,
+            QrespRequestType::GetEntityType => RequestType::GetEntityType,
+            QrespRequestType::ResolveEntityType => RequestType::ResolveEntityType,
+            QrespRequestType::GetFieldType => RequestType::GetFieldType,
+            QrespRequestType::ResolveFieldType => RequestType::ResolveFieldType,
+            QrespRequestType::GetEntitySchema => RequestType::GetEntitySchema,
+            QrespRequestType::GetCompleteEntitySchema => RequestType::GetCompleteEntitySchema,
+            QrespRequestType::GetFieldSchema => RequestType::GetFieldSchema,
+            QrespRequestType::EntityExists => RequestType::EntityExists,
+            QrespRequestType::FieldExists => RequestType::FieldExists,
+            QrespRequestType::FindEntities => RequestType::FindEntities,
+            QrespRequestType::FindEntitiesExact => RequestType::FindEntitiesExact,
+            QrespRequestType::GetEntityTypes => RequestType::GetEntityTypes,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum PushCondition {
     Always,
@@ -368,6 +530,31 @@ impl<'a> QrespRequestsRef<'a> {
         let owned_requests = Requests::new(requests);
         owned_requests.set_originator(self.originator);
         Ok(owned_requests)
+    }
+}
+
+impl<'a> RequestsLike for QrespRequestsRef<'a> {
+    fn originator(&self) -> Option<EntityId> {
+        self.originator()
+    }
+    
+    fn len(&self) -> usize {
+        self.len()
+    }
+    
+    fn is_empty(&self) -> bool {
+        self.is_empty()
+    }
+    
+    fn to_owned_requests(&self) -> crate::qresp::Result<Requests> {
+        self.to_owned()
+    }
+    
+    fn process_requests<F, R>(&self, f: F) -> crate::qresp::Result<R>
+    where
+        F: FnOnce(RequestProcessor) -> crate::qresp::Result<R>,
+    {
+        f(RequestProcessor::Referenced(self.clone()))
     }
 }
 
@@ -1007,5 +1194,31 @@ impl Requests {
     pub fn extract_write_time(&self, index: usize) -> Option<crate::Timestamp> {
         let requests = self.0.read();
         requests.get(index).and_then(|req| req.extract_write_time())
+    }
+}
+
+impl RequestsLike for Requests {
+    fn originator(&self) -> Option<EntityId> {
+        self.originator()
+    }
+    
+    fn len(&self) -> usize {
+        self.len()
+    }
+    
+    fn is_empty(&self) -> bool {
+        self.is_empty()
+    }
+    
+    fn to_owned_requests(&self) -> crate::qresp::Result<Requests> {
+        // For Requests, we can clone it directly
+        Ok(self.clone())
+    }
+    
+    fn process_requests<F, R>(&self, f: F) -> crate::qresp::Result<R>
+    where
+        F: FnOnce(RequestProcessor) -> crate::qresp::Result<R>,
+    {
+        f(RequestProcessor::Owned(self))
     }
 }

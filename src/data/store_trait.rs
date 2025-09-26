@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use crate::{
-    data::request::Requests, Complete, EntityId, EntitySchema, EntityType, FieldSchema, FieldType,
+    data::request::{Requests, RequestsLike}, Complete, EntityId, EntitySchema, EntityType, FieldSchema, FieldType,
     IndirectFieldType, NotificationQueue, NotifyConfig, PageOpts, PageResult, Request, Result,
     Single,
 };
@@ -57,6 +57,20 @@ pub trait StoreTrait {
     /// Perform a batch of requests
     fn perform(&self, requests: Requests) -> Result<Requests>;
     fn perform_mut(&mut self, requests: Requests) -> Result<Requests>;
+
+    /// Perform a batch of requests using the generic RequestsLike trait
+    /// This allows handling both Requests and QrespRequestsRef polymorphically
+    fn perform_any<T: RequestsLike>(&self, requests: T) -> Result<Requests> {
+        let owned_requests = requests.to_owned_requests()
+            .map_err(|e| crate::Error::InvalidRequest(format!("Failed to convert to owned requests: {:?}", e)))?;
+        self.perform(owned_requests)
+    }
+
+    fn perform_mut_any<T: RequestsLike>(&mut self, requests: T) -> Result<Requests> {
+        let owned_requests = requests.to_owned_requests()
+            .map_err(|e| crate::Error::InvalidRequest(format!("Failed to convert to owned requests: {:?}", e)))?;
+        self.perform_mut(owned_requests)
+    }
 
     fn perform_map(&self, requests: Requests) -> Result<HashMap<IndirectFieldType, Request>> {
         let updated_requests = self.perform(requests)?;
