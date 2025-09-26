@@ -1,7 +1,6 @@
 use bytes::{Buf, BytesMut};
 use thiserror::Error;
 
-
 #[derive(Debug, Error)]
 pub enum QrespError {
     #[error("incomplete frame")]
@@ -25,24 +24,37 @@ pub enum QrespFrame {
 }
 
 pub mod peer {
-    use super::{Result as QrespResult, QrespError, QrespFrame};
-    use crate::Snapshot;
+    use super::{QrespError, QrespFrame, Result as QrespResult};
     use crate::data::Requests;
+    use crate::Snapshot;
     use std::convert::TryFrom;
 
     #[derive(Debug, Clone)]
     pub enum PeerMessage {
-        Handshake { start_time: u64, is_response: bool, machine_id: String },
+        Handshake {
+            start_time: u64,
+            is_response: bool,
+            machine_id: String,
+        },
         FullSyncRequest,
-        FullSyncResponse { snapshot: Snapshot },
-        SyncWrite { requests: Requests },
+        FullSyncResponse {
+            snapshot: Snapshot,
+        },
+        SyncWrite {
+            requests: Requests,
+        },
     }
 
     pub fn encode_peer_message(message: &PeerMessage) -> QrespResult<QrespFrame> {
         match message {
-            PeerMessage::Handshake { start_time, is_response, machine_id } => {
-                let start = i64::try_from(*start_time)
-                    .map_err(|_| QrespError::Invalid("handshake start_time exceeds i64".to_string()))?;
+            PeerMessage::Handshake {
+                start_time,
+                is_response,
+                machine_id,
+            } => {
+                let start = i64::try_from(*start_time).map_err(|_| {
+                    QrespError::Invalid("handshake start_time exceeds i64".to_string())
+                })?;
                 Ok(QrespFrame::Array(vec![
                     string_frame("PEER"),
                     string_frame("HANDSHAKE"),
@@ -56,8 +68,9 @@ pub mod peer {
                 string_frame("FULL_SYNC_REQUEST"),
             ])),
             PeerMessage::FullSyncResponse { snapshot } => {
-                let data = serde_json::to_vec(snapshot)
-                    .map_err(|e| QrespError::Invalid(format!("snapshot serialization failed: {}", e)))?;
+                let data = serde_json::to_vec(snapshot).map_err(|e| {
+                    QrespError::Invalid(format!("snapshot serialization failed: {}", e))
+                })?;
                 Ok(QrespFrame::Array(vec![
                     string_frame("PEER"),
                     string_frame("FULL_SYNC_RESPONSE"),
@@ -80,7 +93,9 @@ pub mod peer {
             QrespFrame::Array(mut items) if !items.is_empty() => {
                 ensure_prefix(&items, "PEER")?;
                 if items.len() < 2 {
-                    return Err(QrespError::Invalid("peer frame missing command".to_string()));
+                    return Err(QrespError::Invalid(
+                        "peer frame missing command".to_string(),
+                    ));
                 }
                 let command = take_string(&items[1])?;
                 match command.as_str() {
@@ -107,35 +122,49 @@ pub mod peer {
                             }
                         };
                         let machine_id = take_string(&items[4])?;
-                        Ok(PeerMessage::Handshake { start_time: start, is_response, machine_id })
+                        Ok(PeerMessage::Handshake {
+                            start_time: start,
+                            is_response,
+                            machine_id,
+                        })
                     }
                     "FULL_SYNC_REQUEST" => Ok(PeerMessage::FullSyncRequest),
                     "FULL_SYNC_RESPONSE" => {
                         if items.len() < 3 {
-                            return Err(QrespError::Invalid("full sync response missing payload".to_string()));
+                            return Err(QrespError::Invalid(
+                                "full sync response missing payload".to_string(),
+                            ));
                         }
                         match items.pop() {
                             Some(QrespFrame::Bulk(bytes)) => {
-                                let snapshot = serde_json::from_slice(&bytes)
-                                    .map_err(|e| QrespError::Invalid(format!("snapshot parse failed: {}", e)))?;
+                                let snapshot = serde_json::from_slice(&bytes).map_err(|e| {
+                                    QrespError::Invalid(format!("snapshot parse failed: {}", e))
+                                })?;
                                 Ok(PeerMessage::FullSyncResponse { snapshot })
                             }
                             Some(other) => Err(QrespError::Invalid(format!(
                                 "full sync response payload must be bulk, got {:?}",
                                 other
                             ))),
-                            None => Err(QrespError::Invalid("full sync response missing payload".to_string())),
+                            None => Err(QrespError::Invalid(
+                                "full sync response missing payload".to_string(),
+                            )),
                         }
                     }
                     "SYNC_WRITE" => {
                         if items.len() < 3 {
-                            return Err(QrespError::Invalid("sync write missing requests".to_string()));
+                            return Err(QrespError::Invalid(
+                                "sync write missing requests".to_string(),
+                            ));
                         }
                         let payload = items.pop().unwrap();
                         let requests = super::store::decode_requests(payload)?;
                         Ok(PeerMessage::SyncWrite { requests })
                     }
-                    other => Err(QrespError::Invalid(format!("unknown peer command: {}", other))),
+                    other => Err(QrespError::Invalid(format!(
+                        "unknown peer command: {}",
+                        other
+                    ))),
                 }
             }
             other => Err(QrespError::Invalid(format!(
@@ -150,8 +179,7 @@ pub mod peer {
             Some(frame) if matches_string(frame, expected) => Ok(()),
             Some(other) => Err(QrespError::Invalid(format!(
                 "peer message must start with '{}', got {:?}",
-                expected,
-                other
+                expected, other
             ))),
             None => Err(QrespError::Invalid("empty peer frame".to_string())),
         }
@@ -326,7 +354,10 @@ impl<'a> Parser<'a> {
             b'_' => self.parse_null(),
             b'!' => self.parse_error(),
             b'+' => self.parse_simple(),
-            _ => Err(QrespError::Invalid(format!("unknown prefix: {}", prefix as char))),
+            _ => Err(QrespError::Invalid(format!(
+                "unknown prefix: {}",
+                prefix as char
+            ))),
         }
     }
 
@@ -443,12 +474,17 @@ impl<'a> Parser<'a> {
             }
         };
         if line.len() != 1 {
-            return Err(QrespError::Invalid("boolean must be single byte".to_string()));
+            return Err(QrespError::Invalid(
+                "boolean must be single byte".to_string(),
+            ));
         }
         match line[0] {
             b'0' => Ok(Some(QrespFrame::Boolean(false))),
             b'1' => Ok(Some(QrespFrame::Boolean(true))),
-            other => Err(QrespError::Invalid(format!("invalid boolean byte: {}", other))),
+            other => Err(QrespError::Invalid(format!(
+                "invalid boolean byte: {}",
+                other
+            ))),
         }
     }
 
@@ -457,7 +493,9 @@ impl<'a> Parser<'a> {
         self.pos += 1;
         match self.read_line()? {
             Some(line) if line.is_empty() => Ok(Some(QrespFrame::Null)),
-            Some(_) => Err(QrespError::Invalid("null must be '_' followed by CRLF".to_string())),
+            Some(_) => Err(QrespError::Invalid(
+                "null must be '_' followed by CRLF".to_string(),
+            )),
             None => {
                 self.pos = start;
                 Ok(None)
@@ -610,32 +648,30 @@ fn write_decimal(value: i64, buffer: &mut Vec<u8>) {
 }
 
 pub mod store {
-    use super::{Result as QrespResult, QrespError, QrespFrame};
+    use super::{QrespError, QrespFrame, Result as QrespResult};
     use crate::data::{
         AdjustBehavior, AuthenticationResult, EntityId, EntitySchema, EntityType, FieldSchema,
         FieldType, Notification, NotifyConfig, PageOpts, PageResult, PushCondition, Request,
         Requests, Value,
     };
-    use std::collections::HashMap;
     use std::convert::TryFrom;
     use time::OffsetDateTime;
 
     pub fn encode_store_message(message: &crate::data::StoreMessage) -> QrespResult<QrespFrame> {
         match message {
-            crate::data::StoreMessage::Authenticate { id, subject_name, credential } => {
-                Ok(QrespFrame::Array(vec![
-                    bulk_str("AUTHENTICATE"),
-                    encode_u64_as_integer(*id)?,
-                    bulk_str(subject_name),
-                    bulk_str(credential),
-                ]))
-            }
+            crate::data::StoreMessage::Authenticate {
+                id,
+                subject_name,
+                credential,
+            } => Ok(QrespFrame::Array(vec![
+                bulk_str("AUTHENTICATE"),
+                encode_u64_as_integer(*id)?,
+                bulk_str(subject_name),
+                bulk_str(credential),
+            ])),
             crate::data::StoreMessage::AuthenticateResponse { id, response } => {
                 let payload = match response {
-                    Ok(auth) => QrespFrame::Array(vec![
-                        bulk_str("OK"),
-                        encode_auth_result(auth),
-                    ]),
+                    Ok(auth) => QrespFrame::Array(vec![bulk_str("OK"), encode_auth_result(auth)]),
                     Err(err) => QrespFrame::Array(vec![bulk_str("ERR"), bulk_str(err)]),
                 };
                 Ok(QrespFrame::Array(vec![
@@ -644,19 +680,16 @@ pub mod store {
                     payload,
                 ]))
             }
-            crate::data::StoreMessage::Perform { id, requests } => {
-                Ok(QrespFrame::Array(vec![
-                    bulk_str("PERFORM"),
-                    encode_u64_as_integer(*id)?,
-                    encode_requests(requests)?,
-                ]))
-            }
+            crate::data::StoreMessage::Perform { id, requests } => Ok(QrespFrame::Array(vec![
+                bulk_str("PERFORM"),
+                encode_u64_as_integer(*id)?,
+                encode_requests(requests)?,
+            ])),
             crate::data::StoreMessage::PerformResponse { id, response } => {
                 let payload = match response {
-                    Ok(requests) => QrespFrame::Array(vec![
-                        bulk_str("OK"),
-                        encode_requests(requests)?,
-                    ]),
+                    Ok(requests) => {
+                        QrespFrame::Array(vec![bulk_str("OK"), encode_requests(requests)?])
+                    }
                     Err(err) => QrespFrame::Array(vec![bulk_str("ERR"), bulk_str(err)]),
                 };
                 Ok(QrespFrame::Array(vec![
@@ -665,11 +698,13 @@ pub mod store {
                     payload,
                 ]))
             }
-            crate::data::StoreMessage::RegisterNotification { id, config } => Ok(QrespFrame::Array(vec![
-                bulk_str("REGISTER_NOTIFICATION"),
-                encode_u64_as_integer(*id)?,
-                encode_notify_config(config)?,
-            ])),
+            crate::data::StoreMessage::RegisterNotification { id, config } => {
+                Ok(QrespFrame::Array(vec![
+                    bulk_str("REGISTER_NOTIFICATION"),
+                    encode_u64_as_integer(*id)?,
+                    encode_notify_config(config)?,
+                ]))
+            }
             crate::data::StoreMessage::RegisterNotificationResponse { id, response } => {
                 let payload = match response {
                     Ok(()) => QrespFrame::Array(vec![bulk_str("OK")]),
@@ -681,20 +716,26 @@ pub mod store {
                     payload,
                 ]))
             }
-            crate::data::StoreMessage::UnregisterNotification { id, config } => Ok(QrespFrame::Array(vec![
-                bulk_str("UNREGISTER_NOTIFICATION"),
-                encode_u64_as_integer(*id)?,
-                encode_notify_config(config)?,
-            ])),
-            crate::data::StoreMessage::UnregisterNotificationResponse { id, response } => Ok(QrespFrame::Array(vec![
-                bulk_str("UNREGISTER_NOTIFICATION_RESPONSE"),
-                encode_u64_as_integer(*id)?,
-                QrespFrame::Boolean(*response),
-            ])),
-            crate::data::StoreMessage::Notification { notification } => Ok(QrespFrame::Array(vec![
-                bulk_str("NOTIFICATION"),
-                encode_notification(notification)?,
-            ])),
+            crate::data::StoreMessage::UnregisterNotification { id, config } => {
+                Ok(QrespFrame::Array(vec![
+                    bulk_str("UNREGISTER_NOTIFICATION"),
+                    encode_u64_as_integer(*id)?,
+                    encode_notify_config(config)?,
+                ]))
+            }
+            crate::data::StoreMessage::UnregisterNotificationResponse { id, response } => {
+                Ok(QrespFrame::Array(vec![
+                    bulk_str("UNREGISTER_NOTIFICATION_RESPONSE"),
+                    encode_u64_as_integer(*id)?,
+                    QrespFrame::Boolean(*response),
+                ]))
+            }
+            crate::data::StoreMessage::Notification { notification } => {
+                Ok(QrespFrame::Array(vec![
+                    bulk_str("NOTIFICATION"),
+                    encode_notification(notification)?,
+                ]))
+            }
             crate::data::StoreMessage::Error { id, error } => Ok(QrespFrame::Array(vec![
                 bulk_str("ERROR"),
                 encode_u64_as_integer(*id)?,
@@ -750,7 +791,12 @@ pub mod store {
                         ensure_len(&items, 2, "REGISTER_NOTIFICATION_RESPONSE")?;
                         let id = decode_u64_from_integer(&items[0])?;
                         let response = decode_register_notification_response(items[1].clone())?;
-                        Ok(crate::data::StoreMessage::RegisterNotificationResponse { id, response })
+                        Ok(
+                            crate::data::StoreMessage::RegisterNotificationResponse {
+                                id,
+                                response,
+                            },
+                        )
                     }
                     "UNREGISTER_NOTIFICATION" => {
                         ensure_len(&items, 2, "UNREGISTER_NOTIFICATION")?;
@@ -770,7 +816,10 @@ pub mod store {
                                 )))
                             }
                         };
-                        Ok(crate::data::StoreMessage::UnregisterNotificationResponse { id, response })
+                        Ok(crate::data::StoreMessage::UnregisterNotificationResponse {
+                            id,
+                            response,
+                        })
                     }
                     "NOTIFICATION" => {
                         ensure_len(&items, 1, "NOTIFICATION")?;
@@ -786,12 +835,17 @@ pub mod store {
                     other => Err(QrespError::Invalid(format!("unknown command: {}", other))),
                 }
             }
-            _ => Err(QrespError::Invalid("store message must be array".to_string())),
+            _ => Err(QrespError::Invalid(
+                "store message must be array".to_string(),
+            )),
         }
     }
 
     pub(crate) fn encode_requests(requests: &Requests) -> QrespResult<QrespFrame> {
-        let origin = requests.originator().map(encode_entity_id).unwrap_or_else(|| QrespFrame::Null);
+        let origin = requests
+            .originator()
+            .map(encode_entity_id)
+            .unwrap_or_else(|| QrespFrame::Null);
         let guard = requests.read();
         let mut frames = Vec::with_capacity(guard.len());
         for request in guard.iter() {
@@ -833,7 +887,13 @@ pub mod store {
 
     fn encode_request(request: &Request) -> QrespResult<QrespFrame> {
         match request {
-            Request::Read { entity_id, field_types, value, write_time, writer_id } => Ok(QrespFrame::Map(vec![
+            Request::Read {
+                entity_id,
+                field_types,
+                value,
+                write_time,
+                writer_id,
+            } => Ok(QrespFrame::Map(vec![
                 (bulk_str("type"), bulk_str("read")),
                 (bulk_str("entity_id"), encode_entity_id(*entity_id)),
                 (bulk_str("fields"), encode_field_types(field_types)),
@@ -841,33 +901,63 @@ pub mod store {
                 (bulk_str("write_time"), encode_option_timestamp(*write_time)),
                 (bulk_str("writer_id"), encode_option_entity_id(*writer_id)),
             ])),
-            Request::Write { entity_id, field_types, value, push_condition, adjust_behavior, write_time, writer_id, write_processed } => Ok(QrespFrame::Map(vec![
+            Request::Write {
+                entity_id,
+                field_types,
+                value,
+                push_condition,
+                adjust_behavior,
+                write_time,
+                writer_id,
+                write_processed,
+            } => Ok(QrespFrame::Map(vec![
                 (bulk_str("type"), bulk_str("write")),
                 (bulk_str("entity_id"), encode_entity_id(*entity_id)),
                 (bulk_str("fields"), encode_field_types(field_types)),
                 (bulk_str("value"), encode_option_value(value)?),
-                (bulk_str("push_condition"), bulk_str(match push_condition {
-                    PushCondition::Always => "always",
-                    PushCondition::Changes => "changes",
-                })),
-                (bulk_str("adjust_behavior"), bulk_str(match adjust_behavior {
-                    AdjustBehavior::Set => "set",
-                    AdjustBehavior::Add => "add",
-                    AdjustBehavior::Subtract => "subtract",
-                })),
+                (
+                    bulk_str("push_condition"),
+                    bulk_str(match push_condition {
+                        PushCondition::Always => "always",
+                        PushCondition::Changes => "changes",
+                    }),
+                ),
+                (
+                    bulk_str("adjust_behavior"),
+                    bulk_str(match adjust_behavior {
+                        AdjustBehavior::Set => "set",
+                        AdjustBehavior::Add => "add",
+                        AdjustBehavior::Subtract => "subtract",
+                    }),
+                ),
                 (bulk_str("write_time"), encode_option_timestamp(*write_time)),
                 (bulk_str("writer_id"), encode_option_entity_id(*writer_id)),
-                (bulk_str("write_processed"), QrespFrame::Boolean(*write_processed)),
+                (
+                    bulk_str("write_processed"),
+                    QrespFrame::Boolean(*write_processed),
+                ),
             ])),
-            Request::Create { entity_type, parent_id, name, created_entity_id, timestamp } => Ok(QrespFrame::Map(vec![
+            Request::Create {
+                entity_type,
+                parent_id,
+                name,
+                created_entity_id,
+                timestamp,
+            } => Ok(QrespFrame::Map(vec![
                 (bulk_str("type"), bulk_str("create")),
                 (bulk_str("entity_type"), encode_entity_type(*entity_type)),
                 (bulk_str("parent_id"), encode_option_entity_id(*parent_id)),
                 (bulk_str("name"), bulk_str(name)),
-                (bulk_str("created_entity_id"), encode_option_entity_id(*created_entity_id)),
+                (
+                    bulk_str("created_entity_id"),
+                    encode_option_entity_id(*created_entity_id),
+                ),
                 (bulk_str("timestamp"), encode_option_timestamp(*timestamp)),
             ])),
-            Request::Delete { entity_id, timestamp } => Ok(QrespFrame::Map(vec![
+            Request::Delete {
+                entity_id,
+                timestamp,
+            } => Ok(QrespFrame::Map(vec![
                 (bulk_str("type"), bulk_str("delete")),
                 (bulk_str("entity_id"), encode_entity_id(*entity_id)),
                 (bulk_str("timestamp"), encode_option_timestamp(*timestamp)),
@@ -877,15 +967,24 @@ pub mod store {
                 (bulk_str("schema"), encode_schema(schema)?),
                 (bulk_str("timestamp"), encode_option_timestamp(*timestamp)),
             ])),
-            Request::Snapshot { snapshot_counter, timestamp } => Ok(QrespFrame::Map(vec![
+            Request::Snapshot {
+                snapshot_counter,
+                timestamp,
+            } => Ok(QrespFrame::Map(vec![
                 (bulk_str("type"), bulk_str("snapshot")),
-                (bulk_str("counter"), QrespFrame::Integer(*snapshot_counter as i64)),
+                (
+                    bulk_str("counter"),
+                    QrespFrame::Integer(*snapshot_counter as i64),
+                ),
                 (bulk_str("timestamp"), encode_option_timestamp(*timestamp)),
             ])),
             Request::GetEntityType { name, entity_type } => Ok(QrespFrame::Map(vec![
                 (bulk_str("type"), bulk_str("get_entity_type")),
                 (bulk_str("name"), bulk_str(name)),
-                (bulk_str("entity_type"), encode_option_entity_type(*entity_type)),
+                (
+                    bulk_str("entity_type"),
+                    encode_option_entity_type(*entity_type),
+                ),
             ])),
             Request::ResolveEntityType { entity_type, name } => Ok(QrespFrame::Map(vec![
                 (bulk_str("type"), bulk_str("resolve_entity_type")),
@@ -895,24 +994,43 @@ pub mod store {
             Request::GetFieldType { name, field_type } => Ok(QrespFrame::Map(vec![
                 (bulk_str("type"), bulk_str("get_field_type")),
                 (bulk_str("name"), bulk_str(name)),
-                (bulk_str("field_type"), encode_option_field_type(*field_type)),
+                (
+                    bulk_str("field_type"),
+                    encode_option_field_type(*field_type),
+                ),
             ])),
             Request::ResolveFieldType { field_type, name } => Ok(QrespFrame::Map(vec![
                 (bulk_str("type"), bulk_str("resolve_field_type")),
                 (bulk_str("field_type"), encode_field_type(*field_type)),
                 (bulk_str("name"), encode_option_string(name)),
             ])),
-            Request::GetEntitySchema { entity_type, schema } => Ok(QrespFrame::Map(vec![
+            Request::GetEntitySchema {
+                entity_type,
+                schema,
+            } => Ok(QrespFrame::Map(vec![
                 (bulk_str("type"), bulk_str("get_entity_schema")),
                 (bulk_str("entity_type"), encode_entity_type(*entity_type)),
-                (bulk_str("schema"), encode_option_entity_schema_single(schema)?),
+                (
+                    bulk_str("schema"),
+                    encode_option_entity_schema_single(schema)?,
+                ),
             ])),
-            Request::GetCompleteEntitySchema { entity_type, schema } => Ok(QrespFrame::Map(vec![
+            Request::GetCompleteEntitySchema {
+                entity_type,
+                schema,
+            } => Ok(QrespFrame::Map(vec![
                 (bulk_str("type"), bulk_str("get_complete_entity_schema")),
                 (bulk_str("entity_type"), encode_entity_type(*entity_type)),
-                (bulk_str("schema"), encode_option_entity_schema_complete(schema)?),
+                (
+                    bulk_str("schema"),
+                    encode_option_entity_schema_complete(schema)?,
+                ),
             ])),
-            Request::GetFieldSchema { entity_type, field_type, schema } => Ok(QrespFrame::Map(vec![
+            Request::GetFieldSchema {
+                entity_type,
+                field_type,
+                schema,
+            } => Ok(QrespFrame::Map(vec![
                 (bulk_str("type"), bulk_str("get_field_schema")),
                 (bulk_str("entity_type"), encode_entity_type(*entity_type)),
                 (bulk_str("field_type"), encode_field_type(*field_type)),
@@ -923,20 +1041,34 @@ pub mod store {
                 (bulk_str("entity_id"), encode_entity_id(*entity_id)),
                 (bulk_str("exists"), encode_option_bool(*exists)),
             ])),
-            Request::FieldExists { entity_type, field_type, exists } => Ok(QrespFrame::Map(vec![
+            Request::FieldExists {
+                entity_type,
+                field_type,
+                exists,
+            } => Ok(QrespFrame::Map(vec![
                 (bulk_str("type"), bulk_str("field_exists")),
                 (bulk_str("entity_type"), encode_entity_type(*entity_type)),
                 (bulk_str("field_type"), encode_field_type(*field_type)),
                 (bulk_str("exists"), encode_option_bool(*exists)),
             ])),
-            Request::FindEntities { entity_type, page_opts, filter, result } => Ok(QrespFrame::Map(vec![
+            Request::FindEntities {
+                entity_type,
+                page_opts,
+                filter,
+                result,
+            } => Ok(QrespFrame::Map(vec![
                 (bulk_str("type"), bulk_str("find_entities")),
                 (bulk_str("entity_type"), encode_entity_type(*entity_type)),
                 (bulk_str("page_opts"), encode_option_page_opts(page_opts)?),
                 (bulk_str("filter"), encode_option_string(filter)),
                 (bulk_str("result"), encode_option_page_result(result)?),
             ])),
-            Request::FindEntitiesExact { entity_type, page_opts, filter, result } => Ok(QrespFrame::Map(vec![
+            Request::FindEntitiesExact {
+                entity_type,
+                page_opts,
+                filter,
+                result,
+            } => Ok(QrespFrame::Map(vec![
                 (bulk_str("type"), bulk_str("find_entities_exact")),
                 (bulk_str("entity_type"), encode_entity_type(*entity_type)),
                 (bulk_str("page_opts"), encode_option_page_opts(page_opts)?),
@@ -993,7 +1125,10 @@ pub mod store {
                 entity_type: decode_entity_type(require_frame(&map, "entity_type")?)?,
                 parent_id: decode_optional_entity_id(optional_frame_owned(&map, "parent_id")?)?,
                 name: require_string(&map, "name")?,
-                created_entity_id: decode_optional_entity_id(optional_frame_owned(&map, "created_entity_id")?)?,
+                created_entity_id: decode_optional_entity_id(optional_frame_owned(
+                    &map,
+                    "created_entity_id",
+                )?)?,
                 timestamp: decode_option_timestamp(optional_frame_owned(&map, "timestamp")?)?,
             }),
             "delete" => Ok(Request::Delete {
@@ -1018,7 +1153,10 @@ pub mod store {
             }),
             "get_entity_type" => Ok(Request::GetEntityType {
                 name: require_string(&map, "name")?,
-                entity_type: decode_optional_entity_type(optional_frame_owned(&map, "entity_type")?)?,
+                entity_type: decode_optional_entity_type(optional_frame_owned(
+                    &map,
+                    "entity_type",
+                )?)?,
             }),
             "resolve_entity_type" => Ok(Request::ResolveEntityType {
                 entity_type: decode_entity_type(require_frame(&map, "entity_type")?)?,
@@ -1070,17 +1208,23 @@ pub mod store {
                 page_opts: decode_option_page_opts(optional_frame(&map, "page_opts")?)?,
                 result: decode_option_page_entity_type(optional_frame(&map, "result")?)?,
             }),
-            other => Err(QrespError::Invalid(format!("unknown request type: {}", other))),
+            other => Err(QrespError::Invalid(format!(
+                "unknown request type: {}",
+                other
+            ))),
         }
     }
 
     fn encode_auth_result(result: &AuthenticationResult) -> QrespFrame {
-        QrespFrame::Map(vec![
-            (bulk_str("subject_id"), encode_entity_id(result.subject_id)),
-        ])
+        QrespFrame::Map(vec![(
+            bulk_str("subject_id"),
+            encode_entity_id(result.subject_id),
+        )])
     }
 
-    fn decode_auth_response(frame: QrespFrame) -> QrespResult<std::result::Result<AuthenticationResult, String>> {
+    fn decode_auth_response(
+        frame: QrespFrame,
+    ) -> QrespResult<std::result::Result<AuthenticationResult, String>> {
         match frame {
             QrespFrame::Array(mut items) if !items.is_empty() => {
                 let marker = take_string(&items.remove(0))?;
@@ -1120,7 +1264,9 @@ pub mod store {
         }
     }
 
-    fn decode_perform_response(frame: QrespFrame) -> QrespResult<std::result::Result<Requests, String>> {
+    fn decode_perform_response(
+        frame: QrespFrame,
+    ) -> QrespResult<std::result::Result<Requests, String>> {
         match frame {
             QrespFrame::Array(mut items) if !items.is_empty() => {
                 let marker = take_string(&items.remove(0))?;
@@ -1152,8 +1298,9 @@ pub mod store {
     }
 
     fn encode_notify_config(config: &NotifyConfig) -> QrespResult<QrespFrame> {
-        let data = serde_json::to_vec(config)
-            .map_err(|e| QrespError::Invalid(format!("notify config serialization failed: {}", e)))?;
+        let data = serde_json::to_vec(config).map_err(|e| {
+            QrespError::Invalid(format!("notify config serialization failed: {}", e))
+        })?;
         Ok(QrespFrame::Bulk(data))
     }
 
@@ -1169,8 +1316,9 @@ pub mod store {
     }
 
     fn encode_notification(notification: &Notification) -> QrespResult<QrespFrame> {
-        let data = serde_json::to_vec(notification)
-            .map_err(|e| QrespError::Invalid(format!("notification serialization failed: {}", e)))?;
+        let data = serde_json::to_vec(notification).map_err(|e| {
+            QrespError::Invalid(format!("notification serialization failed: {}", e))
+        })?;
         Ok(QrespFrame::Bulk(data))
     }
 
@@ -1185,7 +1333,9 @@ pub mod store {
         }
     }
 
-    fn decode_register_notification_response(frame: QrespFrame) -> QrespResult<std::result::Result<(), String>> {
+    fn decode_register_notification_response(
+        frame: QrespFrame,
+    ) -> QrespResult<std::result::Result<(), String>> {
         match frame {
             QrespFrame::Array(mut items) if !items.is_empty() => {
                 let marker = take_string(&items.remove(0))?;
@@ -1362,7 +1512,10 @@ pub mod store {
             ])),
             Value::EntityList(list) => Ok(QrespFrame::Map(vec![
                 (bulk_str("type"), bulk_str("entity_list")),
-                (bulk_str("data"), QrespFrame::Array(list.iter().map(|id| encode_entity_id(*id)).collect())),
+                (
+                    bulk_str("data"),
+                    QrespFrame::Array(list.iter().map(|id| encode_entity_id(*id)).collect()),
+                ),
             ])),
             Value::EntityReference(reference) => Ok(QrespFrame::Map(vec![
                 (bulk_str("type"), bulk_str("entity_reference")),
@@ -1370,7 +1523,10 @@ pub mod store {
             ])),
             Value::Float(value) => Ok(QrespFrame::Map(vec![
                 (bulk_str("type"), bulk_str("float")),
-                (bulk_str("data"), QrespFrame::Bulk(value.to_be_bytes().to_vec())),
+                (
+                    bulk_str("data"),
+                    QrespFrame::Bulk(value.to_be_bytes().to_vec()),
+                ),
             ])),
             Value::Int(value) => Ok(QrespFrame::Map(vec![
                 (bulk_str("type"), bulk_str("int")),
@@ -1378,7 +1534,10 @@ pub mod store {
             ])),
             Value::String(value) => Ok(QrespFrame::Map(vec![
                 (bulk_str("type"), bulk_str("string")),
-                (bulk_str("data"), QrespFrame::Bulk(value.to_string().into_bytes())),
+                (
+                    bulk_str("data"),
+                    QrespFrame::Bulk(value.to_string().into_bytes()),
+                ),
             ])),
             Value::Timestamp(timestamp) => Ok(QrespFrame::Map(vec![
                 (bulk_str("type"), bulk_str("timestamp")),
@@ -1457,15 +1616,21 @@ pub mod store {
                 ))),
             },
             "string" => match data_frame {
-                QrespFrame::Bulk(bytes) => Ok(Value::from_string(String::from_utf8(bytes)
-                    .map_err(|e| QrespError::Invalid(format!("string value invalid UTF-8: {}", e)))?)),
+                QrespFrame::Bulk(bytes) => {
+                    Ok(Value::from_string(String::from_utf8(bytes).map_err(
+                        |e| QrespError::Invalid(format!("string value invalid UTF-8: {}", e)),
+                    )?))
+                }
                 other => Err(QrespError::Invalid(format!(
                     "string data must be bulk, got {:?}",
                     other
                 ))),
             },
             "timestamp" => Ok(Value::from_timestamp(decode_timestamp(data_frame)?)),
-            other => Err(QrespError::Invalid(format!("unknown value type: {}", other))),
+            other => Err(QrespError::Invalid(format!(
+                "unknown value type: {}",
+                other
+            ))),
         }
     }
 
@@ -1557,13 +1722,17 @@ pub mod store {
         }
     }
 
-    fn encode_schema(schema: &EntitySchema<crate::data::Single, String, String>) -> QrespResult<QrespFrame> {
+    fn encode_schema(
+        schema: &EntitySchema<crate::data::Single, String, String>,
+    ) -> QrespResult<QrespFrame> {
         let data = serde_json::to_vec(schema)
             .map_err(|e| QrespError::Invalid(format!("schema serialization failed: {}", e)))?;
         Ok(QrespFrame::Bulk(data))
     }
 
-    fn decode_entity_schema(frame: &QrespFrame) -> QrespResult<EntitySchema<crate::data::Single, String, String>> {
+    fn decode_entity_schema(
+        frame: &QrespFrame,
+    ) -> QrespResult<EntitySchema<crate::data::Single, String, String>> {
         match frame {
             QrespFrame::Bulk(bytes) => serde_json::from_slice(bytes)
                 .map_err(|e| QrespError::Invalid(format!("schema parse failed: {}", e))),
@@ -1579,8 +1748,9 @@ pub mod store {
     ) -> QrespResult<QrespFrame> {
         match schema {
             Some(schema) => {
-                let data = serde_json::to_vec(schema)
-                    .map_err(|e| QrespError::Invalid(format!("entity schema serialization failed: {}", e)))?;
+                let data = serde_json::to_vec(schema).map_err(|e| {
+                    QrespError::Invalid(format!("entity schema serialization failed: {}", e))
+                })?;
                 Ok(QrespFrame::Bulk(data))
             }
             None => Ok(QrespFrame::Null),
@@ -1592,8 +1762,9 @@ pub mod store {
     ) -> QrespResult<QrespFrame> {
         match schema {
             Some(schema) => {
-                let data = serde_json::to_vec(schema)
-                    .map_err(|e| QrespError::Invalid(format!("entity schema serialization failed: {}", e)))?;
+                let data = serde_json::to_vec(schema).map_err(|e| {
+                    QrespError::Invalid(format!("entity schema serialization failed: {}", e))
+                })?;
                 Ok(QrespFrame::Bulk(data))
             }
             None => Ok(QrespFrame::Null),
@@ -1633,8 +1804,9 @@ pub mod store {
     fn encode_option_field_schema(schema: &Option<FieldSchema>) -> QrespResult<QrespFrame> {
         match schema {
             Some(schema) => {
-                let data = serde_json::to_vec(schema)
-                    .map_err(|e| QrespError::Invalid(format!("field schema serialization failed: {}", e)))?;
+                let data = serde_json::to_vec(schema).map_err(|e| {
+                    QrespError::Invalid(format!("field schema serialization failed: {}", e))
+                })?;
                 Ok(QrespFrame::Bulk(data))
             }
             None => Ok(QrespFrame::Null),
@@ -1657,8 +1829,9 @@ pub mod store {
     fn encode_option_page_opts(page_opts: &Option<PageOpts>) -> QrespResult<QrespFrame> {
         match page_opts {
             Some(opts) => {
-                let data = serde_json::to_vec(opts)
-                    .map_err(|e| QrespError::Invalid(format!("page opts serialization failed: {}", e)))?;
+                let data = serde_json::to_vec(opts).map_err(|e| {
+                    QrespError::Invalid(format!("page opts serialization failed: {}", e))
+                })?;
                 Ok(QrespFrame::Bulk(data))
             }
             None => Ok(QrespFrame::Null),
@@ -1681,15 +1854,18 @@ pub mod store {
     fn encode_option_page_result(result: &Option<PageResult<EntityId>>) -> QrespResult<QrespFrame> {
         match result {
             Some(res) => {
-                let data = serde_json::to_vec(res)
-                    .map_err(|e| QrespError::Invalid(format!("page result serialization failed: {}", e)))?;
+                let data = serde_json::to_vec(res).map_err(|e| {
+                    QrespError::Invalid(format!("page result serialization failed: {}", e))
+                })?;
                 Ok(QrespFrame::Bulk(data))
             }
             None => Ok(QrespFrame::Null),
         }
     }
 
-    fn decode_option_page_result(frame: Option<&QrespFrame>) -> QrespResult<Option<PageResult<EntityId>>> {
+    fn decode_option_page_result(
+        frame: Option<&QrespFrame>,
+    ) -> QrespResult<Option<PageResult<EntityId>>> {
         match frame {
             Some(QrespFrame::Null) | None => Ok(None),
             Some(QrespFrame::Bulk(bytes)) => serde_json::from_slice(bytes)
@@ -1702,18 +1878,23 @@ pub mod store {
         }
     }
 
-    fn encode_option_page_entity_type(result: &Option<PageResult<EntityType>>) -> QrespResult<QrespFrame> {
+    fn encode_option_page_entity_type(
+        result: &Option<PageResult<EntityType>>,
+    ) -> QrespResult<QrespFrame> {
         match result {
             Some(res) => {
-                let data = serde_json::to_vec(res)
-                    .map_err(|e| QrespError::Invalid(format!("page result serialization failed: {}", e)))?;
+                let data = serde_json::to_vec(res).map_err(|e| {
+                    QrespError::Invalid(format!("page result serialization failed: {}", e))
+                })?;
                 Ok(QrespFrame::Bulk(data))
             }
             None => Ok(QrespFrame::Null),
         }
     }
 
-    fn decode_option_page_entity_type(frame: Option<&QrespFrame>) -> QrespResult<Option<PageResult<EntityType>>> {
+    fn decode_option_page_entity_type(
+        frame: Option<&QrespFrame>,
+    ) -> QrespResult<Option<PageResult<EntityType>>> {
         match frame {
             Some(QrespFrame::Null) | None => Ok(None),
             Some(QrespFrame::Bulk(bytes)) => serde_json::from_slice(bytes)
@@ -1774,13 +1955,78 @@ pub mod store {
         Ok(())
     }
 
-    fn map_from_entries(entries: Vec<(QrespFrame, QrespFrame)>) -> QrespResult<HashMap<String, QrespFrame>> {
-        let mut map = HashMap::with_capacity(entries.len());
-        for (key_frame, value_frame) in entries {
-            let key = take_string(&key_frame)?;
-            map.insert(key, value_frame);
+    struct FrameMap {
+        entries: Vec<(KeyStorage, QrespFrame)>,
+    }
+
+    enum KeyStorage {
+        Bytes(Vec<u8>),
+        Simple(String),
+    }
+
+    impl KeyStorage {
+        fn matches(&self, expected: &str) -> QrespResult<bool> {
+            match self {
+                KeyStorage::Bytes(bytes) => std::str::from_utf8(bytes)
+                    .map(|s| s == expected)
+                    .map_err(|e| QrespError::Invalid(format!("map key invalid UTF-8: {}", e))),
+                KeyStorage::Simple(text) => Ok(text == expected),
+            }
         }
-        Ok(map)
+    }
+
+    impl FrameMap {
+        fn from_entries(entries: Vec<(QrespFrame, QrespFrame)>) -> QrespResult<Self> {
+            let mut items = Vec::with_capacity(entries.len());
+            for (key_frame, value_frame) in entries {
+                let key = match key_frame {
+                    QrespFrame::Bulk(bytes) => KeyStorage::Bytes(bytes),
+                    QrespFrame::Simple(text) => KeyStorage::Simple(text),
+                    other => {
+                        return Err(QrespError::Invalid(format!(
+                            "map key must be string, got {:?}",
+                            other
+                        )))
+                    }
+                };
+                items.push((key, value_frame));
+            }
+            Ok(Self { entries: items })
+        }
+
+        fn find_index(&self, key: &str) -> QrespResult<Option<usize>> {
+            for (idx, (stored_key, _)) in self.entries.iter().enumerate() {
+                if stored_key.matches(key)? {
+                    return Ok(Some(idx));
+                }
+            }
+            Ok(None)
+        }
+
+        fn require(&self, key: &str) -> QrespResult<&QrespFrame> {
+            match self.find_index(key)? {
+                Some(idx) => Ok(&self.entries[idx].1),
+                None => Err(QrespError::Invalid(format!("missing key '{}'", key))),
+            }
+        }
+
+        fn optional(&self, key: &str) -> QrespResult<Option<&QrespFrame>> {
+            match self.find_index(key)? {
+                Some(idx) => Ok(Some(&self.entries[idx].1)),
+                None => Ok(None),
+            }
+        }
+
+        fn optional_owned(&self, key: &str) -> QrespResult<Option<QrespFrame>> {
+            match self.find_index(key)? {
+                Some(idx) => Ok(Some(self.entries[idx].1.clone())),
+                None => Ok(None),
+            }
+        }
+    }
+
+    fn map_from_entries(entries: Vec<(QrespFrame, QrespFrame)>) -> QrespResult<FrameMap> {
+        FrameMap::from_entries(entries)
     }
 
     fn take_string(frame: &QrespFrame) -> QrespResult<String> {
@@ -1795,22 +2041,21 @@ pub mod store {
         }
     }
 
-    fn require_string(map: &HashMap<String, QrespFrame>, key: &str) -> QrespResult<String> {
-        let frame = require_frame(map, key)?;
+    fn require_string(map: &FrameMap, key: &str) -> QrespResult<String> {
+        let frame = map.require(key)?;
         take_string(frame)
     }
 
-    fn require_frame<'a>(map: &'a HashMap<String, QrespFrame>, key: &str) -> QrespResult<&'a QrespFrame> {
-        map.get(key)
-            .ok_or_else(|| QrespError::Invalid(format!("missing key '{}'", key)))
+    fn require_frame<'a>(map: &'a FrameMap, key: &str) -> QrespResult<&'a QrespFrame> {
+        map.require(key)
     }
 
-    fn optional_frame<'a>(map: &'a HashMap<String, QrespFrame>, key: &str) -> QrespResult<Option<&'a QrespFrame>> {
-        Ok(map.get(key))
+    fn optional_frame<'a>(map: &'a FrameMap, key: &str) -> QrespResult<Option<&'a QrespFrame>> {
+        map.optional(key)
     }
 
-    fn optional_frame_owned(map: &HashMap<String, QrespFrame>, key: &str) -> QrespResult<Option<QrespFrame>> {
-        Ok(map.get(key).cloned())
+    fn optional_frame_owned(map: &FrameMap, key: &str) -> QrespResult<Option<QrespFrame>> {
+        map.optional_owned(key)
     }
 }
 

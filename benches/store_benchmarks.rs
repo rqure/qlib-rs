@@ -2,15 +2,16 @@ use std::vec;
 
 use bytes::BytesMut;
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
+use qlib_rs::data::StorageScope;
 use qlib_rs::*;
 use qlib_rs::{decode_message, QrespCodec, QrespMessage};
-use qlib_rs::data::StorageScope;
 
 // Helper to create an entity schema with basic fields
 fn create_entity_schema_with_name(store: &mut Store, entity_type_name: &str) -> Result<()> {
     // Create schema using strings first - perform_mut will intern the types
-    let mut schema = EntitySchema::<Single, String, String>::new(entity_type_name.to_string(), vec![]);
-    
+    let mut schema =
+        EntitySchema::<Single, String, String>::new(entity_type_name.to_string(), vec![]);
+
     schema.fields.insert(
         "Name".to_string(),
         FieldSchema::String {
@@ -75,29 +76,16 @@ fn build_serialization_message(batch_size: usize) -> StoreMessage {
 
     for i in 0..batch_size {
         let entity_id = EntityId::new(entity_type, i as u32 + 1);
-        requests_vec.push(swrite!(
-            entity_id,
-            sfield![value_field],
-            sint!(i as i64)
-        ));
-        requests_vec.push(sread!(
-            entity_id,
-            sfield![aux_field]
-        ));
+        requests_vec.push(swrite!(entity_id, sfield![value_field], sint!(i as i64)));
+        requests_vec.push(sread!(entity_id, sfield![aux_field]));
     }
 
     if batch_size == 0 {
-        requests_vec.push(sread!(
-            EntityId::new(entity_type, 0),
-            sfield![value_field]
-        ));
+        requests_vec.push(sread!(EntityId::new(entity_type, 0), sfield![value_field]));
     }
 
     let requests = Requests::new(requests_vec);
-    StoreMessage::Perform {
-        id: 42,
-        requests,
-    }
+    StoreMessage::Perform { id: 42, requests }
 }
 
 fn bench_store_message_serialization(c: &mut Criterion) {
@@ -110,9 +98,7 @@ fn bench_store_message_serialization(c: &mut Criterion) {
         let message = build_serialization_message(batch_size);
 
         group.bench_function(BenchmarkId::new("encode", batch_size), |b| {
-            b.iter(|| {
-                black_box(encode_store_message(black_box(&message)).unwrap())
-            })
+            b.iter(|| black_box(encode_store_message(black_box(&message)).unwrap()))
         });
 
         let encoded = encode_store_message(&message).unwrap();
@@ -136,162 +122,197 @@ fn bench_store_message_serialization(c: &mut Criterion) {
 
 fn bench_entity_creation(c: &mut Criterion) {
     let mut group = c.benchmark_group("entity_creation");
-    
+
     for batch_size in [1, 10, 100, 1000].iter() {
         group.throughput(Throughput::Elements(*batch_size as u64));
-        
-        group.bench_with_input(BenchmarkId::new("batch_create", batch_size), batch_size, |b, &batch_size| {
-            b.iter(|| {
-                let mut store = Store::new();
-                
-                create_entity_schema_with_name(&mut store, "User").unwrap();
-                let et_user = store.get_entity_type("User").unwrap();
-                
-                let create_requests = Requests::new(vec![]);
-                for i in 0..batch_size {
-                    create_requests.push(screate!(et_user, format!("User{}", i)));
-                }
-                
-                black_box(store.perform_mut(create_requests).unwrap());
-            })
-        });
+
+        group.bench_with_input(
+            BenchmarkId::new("batch_create", batch_size),
+            batch_size,
+            |b, &batch_size| {
+                b.iter(|| {
+                    let mut store = Store::new();
+
+                    create_entity_schema_with_name(&mut store, "User").unwrap();
+                    let et_user = store.get_entity_type("User").unwrap();
+
+                    let create_requests = Requests::new(vec![]);
+                    for i in 0..batch_size {
+                        create_requests.push(screate!(et_user, format!("User{}", i)));
+                    }
+
+                    black_box(store.perform_mut(create_requests).unwrap());
+                })
+            },
+        );
     }
-    
+
     group.finish();
 }
 
 fn bench_field_operations(c: &mut Criterion) {
     let mut group = c.benchmark_group("field_operations");
-    
+
     // Pre-create a store with entities for field operations
     let (mut store, entity_ids) = {
         let mut store = Store::new();
-        
+
         create_entity_schema_with_name(&mut store, "User").unwrap();
         let et_user = store.get_entity_type("User").unwrap();
-        
+
         let create_requests = Requests::new(vec![]);
         for i in 0..1000 {
             create_requests.push(screate!(et_user, format!("User{}", i)));
         }
         let create_requests = store.perform_mut(create_requests).unwrap();
-        
+
         let entity_ids: Vec<EntityId> = create_requests
             .read()
             .iter()
             .filter_map(|req| {
-                if let Request::Create { created_entity_id: Some(id), .. } = req {
+                if let Request::Create {
+                    created_entity_id: Some(id),
+                    ..
+                } = req
+                {
                     Some(*id)
                 } else {
                     None
                 }
             })
             .collect();
-            
+
         (store, entity_ids)
     };
-    
+
     let ft_score = store.get_field_type("Score").unwrap();
     let ft_name = store.get_field_type("Name").unwrap();
-    
+
     for op_count in [10, 100, 1000].iter() {
         group.throughput(Throughput::Elements(*op_count as u64));
-        
-        group.bench_with_input(BenchmarkId::new("bulk_write", op_count), op_count, |b, &op_count| {
-            let entity_subset: Vec<_> = entity_ids.iter().take(op_count).cloned().collect();
-            
-            b.iter(|| {
-                let write_requests = Requests::new(vec![]);
-                for (i, entity_id) in entity_subset.iter().enumerate() {
-                    write_requests.push(swrite!(*entity_id, crate::sfield![ft_score], sint!(i as i64)));
-                }
-                black_box(store.perform_mut(write_requests).unwrap());
-            })
-        });
-        
-        group.bench_with_input(BenchmarkId::new("bulk_read", op_count), op_count, |b, &op_count| {
-            let entity_subset: Vec<_> = entity_ids.iter().take(op_count).cloned().collect();
-            
-            b.iter(|| {
-                let read_requests = Requests::new(vec![]);
-                for entity_id in &entity_subset {
-                    read_requests.push(sread!(*entity_id, crate::sfield![ft_name]));
-                }
-                black_box(store.perform(read_requests).unwrap());
-            })
-        });
+
+        group.bench_with_input(
+            BenchmarkId::new("bulk_write", op_count),
+            op_count,
+            |b, &op_count| {
+                let entity_subset: Vec<_> = entity_ids.iter().take(op_count).cloned().collect();
+
+                b.iter(|| {
+                    let write_requests = Requests::new(vec![]);
+                    for (i, entity_id) in entity_subset.iter().enumerate() {
+                        write_requests.push(swrite!(
+                            *entity_id,
+                            crate::sfield![ft_score],
+                            sint!(i as i64)
+                        ));
+                    }
+                    black_box(store.perform_mut(write_requests).unwrap());
+                })
+            },
+        );
+
+        group.bench_with_input(
+            BenchmarkId::new("bulk_read", op_count),
+            op_count,
+            |b, &op_count| {
+                let entity_subset: Vec<_> = entity_ids.iter().take(op_count).cloned().collect();
+
+                b.iter(|| {
+                    let read_requests = Requests::new(vec![]);
+                    for entity_id in &entity_subset {
+                        read_requests.push(sread!(*entity_id, crate::sfield![ft_name]));
+                    }
+                    black_box(store.perform(read_requests).unwrap());
+                })
+            },
+        );
     }
-    
+
     group.finish();
 }
 
 fn bench_entity_search(c: &mut Criterion) {
     let mut group = c.benchmark_group("entity_search");
-    
+
     for dataset_size in [100, 1000, 5000].iter() {
         group.throughput(Throughput::Elements(*dataset_size as u64));
-        
-        group.bench_with_input(BenchmarkId::new("find_entities", dataset_size), dataset_size, |b, &dataset_size| {
-            let store = {
-                let mut store = Store::new();
-                
-                create_entity_schema_with_name(&mut store, "User").unwrap();
-                let et_user = store.get_entity_type("User").unwrap();
-                
-                let create_requests = Requests::new(vec![]);
-                for i in 0..dataset_size {
-                    create_requests.push(screate!(et_user, format!("User{:04}", i)));
-                }
-                store.perform_mut(create_requests).unwrap();
-                
-                store
-            };
-            
-            b.iter(|| {
-                let et_user = store.get_entity_type("User").unwrap();
-                black_box(store.find_entities(et_user, None).unwrap());
-            })
-        });
-        
-        group.bench_with_input(BenchmarkId::new("find_entities_paginated", dataset_size), dataset_size, |b, &dataset_size| {
-            let store = {
-                let mut store = Store::new();
-                
-                create_entity_schema_with_name(&mut store, "User").unwrap();
-                let et_user = store.get_entity_type("User").unwrap();
-                
-                let create_requests = Requests::new(vec![]);
-                for i in 0..dataset_size {
-                    create_requests.push(screate!(et_user, format!("User{:04}", i)));
-                }
-                store.perform_mut(create_requests).unwrap();
-                
-                store
-            };
 
-            b.iter(|| {
-                let et_user = store.get_entity_type("User").unwrap();
-                let page_opts = PageOpts::new(100, None);
-                black_box(store.find_entities_paginated(et_user, Some(&page_opts), None).unwrap());
-            })
-        });
+        group.bench_with_input(
+            BenchmarkId::new("find_entities", dataset_size),
+            dataset_size,
+            |b, &dataset_size| {
+                let store = {
+                    let mut store = Store::new();
+
+                    create_entity_schema_with_name(&mut store, "User").unwrap();
+                    let et_user = store.get_entity_type("User").unwrap();
+
+                    let create_requests = Requests::new(vec![]);
+                    for i in 0..dataset_size {
+                        create_requests.push(screate!(et_user, format!("User{:04}", i)));
+                    }
+                    store.perform_mut(create_requests).unwrap();
+
+                    store
+                };
+
+                b.iter(|| {
+                    let et_user = store.get_entity_type("User").unwrap();
+                    black_box(store.find_entities(et_user, None).unwrap());
+                })
+            },
+        );
+
+        group.bench_with_input(
+            BenchmarkId::new("find_entities_paginated", dataset_size),
+            dataset_size,
+            |b, &dataset_size| {
+                let store = {
+                    let mut store = Store::new();
+
+                    create_entity_schema_with_name(&mut store, "User").unwrap();
+                    let et_user = store.get_entity_type("User").unwrap();
+
+                    let create_requests = Requests::new(vec![]);
+                    for i in 0..dataset_size {
+                        create_requests.push(screate!(et_user, format!("User{:04}", i)));
+                    }
+                    store.perform_mut(create_requests).unwrap();
+
+                    store
+                };
+
+                b.iter(|| {
+                    let et_user = store.get_entity_type("User").unwrap();
+                    let page_opts = PageOpts::new(100, None);
+                    black_box(
+                        store
+                            .find_entities_paginated(et_user, Some(&page_opts), None)
+                            .unwrap(),
+                    );
+                })
+            },
+        );
     }
-    
+
     group.finish();
 }
 
 fn bench_inheritance_operations(c: &mut Criterion) {
     let mut group = c.benchmark_group("inheritance_operations");
-    
+
     // Create inheritance hierarchy: Entity -> User -> AdminUser
     let store = {
         let mut store = Store::new();
-        
+
         // Create Entity schema
         create_entity_schema_with_name(&mut store, "Entity").unwrap();
-        
+
         // User inherits from Entity
-        let mut user_schema = EntitySchema::<Single, String, String>::new("User".to_string(), vec!["Entity".to_string()]);
+        let mut user_schema = EntitySchema::<Single, String, String>::new(
+            "User".to_string(),
+            vec!["Entity".to_string()],
+        );
         user_schema.fields.insert(
             "Email".to_string(),
             FieldSchema::String {
@@ -299,13 +320,16 @@ fn bench_inheritance_operations(c: &mut Criterion) {
                 default_value: String::new(),
                 rank: 10,
                 storage_scope: StorageScope::Runtime,
-            }
+            },
         );
         let requests = sreq![sschemaupdate!(user_schema)];
         store.perform_mut(requests).unwrap();
-        
+
         // AdminUser inherits from User
-        let mut admin_schema = EntitySchema::<Single, String, String>::new("AdminUser".to_string(), vec!["User".to_string()]);
+        let mut admin_schema = EntitySchema::<Single, String, String>::new(
+            "AdminUser".to_string(),
+            vec!["User".to_string()],
+        );
         admin_schema.fields.insert(
             "AdminLevel".to_string(),
             FieldSchema::Int {
@@ -313,16 +337,16 @@ fn bench_inheritance_operations(c: &mut Criterion) {
                 default_value: 1,
                 rank: 20,
                 storage_scope: StorageScope::Runtime,
-            }
+            },
         );
         let requests = sreq![sschemaupdate!(admin_schema)];
         store.perform_mut(requests).unwrap();
-        
+
         // Get the interned entity types
         let et_entity = store.get_entity_type("Entity").unwrap();
         let et_user = store.get_entity_type("User").unwrap();
         let et_admin = store.get_entity_type("AdminUser").unwrap();
-        
+
         // Create entities
         let create_requests = Requests::new(vec![]);
         for i in 0..1000 {
@@ -331,7 +355,7 @@ fn bench_inheritance_operations(c: &mut Criterion) {
             create_requests.push(screate!(et_admin, format!("Admin{}", i)));
         }
         store.perform_mut(create_requests).unwrap();
-        
+
         store
     };
 
@@ -341,66 +365,74 @@ fn bench_inheritance_operations(c: &mut Criterion) {
             black_box(store.find_entities(et_entity, None).unwrap());
         })
     });
-    
+
     group.bench_function("find_exact_type", |b| {
         b.iter(|| {
             let et_entity = store.get_entity_type("Entity").unwrap();
             black_box(store.find_entities_exact(et_entity, None, None).unwrap());
         })
     });
-    
+
     group.bench_function("get_complete_schema", |b| {
         b.iter(|| {
             let et_admin = store.get_entity_type("AdminUser").unwrap();
             black_box(store.get_complete_entity_schema(et_admin).unwrap());
         })
     });
-    
+
     group.finish();
 }
 
 fn bench_pagination(c: &mut Criterion) {
     let mut group = c.benchmark_group("pagination");
-    
+
     // Create a large dataset
     let store = {
         let mut store = Store::new();
-        
+
         create_entity_schema_with_name(&mut store, "User").unwrap();
         let et_user = store.get_entity_type("User").unwrap();
-        
+
         let create_requests = Requests::new(vec![]);
         for i in 0..10000 {
             create_requests.push(screate!(et_user, format!("User{:05}", i)));
         }
         store.perform_mut(create_requests).unwrap();
-        
+
         store
     };
 
     for page_size in [10, 50, 100, 500, 1000].iter() {
-        group.bench_with_input(BenchmarkId::new("page_size", page_size), page_size, |b, &page_size| {
-            b.iter(|| {
-                let et_user = store.get_entity_type("User").unwrap();
-                let page_opts = PageOpts::new(page_size, None);
-                black_box(store.find_entities_paginated(et_user, Some(&page_opts), None).unwrap());
-            })
-        });
+        group.bench_with_input(
+            BenchmarkId::new("page_size", page_size),
+            page_size,
+            |b, &page_size| {
+                b.iter(|| {
+                    let et_user = store.get_entity_type("User").unwrap();
+                    let page_opts = PageOpts::new(page_size, None);
+                    black_box(
+                        store
+                            .find_entities_paginated(et_user, Some(&page_opts), None)
+                            .unwrap(),
+                    );
+                })
+            },
+        );
     }
-    
+
     group.finish();
 }
 
-fn bench_schema_operations(c: &mut Criterion) {    
+fn bench_schema_operations(c: &mut Criterion) {
     let mut group = c.benchmark_group("schema_operations");
-    
+
     group.bench_function("schema_creation", |b| {
         b.iter(|| {
             let mut store = Store::new();
             black_box(create_entity_schema_with_name(&mut store, "TestEntity").unwrap());
         })
     });
-    
+
     // Pre-create a store with schemas for retrieval benchmarks
     let store = {
         let mut store = Store::new();
@@ -417,14 +449,14 @@ fn bench_schema_operations(c: &mut Criterion) {
             black_box(store.get_entity_schema(et_test).unwrap());
         })
     });
-    
+
     group.bench_function("complete_schema_retrieval", |b| {
         b.iter(|| {
             let et_test = store.get_entity_type("TestEntity50").unwrap();
             black_box(store.get_complete_entity_schema(et_test).unwrap());
         })
     });
-    
+
     group.finish();
 }
 

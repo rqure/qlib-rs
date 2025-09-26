@@ -9,9 +9,9 @@ use std::{
 
 use crate::{
     data::{
-        entity_schema::Complete, hash_notify_config,
-        interner::Interner, now, request::PushCondition, EntityType, FieldType, Notification,
-        NotificationQueue, NotifyConfig, StoreTrait, Timestamp,
+        entity_schema::Complete, hash_notify_config, interner::Interner, now,
+        request::PushCondition, EntityType, FieldType, Notification, NotificationQueue,
+        NotifyConfig, StoreTrait, Timestamp,
     },
     et::ET,
     expr::CelExecutor,
@@ -156,9 +156,11 @@ impl Store {
         // The cache should be populated by rebuild_complete_entity_schema_cache()
         let complete_schema = self.get_complete_entity_schema(entity_type)?;
         let ft = self.ft.as_ref().unwrap();
-        
+
         // Clone the fields we need to avoid borrowing conflicts
-        let schema_fields: Vec<(FieldType, FieldSchema)> = complete_schema.fields.iter()
+        let schema_fields: Vec<(FieldType, FieldSchema)> = complete_schema
+            .fields
+            .iter()
             .map(|(ft, fs)| (*ft, fs.clone()))
             .collect();
 
@@ -402,44 +404,61 @@ impl Store {
                         *name = None;
                     }
                 },
-                Request::GetEntitySchema { entity_type, schema } => {
-                    match self.get_entity_schema(*entity_type) {
-                        Ok(es) => {
-                            *schema = Some(es);
-                        }
-                        Err(_) => {
-                            *schema = None;
-                        }
+                Request::GetEntitySchema {
+                    entity_type,
+                    schema,
+                } => match self.get_entity_schema(*entity_type) {
+                    Ok(es) => {
+                        *schema = Some(es);
+                    }
+                    Err(_) => {
+                        *schema = None;
                     }
                 },
-                Request::GetCompleteEntitySchema { entity_type, schema } => {
-                    match self.get_complete_entity_schema(*entity_type) {
-                        Ok(es) => {
-                            *schema = Some(es.clone());
-                        }
-                        Err(_) => {
-                            *schema = None;
-                        }
+                Request::GetCompleteEntitySchema {
+                    entity_type,
+                    schema,
+                } => match self.get_complete_entity_schema(*entity_type) {
+                    Ok(es) => {
+                        *schema = Some(es.clone());
+                    }
+                    Err(_) => {
+                        *schema = None;
                     }
                 },
-                Request::GetFieldSchema { entity_type, field_type, schema } => {
-                    match self.get_field_schema(*entity_type, *field_type) {
-                        Ok(fs) => {
-                            *schema = Some(fs);
-                        }
-                        Err(_) => {
-                            *schema = None;
-                        }
+                Request::GetFieldSchema {
+                    entity_type,
+                    field_type,
+                    schema,
+                } => match self.get_field_schema(*entity_type, *field_type) {
+                    Ok(fs) => {
+                        *schema = Some(fs);
+                    }
+                    Err(_) => {
+                        *schema = None;
                     }
                 },
                 Request::EntityExists { entity_id, exists } => {
                     *exists = Some(self.entity_exists(*entity_id));
-                },
-                Request::FieldExists { entity_type, field_type, exists } => {
+                }
+                Request::FieldExists {
+                    entity_type,
+                    field_type,
+                    exists,
+                } => {
                     *exists = Some(self.field_exists(*entity_type, *field_type));
-                },
-                Request::FindEntities { entity_type, page_opts, filter, result } => {
-                    match self.find_entities_paginated(*entity_type, page_opts.as_ref(), filter.as_deref()) {
+                }
+                Request::FindEntities {
+                    entity_type,
+                    page_opts,
+                    filter,
+                    result,
+                } => {
+                    match self.find_entities_paginated(
+                        *entity_type,
+                        page_opts.as_ref(),
+                        filter.as_deref(),
+                    ) {
                         Ok(page_result) => {
                             *result = Some(page_result);
                         }
@@ -447,9 +466,18 @@ impl Store {
                             *result = None;
                         }
                     }
-                },
-                Request::FindEntitiesExact { entity_type, page_opts, filter, result } => {
-                    match self.find_entities_exact(*entity_type, page_opts.as_ref(), filter.as_deref()) {
+                }
+                Request::FindEntitiesExact {
+                    entity_type,
+                    page_opts,
+                    filter,
+                    result,
+                } => {
+                    match self.find_entities_exact(
+                        *entity_type,
+                        page_opts.as_ref(),
+                        filter.as_deref(),
+                    ) {
                         Ok(page_result) => {
                             *result = Some(page_result);
                         }
@@ -457,7 +485,7 @@ impl Store {
                             *result = None;
                         }
                     }
-                },
+                }
                 Request::GetEntityTypes { page_opts, result } => {
                     match self.get_entity_types_paginated(page_opts.as_ref()) {
                         Ok(page_result) => {
@@ -467,7 +495,7 @@ impl Store {
                             *result = None;
                         }
                     }
-                },
+                }
                 _ => {
                     return Err(Error::InvalidRequest("Perform without mutable access can only handle read-only requests (Read, GetEntityType, ResolveEntityType, GetFieldType, ResolveFieldType, GetEntitySchema, GetCompleteEntitySchema, GetFieldSchema, EntityExists, FieldExists, FindEntities, FindEntitiesExact, GetEntityTypes)".to_string()));
                 }
@@ -675,44 +703,61 @@ impl Store {
                         *name = None;
                     }
                 },
-                Request::GetEntitySchema { entity_type, schema } => {
-                    match self.get_entity_schema(*entity_type) {
-                        Ok(es) => {
-                            *schema = Some(es);
-                        }
-                        Err(_) => {
-                            *schema = None;
-                        }
+                Request::GetEntitySchema {
+                    entity_type,
+                    schema,
+                } => match self.get_entity_schema(*entity_type) {
+                    Ok(es) => {
+                        *schema = Some(es);
+                    }
+                    Err(_) => {
+                        *schema = None;
                     }
                 },
-                Request::GetCompleteEntitySchema { entity_type, schema } => {
-                    match self.get_complete_entity_schema(*entity_type) {
-                        Ok(es) => {
-                            *schema = Some(es.clone());
-                        }
-                        Err(_) => {
-                            *schema = None;
-                        }
+                Request::GetCompleteEntitySchema {
+                    entity_type,
+                    schema,
+                } => match self.get_complete_entity_schema(*entity_type) {
+                    Ok(es) => {
+                        *schema = Some(es.clone());
+                    }
+                    Err(_) => {
+                        *schema = None;
                     }
                 },
-                Request::GetFieldSchema { entity_type, field_type, schema } => {
-                    match self.get_field_schema(*entity_type, *field_type) {
-                        Ok(fs) => {
-                            *schema = Some(fs);
-                        }
-                        Err(_) => {
-                            *schema = None;
-                        }
+                Request::GetFieldSchema {
+                    entity_type,
+                    field_type,
+                    schema,
+                } => match self.get_field_schema(*entity_type, *field_type) {
+                    Ok(fs) => {
+                        *schema = Some(fs);
+                    }
+                    Err(_) => {
+                        *schema = None;
                     }
                 },
                 Request::EntityExists { entity_id, exists } => {
                     *exists = Some(self.entity_exists(*entity_id));
-                },
-                Request::FieldExists { entity_type, field_type, exists } => {
+                }
+                Request::FieldExists {
+                    entity_type,
+                    field_type,
+                    exists,
+                } => {
                     *exists = Some(self.field_exists(*entity_type, *field_type));
-                },
-                Request::FindEntities { entity_type, page_opts, filter, result } => {
-                    match self.find_entities_paginated(*entity_type, page_opts.as_ref(), filter.as_deref()) {
+                }
+                Request::FindEntities {
+                    entity_type,
+                    page_opts,
+                    filter,
+                    result,
+                } => {
+                    match self.find_entities_paginated(
+                        *entity_type,
+                        page_opts.as_ref(),
+                        filter.as_deref(),
+                    ) {
                         Ok(page_result) => {
                             *result = Some(page_result);
                         }
@@ -720,9 +765,18 @@ impl Store {
                             *result = None;
                         }
                     }
-                },
-                Request::FindEntitiesExact { entity_type, page_opts, filter, result } => {
-                    match self.find_entities_exact(*entity_type, page_opts.as_ref(), filter.as_deref()) {
+                }
+                Request::FindEntitiesExact {
+                    entity_type,
+                    page_opts,
+                    filter,
+                    result,
+                } => {
+                    match self.find_entities_exact(
+                        *entity_type,
+                        page_opts.as_ref(),
+                        filter.as_deref(),
+                    ) {
                         Ok(page_result) => {
                             *result = Some(page_result);
                         }
@@ -730,7 +784,7 @@ impl Store {
                             *result = None;
                         }
                     }
-                },
+                }
                 Request::GetEntityTypes { page_opts, result } => {
                     match self.get_entity_types_paginated(page_opts.as_ref()) {
                         Ok(page_result) => {
@@ -740,7 +794,7 @@ impl Store {
                             *result = None;
                         }
                     }
-                },
+                }
             }
         }
 
@@ -919,11 +973,7 @@ impl Store {
             }
         }
 
-        let next_cursor = if end_idx < total {
-            Some(end_idx)
-        } else {
-            None
-        };
+        let next_cursor = if end_idx < total { Some(end_idx) } else { None };
 
         Ok(PageResult {
             items,
@@ -1059,11 +1109,7 @@ impl Store {
         let end_idx = std::cmp::min(start_idx + opts.limit, total);
         let items = entities[start_idx..end_idx].to_vec();
 
-        let next_cursor = if end_idx < total {
-            Some(end_idx)
-        } else {
-            None
-        };
+        let next_cursor = if end_idx < total { Some(end_idx) } else { None };
 
         Ok(PageResult {
             items,
@@ -1195,11 +1241,7 @@ impl Store {
         };
 
         // Calculate the next cursor
-        let next_cursor = if end_idx < total {
-            Some(end_idx)
-        } else {
-            None
-        };
+        let next_cursor = if end_idx < total { Some(end_idx) } else { None };
 
         Ok(PageResult {
             items,
@@ -1444,11 +1486,14 @@ impl Store {
                     );
                 }
                 Value::String(old_string) => {
-                    new_value = Value::String(format!(
-                        "{}{}",
-                        old_string,
-                        new_value.as_string().unwrap_or_default()
-                    ).into());
+                    new_value = Value::String(
+                        format!(
+                            "{}{}",
+                            old_string,
+                            new_value.as_string().unwrap_or_default()
+                        )
+                        .into(),
+                    );
                 }
                 Value::Blob(old_file) => {
                     let combined_vec: Vec<u8> = old_file
@@ -1771,7 +1816,9 @@ impl Store {
         for context_field in context_fields {
             // Use perform to handle indirection properly
             let field_types: IndirectFieldType = context_field.clone().into_iter().collect();
-            if let Ok(updated_requests) = self.perform(sreq![sread!(entity_id, field_types.clone())]) {
+            if let Ok(updated_requests) =
+                self.perform(sreq![sread!(entity_id, field_types.clone())])
+            {
                 context_map.insert(
                     context_field.clone(),
                     updated_requests.read().first().unwrap().clone(),
@@ -2091,7 +2138,11 @@ impl StoreTrait for Store {
         self.field_exists(entity_type, field_type)
     }
 
-    fn resolve_indirection(&self, entity_id: EntityId, fields: &[FieldType]) -> Result<(EntityId, FieldType)> {
+    fn resolve_indirection(
+        &self,
+        entity_id: EntityId,
+        fields: &[FieldType],
+    ) -> Result<(EntityId, FieldType)> {
         self.resolve_indirection(entity_id, fields)
     }
 

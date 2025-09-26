@@ -1,7 +1,6 @@
 use crate::data::EntityType;
 use serde::{Deserialize, Serialize};
 
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Ord, PartialOrd)]
 pub struct EntityId(pub u64);
 

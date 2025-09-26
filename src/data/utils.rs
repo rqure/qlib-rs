@@ -1,7 +1,6 @@
 use base64::{engine::general_purpose, Engine as _};
 
-use crate::data::value::{Value, ArcString, ArcBlob};
-
+use crate::data::value::{ArcBlob, ArcString, Value};
 
 /// Create a blob value from a base64-encoded string
 pub fn from_base64(base64_str: &str) -> crate::Result<Vec<u8>> {
@@ -9,7 +8,7 @@ pub fn from_base64(base64_str: &str) -> crate::Result<Vec<u8>> {
         Ok(bytes) => Ok(bytes),
         Err(_) => Err(crate::Error::BadValueCast(
             Value::String(ArcString::new(base64_str.to_string())),
-            Value::Blob(ArcBlob::new(vec![]))
+            Value::Blob(ArcBlob::new(vec![])),
         )),
     }
 }

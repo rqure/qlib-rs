@@ -76,7 +76,9 @@ fn test_value_string_macro() {
 
     // Test with string containing special chars
     let special = sstr!("Special & Chars: !@#$%^&*()");
-    assert!(matches!(special, Some(Value::String(s)) if s.as_str() == "Special & Chars: !@#$%^&*()"));
+    assert!(
+        matches!(special, Some(Value::String(s)) if s.as_str() == "Special & Chars: !@#$%^&*()")
+    );
 }
 
 #[test]
@@ -192,7 +194,10 @@ fn test_sread_macro() {
             ..
         } => {
             assert_eq!(req_entity_id, entity_id);
-            assert_eq!(field_types, smallvec::SmallVec::<[FieldType; 4]>::from_slice(&[field_type]));
+            assert_eq!(
+                field_types,
+                smallvec::SmallVec::<[FieldType; 4]>::from_slice(&[field_type])
+            );
         }
         _ => panic!("Expected Request::Read"),
     }
@@ -218,7 +223,10 @@ fn test_swrite_macro() {
             ..
         } => {
             assert_eq!(req_entity_id, entity_id);
-            assert_eq!(field_types, smallvec::SmallVec::<[FieldType; 4]>::from_slice(&[ft_username]));
+            assert_eq!(
+                field_types,
+                smallvec::SmallVec::<[FieldType; 4]>::from_slice(&[ft_username])
+            );
             assert!(matches!(value, Some(Value::String(s)) if s.as_str() == "alice"));
             assert!(matches!(push_condition, PushCondition::Always));
             assert!(matches!(adjust_behavior, AdjustBehavior::Set));
@@ -306,7 +314,10 @@ fn test_sadd_macro() {
             ..
         } => {
             assert_eq!(req_entity_id, entity_id);
-            assert_eq!(field_types, smallvec::SmallVec::<[FieldType; 4]>::from_slice(&[ft_counter]));
+            assert_eq!(
+                field_types,
+                smallvec::SmallVec::<[FieldType; 4]>::from_slice(&[ft_counter])
+            );
             assert!(matches!(value, Some(Value::Int(5))));
             assert!(matches!(push_condition, PushCondition::Always));
             assert!(matches!(adjust_behavior, AdjustBehavior::Add));
@@ -384,11 +395,7 @@ fn test_sadd_macro() {
     let tag_type = EntityType(4); // Tag
     let tag1 = EntityId::new(tag_type, 1);
     let tag2 = EntityId::new(tag_type, 2);
-    let request5 = sadd!(
-        entity_id,
-        crate::sfield![ft_tags],
-        sreflist![tag1, tag2]
-    );
+    let request5 = sadd!(entity_id, crate::sfield![ft_tags], sreflist![tag1, tag2]);
     match request5 {
         Request::Write {
             adjust_behavior,
@@ -428,7 +435,10 @@ fn test_ssub_macro() {
             ..
         } => {
             assert_eq!(req_entity_id, entity_id);
-            assert_eq!(field_types, smallvec::SmallVec::<[FieldType; 4]>::from_slice(&[ft_counter]));
+            assert_eq!(
+                field_types,
+                smallvec::SmallVec::<[FieldType; 4]>::from_slice(&[ft_counter])
+            );
             assert!(matches!(value, Some(Value::Int(3))));
             assert!(matches!(push_condition, PushCondition::Always));
             assert!(matches!(adjust_behavior, AdjustBehavior::Subtract));
@@ -535,7 +545,13 @@ fn test_screate_macro() {
     // Test basic create with just type and name
     let basic_create = screate!(et_user, "test_user".to_string());
     match basic_create {
-        Request::Create { entity_type, parent_id: None, name, created_entity_id: None, timestamp: None } => {
+        Request::Create {
+            entity_type,
+            parent_id: None,
+            name,
+            created_entity_id: None,
+            timestamp: None,
+        } => {
             assert_eq!(entity_type, et_user);
             assert_eq!(name, "test_user");
         }
@@ -545,7 +561,13 @@ fn test_screate_macro() {
     // Test create with parent ID
     let create_with_parent = screate!(et_user, "child_user".to_string(), parent_id);
     match create_with_parent {
-        Request::Create { entity_type, parent_id: Some(pid), name, created_entity_id: None, timestamp: None } => {
+        Request::Create {
+            entity_type,
+            parent_id: Some(pid),
+            name,
+            created_entity_id: None,
+            timestamp: None,
+        } => {
             assert_eq!(entity_type, et_user);
             assert_eq!(pid, parent_id);
             assert_eq!(name, "child_user");
@@ -556,7 +578,13 @@ fn test_screate_macro() {
     // Test create with parent ID and desired entity ID
     let create_with_ids = screate!(et_user, "specific_user".to_string(), parent_id, entity_id);
     match create_with_ids {
-        Request::Create { entity_type, parent_id: Some(pid), name, created_entity_id: Some(eid), timestamp: None } => {
+        Request::Create {
+            entity_type,
+            parent_id: Some(pid),
+            name,
+            created_entity_id: Some(eid),
+            timestamp: None,
+        } => {
             assert_eq!(entity_type, et_user);
             assert_eq!(pid, parent_id);
             assert_eq!(name, "specific_user");
@@ -573,7 +601,10 @@ fn test_sdelete_macro() {
 
     let delete_request = sdelete!(entity_id);
     match delete_request {
-        Request::Delete { entity_id: eid, timestamp: None } => {
+        Request::Delete {
+            entity_id: eid,
+            timestamp: None,
+        } => {
             assert_eq!(eid, entity_id);
         }
         _ => panic!("Expected Request::Delete"),
@@ -587,7 +618,10 @@ fn test_sschemaupdate_macro() {
 
     let schema_update = sschemaupdate!(schema.clone());
     match schema_update {
-        Request::SchemaUpdate { schema: s, timestamp: None } => {
+        Request::SchemaUpdate {
+            schema: s,
+            timestamp: None,
+        } => {
             assert_eq!(s.entity_type, "User".to_string());
         }
         _ => panic!("Expected Request::SchemaUpdate"),

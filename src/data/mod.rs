@@ -1,50 +1,55 @@
-pub mod et;
+mod async_store_proxy;
+mod cache;
 mod entity_id;
 mod entity_schema;
-mod field_schema;
+pub mod et;
 mod field;
+mod field_schema;
 pub mod ft;
-mod interner;
 mod indirection;
+mod interner;
 mod json_snapshot;
 mod notifications;
 mod pagination;
 mod request;
 mod snapshots;
-mod store_proxy;
-mod async_store_proxy;
 mod store;
+mod store_proxy;
 mod store_trait;
-mod value;
-mod cache;
 mod utils;
+mod value;
 
+pub use cache::Cache;
 pub use entity_id::EntityId;
-pub use entity_schema::{EntitySchema, Single, Complete};
+pub use entity_schema::{Complete, EntitySchema, Single};
 pub use field::Field;
 pub use field_schema::{FieldSchema, StorageScope};
+pub use indirection::{path, path_to_entity_id, BadIndirectionReason, INDIRECTION_DELIMITER};
+pub use json_snapshot::{
+    build_json_entity_tree, factory_restore_json_snapshot, json_value_to_value,
+    restore_entity_recursive, restore_json_snapshot, restore_json_snapshot_via_proxy,
+    take_json_snapshot, value_to_json_value, value_to_json_value_with_paths, JsonEntity,
+    JsonEntitySchema, JsonSnapshot,
+};
+pub use pagination::{PageOpts, PageResult};
+pub use request::IndirectFieldType;
 pub use request::{AdjustBehavior, PushCondition, Request, Requests};
 use serde::{Deserialize, Serialize};
-pub use store::{Store};
-pub use store_trait::{StoreTrait};
-pub use indirection::{BadIndirectionReason, INDIRECTION_DELIMITER, path, path_to_entity_id};
-pub use pagination::{PageOpts, PageResult};
 pub use snapshots::Snapshot;
-pub use json_snapshot::{JsonSnapshot, JsonEntitySchema, JsonEntity, value_to_json_value, json_value_to_value, value_to_json_value_with_paths, build_json_entity_tree, take_json_snapshot, restore_json_snapshot, restore_entity_recursive, factory_restore_json_snapshot, restore_json_snapshot_via_proxy};
-pub use cache::Cache;
-pub use request::IndirectFieldType;
+pub use store::Store;
+pub use store_trait::StoreTrait;
 
-pub use store_proxy::{StoreProxy, StoreMessage, extract_message_id, AuthenticationResult};
 pub use async_store_proxy::AsyncStoreProxy;
-pub use value::{Value, ArcString, ArcBlob};
-pub use notifications::{NotifyConfig, Notification, NotificationQueue, hash_notify_config};
+pub use notifications::{hash_notify_config, Notification, NotificationQueue, NotifyConfig};
+pub use store_proxy::{extract_message_id, AuthenticationResult, StoreMessage, StoreProxy};
+pub use value::{ArcBlob, ArcString, Value};
 
 pub use utils::{from_base64, to_base64};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash)]
 pub struct EntityType(pub u32);
 
-#[derive(Debug, Clone, Copy,PartialEq, Eq, Serialize, Deserialize, Hash, Ord, PartialOrd)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash, Ord, PartialOrd)]
 pub struct FieldType(pub u64);
 
 pub type Timestamp = time::OffsetDateTime;

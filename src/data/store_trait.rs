@@ -1,7 +1,9 @@
-use std::{collections::HashMap};
+use std::collections::HashMap;
 
 use crate::{
-    data::request::Requests, Complete, EntityId, EntitySchema, EntityType, FieldSchema, FieldType, IndirectFieldType, NotificationQueue, NotifyConfig, PageOpts, PageResult, Request, Result, Single
+    data::request::Requests, Complete, EntityId, EntitySchema, EntityType, FieldSchema, FieldType,
+    IndirectFieldType, NotificationQueue, NotifyConfig, PageOpts, PageResult, Request, Result,
+    Single,
 };
 
 /// Async trait defining the common interface for store implementations
@@ -19,13 +21,25 @@ pub trait StoreTrait {
     fn get_entity_schema(&self, entity_type: EntityType) -> Result<EntitySchema<Single>>;
 
     /// Get the complete schema for a specific entity type (including inherited fields)
-    fn get_complete_entity_schema(&self, entity_type: EntityType) -> Result<&EntitySchema<Complete>>;
+    fn get_complete_entity_schema(
+        &self,
+        entity_type: EntityType,
+    ) -> Result<&EntitySchema<Complete>>;
 
     /// Get the schema for a specific field
-    fn get_field_schema(&self, entity_type: EntityType, field_type: FieldType) -> Result<FieldSchema>;
+    fn get_field_schema(
+        &self,
+        entity_type: EntityType,
+        field_type: FieldType,
+    ) -> Result<FieldSchema>;
 
     /// Set or update the schema for a specific field
-    fn set_field_schema(&mut self, entity_type: EntityType, field_type: FieldType, schema: FieldSchema) -> Result<()>;
+    fn set_field_schema(
+        &mut self,
+        entity_type: EntityType,
+        field_type: FieldType,
+        schema: FieldSchema,
+    ) -> Result<()>;
 
     /// Check if an entity exists
     fn entity_exists(&self, entity_id: EntityId) -> bool;
@@ -34,7 +48,11 @@ pub trait StoreTrait {
     fn field_exists(&self, entity_type: EntityType, field_type: FieldType) -> bool;
 
     /// Resolve indirection for field lookups
-    fn resolve_indirection(&self, entity_id: EntityId, fields: &[FieldType]) -> Result<(EntityId, FieldType)>;
+    fn resolve_indirection(
+        &self,
+        entity_id: EntityId,
+        fields: &[FieldType],
+    ) -> Result<(EntityId, FieldType)>;
 
     /// Perform a batch of requests
     fn perform(&self, requests: Requests) -> Result<Requests>;
@@ -54,23 +72,45 @@ pub trait StoreTrait {
     }
 
     /// Find entities of a specific type with pagination (includes inherited types)
-    fn find_entities_paginated(&self, entity_type: EntityType, page_opts: Option<&PageOpts>, filter: Option<&str>) -> Result<PageResult<EntityId>>;
+    fn find_entities_paginated(
+        &self,
+        entity_type: EntityType,
+        page_opts: Option<&PageOpts>,
+        filter: Option<&str>,
+    ) -> Result<PageResult<EntityId>>;
 
     /// Find entities of exactly the specified type (no inheritance) with pagination
-    fn find_entities_exact(&self, entity_type: EntityType, page_opts: Option<&PageOpts>, filter: Option<&str>) -> Result<PageResult<EntityId>>;
+    fn find_entities_exact(
+        &self,
+        entity_type: EntityType,
+        page_opts: Option<&PageOpts>,
+        filter: Option<&str>,
+    ) -> Result<PageResult<EntityId>>;
 
     /// Find all entities of a specific type (includes inherited types)
-    fn find_entities(&self, entity_type: EntityType, filter: Option<&str>) -> Result<Vec<EntityId>>;
+    fn find_entities(&self, entity_type: EntityType, filter: Option<&str>)
+        -> Result<Vec<EntityId>>;
 
     /// Get all entity types
     fn get_entity_types(&self) -> Result<Vec<EntityType>>;
 
     /// Get all entity types with pagination
-    fn get_entity_types_paginated(&self, page_opts: Option<&PageOpts>) -> Result<PageResult<EntityType>>;
+    fn get_entity_types_paginated(
+        &self,
+        page_opts: Option<&PageOpts>,
+    ) -> Result<PageResult<EntityType>>;
 
     /// Register a notification with a provided sender
-    fn register_notification(&mut self, config: NotifyConfig, sender: NotificationQueue) -> Result<()>;
+    fn register_notification(
+        &mut self,
+        config: NotifyConfig,
+        sender: NotificationQueue,
+    ) -> Result<()>;
 
     /// Unregister a notification by removing a specific sender
-    fn unregister_notification(&mut self, config: &NotifyConfig, sender: &NotificationQueue) -> bool;
+    fn unregister_notification(
+        &mut self,
+        config: &NotifyConfig,
+        sender: &NotificationQueue,
+    ) -> bool;
 }

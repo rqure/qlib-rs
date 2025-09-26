@@ -5,11 +5,13 @@ use crate::sreq;
 use crate::data::StorageScope;
 
 #[allow(unused_imports)]
-use crate::{StoreTrait, sstr};
+use crate::{sstr, StoreTrait};
 
 #[allow(unused_imports)]
-use crate::{restore_json_snapshot, screate, sschemaupdate, swrite, take_json_snapshot, EntitySchema, EntityType, FieldSchema, FieldType, Request, Single, Store, Value, now};
-
+use crate::{
+    now, restore_json_snapshot, screate, sschemaupdate, swrite, take_json_snapshot, EntitySchema,
+    EntityType, FieldSchema, FieldType, Request, Single, Store, Value,
+};
 
 #[test]
 fn test_json_snapshot_functionality() {
@@ -17,7 +19,8 @@ fn test_json_snapshot_functionality() {
     let mut store = Store::new();
 
     // Define schemas using strings first
-    let mut object_schema = EntitySchema::<Single, String, String>::new("Object".to_string(), vec![]);
+    let mut object_schema =
+        EntitySchema::<Single, String, String>::new("Object".to_string(), vec![]);
     object_schema.fields.insert(
         "Name".to_string(),
         FieldSchema::String {
@@ -54,8 +57,10 @@ fn test_json_snapshot_functionality() {
             storage_scope: StorageScope::Configuration,
         },
     );
-    
-    store.perform_mut(sreq![sschemaupdate!(object_schema)]).unwrap();
+
+    store
+        .perform_mut(sreq![sschemaupdate!(object_schema)])
+        .unwrap();
 
     // Now get the interned types
     let _object_et = store.get_entity_type("Object").unwrap();
@@ -63,7 +68,8 @@ fn test_json_snapshot_functionality() {
     let description_ft = store.get_field_type("Description").unwrap();
     let children_ft = store.get_field_type("Children").unwrap();
 
-    let mut root_schema = EntitySchema::<Single, String, String>::new("Root".to_string(), vec!["Object".to_string()]);
+    let mut root_schema =
+        EntitySchema::<Single, String, String>::new("Root".to_string(), vec!["Object".to_string()]);
     root_schema.fields.insert(
         "CreatedEntity".to_string(),
         FieldSchema::EntityReference {
@@ -91,8 +97,10 @@ fn test_json_snapshot_functionality() {
             storage_scope: StorageScope::Runtime,
         },
     );
-    
-    store.perform_mut(sreq![sschemaupdate!(root_schema)]).unwrap();
+
+    store
+        .perform_mut(sreq![sschemaupdate!(root_schema)])
+        .unwrap();
 
     // Now get the interned types
     let root_et = store.get_entity_type("Root").unwrap();
@@ -100,7 +108,10 @@ fn test_json_snapshot_functionality() {
     let _deleted_entity_ft = store.get_field_type("DeletedEntity").unwrap();
     let _schema_change_ft = store.get_field_type("SchemaChange").unwrap();
 
-    let mut machine_schema = EntitySchema::<Single, String, String>::new("Machine".to_string(), vec!["Object".to_string()]);
+    let mut machine_schema = EntitySchema::<Single, String, String>::new(
+        "Machine".to_string(),
+        vec!["Object".to_string()],
+    );
     machine_schema.fields.insert(
         "Status".to_string(),
         FieldSchema::String {
@@ -110,14 +121,19 @@ fn test_json_snapshot_functionality() {
             storage_scope: StorageScope::Configuration,
         },
     );
-    
-    store.perform_mut(sreq![sschemaupdate!(machine_schema)]).unwrap();
+
+    store
+        .perform_mut(sreq![sschemaupdate!(machine_schema)])
+        .unwrap();
 
     // Now get the interned types
     let machine_et = store.get_entity_type("Machine").unwrap();
     let status_ft = store.get_field_type("Status").unwrap();
 
-    let mut sensor_schema = EntitySchema::<Single, String, String>::new("Sensor".to_string(), vec!["Object".to_string()]);
+    let mut sensor_schema = EntitySchema::<Single, String, String>::new(
+        "Sensor".to_string(),
+        vec!["Object".to_string()],
+    );
     sensor_schema.fields.insert(
         "CurrentValue".to_string(),
         FieldSchema::Float {
@@ -145,8 +161,10 @@ fn test_json_snapshot_functionality() {
             storage_scope: StorageScope::Runtime,
         },
     );
-    
-    store.perform_mut(sreq![sschemaupdate!(sensor_schema)]).unwrap();
+
+    store
+        .perform_mut(sreq![sschemaupdate!(sensor_schema)])
+        .unwrap();
 
     // Now get the interned types
     let _sensor_et = store.get_entity_type("Sensor").unwrap();
@@ -154,7 +172,10 @@ fn test_json_snapshot_functionality() {
     let unit_ft = store.get_field_type("Unit").unwrap();
     let _last_updated_ft = store.get_field_type("LastUpdated").unwrap();
 
-    let mut temp_sensor_schema = EntitySchema::<Single, String, String>::new("TemperatureSensor".to_string(), vec!["Sensor".to_string()]);
+    let mut temp_sensor_schema = EntitySchema::<Single, String, String>::new(
+        "TemperatureSensor".to_string(),
+        vec!["Sensor".to_string()],
+    );
     temp_sensor_schema.fields.insert(
         "CalibrationOffset".to_string(),
         FieldSchema::Float {
@@ -164,8 +185,10 @@ fn test_json_snapshot_functionality() {
             storage_scope: StorageScope::Configuration,
         },
     );
-    
-    store.perform_mut(sreq![sschemaupdate!(temp_sensor_schema)]).unwrap();
+
+    store
+        .perform_mut(sreq![sschemaupdate!(temp_sensor_schema)])
+        .unwrap();
 
     // Now get the interned types
     let temp_sensor_et = store.get_entity_type("TemperatureSensor").unwrap();
@@ -176,96 +199,179 @@ fn test_json_snapshot_functionality() {
     store.et = Some(crate::et::ET::new(&store));
 
     // Create entities - let the store generate IDs
-    let create_requests = store.perform_mut(sreq![
-        Request::Create {
+    let create_requests = store
+        .perform_mut(sreq![Request::Create {
             entity_type: root_et,
             parent_id: None,
             name: "DataStore".to_string(),
             created_entity_id: None,
             timestamp: None,
-        },
-    ]).unwrap();
-    
+        },])
+        .unwrap();
+
     // Get the actual created root ID
-    let root_id = if let Some(Request::Create { created_entity_id: Some(ref id), .. }) = create_requests.first() {
+    let root_id = if let Some(Request::Create {
+        created_entity_id: Some(ref id),
+        ..
+    }) = create_requests.first()
+    {
         id.clone()
     } else {
         panic!("Failed to get created root entity ID");
     };
 
-    let machine_create_requests = store.perform_mut(sreq![
-        screate!(machine_et, "Server1".to_string(), root_id.clone()),
-    ]).unwrap();
-    
+    let machine_create_requests = store
+        .perform_mut(sreq![screate!(
+            machine_et,
+            "Server1".to_string(),
+            root_id.clone()
+        ),])
+        .unwrap();
+
     // Get the actual created machine ID
-    let machine_id = if let Some(Request::Create { created_entity_id: Some(ref id), .. }) = machine_create_requests.first() {
+    let machine_id = if let Some(Request::Create {
+        created_entity_id: Some(ref id),
+        ..
+    }) = machine_create_requests.first()
+    {
         id.clone()
     } else {
         panic!("Failed to get created machine entity ID");
     };
 
-    let sensor_create_requests = store.perform_mut(sreq![
-        screate!(temp_sensor_et, "IntakeTemp".to_string(), machine_id.clone()),
-    ]).unwrap();
-    
+    let sensor_create_requests = store
+        .perform_mut(sreq![screate!(
+            temp_sensor_et,
+            "IntakeTemp".to_string(),
+            machine_id.clone()
+        ),])
+        .unwrap();
+
     // Get the actual created sensor ID
-    let sensor_id = if let Some(Request::Create { created_entity_id: Some(ref id), .. }) = sensor_create_requests.first() {
+    let sensor_id = if let Some(Request::Create {
+        created_entity_id: Some(ref id),
+        ..
+    }) = sensor_create_requests.first()
+    {
         id.clone()
     } else {
         panic!("Failed to get created sensor entity ID");
     };
 
     // Set field values
-    store.perform_mut(sreq![
-        swrite!(root_id.clone(), crate::sfield![name_ft], sstr!("DataStore")),
-        swrite!(root_id.clone(), crate::sfield![description_ft], sstr!("Primary data store")),
-        swrite!(root_id.clone(), crate::sfield![children_ft], Some(Value::EntityList(vec![machine_id.clone()]))),
-
-        swrite!(machine_id.clone(), crate::sfield![name_ft], sstr!("Server1")),
-        swrite!(machine_id.clone(), crate::sfield![status_ft], sstr!("Online")),
-        swrite!(machine_id.clone(), crate::sfield![children_ft], Some(Value::EntityList(vec![sensor_id.clone()]))),
-
-        swrite!(sensor_id.clone(), crate::sfield![name_ft], sstr!("IntakeTemp")),
-        swrite!(sensor_id.clone(), crate::sfield![current_value_ft], Some(Value::Float(72.5))),
-        swrite!(sensor_id.clone(), crate::sfield![unit_ft], sstr!("C")),
-        swrite!(sensor_id.clone(), crate::sfield![calibration_offset_ft], Some(Value::Float(0.5))),
-    ]).unwrap();
+    store
+        .perform_mut(sreq![
+            swrite!(root_id.clone(), crate::sfield![name_ft], sstr!("DataStore")),
+            swrite!(
+                root_id.clone(),
+                crate::sfield![description_ft],
+                sstr!("Primary data store")
+            ),
+            swrite!(
+                root_id.clone(),
+                crate::sfield![children_ft],
+                Some(Value::EntityList(vec![machine_id.clone()]))
+            ),
+            swrite!(
+                machine_id.clone(),
+                crate::sfield![name_ft],
+                sstr!("Server1")
+            ),
+            swrite!(
+                machine_id.clone(),
+                crate::sfield![status_ft],
+                sstr!("Online")
+            ),
+            swrite!(
+                machine_id.clone(),
+                crate::sfield![children_ft],
+                Some(Value::EntityList(vec![sensor_id.clone()]))
+            ),
+            swrite!(
+                sensor_id.clone(),
+                crate::sfield![name_ft],
+                sstr!("IntakeTemp")
+            ),
+            swrite!(
+                sensor_id.clone(),
+                crate::sfield![current_value_ft],
+                Some(Value::Float(72.5))
+            ),
+            swrite!(sensor_id.clone(), crate::sfield![unit_ft], sstr!("C")),
+            swrite!(
+                sensor_id.clone(),
+                crate::sfield![calibration_offset_ft],
+                Some(Value::Float(0.5))
+            ),
+        ])
+        .unwrap();
 
     // Take JSON snapshot
     let snapshot = take_json_snapshot(&mut store).unwrap();
-    
+
     // Verify the snapshot structure matches the expected format
     assert_eq!(snapshot.schemas.len(), 5);
-    
+
     // Check that schemas are properly sorted
-    let schema_names: Vec<&str> = snapshot.schemas.iter().map(|s| s.entity_type.as_str()).collect();
+    let schema_names: Vec<&str> = snapshot
+        .schemas
+        .iter()
+        .map(|s| s.entity_type.as_str())
+        .collect();
     let mut expected_names = vec!["Machine", "Object", "Root", "Sensor", "TemperatureSensor"];
     expected_names.sort();
     assert_eq!(schema_names, expected_names);
-    
+
     // Verify the tree structure
     assert_eq!(snapshot.tree.entity_type, "Root");
-    assert_eq!(snapshot.tree.fields.get("Name").unwrap().as_str().unwrap(), "DataStore");
-    assert_eq!(snapshot.tree.fields.get("Description").unwrap().as_str().unwrap(), "Primary data store");
-    
+    assert_eq!(
+        snapshot.tree.fields.get("Name").unwrap().as_str().unwrap(),
+        "DataStore"
+    );
+    assert_eq!(
+        snapshot
+            .tree
+            .fields
+            .get("Description")
+            .unwrap()
+            .as_str()
+            .unwrap(),
+        "Primary data store"
+    );
+
     // Verify children are nested entities, not paths
-    let children = snapshot.tree.fields.get("Children").unwrap().as_array().unwrap();
+    let children = snapshot
+        .tree
+        .fields
+        .get("Children")
+        .unwrap()
+        .as_array()
+        .unwrap();
     assert_eq!(children.len(), 1);
-    
+
     let machine = &children[0];
-    assert_eq!(machine.get("entityType").unwrap().as_str().unwrap(), "Machine");
+    assert_eq!(
+        machine.get("entityType").unwrap().as_str().unwrap(),
+        "Machine"
+    );
     assert_eq!(machine.get("Name").unwrap().as_str().unwrap(), "Server1");
     assert_eq!(machine.get("Status").unwrap().as_str().unwrap(), "Online");
-    
+
     let machine_children = machine.get("Children").unwrap().as_array().unwrap();
     assert_eq!(machine_children.len(), 1);
-    
+
     let sensor = &machine_children[0];
-    assert_eq!(sensor.get("entityType").unwrap().as_str().unwrap(), "TemperatureSensor");
+    assert_eq!(
+        sensor.get("entityType").unwrap().as_str().unwrap(),
+        "TemperatureSensor"
+    );
     assert_eq!(sensor.get("Name").unwrap().as_str().unwrap(), "IntakeTemp");
     // CurrentValue is a Runtime field and not included in snapshots
     assert_eq!(sensor.get("Unit").unwrap().as_str().unwrap(), "C");
-    assert_eq!(sensor.get("CalibrationOffset").unwrap().as_f64().unwrap(), 0.5);
+    assert_eq!(
+        sensor.get("CalibrationOffset").unwrap().as_f64().unwrap(),
+        0.5
+    );
 
     // Print the snapshot for visual verification
     let json_str = serde_json::to_string_pretty(&snapshot).unwrap();
@@ -277,8 +383,9 @@ fn test_json_snapshot_restore() {
     // Create and populate the first store
     let mut store1 = Store::new();
 
-    // Define schemas using strings first  
-    let mut object_schema = EntitySchema::<Single, String, String>::new("Object".to_string(), vec![]);
+    // Define schemas using strings first
+    let mut object_schema =
+        EntitySchema::<Single, String, String>::new("Object".to_string(), vec![]);
     object_schema.fields.insert(
         "Name".to_string(),
         FieldSchema::String {
@@ -316,15 +423,18 @@ fn test_json_snapshot_restore() {
         },
     );
 
-    store1.perform_mut(sreq![sschemaupdate!(object_schema)]).unwrap();
+    store1
+        .perform_mut(sreq![sschemaupdate!(object_schema)])
+        .unwrap();
 
     // Now get the interned types
     let _object_et = store1.get_entity_type("Object").unwrap();
     let name_ft = store1.get_field_type("Name").unwrap();
     let description_ft = store1.get_field_type("Description").unwrap();
     let children_ft = store1.get_field_type("Children").unwrap();
-    
-    let mut root_schema = EntitySchema::<Single, String, String>::new("Root".to_string(), vec!["Object".to_string()]);
+
+    let mut root_schema =
+        EntitySchema::<Single, String, String>::new("Root".to_string(), vec!["Object".to_string()]);
     root_schema.fields.insert(
         "Status".to_string(),
         FieldSchema::String {
@@ -335,7 +445,10 @@ fn test_json_snapshot_restore() {
         },
     );
 
-    let mut document_schema = EntitySchema::<Single, String, String>::new("Document".to_string(), vec!["Object".to_string()]);
+    let mut document_schema = EntitySchema::<Single, String, String>::new(
+        "Document".to_string(),
+        vec!["Object".to_string()],
+    );
     document_schema.fields.insert(
         "Content".to_string(),
         FieldSchema::String {
@@ -347,10 +460,12 @@ fn test_json_snapshot_restore() {
     );
 
     // Add schemas to store1
-    store1.perform_mut(sreq![
-        sschemaupdate!(root_schema),
-        sschemaupdate!(document_schema),
-    ]).unwrap();
+    store1
+        .perform_mut(sreq![
+            sschemaupdate!(root_schema),
+            sschemaupdate!(document_schema),
+        ])
+        .unwrap();
 
     // Now get the interned types for these new schemas
     let root_et = store1.get_entity_type("Root").unwrap();
@@ -363,42 +478,72 @@ fn test_json_snapshot_restore() {
     store1.et = Some(crate::et::ET::new(&store1));
 
     // Create entities in store1
-    let create_requests = store1.perform_mut(sreq![
-        Request::Create {
+    let create_requests = store1
+        .perform_mut(sreq![Request::Create {
             entity_type: root_et,
             parent_id: None,
             name: "TestRoot".to_string(),
             created_entity_id: None,
             timestamp: None,
-        },
-    ]).unwrap();
-    
-    let root_id = if let Some(Request::Create { created_entity_id: Some(ref id), .. }) = create_requests.first() {
+        },])
+        .unwrap();
+
+    let root_id = if let Some(Request::Create {
+        created_entity_id: Some(ref id),
+        ..
+    }) = create_requests.first()
+    {
         id.clone()
     } else {
         panic!("Failed to get created root entity ID");
     };
 
-    let doc_create_requests = store1.perform_mut(sreq![
-        screate!(document_et, "TestDoc".to_string(), root_id.clone()),
-    ]).unwrap();
-    
-    let doc_id = if let Some(Request::Create { created_entity_id: Some(ref id), .. }) = doc_create_requests.first() {
+    let doc_create_requests = store1
+        .perform_mut(sreq![screate!(
+            document_et,
+            "TestDoc".to_string(),
+            root_id.clone()
+        ),])
+        .unwrap();
+
+    let doc_id = if let Some(Request::Create {
+        created_entity_id: Some(ref id),
+        ..
+    }) = doc_create_requests.first()
+    {
         id.clone()
     } else {
         panic!("Failed to get created document entity ID");
     };
 
     // Set field values in store1
-    store1.perform_mut(sreq![
-        swrite!(root_id.clone(), crate::sfield![name_ft], sstr!("TestRoot")),
-        swrite!(root_id.clone(), crate::sfield![description_ft], sstr!("Test root entity")),
-        swrite!(root_id.clone(), crate::sfield![status_ft], sstr!("Active")),
-        swrite!(root_id.clone(), crate::sfield![children_ft], Some(Value::EntityList(vec![doc_id.clone()]))),
-        swrite!(doc_id.clone(), crate::sfield![name_ft], sstr!("TestDoc")),
-        swrite!(doc_id.clone(), crate::sfield![description_ft], sstr!("Test document")),
-        swrite!(doc_id.clone(), crate::sfield![content_ft], sstr!("Hello, World!")),
-    ]).unwrap();
+    store1
+        .perform_mut(sreq![
+            swrite!(root_id.clone(), crate::sfield![name_ft], sstr!("TestRoot")),
+            swrite!(
+                root_id.clone(),
+                crate::sfield![description_ft],
+                sstr!("Test root entity")
+            ),
+            swrite!(root_id.clone(), crate::sfield![status_ft], sstr!("Active")),
+            swrite!(
+                root_id.clone(),
+                crate::sfield![children_ft],
+                Some(Value::EntityList(vec![doc_id.clone()]))
+            ),
+            swrite!(doc_id.clone(), crate::sfield![name_ft], sstr!("TestDoc")),
+            swrite!(
+                doc_id.clone(),
+                crate::sfield![description_ft],
+                sstr!("Test document")
+            ),
+            swrite!(
+                doc_id.clone(),
+                crate::sfield![content_ft],
+                sstr!("Hello, World!")
+            ),
+        ])
+        .unwrap();
 
     // Take JSON snapshot from store1
     let snapshot = take_json_snapshot(&mut store1).unwrap();
@@ -410,7 +555,7 @@ fn test_json_snapshot_restore() {
     match restore_json_snapshot(&mut store2, &snapshot) {
         Ok(()) => {
             println!("Restore succeeded!");
-        },
+        }
         Err(e) => {
             println!("Restore failed: {}", e);
             // For now, let's just skip the rest of the test if restore fails
@@ -426,56 +571,84 @@ fn test_json_snapshot_restore() {
     let description_ft2 = store2.get_field_type("Description").unwrap();
     let status_ft2 = store2.get_field_type("Status").unwrap();
     let children_ft2 = store2.get_field_type("Children").unwrap();
-    
+
     let entities = store2.find_entities(root_et2, None).unwrap();
     assert_eq!(entities.len(), 1);
-    
+
     let root_id_restored = &entities[0];
-    
+
     // Check root entity fields
-    let read_requests = store2.perform_mut(sreq![
-        crate::sread!(root_id_restored.clone(), crate::sfield![name_ft2]),
-        crate::sread!(root_id_restored.clone(), crate::sfield![description_ft2]),
-        crate::sread!(root_id_restored.clone(), crate::sfield![status_ft2]),
-        crate::sread!(root_id_restored.clone(), crate::sfield![children_ft2]),
-    ]).unwrap();
-    
-    if let Some(Request::Read { value: Some(Value::String(name)), .. }) = read_requests.get(0) {
+    let read_requests = store2
+        .perform_mut(sreq![
+            crate::sread!(root_id_restored.clone(), crate::sfield![name_ft2]),
+            crate::sread!(root_id_restored.clone(), crate::sfield![description_ft2]),
+            crate::sread!(root_id_restored.clone(), crate::sfield![status_ft2]),
+            crate::sread!(root_id_restored.clone(), crate::sfield![children_ft2]),
+        ])
+        .unwrap();
+
+    if let Some(Request::Read {
+        value: Some(Value::String(name)),
+        ..
+    }) = read_requests.get(0)
+    {
         assert_eq!(name.as_str(), "TestRoot");
     } else {
         panic!("Failed to read root name");
     }
 
-    if let Some(Request::Read { value: Some(Value::String(desc)), .. }) = read_requests.get(1) {
+    if let Some(Request::Read {
+        value: Some(Value::String(desc)),
+        ..
+    }) = read_requests.get(1)
+    {
         assert_eq!(desc.as_str(), "Test root entity");
     } else {
         panic!("Failed to read root description");
     }
-    
-    if let Some(Request::Read { value: Some(Value::String(status)), .. }) = read_requests.get(2) {
+
+    if let Some(Request::Read {
+        value: Some(Value::String(status)),
+        ..
+    }) = read_requests.get(2)
+    {
         assert_eq!(status.as_str(), "Active");
     } else {
         panic!("Failed to read root status");
     }
-    
-    if let Some(Request::Read { value: Some(Value::EntityList(children)), .. }) = read_requests.get(3) {
+
+    if let Some(Request::Read {
+        value: Some(Value::EntityList(children)),
+        ..
+    }) = read_requests.get(3)
+    {
         assert_eq!(children.len(), 1);
-        
+
         // Check the document entity
         let doc_id_restored = &children[0];
         let content_ft2 = store2.get_field_type("Content").unwrap();
-        let doc_read_requests = store2.perform_mut(sreq![
-            crate::sread!(doc_id_restored.clone(), crate::sfield![name_ft2]),
-            crate::sread!(doc_id_restored.clone(), crate::sfield![content_ft2]),
-        ]).unwrap();
-        
-        if let Some(Request::Read { value: Some(Value::String(doc_name)), .. }) = doc_read_requests.get(0) {
+        let doc_read_requests = store2
+            .perform_mut(sreq![
+                crate::sread!(doc_id_restored.clone(), crate::sfield![name_ft2]),
+                crate::sread!(doc_id_restored.clone(), crate::sfield![content_ft2]),
+            ])
+            .unwrap();
+
+        if let Some(Request::Read {
+            value: Some(Value::String(doc_name)),
+            ..
+        }) = doc_read_requests.get(0)
+        {
             assert_eq!(doc_name.as_str(), "TestDoc");
         } else {
             panic!("Failed to read document name");
         }
-        
-        if let Some(Request::Read { value: Some(Value::String(content)), .. }) = doc_read_requests.get(1) {
+
+        if let Some(Request::Read {
+            value: Some(Value::String(content)),
+            ..
+        }) = doc_read_requests.get(1)
+        {
             assert_eq!(content.as_str(), "Hello, World!");
         } else {
             panic!("Failed to read document content");
@@ -494,7 +667,8 @@ fn test_json_snapshot_path_resolution() {
     let mut store = Store::new();
 
     // Define schemas using strings first - perform_mut will intern the types
-    let mut object_schema = EntitySchema::<Single, String, String>::new("Object".to_string(), vec![]);
+    let mut object_schema =
+        EntitySchema::<Single, String, String>::new("Object".to_string(), vec![]);
     object_schema.fields.insert(
         "Name".to_string(),
         FieldSchema::String {
@@ -522,12 +696,20 @@ fn test_json_snapshot_path_resolution() {
             storage_scope: StorageScope::Configuration,
         },
     );
-    store.perform_mut(sreq![sschemaupdate!(object_schema)]).unwrap();
+    store
+        .perform_mut(sreq![sschemaupdate!(object_schema)])
+        .unwrap();
 
-    let root_schema = EntitySchema::<Single, String, String>::new("Root".to_string(), vec!["Object".to_string()]);
-    store.perform_mut(sreq![sschemaupdate!(root_schema)]).unwrap();
+    let root_schema =
+        EntitySchema::<Single, String, String>::new("Root".to_string(), vec!["Object".to_string()]);
+    store
+        .perform_mut(sreq![sschemaupdate!(root_schema)])
+        .unwrap();
 
-    let mut folder_schema = EntitySchema::<Single, String, String>::new("Folder".to_string(), vec!["Object".to_string()]);
+    let mut folder_schema = EntitySchema::<Single, String, String>::new(
+        "Folder".to_string(),
+        vec!["Object".to_string()],
+    );
     folder_schema.fields.insert(
         "ParentFolder".to_string(),
         FieldSchema::EntityReference {
@@ -537,8 +719,11 @@ fn test_json_snapshot_path_resolution() {
             storage_scope: StorageScope::Configuration,
         },
     );
-    store.perform_mut(sreq![sschemaupdate!(folder_schema)]).unwrap();
-    let mut file_schema = EntitySchema::<Single, String, String>::new("File".to_string(), vec!["Object".to_string()]);
+    store
+        .perform_mut(sreq![sschemaupdate!(folder_schema)])
+        .unwrap();
+    let mut file_schema =
+        EntitySchema::<Single, String, String>::new("File".to_string(), vec!["Object".to_string()]);
     file_schema.fields.insert(
         "ParentFolder".to_string(),
         FieldSchema::EntityReference {
@@ -548,7 +733,9 @@ fn test_json_snapshot_path_resolution() {
             storage_scope: StorageScope::Configuration,
         },
     );
-    store.perform_mut(sreq![sschemaupdate!(file_schema)]).unwrap();
+    store
+        .perform_mut(sreq![sschemaupdate!(file_schema)])
+        .unwrap();
 
     // Now we can get the interned types
     let root_et = store.get_entity_type("Root").unwrap();
@@ -559,77 +746,130 @@ fn test_json_snapshot_path_resolution() {
     let parent_folder_ft = store.get_field_type("ParentFolder").unwrap();
 
     // Create entities - start with a Root entity
-    let root_create = store.perform_mut(sreq![
-        screate!(root_et, "Root".to_string()),
-    ]).unwrap();
-    let root_id = if let Some(Request::Create { created_entity_id: Some(ref id), .. }) = root_create.first() {
+    let root_create = store
+        .perform_mut(sreq![screate!(root_et, "Root".to_string()),])
+        .unwrap();
+    let root_id = if let Some(Request::Create {
+        created_entity_id: Some(ref id),
+        ..
+    }) = root_create.first()
+    {
         id.clone()
     } else {
         panic!("Failed to get created root entity ID");
     };
 
-    let folder_create = store.perform_mut(sreq![
-        screate!(folder_et, "Documents".to_string()),
-    ]).unwrap();
-    let folder_id = if let Some(Request::Create { created_entity_id: Some(ref id), .. }) = folder_create.first() {
+    let folder_create = store
+        .perform_mut(sreq![screate!(folder_et, "Documents".to_string()),])
+        .unwrap();
+    let folder_id = if let Some(Request::Create {
+        created_entity_id: Some(ref id),
+        ..
+    }) = folder_create.first()
+    {
         id.clone()
     } else {
         panic!("Failed to get created folder entity ID");
     };
 
-    let file_create = store.perform_mut(sreq![
-        screate!(file_et, "test.txt".to_string()),
-    ]).unwrap();
-    let file_id = if let Some(Request::Create { created_entity_id: Some(ref id), .. }) = file_create.first() {
+    let file_create = store
+        .perform_mut(sreq![screate!(file_et, "test.txt".to_string()),])
+        .unwrap();
+    let file_id = if let Some(Request::Create {
+        created_entity_id: Some(ref id),
+        ..
+    }) = file_create.first()
+    {
         id.clone()
     } else {
         panic!("Failed to get created file entity ID");
     };
 
     // Set up relationships
-    store.perform_mut(sreq![
-        // Set folder as child of root (Children relationship)
-        swrite!(root_id.clone(), crate::sfield![children_ft], Some(Value::EntityList(vec![folder_id.clone()]))),
-        
-        // Set file as child of folder (Children relationship)  
-        swrite!(folder_id.clone(), crate::sfield![children_ft], Some(Value::EntityList(vec![file_id.clone()]))),
-        
-        // Set folder as parent of file (ParentFolder reference)
-        swrite!(file_id.clone(), crate::sfield![parent_folder_ft], Some(Value::EntityReference(Some(folder_id.clone())))),
-        
-        // Set up Parent chain for path resolution (used by spath! macro)
-        swrite!(folder_id.clone(), crate::sfield![parent_ft], Some(Value::EntityReference(Some(root_id.clone())))),
-        swrite!(file_id.clone(), crate::sfield![parent_ft], Some(Value::EntityReference(Some(folder_id.clone())))),
-    ]).unwrap();
+    store
+        .perform_mut(sreq![
+            // Set folder as child of root (Children relationship)
+            swrite!(
+                root_id.clone(),
+                crate::sfield![children_ft],
+                Some(Value::EntityList(vec![folder_id.clone()]))
+            ),
+            // Set file as child of folder (Children relationship)
+            swrite!(
+                folder_id.clone(),
+                crate::sfield![children_ft],
+                Some(Value::EntityList(vec![file_id.clone()]))
+            ),
+            // Set folder as parent of file (ParentFolder reference)
+            swrite!(
+                file_id.clone(),
+                crate::sfield![parent_folder_ft],
+                Some(Value::EntityReference(Some(folder_id.clone())))
+            ),
+            // Set up Parent chain for path resolution (used by spath! macro)
+            swrite!(
+                folder_id.clone(),
+                crate::sfield![parent_ft],
+                Some(Value::EntityReference(Some(root_id.clone())))
+            ),
+            swrite!(
+                file_id.clone(),
+                crate::sfield![parent_ft],
+                Some(Value::EntityReference(Some(folder_id.clone())))
+            ),
+        ])
+        .unwrap();
 
     // Take snapshot
     let snapshot = take_json_snapshot(&mut store).unwrap();
-    
+
     println!("Generated JSON snapshot with path resolution:");
     println!("{}", serde_json::to_string_pretty(&snapshot).unwrap());
 
     // Verify that Children shows nested objects
-    let root_children = snapshot.tree.fields.get("Children").unwrap().as_array().unwrap();
+    let root_children = snapshot
+        .tree
+        .fields
+        .get("Children")
+        .unwrap()
+        .as_array()
+        .unwrap();
     assert_eq!(root_children.len(), 1);
     let nested_folder = &root_children[0];
-    assert_eq!(nested_folder.get("entityType").unwrap().as_str().unwrap(), "Folder");
-    assert_eq!(nested_folder.get("Name").unwrap().as_str().unwrap(), "Documents");
+    assert_eq!(
+        nested_folder.get("entityType").unwrap().as_str().unwrap(),
+        "Folder"
+    );
+    assert_eq!(
+        nested_folder.get("Name").unwrap().as_str().unwrap(),
+        "Documents"
+    );
 
-    // Find the file in the nested structure  
+    // Find the file in the nested structure
     let folder_children = nested_folder.get("Children").unwrap().as_array().unwrap();
     assert_eq!(folder_children.len(), 1);
     let nested_file = &folder_children[0];
-    assert_eq!(nested_file.get("entityType").unwrap().as_str().unwrap(), "File");
-    assert_eq!(nested_file.get("Name").unwrap().as_str().unwrap(), "test.txt");
+    assert_eq!(
+        nested_file.get("entityType").unwrap().as_str().unwrap(),
+        "File"
+    );
+    assert_eq!(
+        nested_file.get("Name").unwrap().as_str().unwrap(),
+        "test.txt"
+    );
 
     // TODO: Verify that ParentFolder reference shows a path (not implemented yet in current version)
     // This would require extending the value_to_json_value_with_paths macro to handle
     // non-Children entity references differently
-    
+
     // IMPLEMENTED: Now verify that ParentFolder shows paths instead of IDs
     let parent_folder_value = nested_file.get("ParentFolder").unwrap();
-    assert_eq!(parent_folder_value.as_str().unwrap(), "Root/Documents", 
-        "ParentFolder should show path 'Root/Documents', got: {:?}", parent_folder_value);
+    assert_eq!(
+        parent_folder_value.as_str().unwrap(),
+        "Root/Documents",
+        "ParentFolder should show path 'Root/Documents', got: {:?}",
+        parent_folder_value
+    );
 
     println!("Path resolution test completed successfully!");
 }
@@ -637,11 +877,12 @@ fn test_json_snapshot_path_resolution() {
 #[test]
 fn test_json_snapshot_storage_scope() {
     // Test that storage scope is properly preserved in JSON snapshots
-    
+
     let mut store = Store::new();
 
     // Define schemas with different storage scopes using strings first
-    let mut object_schema = EntitySchema::<Single, String, String>::new("Object".to_string(), vec![]);
+    let mut object_schema =
+        EntitySchema::<Single, String, String>::new("Object".to_string(), vec![]);
     object_schema.fields.insert(
         "Name".to_string(),
         FieldSchema::String {
@@ -669,9 +910,12 @@ fn test_json_snapshot_storage_scope() {
             storage_scope: StorageScope::Configuration,
         },
     );
-    store.perform_mut(sreq![sschemaupdate!(object_schema)]).unwrap();
+    store
+        .perform_mut(sreq![sschemaupdate!(object_schema)])
+        .unwrap();
 
-    let mut root_schema = EntitySchema::<Single, String, String>::new("Root".to_string(), vec!["Object".to_string()]);
+    let mut root_schema =
+        EntitySchema::<Single, String, String>::new("Root".to_string(), vec!["Object".to_string()]);
     root_schema.fields.insert(
         "ConfigField".to_string(),
         FieldSchema::String {
@@ -690,41 +934,56 @@ fn test_json_snapshot_storage_scope() {
             storage_scope: StorageScope::Runtime,
         },
     );
-    store.perform_mut(sreq![sschemaupdate!(root_schema)]).unwrap();
+    store
+        .perform_mut(sreq![sschemaupdate!(root_schema)])
+        .unwrap();
 
     // Now we can get the interned types
     let root_et = store.get_entity_type("Root").unwrap();
 
     // Create a root entity
-    store.perform_mut(sreq![
-        screate!(root_et, "TestRoot".to_string()),
-    ]).unwrap();
+    store
+        .perform_mut(sreq![screate!(root_et, "TestRoot".to_string()),])
+        .unwrap();
 
     // Take JSON snapshot
     let snapshot = take_json_snapshot(&mut store).unwrap();
-    
+
     // Verify the schema in the snapshot has the correct storage scopes
-    let root_schema = snapshot.schemas.iter()
+    let root_schema = snapshot
+        .schemas
+        .iter()
         .find(|s| s.entity_type == "Root")
         .expect("Root schema should be in snapshot");
-    
+
     // Check ConfigField has Configuration storage scope
-    let config_field = root_schema.fields.iter()
+    let config_field = root_schema
+        .fields
+        .iter()
         .find(|f| f.name == "ConfigField")
         .expect("ConfigField should be in schema");
-    assert_eq!(config_field.storage_scope, Some("Configuration".to_string()));
-    
-    // Check RuntimeField has Runtime storage scope  
-    let runtime_field = root_schema.fields.iter()
+    assert_eq!(
+        config_field.storage_scope,
+        Some("Configuration".to_string())
+    );
+
+    // Check RuntimeField has Runtime storage scope
+    let runtime_field = root_schema
+        .fields
+        .iter()
         .find(|f| f.name == "RuntimeField")
         .expect("RuntimeField should be in schema");
     assert_eq!(runtime_field.storage_scope, Some("Runtime".to_string()));
 
     // Also check the Object schema has Runtime storage scope
-    let object_schema = snapshot.schemas.iter()
+    let object_schema = snapshot
+        .schemas
+        .iter()
         .find(|s| s.entity_type == "Object")
         .expect("Object schema should be in snapshot");
-    let name_field = object_schema.fields.iter()
+    let name_field = object_schema
+        .fields
+        .iter()
         .find(|f| f.name == "Name")
         .expect("Name field should be in schema");
     assert_eq!(name_field.storage_scope, Some("Runtime".to_string()));
@@ -736,11 +995,12 @@ fn test_json_snapshot_storage_scope() {
 fn test_json_snapshot_entity_list_paths() {
     // Test that EntityList fields with paths are properly handled during restore
     // This reproduces the CandidateList issue from base-topology.json
-    
+
     let mut store = Store::new();
 
     // Define schemas similar to the base topology using strings first
-    let mut object_schema = EntitySchema::<Single, String, String>::new("Object".to_string(), vec![]);
+    let mut object_schema =
+        EntitySchema::<Single, String, String>::new("Object".to_string(), vec![]);
     object_schema.fields.insert(
         "Name".to_string(),
         FieldSchema::String {
@@ -768,18 +1028,36 @@ fn test_json_snapshot_entity_list_paths() {
             storage_scope: StorageScope::Configuration,
         },
     );
-    store.perform_mut(sreq![sschemaupdate!(object_schema)]).unwrap();
+    store
+        .perform_mut(sreq![sschemaupdate!(object_schema)])
+        .unwrap();
 
-    let root_schema = EntitySchema::<Single, String, String>::new("Root".to_string(), vec!["Object".to_string()]);
-    store.perform_mut(sreq![sschemaupdate!(root_schema)]).unwrap();
+    let root_schema =
+        EntitySchema::<Single, String, String>::new("Root".to_string(), vec!["Object".to_string()]);
+    store
+        .perform_mut(sreq![sschemaupdate!(root_schema)])
+        .unwrap();
 
-    let machine_schema = EntitySchema::<Single, String, String>::new("Machine".to_string(), vec!["Object".to_string()]);
-    store.perform_mut(sreq![sschemaupdate!(machine_schema)]).unwrap();
+    let machine_schema = EntitySchema::<Single, String, String>::new(
+        "Machine".to_string(),
+        vec!["Object".to_string()],
+    );
+    store
+        .perform_mut(sreq![sschemaupdate!(machine_schema)])
+        .unwrap();
 
-    let service_schema = EntitySchema::<Single, String, String>::new("Service".to_string(), vec!["Object".to_string()]);
-    store.perform_mut(sreq![sschemaupdate!(service_schema)]).unwrap();
-    
-    let mut fault_tolerance_schema = EntitySchema::<Single, String, String>::new("FaultTolerance".to_string(), vec!["Object".to_string()]);
+    let service_schema = EntitySchema::<Single, String, String>::new(
+        "Service".to_string(),
+        vec!["Object".to_string()],
+    );
+    store
+        .perform_mut(sreq![sschemaupdate!(service_schema)])
+        .unwrap();
+
+    let mut fault_tolerance_schema = EntitySchema::<Single, String, String>::new(
+        "FaultTolerance".to_string(),
+        vec!["Object".to_string()],
+    );
     fault_tolerance_schema.fields.insert(
         "CandidateList".to_string(),
         FieldSchema::EntityList {
@@ -789,7 +1067,9 @@ fn test_json_snapshot_entity_list_paths() {
             storage_scope: StorageScope::Configuration,
         },
     );
-    store.perform_mut(sreq![sschemaupdate!(fault_tolerance_schema)]).unwrap();
+    store
+        .perform_mut(sreq![sschemaupdate!(fault_tolerance_schema)])
+        .unwrap();
 
     // Now we can get the interned types
     let root_et = store.get_entity_type("Root").unwrap();
@@ -800,48 +1080,82 @@ fn test_json_snapshot_entity_list_paths() {
     let candidate_list_ft = store.get_field_type("CandidateList").unwrap();
 
     // Create the entity structure from base-topology.json
-    let create_requests = store.perform_mut(sreq![
-        screate!(root_et, "QOS".to_string()),
-    ]).unwrap();
-    let root_id = if let Some(Request::Create { created_entity_id: Some(ref id), .. }) = create_requests.first() {
+    let create_requests = store
+        .perform_mut(sreq![screate!(root_et, "QOS".to_string()),])
+        .unwrap();
+    let root_id = if let Some(Request::Create {
+        created_entity_id: Some(ref id),
+        ..
+    }) = create_requests.first()
+    {
         id.clone()
     } else {
         panic!("Failed to get created root entity ID");
     };
 
     // Create machines
-    let machine_a_create = store.perform_mut(sreq![screate!(machine_et, "qos-a".to_string())]).unwrap();
-    let machine_a_id = if let Some(Request::Create { created_entity_id: Some(ref id), .. }) = machine_a_create.first() {
+    let machine_a_create = store
+        .perform_mut(sreq![screate!(machine_et, "qos-a".to_string())])
+        .unwrap();
+    let machine_a_id = if let Some(Request::Create {
+        created_entity_id: Some(ref id),
+        ..
+    }) = machine_a_create.first()
+    {
         id.clone()
     } else {
         panic!("Failed to get created machine A entity ID");
     };
 
-    let machine_b_create = store.perform_mut(sreq![screate!(machine_et, "qos-b".to_string())]).unwrap();
-    let machine_b_id = if let Some(Request::Create { created_entity_id: Some(ref id), .. }) = machine_b_create.first() {
+    let machine_b_create = store
+        .perform_mut(sreq![screate!(machine_et, "qos-b".to_string())])
+        .unwrap();
+    let machine_b_id = if let Some(Request::Create {
+        created_entity_id: Some(ref id),
+        ..
+    }) = machine_b_create.first()
+    {
         id.clone()
     } else {
         panic!("Failed to get created machine B entity ID");
     };
 
     // Create services
-    let service_a_create = store.perform_mut(sreq![screate!(service_et, "qcore".to_string())]).unwrap();
-    let service_a_id = if let Some(Request::Create { created_entity_id: Some(ref id), .. }) = service_a_create.first() {
+    let service_a_create = store
+        .perform_mut(sreq![screate!(service_et, "qcore".to_string())])
+        .unwrap();
+    let service_a_id = if let Some(Request::Create {
+        created_entity_id: Some(ref id),
+        ..
+    }) = service_a_create.first()
+    {
         id.clone()
     } else {
         panic!("Failed to get created service A entity ID");
     };
 
-    let service_b_create = store.perform_mut(sreq![screate!(service_et, "qcore".to_string())]).unwrap();
-    let service_b_id = if let Some(Request::Create { created_entity_id: Some(ref id), .. }) = service_b_create.first() {
+    let service_b_create = store
+        .perform_mut(sreq![screate!(service_et, "qcore".to_string())])
+        .unwrap();
+    let service_b_id = if let Some(Request::Create {
+        created_entity_id: Some(ref id),
+        ..
+    }) = service_b_create.first()
+    {
         id.clone()
     } else {
         panic!("Failed to get created service B entity ID");
     };
 
     // Create fault tolerance entity
-    let ft_create = store.perform_mut(sreq![screate!(fault_tolerance_et, "qcore".to_string())]).unwrap();
-    let ft_id = if let Some(Request::Create { created_entity_id: Some(ref id), .. }) = ft_create.first() {
+    let ft_create = store
+        .perform_mut(sreq![screate!(fault_tolerance_et, "qcore".to_string())])
+        .unwrap();
+    let ft_id = if let Some(Request::Create {
+        created_entity_id: Some(ref id),
+        ..
+    }) = ft_create.first()
+    {
         id.clone()
     } else {
         panic!("Failed to get created FaultTolerance entity ID");
@@ -851,36 +1165,85 @@ fn test_json_snapshot_entity_list_paths() {
     let parent_ft = store.get_field_type("Parent").unwrap();
 
     // Set up the entity relationships and Parent references for path resolution
-    store.perform_mut(sreq![
-        // Set up Parent references for path resolution
-        swrite!(machine_a_id.clone(), crate::sfield![parent_ft], Some(Value::EntityReference(Some(root_id.clone())))),
-        swrite!(machine_b_id.clone(), crate::sfield![parent_ft], Some(Value::EntityReference(Some(root_id.clone())))),
-        swrite!(service_a_id.clone(), crate::sfield![parent_ft], Some(Value::EntityReference(Some(machine_a_id.clone())))),
-        swrite!(service_b_id.clone(), crate::sfield![parent_ft], Some(Value::EntityReference(Some(machine_b_id.clone())))),
-        swrite!(ft_id.clone(), crate::sfield![parent_ft], Some(Value::EntityReference(Some(root_id.clone())))),
-        
-        // Set up Children relationships
-        swrite!(root_id.clone(), crate::sfield![children_ft], Some(Value::EntityList(vec![machine_a_id.clone(), machine_b_id.clone(), ft_id.clone()]))),
-        swrite!(machine_a_id.clone(), crate::sfield![children_ft], Some(Value::EntityList(vec![service_a_id.clone()]))),
-        swrite!(machine_b_id.clone(), crate::sfield![children_ft], Some(Value::EntityList(vec![service_b_id.clone()]))),
-        
-        // Set up CandidateList with entity references (not paths yet)
-        swrite!(ft_id.clone(), crate::sfield![candidate_list_ft], Some(Value::EntityList(vec![service_a_id.clone(), service_b_id.clone()]))),
-    ]).unwrap();
+    store
+        .perform_mut(sreq![
+            // Set up Parent references for path resolution
+            swrite!(
+                machine_a_id.clone(),
+                crate::sfield![parent_ft],
+                Some(Value::EntityReference(Some(root_id.clone())))
+            ),
+            swrite!(
+                machine_b_id.clone(),
+                crate::sfield![parent_ft],
+                Some(Value::EntityReference(Some(root_id.clone())))
+            ),
+            swrite!(
+                service_a_id.clone(),
+                crate::sfield![parent_ft],
+                Some(Value::EntityReference(Some(machine_a_id.clone())))
+            ),
+            swrite!(
+                service_b_id.clone(),
+                crate::sfield![parent_ft],
+                Some(Value::EntityReference(Some(machine_b_id.clone())))
+            ),
+            swrite!(
+                ft_id.clone(),
+                crate::sfield![parent_ft],
+                Some(Value::EntityReference(Some(root_id.clone())))
+            ),
+            // Set up Children relationships
+            swrite!(
+                root_id.clone(),
+                crate::sfield![children_ft],
+                Some(Value::EntityList(vec![
+                    machine_a_id.clone(),
+                    machine_b_id.clone(),
+                    ft_id.clone()
+                ]))
+            ),
+            swrite!(
+                machine_a_id.clone(),
+                crate::sfield![children_ft],
+                Some(Value::EntityList(vec![service_a_id.clone()]))
+            ),
+            swrite!(
+                machine_b_id.clone(),
+                crate::sfield![children_ft],
+                Some(Value::EntityList(vec![service_b_id.clone()]))
+            ),
+            // Set up CandidateList with entity references (not paths yet)
+            swrite!(
+                ft_id.clone(),
+                crate::sfield![candidate_list_ft],
+                Some(Value::EntityList(vec![
+                    service_a_id.clone(),
+                    service_b_id.clone()
+                ]))
+            ),
+        ])
+        .unwrap();
 
     // Take a snapshot
     let snapshot = take_json_snapshot(&mut store).unwrap();
-    
+
     println!("Generated snapshot:");
     println!("{}", serde_json::to_string_pretty(&snapshot).unwrap());
 
     // The snapshot should now contain CandidateList with paths like ["Root/qos-a/qcore", "Root/qos-b/qcore"]
     // Let's verify this
-    let ft_entity = snapshot.tree.fields.get("Children").unwrap().as_array().unwrap()
+    let ft_entity = snapshot
+        .tree
+        .fields
+        .get("Children")
+        .unwrap()
+        .as_array()
+        .unwrap()
         .iter()
         .find(|child| child.get("entityType").unwrap().as_str().unwrap() == "FaultTolerance")
         .expect("FaultTolerance entity should be in children");
-    
+
     let candidate_list = ft_entity.get("CandidateList").unwrap().as_array().unwrap();
     assert_eq!(candidate_list.len(), 2);
     assert_eq!(candidate_list[0].as_str().unwrap(), "QOS/qos-a/qcore");
@@ -892,30 +1255,40 @@ fn test_json_snapshot_entity_list_paths() {
 
     // This should fail because json_value_to_value can't handle paths in EntityList
     let restore_result = restore_json_snapshot(&mut store2, &snapshot);
-    
+
     match restore_result {
         Ok(()) => {
             println!("Restore succeeded - checking if CandidateList was set correctly");
-            
+
             // Find the FaultTolerance entity in the restored store
             let ft_et2 = store2.get_entity_type("FaultTolerance").unwrap();
             let candidate_list_ft2 = store2.get_field_type("CandidateList").unwrap();
             let ft_entities = store2.find_entities(ft_et2, None).unwrap();
             assert_eq!(ft_entities.len(), 1);
             let restored_ft_id = &ft_entities[0];
-            
+
             // Check if CandidateList was restored correctly
-            let read_requests = store2.perform_mut(sreq![
-                crate::sread!(restored_ft_id.clone(), crate::sfield![candidate_list_ft2]),
-            ]).unwrap();
-            
-            if let Some(Request::Read { value: Some(Value::EntityList(candidates)), .. }) = read_requests.get(0) {
+            let read_requests = store2
+                .perform_mut(sreq![crate::sread!(
+                    restored_ft_id.clone(),
+                    crate::sfield![candidate_list_ft2]
+                ),])
+                .unwrap();
+
+            if let Some(Request::Read {
+                value: Some(Value::EntityList(candidates)),
+                ..
+            }) = read_requests.get(0)
+            {
                 assert_eq!(candidates.len(), 2, "CandidateList should have 2 entities");
-                println!("CandidateList restored successfully with {} candidates", candidates.len());
+                println!(
+                    "CandidateList restored successfully with {} candidates",
+                    candidates.len()
+                );
             } else {
                 panic!("Failed to read CandidateList from restored entity");
             }
-        },
+        }
         Err(e) => {
             println!("Restore failed as expected: {}", e);
             // This test demonstrates the current limitation: EntityList paths are not properly converted during restore

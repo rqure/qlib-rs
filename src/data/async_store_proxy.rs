@@ -1,17 +1,17 @@
+use anyhow::{anyhow, Result as AnyhowResult};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::{mpsc, oneshot, Mutex};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
+use tokio::sync::{mpsc, oneshot, Mutex};
 use tokio::time::{timeout, Duration};
-use anyhow::{Result as AnyhowResult, anyhow};
 
-use crate::{
-    EntityId, EntityType, FieldType, PageOpts, PageResult, Request, Requests, Result, Error
-};
 use crate::data::StoreMessage;
-use crate::qresp::{QrespMessageBuffer, encode_store_message};
+use crate::qresp::{encode_store_message, QrespMessageBuffer};
+use crate::{
+    EntityId, EntityType, Error, FieldType, PageOpts, PageResult, Request, Requests, Result,
+};
 
 /// Result of authentication attempt
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -50,7 +50,7 @@ impl ConnectionHandler {
 
     async fn run(mut self) -> AnyhowResult<()> {
         let mut buffer = [0u8; 8192];
-        
+
         loop {
             tokio::select! {
                 // Handle incoming messages from the network
@@ -62,7 +62,7 @@ impl ConnectionHandler {
                         }
                         Ok(n) => {
                             self.message_buffer.add_data(&buffer[..n]);
-                            
+
                             // Process any complete messages
                             while let Some(message) = self
                                 .message_buffer
@@ -78,7 +78,7 @@ impl ConnectionHandler {
                         }
                     }
                 }
-                
+
                 // Handle outgoing messages from the application
                 msg = self.receiver.recv() => {
                     match msg {
@@ -113,8 +113,8 @@ impl ConnectionHandler {
         response_sender: oneshot::Sender<StoreMessage>,
     ) -> AnyhowResult<()> {
         // Encode and send the message
-        let encoded = encode_store_message(&message)
-            .map_err(|e| anyhow!("QRESP encode failed: {}", e))?;
+        let encoded =
+            encode_store_message(&message).map_err(|e| anyhow!("QRESP encode failed: {}", e))?;
         self.stream.write_all(&encoded).await?;
         self.stream.flush().await?;
 
@@ -169,16 +169,18 @@ impl AsyncStoreProxy {
         credential: &str,
     ) -> Result<Self> {
         // Connect to TCP server
-        let stream = TcpStream::connect(address).await
-            .map_err(|e| Error::StoreProxyError(format!("Failed to connect to {}: {}", address, e)))?;
+        let stream = TcpStream::connect(address).await.map_err(|e| {
+            Error::StoreProxyError(format!("Failed to connect to {}: {}", address, e))
+        })?;
 
         // Optimize TCP socket for low latency
-        stream.set_nodelay(true)
+        stream
+            .set_nodelay(true)
             .map_err(|e| Error::StoreProxyError(format!("Failed to set TCP_NODELAY: {}", e)))?;
 
         // Create communication channel
         let (sender, receiver) = mpsc::unbounded_channel();
-        
+
         // Start the connection handler task
         let handler = ConnectionHandler::new(stream, receiver);
         tokio::spawn(async move {
@@ -200,17 +202,25 @@ impl AsyncStoreProxy {
             credential: credential.to_string(),
         };
 
-        let auth_response = timeout(Duration::from_secs(5), proxy.send_request(auth_request)).await
+        let auth_response = timeout(Duration::from_secs(5), proxy.send_request(auth_request))
+            .await
             .map_err(|_| Error::StoreProxyError("Authentication timeout".to_string()))??;
 
         let authenticated_subject = match auth_response {
-            StoreMessage::AuthenticateResponse { response, .. } => {
-                match response {
-                    Ok(auth_result) => auth_result.subject_id,
-                    Err(error) => return Err(Error::StoreProxyError(format!("Authentication failed: {}", error))),
+            StoreMessage::AuthenticateResponse { response, .. } => match response {
+                Ok(auth_result) => auth_result.subject_id,
+                Err(error) => {
+                    return Err(Error::StoreProxyError(format!(
+                        "Authentication failed: {}",
+                        error
+                    )))
                 }
+            },
+            _ => {
+                return Err(Error::StoreProxyError(
+                    "Unexpected response to authentication".to_string(),
+                ))
             }
-            _ => return Err(Error::StoreProxyError("Unexpected response to authentication".to_string())),
         };
 
         Ok(Self {
@@ -229,7 +239,7 @@ impl AsyncStoreProxy {
 
     async fn send_request(&self, request: StoreMessage) -> Result<StoreMessage> {
         let (response_sender, response_receiver) = oneshot::channel();
-        
+
         self.sender
             .send(ConnectionMessage::Send {
                 message: request,
@@ -237,7 +247,8 @@ impl AsyncStoreProxy {
             })
             .map_err(|_| Error::StoreProxyError("Connection closed".to_string()))?;
 
-        response_receiver.await
+        response_receiver
+            .await
             .map_err(|_| Error::StoreProxyError("Response channel closed".to_string()))
     }
 
@@ -247,16 +258,18 @@ impl AsyncStoreProxy {
             name: name.to_string(),
             entity_type: None,
         };
-        
+
         let requests = Requests::new(vec![request]);
         let response = self.perform(requests).await?;
-        
+
         if let Some(req) = response.first() {
             match req {
-                Request::GetEntityType { entity_type, .. } => {
-                    entity_type.clone().ok_or_else(|| Error::StoreProxyError("Entity type not found".to_string()))
-                }
-                _ => Err(Error::StoreProxyError("Unexpected response type".to_string())),
+                Request::GetEntityType { entity_type, .. } => entity_type
+                    .clone()
+                    .ok_or_else(|| Error::StoreProxyError("Entity type not found".to_string())),
+                _ => Err(Error::StoreProxyError(
+                    "Unexpected response type".to_string(),
+                )),
             }
         } else {
             Err(Error::StoreProxyError("No response received".to_string()))
@@ -269,16 +282,18 @@ impl AsyncStoreProxy {
             name: name.to_string(),
             field_type: None,
         };
-        
+
         let requests = Requests::new(vec![request]);
         let response = self.perform(requests).await?;
-        
+
         if let Some(req) = response.first() {
             match req {
-                Request::GetFieldType { field_type, .. } => {
-                    field_type.clone().ok_or_else(|| Error::StoreProxyError("Field type not found".to_string()))
-                }
-                _ => Err(Error::StoreProxyError("Unexpected response type".to_string())),
+                Request::GetFieldType { field_type, .. } => field_type
+                    .clone()
+                    .ok_or_else(|| Error::StoreProxyError("Field type not found".to_string())),
+                _ => Err(Error::StoreProxyError(
+                    "Unexpected response type".to_string(),
+                )),
             }
         } else {
             Err(Error::StoreProxyError("No response received".to_string()))
@@ -291,7 +306,7 @@ impl AsyncStoreProxy {
             entity_id,
             exists: None,
         };
-        
+
         let requests = Requests::new(vec![request]);
         if let Ok(response) = self.perform(requests).await {
             if let Some(req) = response.first() {
@@ -320,7 +335,9 @@ impl AsyncStoreProxy {
                 Ok(updated_requests) => Ok(updated_requests),
                 Err(e) => Err(Error::StoreProxyError(e)),
             },
-            _ => Err(Error::StoreProxyError("Unexpected response type".to_string())),
+            _ => Err(Error::StoreProxyError(
+                "Unexpected response type".to_string(),
+            )),
         }
     }
 
@@ -337,16 +354,18 @@ impl AsyncStoreProxy {
             filter: filter.map(|s| s.to_string()),
             result: None,
         };
-        
+
         let requests = Requests::new(vec![request]);
         let response = self.perform(requests).await?;
-        
+
         if let Some(req) = response.first() {
             match req {
-                Request::FindEntities { result, .. } => {
-                    result.clone().ok_or_else(|| Error::StoreProxyError("Find entities result not found".to_string()))
-                }
-                _ => Err(Error::StoreProxyError("Unexpected response type".to_string())),
+                Request::FindEntities { result, .. } => result.clone().ok_or_else(|| {
+                    Error::StoreProxyError("Find entities result not found".to_string())
+                }),
+                _ => Err(Error::StoreProxyError(
+                    "Unexpected response type".to_string(),
+                )),
             }
         } else {
             Err(Error::StoreProxyError("No response received".to_string()))

@@ -1,9 +1,9 @@
+use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
 use std::collections::VecDeque;
-use std::collections::{BTreeMap, hash_map::DefaultHasher};
+use std::collections::{hash_map::DefaultHasher, BTreeMap};
 use std::hash::{Hash, Hasher};
 use std::rc::Rc;
-use serde::{Deserialize, Serialize};
 
 use crate::{EntityId, EntityType, FieldType, Request};
 
@@ -20,15 +20,15 @@ pub enum NotifyConfig {
         field_type: FieldType,
         trigger_on_change: bool, // Notification will always trigger on write, but can be configured to trigger on change instead
         context: Vec<Vec<FieldType>>, // Context fields to include in the notification (these fields are relative to the entity with indirection support)
-    }
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Notification {
-    pub current: Request,   // Request::Read with current field value and metadata
-    pub previous: Request,  // Request::Read with previous field value and metadata
+    pub current: Request,  // Request::Read with current field value and metadata
+    pub previous: Request, // Request::Read with previous field value and metadata
     pub context: BTreeMap<Vec<FieldType>, Request>, // Context fields as Request::Read (no Option since we'll include failed reads as well)
-    pub config_hash: u64,  // Hash of the NotifyConfig that triggered this notification
+    pub config_hash: u64, // Hash of the NotifyConfig that triggered this notification
 }
 
 /// Notification sender type for sending notifications to a specific channel

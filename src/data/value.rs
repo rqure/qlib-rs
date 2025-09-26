@@ -2,7 +2,7 @@ use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
 use crate::{data::Timestamp, epoch, EntityId, Result};
-use serde::{Deserialize, Serialize, Deserializer, Serializer};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 /// Wrapper around Arc<String> that implements Serialize/Deserialize
 #[derive(Debug, Clone, PartialEq)]
@@ -12,19 +12,19 @@ impl ArcString {
     pub fn new(s: String) -> Self {
         ArcString(Arc::new(s))
     }
-    
+
     pub fn as_str(&self) -> &str {
         self.0.as_str()
     }
-    
+
     pub fn into_inner(self) -> Arc<String> {
         self.0
     }
-    
+
     pub fn to_string(&self) -> String {
         (*self.0).clone()
     }
-    
+
     pub fn eq_ignore_ascii_case(&self, other: &str) -> bool {
         self.0.eq_ignore_ascii_case(other)
     }
@@ -81,19 +81,19 @@ impl ArcBlob {
     pub fn new(data: Vec<u8>) -> Self {
         ArcBlob(Arc::new(data))
     }
-    
+
     pub fn as_slice(&self) -> &[u8] {
         self.0.as_slice()
     }
-    
+
     pub fn into_inner(self) -> Arc<Vec<u8>> {
         self.0
     }
-    
+
     pub fn iter(&self) -> std::slice::Iter<'_, u8> {
         self.0.iter()
     }
-    
+
     pub fn to_vec(&self) -> Vec<u8> {
         (*self.0).clone()
     }
@@ -135,7 +135,6 @@ impl Hash for ArcBlob {
         self.0.as_slice().hash(state);
     }
 }
-
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Value {
@@ -346,7 +345,10 @@ impl Value {
         if let Value::EntityReference(e) = self {
             Ok(e)
         } else {
-            Err(crate::Error::BadValueCast(self.clone(), Value::EntityReference(None)))
+            Err(crate::Error::BadValueCast(
+                self.clone(),
+                Value::EntityReference(None),
+            ))
         }
     }
 
@@ -354,7 +356,10 @@ impl Value {
         if let Value::EntityList(e) = self {
             Ok(e)
         } else {
-            Err(crate::Error::BadValueCast(self.clone(), Value::EntityList(vec![])))
+            Err(crate::Error::BadValueCast(
+                self.clone(),
+                Value::EntityList(vec![]),
+            ))
         }
     }
 
@@ -370,7 +375,10 @@ impl Value {
         if let Value::String(s) = self {
             Ok(s.as_str())
         } else {
-            Err(crate::Error::BadValueCast(self.clone(), Value::String(ArcString::new("".to_string()))))
+            Err(crate::Error::BadValueCast(
+                self.clone(),
+                Value::String(ArcString::new("".to_string())),
+            ))
         }
     }
 
@@ -378,7 +386,10 @@ impl Value {
         if let Value::Blob(b) = self {
             Ok(b.as_slice())
         } else {
-            Err(crate::Error::BadValueCast(self.clone(), Value::Blob(ArcBlob::new(vec![]))))
+            Err(crate::Error::BadValueCast(
+                self.clone(),
+                Value::Blob(ArcBlob::new(vec![])),
+            ))
         }
     }
 
@@ -386,10 +397,7 @@ impl Value {
         if let Value::Choice(c) = self {
             Ok(*c)
         } else {
-            Err(crate::Error::BadValueCast(
-                self.clone(),
-                Value::Choice(0),
-            ))
+            Err(crate::Error::BadValueCast(self.clone(), Value::Choice(0)))
         }
     }
 

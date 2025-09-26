@@ -1,8 +1,8 @@
 // Test modules
-mod macros;
-mod store;
+mod auth;
+mod cel_executor;
 mod inheritance;
 mod json_snapshot;
-mod cel_executor;
-mod auth;
+mod macros;
 mod perform;
+mod store;

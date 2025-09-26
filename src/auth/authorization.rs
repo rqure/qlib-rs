@@ -1,4 +1,4 @@
-use crate::{Store, Cache, CelExecutor, EntityId, Error, FieldType, Result, Value, StoreTrait};
+use crate::{Cache, CelExecutor, EntityId, Error, FieldType, Result, Store, StoreTrait, Value};
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 #[allow(dead_code)]
@@ -21,7 +21,9 @@ pub fn get_scope(
 
     let entity_types = {
         let mut entity_types = store
-            .get_complete_entity_schema(resource_entity_id.extract_type())?.inherit.clone();
+            .get_complete_entity_schema(resource_entity_id.extract_type())?
+            .inherit
+            .clone();
         entity_types.push(resource_entity_id.extract_type());
         entity_types
     };
@@ -33,7 +35,7 @@ pub fn get_scope(
     for entity_type in entity_types.iter() {
         let entity_type_str = store.resolve_entity_type(*entity_type)?;
         let resource_field_str = store.resolve_field_type(resource_field)?;
-        
+
         let permissions = permission_cache.get(vec![
             Value::String(entity_type_str.into()),
             Value::String(resource_field_str.into()),
@@ -59,11 +61,7 @@ pub fn get_scope(
                     _ => AuthorizationScope::None,
                 };
 
-                let result = executor.execute(
-                    condition,
-                    subject_entity_id,
-                    store,
-                );
+                let result = executor.execute(condition, subject_entity_id, store);
 
                 if let Ok(result) = result {
                     match result {

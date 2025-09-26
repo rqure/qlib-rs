@@ -1,7 +1,7 @@
+use crate::data::StorageScope;
 use crate::sreq;
 #[allow(unused_imports)]
 use crate::*;
-use crate::data::StorageScope;
 
 #[allow(unused_imports)]
 use crate::expr::CelExecutor;
@@ -15,7 +15,7 @@ fn setup_test_store_with_entity() -> Result<(Store, EntityId)> {
 
     // Create a test entity type with various field types using string schemas
     let mut schema = EntitySchema::<Single, String, String>::new("TestEntity".to_string(), vec![]);
-    
+
     // Add all the required basic fields
     schema.fields.insert(
         "Name".to_string(),
@@ -24,7 +24,7 @@ fn setup_test_store_with_entity() -> Result<(Store, EntityId)> {
             default_value: String::new(),
             rank: 0,
             storage_scope: StorageScope::Runtime,
-        }
+        },
     );
     schema.fields.insert(
         "Parent".to_string(),
@@ -33,7 +33,7 @@ fn setup_test_store_with_entity() -> Result<(Store, EntityId)> {
             default_value: None,
             rank: 1,
             storage_scope: StorageScope::Configuration,
-        }
+        },
     );
     schema.fields.insert(
         "Children".to_string(),
@@ -42,9 +42,9 @@ fn setup_test_store_with_entity() -> Result<(Store, EntityId)> {
             default_value: Vec::new(),
             rank: 2,
             storage_scope: StorageScope::Configuration,
-        }
+        },
     );
-    
+
     schema.fields.insert(
         "Age".to_string(),
         FieldSchema::Int {
@@ -52,9 +52,9 @@ fn setup_test_store_with_entity() -> Result<(Store, EntityId)> {
             default_value: 0,
             rank: 3,
             storage_scope: StorageScope::Runtime,
-        }
+        },
     );
-    
+
     schema.fields.insert(
         "Score".to_string(),
         FieldSchema::Float {
@@ -62,9 +62,9 @@ fn setup_test_store_with_entity() -> Result<(Store, EntityId)> {
             default_value: 0.0,
             rank: 4,
             storage_scope: StorageScope::Runtime,
-        }
+        },
     );
-    
+
     schema.fields.insert(
         "IsActive".to_string(),
         FieldSchema::Bool {
@@ -72,20 +72,24 @@ fn setup_test_store_with_entity() -> Result<(Store, EntityId)> {
             default_value: false,
             rank: 5,
             storage_scope: StorageScope::Runtime,
-        }
+        },
     );
-    
+
     schema.fields.insert(
         "Status".to_string(),
         FieldSchema::Choice {
             field_type: "Status".to_string(),
             default_value: 0,
-            choices: vec!["Inactive".to_string(), "Active".to_string(), "Pending".to_string()],
+            choices: vec![
+                "Inactive".to_string(),
+                "Active".to_string(),
+                "Pending".to_string(),
+            ],
             rank: 6,
             storage_scope: StorageScope::Runtime,
-        }
+        },
     );
-    
+
     schema.fields.insert(
         "Manager".to_string(),
         FieldSchema::EntityReference {
@@ -93,9 +97,9 @@ fn setup_test_store_with_entity() -> Result<(Store, EntityId)> {
             default_value: None,
             rank: 7,
             storage_scope: StorageScope::Runtime,
-        }
+        },
     );
-    
+
     schema.fields.insert(
         "Tags".to_string(),
         FieldSchema::EntityList {
@@ -103,9 +107,9 @@ fn setup_test_store_with_entity() -> Result<(Store, EntityId)> {
             default_value: vec![],
             rank: 8,
             storage_scope: StorageScope::Runtime,
-        }
+        },
     );
-    
+
     schema.fields.insert(
         "CreatedAt".to_string(),
         FieldSchema::Timestamp {
@@ -113,9 +117,9 @@ fn setup_test_store_with_entity() -> Result<(Store, EntityId)> {
             default_value: epoch(),
             rank: 9,
             storage_scope: StorageScope::Runtime,
-        }
+        },
     );
-    
+
     schema.fields.insert(
         "Data".to_string(),
         FieldSchema::Blob {
@@ -123,7 +127,7 @@ fn setup_test_store_with_entity() -> Result<(Store, EntityId)> {
             default_value: vec![],
             rank: 10,
             storage_scope: StorageScope::Runtime,
-        }
+        },
     );
 
     let requests = sreq![sschemaupdate!(schema)];
@@ -142,12 +146,13 @@ fn setup_test_store_with_entity() -> Result<(Store, EntityId)> {
     let ft_data = store.get_field_type("Data")?;
 
     // Create a test entity
-    let create_requests = store.perform_mut(sreq![screate!(
-        et_test,
-        "test_entity".to_string()
-    )])?;
-    
-    let entity_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
+    let create_requests = store.perform_mut(sreq![screate!(et_test, "test_entity".to_string())])?;
+
+    let entity_id = if let Some(Request::Create {
+        created_entity_id: Some(id),
+        ..
+    }) = create_requests.get(0)
+    {
         id
     } else {
         panic!("Expected created entity ID");
@@ -155,29 +160,37 @@ fn setup_test_store_with_entity() -> Result<(Store, EntityId)> {
 
     // Set some field values
     let now = now();
-    
+
     // Create additional entity types for Manager and Tag references
     let manager_schema = EntitySchema::<Single, String, String>::new("Manager".to_string(), vec![]);
     store.perform_mut(sreq![sschemaupdate!(manager_schema)])?;
-    
+
     let tag_schema = EntitySchema::<Single, String, String>::new("Tag".to_string(), vec![]);
     store.perform_mut(sreq![sschemaupdate!(tag_schema)])?;
-    
+
     let et_manager = store.get_entity_type("Manager")?;
     let et_tag = store.get_entity_type("Tag")?;
     let manager_id = EntityId::new(et_manager, 123);
     let tag1_id = EntityId::new(et_tag, 1);
     let tag2_id = EntityId::new(et_tag, 2);
     let test_data = vec![72, 101, 108, 108, 111]; // "Hello" in bytes
-    
+
     let field_requests = sreq![
         swrite!(entity_id, crate::sfield![ft_name], sstr!("John Doe")),
         swrite!(entity_id, crate::sfield![ft_age], sint!(30)),
         swrite!(entity_id, crate::sfield![ft_score], sfloat!(95.5)),
         swrite!(entity_id, crate::sfield![ft_is_active], sbool!(true)),
         swrite!(entity_id, crate::sfield![ft_status], schoice!(1)),
-        swrite!(entity_id, crate::sfield![ft_manager], sref!(Some(manager_id))),
-        swrite!(entity_id, crate::sfield![ft_tags], sreflist![tag1_id, tag2_id]),
+        swrite!(
+            entity_id,
+            crate::sfield![ft_manager],
+            sref!(Some(manager_id))
+        ),
+        swrite!(
+            entity_id,
+            crate::sfield![ft_tags],
+            sreflist![tag1_id, tag2_id]
+        ),
         swrite!(entity_id, crate::sfield![ft_created_at], stimestamp!(now)),
         swrite!(entity_id, crate::sfield![ft_data], sblob!(test_data)),
     ];
@@ -196,50 +209,50 @@ fn test_cel_executor_new() {
 #[test]
 fn test_cel_executor_get_or_compile_basic() -> Result<()> {
     let mut executor = CelExecutor::new();
-    
+
     // Test compiling a simple expression
     let program1 = executor.get_or_compile("1 + 1")?;
     assert!(program1.references().variables().is_empty());
-    
+
     // Test that getting the same expression returns cached result
     // We need to check this by pointer address, so get it separately
     let program1_ptr = program1 as *const _;
     let program2 = executor.get_or_compile("1 + 1")?;
     let program2_ptr = program2 as *const _;
     assert_eq!(program1_ptr, program2_ptr);
-    
+
     // Test compiling a different expression
     let program3 = executor.get_or_compile("2 + 2")?;
     let program3_ptr = program3 as *const _;
     assert_ne!(program1_ptr, program3_ptr);
-    
+
     Ok(())
 }
 
 #[test]
 fn test_cel_executor_get_or_compile_with_variables() -> Result<()> {
     let mut executor = CelExecutor::new();
-    
+
     // Test expression with variables
     let program = executor.get_or_compile("Name + ' is ' + string(Age) + ' years old'")?;
     let refs = program.references();
     let vars = refs.variables();
-    
+
     // Should reference Name and Age variables
     assert!(vars.iter().any(|v| *v == "Name"));
     assert!(vars.iter().any(|v| *v == "Age"));
-    
+
     Ok(())
 }
 
 #[test]
 fn test_cel_executor_get_or_compile_invalid_expression() {
     let mut executor = CelExecutor::new();
-    
+
     // Test invalid CEL expression
     let result = executor.get_or_compile("invalid syntax here +++");
     assert!(result.is_err());
-    
+
     if let Err(crate::Error::ExecutionError(msg)) = result {
         assert!(msg.contains("syntax") || msg.contains("parse") || msg.contains("error"));
     } else {
@@ -250,16 +263,16 @@ fn test_cel_executor_get_or_compile_invalid_expression() {
 #[test]
 fn test_cel_executor_remove() -> Result<()> {
     let mut executor = CelExecutor::new();
-    
+
     // Compile an expression
     let _program1 = executor.get_or_compile("1 + 1")?;
-    
+
     // Remove it from cache
     executor.remove("1 + 1");
-    
+
     // Get it again - should recompile (can't directly test, but should not panic)
     let _program2 = executor.get_or_compile("1 + 1")?;
-    
+
     Ok(())
 }
 
@@ -267,15 +280,15 @@ fn test_cel_executor_remove() -> Result<()> {
 fn test_cel_executor_execute_simple_expression() -> Result<()> {
     let mut executor = CelExecutor::new();
     let (mut store, entity_id) = setup_test_store_with_entity()?;
-    
+
     // Test simple expression without variables
     let result = executor.execute("1 + 1", entity_id, &mut store)?;
-    
+
     match result {
         cel::Value::Int(value) => assert_eq!(value, 2),
         _ => panic!("Expected int result"),
     }
-    
+
     Ok(())
 }
 
@@ -283,15 +296,15 @@ fn test_cel_executor_execute_simple_expression() -> Result<()> {
 fn test_cel_executor_execute_with_string_field() -> Result<()> {
     let mut executor = CelExecutor::new();
     let (mut store, entity_id) = setup_test_store_with_entity()?;
-    
+
     // Test expression using string field
     let result = executor.execute("Name + ' is awesome'", entity_id, &mut store)?;
-    
+
     match result {
         cel::Value::String(value) => assert_eq!(value.as_str(), "John Doe is awesome"),
         _ => panic!("Expected string result"),
     }
-    
+
     Ok(())
 }
 
@@ -299,15 +312,15 @@ fn test_cel_executor_execute_with_string_field() -> Result<()> {
 fn test_cel_executor_execute_with_int_field() -> Result<()> {
     let mut executor = CelExecutor::new();
     let (mut store, entity_id) = setup_test_store_with_entity()?;
-    
+
     // Test expression using int field
     let result = executor.execute("Age + 10", entity_id, &mut store)?;
-    
+
     match result {
         cel::Value::Int(value) => assert_eq!(value, 40),
         _ => panic!("Expected int result"),
     }
-    
+
     Ok(())
 }
 
@@ -315,18 +328,18 @@ fn test_cel_executor_execute_with_int_field() -> Result<()> {
 fn test_cel_executor_execute_with_float_field() -> Result<()> {
     let mut executor = CelExecutor::new();
     let (mut store, entity_id) = setup_test_store_with_entity()?;
-    
+
     // Test expression using float field
     let result = executor.execute("Score * 1.1", entity_id, &mut store)?;
-    
+
     match result {
         cel::Value::Float(value) => {
             let expected = 95.5 * 1.1;
             assert!((value - expected).abs() < f64::EPSILON);
-        },
+        }
         _ => panic!("Expected float result"),
     }
-    
+
     Ok(())
 }
 
@@ -334,15 +347,15 @@ fn test_cel_executor_execute_with_float_field() -> Result<()> {
 fn test_cel_executor_execute_with_bool_field() -> Result<()> {
     let mut executor = CelExecutor::new();
     let (mut store, entity_id) = setup_test_store_with_entity()?;
-    
+
     // Test expression using bool field
     let result = executor.execute("IsActive && true", entity_id, &mut store)?;
-    
+
     match result {
         cel::Value::Bool(value) => assert_eq!(value, true),
         _ => panic!("Expected bool result"),
     }
-    
+
     Ok(())
 }
 
@@ -350,15 +363,15 @@ fn test_cel_executor_execute_with_bool_field() -> Result<()> {
 fn test_cel_executor_execute_with_choice_field() -> Result<()> {
     let mut executor = CelExecutor::new();
     let (mut store, entity_id) = setup_test_store_with_entity()?;
-    
+
     // Test expression using choice field (stored as int)
     let result = executor.execute("Status == 1", entity_id, &mut store)?;
-    
+
     match result {
         cel::Value::Bool(value) => assert_eq!(value, true),
         _ => panic!("Expected bool result"),
     }
-    
+
     Ok(())
 }
 
@@ -366,16 +379,16 @@ fn test_cel_executor_execute_with_choice_field() -> Result<()> {
 fn test_cel_executor_execute_with_entity_reference_field() -> Result<()> {
     let mut executor = CelExecutor::new();
     let (mut store, entity_id) = setup_test_store_with_entity()?;
-    
+
     // Test expression using entity reference field
     // The Manager field contains EntityId(4294967419) which is the new u64-based format
     let result = executor.execute("Manager == 'EntityId(4294967419)'", entity_id, &mut store)?;
-    
+
     match result {
         cel::Value::Bool(value) => assert_eq!(value, true),
         _ => panic!("Expected bool result"),
     }
-    
+
     Ok(())
 }
 
@@ -383,15 +396,15 @@ fn test_cel_executor_execute_with_entity_reference_field() -> Result<()> {
 fn test_cel_executor_execute_with_entity_list_field() -> Result<()> {
     let mut executor = CelExecutor::new();
     let (mut store, entity_id) = setup_test_store_with_entity()?;
-    
+
     // Test expression using entity list field
     let result = executor.execute("size(Tags) == 2", entity_id, &mut store)?;
-    
+
     match result {
         cel::Value::Bool(value) => assert_eq!(value, true),
         _ => panic!("Expected bool result"),
     }
-    
+
     Ok(())
 }
 
@@ -399,16 +412,16 @@ fn test_cel_executor_execute_with_entity_list_field() -> Result<()> {
 fn test_cel_executor_execute_with_blob_field() -> Result<()> {
     let mut executor = CelExecutor::new();
     let (mut store, entity_id) = setup_test_store_with_entity()?;
-    
+
     // Test expression using blob field (converted to base64)
     // "Hello" in base64 is "SGVsbG8="
     let result = executor.execute("Data == 'SGVsbG8='", entity_id, &mut store)?;
-    
+
     match result {
         cel::Value::Bool(value) => assert_eq!(value, true),
         _ => panic!("Expected bool result"),
     }
-    
+
     Ok(())
 }
 
@@ -416,16 +429,20 @@ fn test_cel_executor_execute_with_blob_field() -> Result<()> {
 fn test_cel_executor_execute_with_timestamp_field() -> Result<()> {
     let mut executor = CelExecutor::new();
     let (mut store, entity_id) = setup_test_store_with_entity()?;
-    
+
     // Test expression using timestamp field
     // Just test that we can access the timestamp without error
-    let result = executor.execute("CreatedAt != timestamp('1970-01-01T00:00:00Z')", entity_id, &mut store)?;
-    
+    let result = executor.execute(
+        "CreatedAt != timestamp('1970-01-01T00:00:00Z')",
+        entity_id,
+        &mut store,
+    )?;
+
     match result {
         cel::Value::Bool(value) => assert_eq!(value, true),
         _ => panic!("Expected bool result"),
     }
-    
+
     Ok(())
 }
 
@@ -434,26 +451,26 @@ fn test_cel_executor_execute_with_entity_id_and_type() -> Result<()> {
     // Note: EntityId and EntityType are special variables that the CelExecutor
     // should add to the context, but they shouldn't be treated as field references.
     // For now, let's test a different aspect of the executor.
-    
+
     let mut executor = CelExecutor::new();
     let (mut store, entity_id) = setup_test_store_with_entity()?;
-    
+
     // Test expression that doesn't reference EntityId/EntityType but still uses context
     let result = executor.execute("'TestEntity' == 'TestEntity'", entity_id, &mut store)?;
-    
+
     match result {
         cel::Value::Bool(value) => assert_eq!(value, true),
         _ => panic!("Expected bool result"),
     }
-    
+
     // Test with a string literal operation
     let result = executor.execute("size('Hello') == 5", entity_id, &mut store)?;
-    
+
     match result {
         cel::Value::Bool(value) => assert_eq!(value, true),
         _ => panic!("Expected bool result"),
     }
-    
+
     Ok(())
 }
 
@@ -461,19 +478,19 @@ fn test_cel_executor_execute_with_entity_id_and_type() -> Result<()> {
 fn test_cel_executor_execute_complex_expression() -> Result<()> {
     let mut executor = CelExecutor::new();
     let (mut store, entity_id) = setup_test_store_with_entity()?;
-    
+
     // Test complex expression combining multiple fields
     let result = executor.execute(
         "IsActive && Age >= 18 && Score > 90.0 && size(Name) > 0",
         entity_id,
-        &mut store
+        &mut store,
     )?;
-    
+
     match result {
         cel::Value::Bool(value) => assert_eq!(value, true),
         _ => panic!("Expected bool result"),
     }
-    
+
     Ok(())
 }
 
@@ -483,7 +500,8 @@ fn test_cel_executor_execute_with_indirection() -> Result<()> {
     let mut store = Store::new();
 
     // Create Department schema using string types first
-    let mut dept_schema = EntitySchema::<Single, String, String>::new("Department".to_string(), vec![]);
+    let mut dept_schema =
+        EntitySchema::<Single, String, String>::new("Department".to_string(), vec![]);
     dept_schema.fields.insert(
         "Name".to_string(),
         FieldSchema::String {
@@ -491,7 +509,7 @@ fn test_cel_executor_execute_with_indirection() -> Result<()> {
             default_value: String::new(),
             rank: 0,
             storage_scope: StorageScope::Runtime,
-        }
+        },
     );
     dept_schema.fields.insert(
         "Parent".to_string(),
@@ -500,7 +518,7 @@ fn test_cel_executor_execute_with_indirection() -> Result<()> {
             default_value: None,
             rank: 1,
             storage_scope: StorageScope::Configuration,
-        }
+        },
     );
     dept_schema.fields.insert(
         "Children".to_string(),
@@ -509,7 +527,7 @@ fn test_cel_executor_execute_with_indirection() -> Result<()> {
             default_value: Vec::new(),
             rank: 2,
             storage_scope: StorageScope::Configuration,
-        }
+        },
     );
     dept_schema.fields.insert(
         "Budget".to_string(),
@@ -518,11 +536,11 @@ fn test_cel_executor_execute_with_indirection() -> Result<()> {
             default_value: 0,
             rank: 3,
             storage_scope: StorageScope::Runtime,
-        }
+        },
     );
     let requests = sreq![sschemaupdate!(dept_schema)];
     store.perform_mut(requests)?;
-    
+
     // Create User schema with department reference
     let mut user_schema = EntitySchema::<Single, String, String>::new("User".to_string(), vec![]);
     user_schema.fields.insert(
@@ -532,7 +550,7 @@ fn test_cel_executor_execute_with_indirection() -> Result<()> {
             default_value: String::new(),
             rank: 0,
             storage_scope: StorageScope::Runtime,
-        }
+        },
     );
     user_schema.fields.insert(
         "Parent".to_string(),
@@ -541,7 +559,7 @@ fn test_cel_executor_execute_with_indirection() -> Result<()> {
             default_value: None,
             rank: 1,
             storage_scope: StorageScope::Configuration,
-        }
+        },
     );
     user_schema.fields.insert(
         "Children".to_string(),
@@ -550,7 +568,7 @@ fn test_cel_executor_execute_with_indirection() -> Result<()> {
             default_value: Vec::new(),
             rank: 2,
             storage_scope: StorageScope::Configuration,
-        }
+        },
     );
     user_schema.fields.insert(
         "Department".to_string(),
@@ -559,7 +577,7 @@ fn test_cel_executor_execute_with_indirection() -> Result<()> {
             default_value: None,
             rank: 3,
             storage_scope: StorageScope::Runtime,
-        }
+        },
     );
     let requests = sreq![sschemaupdate!(user_schema)];
     store.perform_mut(requests)?;
@@ -572,22 +590,25 @@ fn test_cel_executor_execute_with_indirection() -> Result<()> {
     let ft_department = store.get_field_type("Department")?;
 
     // Create department entity
-    let create_requests = store.perform_mut(sreq![screate!(
-        et_department,
-        "Engineering".to_string()
-    )])?;
-    let dept_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
+    let create_requests =
+        store.perform_mut(sreq![screate!(et_department, "Engineering".to_string())])?;
+    let dept_id = if let Some(Request::Create {
+        created_entity_id: Some(id),
+        ..
+    }) = create_requests.get(0)
+    {
         id
     } else {
         panic!("Expected created entity ID");
     };
 
     // Create user entity
-    let create_requests = store.perform_mut(sreq![screate!(
-        et_user,
-        "Alice".to_string()
-    )])?;
-    let user_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
+    let create_requests = store.perform_mut(sreq![screate!(et_user, "Alice".to_string())])?;
+    let user_id = if let Some(Request::Create {
+        created_entity_id: Some(id),
+        ..
+    }) = create_requests.get(0)
+    {
         id
     } else {
         panic!("Expected created entity ID");
@@ -605,10 +626,10 @@ fn test_cel_executor_execute_with_indirection() -> Result<()> {
     // Test indirection: Department->Name should resolve to "Engineering"
     // NOTE: The CEL executor needs to be updated to handle Vec<FieldType> indirection
     // For now, commenting out indirection tests as they require CelExecutor changes
-    
+
     // Direct field access should still work
     let result = executor.execute("Name == 'Alice'", user_id, &mut store)?;
-    
+
     match result {
         cel::Value::Bool(value) => assert_eq!(value, true),
         _ => panic!("Expected bool result for direct field access"),
@@ -623,9 +644,10 @@ fn test_cel_executor_execute_with_deep_indirection() -> Result<()> {
     let mut store = Store::new();
 
     // Create schemas using strings first - perform_mut will intern the types
-    
+
     // Create Company schema with required fields
-    let mut company_schema = EntitySchema::<Single, String, String>::new("Company".to_string(), vec![]);
+    let mut company_schema =
+        EntitySchema::<Single, String, String>::new("Company".to_string(), vec![]);
     company_schema.fields.insert(
         "Name".to_string(),
         FieldSchema::String {
@@ -633,7 +655,7 @@ fn test_cel_executor_execute_with_deep_indirection() -> Result<()> {
             default_value: String::new(),
             rank: 0,
             storage_scope: StorageScope::Runtime,
-        }
+        },
     );
     company_schema.fields.insert(
         "Parent".to_string(),
@@ -642,7 +664,7 @@ fn test_cel_executor_execute_with_deep_indirection() -> Result<()> {
             default_value: None,
             rank: 1,
             storage_scope: StorageScope::Runtime,
-        }
+        },
     );
     company_schema.fields.insert(
         "Children".to_string(),
@@ -651,7 +673,7 @@ fn test_cel_executor_execute_with_deep_indirection() -> Result<()> {
             default_value: vec![],
             rank: 2,
             storage_scope: StorageScope::Runtime,
-        }
+        },
     );
     company_schema.fields.insert(
         "Founded".to_string(),
@@ -660,13 +682,14 @@ fn test_cel_executor_execute_with_deep_indirection() -> Result<()> {
             default_value: 0,
             rank: 3,
             storage_scope: StorageScope::Runtime,
-        }
+        },
     );
     let requests = sreq![sschemaupdate!(company_schema)];
     store.perform_mut(requests)?;
-    
+
     // Create Department schema with company reference and required fields
-    let mut dept_schema = EntitySchema::<Single, String, String>::new("Department".to_string(), vec![]);
+    let mut dept_schema =
+        EntitySchema::<Single, String, String>::new("Department".to_string(), vec![]);
     dept_schema.fields.insert(
         "Name".to_string(),
         FieldSchema::String {
@@ -674,7 +697,7 @@ fn test_cel_executor_execute_with_deep_indirection() -> Result<()> {
             default_value: String::new(),
             rank: 0,
             storage_scope: StorageScope::Runtime,
-        }
+        },
     );
     dept_schema.fields.insert(
         "Parent".to_string(),
@@ -683,7 +706,7 @@ fn test_cel_executor_execute_with_deep_indirection() -> Result<()> {
             default_value: None,
             rank: 1,
             storage_scope: StorageScope::Runtime,
-        }
+        },
     );
     dept_schema.fields.insert(
         "Children".to_string(),
@@ -692,7 +715,7 @@ fn test_cel_executor_execute_with_deep_indirection() -> Result<()> {
             default_value: vec![],
             rank: 2,
             storage_scope: StorageScope::Runtime,
-        }
+        },
     );
     dept_schema.fields.insert(
         "Company".to_string(),
@@ -701,13 +724,14 @@ fn test_cel_executor_execute_with_deep_indirection() -> Result<()> {
             default_value: None,
             rank: 3,
             storage_scope: StorageScope::Runtime,
-        }
+        },
     );
     let requests = sreq![sschemaupdate!(dept_schema)];
     store.perform_mut(requests)?;
-    
+
     // Create Employee schema with department reference and required fields
-    let mut employee_schema = EntitySchema::<Single, String, String>::new("Employee".to_string(), vec![]);
+    let mut employee_schema =
+        EntitySchema::<Single, String, String>::new("Employee".to_string(), vec![]);
     employee_schema.fields.insert(
         "Name".to_string(),
         FieldSchema::String {
@@ -715,7 +739,7 @@ fn test_cel_executor_execute_with_deep_indirection() -> Result<()> {
             default_value: String::new(),
             rank: 0,
             storage_scope: StorageScope::Runtime,
-        }
+        },
     );
     employee_schema.fields.insert(
         "Parent".to_string(),
@@ -724,7 +748,7 @@ fn test_cel_executor_execute_with_deep_indirection() -> Result<()> {
             default_value: None,
             rank: 1,
             storage_scope: StorageScope::Runtime,
-        }
+        },
     );
     employee_schema.fields.insert(
         "Children".to_string(),
@@ -733,7 +757,7 @@ fn test_cel_executor_execute_with_deep_indirection() -> Result<()> {
             default_value: vec![],
             rank: 2,
             storage_scope: StorageScope::Runtime,
-        }
+        },
     );
     employee_schema.fields.insert(
         "Department".to_string(),
@@ -742,7 +766,7 @@ fn test_cel_executor_execute_with_deep_indirection() -> Result<()> {
             default_value: None,
             rank: 3,
             storage_scope: StorageScope::Runtime,
-        }
+        },
     );
     let requests = sreq![sschemaupdate!(employee_schema)];
     store.perform_mut(requests)?;
@@ -758,21 +782,34 @@ fn test_cel_executor_execute_with_deep_indirection() -> Result<()> {
 
     // Create entities
     let create_requests = store.perform_mut(sreq![screate!(et_company, "TechCorp".to_string())])?;
-    let company_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
+    let company_id = if let Some(Request::Create {
+        created_entity_id: Some(id),
+        ..
+    }) = create_requests.get(0)
+    {
         id
     } else {
         panic!("Expected created company ID");
     };
 
-    let create_requests = store.perform_mut(sreq![screate!(et_department, "Engineering".to_string())])?;
-    let dept_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
+    let create_requests =
+        store.perform_mut(sreq![screate!(et_department, "Engineering".to_string())])?;
+    let dept_id = if let Some(Request::Create {
+        created_entity_id: Some(id),
+        ..
+    }) = create_requests.get(0)
+    {
         id
     } else {
         panic!("Expected created department ID");
     };
 
     let create_requests = store.perform_mut(sreq![screate!(et_employee, "Bob".to_string())])?;
-    let employee_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
+    let employee_id = if let Some(Request::Create {
+        created_entity_id: Some(id),
+        ..
+    }) = create_requests.get(0)
+    {
         id
     } else {
         panic!("Expected created employee ID");
@@ -785,16 +822,16 @@ fn test_cel_executor_execute_with_deep_indirection() -> Result<()> {
         swrite!(dept_id, crate::sfield![ft_name], sstr!("Engineering")),
         swrite!(dept_id, crate::sfield![ft_company], sref!(Some(company_id))),
         swrite!(employee_id, crate::sfield![ft_name], sstr!("Bob")),
-        swrite!(employee_id, crate::sfield![ft_department], sref!(Some(dept_id))),
+        swrite!(
+            employee_id,
+            crate::sfield![ft_department],
+            sref!(Some(dept_id))
+        ),
     ])?;
 
     // Test direct field access since indirection syntax needs CelExecutor updates
-    let result = executor.execute(
-        "Name == 'Bob'",
-        employee_id,
-        &mut store
-    )?;
-    
+    let result = executor.execute("Name == 'Bob'", employee_id, &mut store)?;
+
     match result {
         cel::Value::Bool(value) => assert_eq!(value, true),
         _ => panic!("Expected bool result for direct field access"),
@@ -809,9 +846,10 @@ fn test_cel_executor_execute_with_indirection_and_entity_lists() -> Result<()> {
     let mut store = Store::new();
 
     // Create schemas using strings first - perform_mut will intern the types
-    
+
     // Create Project schema with required fields
-    let mut project_schema = EntitySchema::<Single, String, String>::new("Project".to_string(), vec![]);
+    let mut project_schema =
+        EntitySchema::<Single, String, String>::new("Project".to_string(), vec![]);
     project_schema.fields.insert(
         "Name".to_string(),
         FieldSchema::String {
@@ -819,7 +857,7 @@ fn test_cel_executor_execute_with_indirection_and_entity_lists() -> Result<()> {
             default_value: String::new(),
             rank: 0,
             storage_scope: StorageScope::Runtime,
-        }
+        },
     );
     project_schema.fields.insert(
         "Parent".to_string(),
@@ -828,7 +866,7 @@ fn test_cel_executor_execute_with_indirection_and_entity_lists() -> Result<()> {
             default_value: None,
             rank: 1,
             storage_scope: StorageScope::Runtime,
-        }
+        },
     );
     project_schema.fields.insert(
         "Children".to_string(),
@@ -837,7 +875,7 @@ fn test_cel_executor_execute_with_indirection_and_entity_lists() -> Result<()> {
             default_value: vec![],
             rank: 2,
             storage_scope: StorageScope::Runtime,
-        }
+        },
     );
     project_schema.fields.insert(
         "Priority".to_string(),
@@ -846,11 +884,11 @@ fn test_cel_executor_execute_with_indirection_and_entity_lists() -> Result<()> {
             default_value: 0,
             rank: 3,
             storage_scope: StorageScope::Runtime,
-        }
+        },
     );
     let requests = sreq![sschemaupdate!(project_schema)];
     store.perform_mut(requests)?;
-    
+
     // Create Team schema with projects list and required fields
     let mut team_schema = EntitySchema::<Single, String, String>::new("Team".to_string(), vec![]);
     team_schema.fields.insert(
@@ -860,7 +898,7 @@ fn test_cel_executor_execute_with_indirection_and_entity_lists() -> Result<()> {
             default_value: String::new(),
             rank: 0,
             storage_scope: StorageScope::Runtime,
-        }
+        },
     );
     team_schema.fields.insert(
         "Parent".to_string(),
@@ -869,7 +907,7 @@ fn test_cel_executor_execute_with_indirection_and_entity_lists() -> Result<()> {
             default_value: None,
             rank: 1,
             storage_scope: StorageScope::Runtime,
-        }
+        },
     );
     team_schema.fields.insert(
         "Children".to_string(),
@@ -878,7 +916,7 @@ fn test_cel_executor_execute_with_indirection_and_entity_lists() -> Result<()> {
             default_value: vec![],
             rank: 2,
             storage_scope: StorageScope::Runtime,
-        }
+        },
     );
     team_schema.fields.insert(
         "Projects".to_string(),
@@ -887,7 +925,7 @@ fn test_cel_executor_execute_with_indirection_and_entity_lists() -> Result<()> {
             default_value: vec![],
             rank: 3,
             storage_scope: StorageScope::Runtime,
-        }
+        },
     );
     let requests = sreq![sschemaupdate!(team_schema)];
     store.perform_mut(requests)?;
@@ -901,14 +939,23 @@ fn test_cel_executor_execute_with_indirection_and_entity_lists() -> Result<()> {
 
     // Create project entities
     let create_requests = store.perform_mut(sreq![screate!(et_project, "WebApp".to_string())])?;
-    let project1_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
+    let project1_id = if let Some(Request::Create {
+        created_entity_id: Some(id),
+        ..
+    }) = create_requests.get(0)
+    {
         id
     } else {
         panic!("Expected created project ID");
     };
 
-    let create_requests = store.perform_mut(sreq![screate!(et_project, "MobileApp".to_string())])?;
-    let project2_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
+    let create_requests =
+        store.perform_mut(sreq![screate!(et_project, "MobileApp".to_string())])?;
+    let project2_id = if let Some(Request::Create {
+        created_entity_id: Some(id),
+        ..
+    }) = create_requests.get(0)
+    {
         id
     } else {
         panic!("Expected created project ID");
@@ -916,7 +963,11 @@ fn test_cel_executor_execute_with_indirection_and_entity_lists() -> Result<()> {
 
     // Create team entity
     let create_requests = store.perform_mut(sreq![screate!(et_team, "DevTeam".to_string())])?;
-    let team_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
+    let team_id = if let Some(Request::Create {
+        created_entity_id: Some(id),
+        ..
+    }) = create_requests.get(0)
+    {
         id
     } else {
         panic!("Expected created team ID");
@@ -929,13 +980,17 @@ fn test_cel_executor_execute_with_indirection_and_entity_lists() -> Result<()> {
         swrite!(project2_id, crate::sfield![ft_name], sstr!("MobileApp")),
         swrite!(project2_id, crate::sfield![ft_priority], sint!(2)),
         swrite!(team_id, crate::sfield![ft_name], sstr!("DevTeam")),
-        swrite!(team_id, crate::sfield![ft_projects], sreflist![project1_id, project2_id]),
+        swrite!(
+            team_id,
+            crate::sfield![ft_projects],
+            sreflist![project1_id, project2_id]
+        ),
     ];
     store.perform_mut(field_requests)?;
 
     // Test that we can access the entity list field
     let result = executor.execute("size(Projects) == 2", team_id, &mut store)?;
-    
+
     match result {
         cel::Value::Bool(value) => assert_eq!(value, true),
         _ => panic!("Expected bool result for entity list size"),
@@ -945,9 +1000,9 @@ fn test_cel_executor_execute_with_indirection_and_entity_lists() -> Result<()> {
     let result = executor.execute(
         &format!("Projects[0] == '{:?}'", project1_id),
         team_id,
-        &mut store
+        &mut store,
     )?;
-    
+
     match result {
         cel::Value::Bool(value) => assert_eq!(value, true),
         _ => panic!("Expected bool result for entity list access"),
@@ -970,7 +1025,7 @@ fn test_cel_executor_execute_with_null_entity_reference() -> Result<()> {
             default_value: String::new(),
             rank: 0,
             storage_scope: StorageScope::Runtime,
-        }
+        },
     );
     user_schema.fields.insert(
         "Parent".to_string(),
@@ -979,7 +1034,7 @@ fn test_cel_executor_execute_with_null_entity_reference() -> Result<()> {
             default_value: None,
             rank: 1,
             storage_scope: StorageScope::Runtime,
-        }
+        },
     );
     user_schema.fields.insert(
         "Children".to_string(),
@@ -988,7 +1043,7 @@ fn test_cel_executor_execute_with_null_entity_reference() -> Result<()> {
             default_value: vec![],
             rank: 2,
             storage_scope: StorageScope::Runtime,
-        }
+        },
     );
     user_schema.fields.insert(
         "Manager".to_string(),
@@ -997,7 +1052,7 @@ fn test_cel_executor_execute_with_null_entity_reference() -> Result<()> {
             default_value: None,
             rank: 3,
             storage_scope: StorageScope::Runtime,
-        }
+        },
     );
     let requests = sreq![sschemaupdate!(user_schema)];
     store.perform_mut(requests)?;
@@ -1005,12 +1060,13 @@ fn test_cel_executor_execute_with_null_entity_reference() -> Result<()> {
     // Now we can get the interned types
     let et_user = store.get_entity_type("User")?;
 
-    let create_requests = store.perform_mut(sreq![screate!(
-        et_user,
-        "User".to_string()
-    )])?;
+    let create_requests = store.perform_mut(sreq![screate!(et_user, "User".to_string())])?;
 
-    let user_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
+    let user_id = if let Some(Request::Create {
+        created_entity_id: Some(id),
+        ..
+    }) = create_requests.get(0)
+    {
         id
     } else {
         panic!("Expected created entity ID");
@@ -1018,12 +1074,12 @@ fn test_cel_executor_execute_with_null_entity_reference() -> Result<()> {
 
     // Manager field should be null/empty
     let result = executor.execute("Manager == ''", user_id, &mut store)?;
-    
+
     match result {
         cel::Value::Bool(value) => assert_eq!(value, true),
         _ => panic!("Expected bool result"),
     }
-    
+
     Ok(())
 }
 
@@ -1031,31 +1087,31 @@ fn test_cel_executor_execute_with_null_entity_reference() -> Result<()> {
 fn test_cel_executor_caching_behavior() -> Result<()> {
     let mut executor = CelExecutor::new();
     let (mut store, entity_id) = setup_test_store_with_entity()?;
-    
+
     // Execute the same expression multiple times
     let expr = "Age + 10";
-    
+
     let result1 = executor.execute(expr, entity_id, &mut store)?;
     let result2 = executor.execute(expr, entity_id, &mut store)?;
-    
+
     // Results should be identical
     match (result1, result2) {
         (cel::Value::Int(val1), cel::Value::Int(val2)) => {
             assert_eq!(val1, val2);
             assert_eq!(val1, 40);
-        },
+        }
         _ => panic!("Expected int results"),
     }
-    
+
     // Remove from cache and execute again
     executor.remove(expr);
     let result3 = executor.execute(expr, entity_id, &mut store)?;
-    
+
     match result3 {
         cel::Value::Int(val3) => assert_eq!(val3, 40),
         _ => panic!("Expected int result"),
     }
-    
+
     Ok(())
 }
 
@@ -1063,17 +1119,17 @@ fn test_cel_executor_caching_behavior() -> Result<()> {
 fn test_cel_executor_execute_runtime_error() -> Result<()> {
     let mut executor = CelExecutor::new();
     let (mut store, entity_id) = setup_test_store_with_entity()?;
-    
+
     // Test expression that causes runtime error (division by zero)
     let result = executor.execute("Age / 0", entity_id, &mut store);
-    
+
     assert!(result.is_err());
     if let Err(crate::Error::ExecutionError(_)) = result {
         // Expected
     } else {
         panic!("Expected ExecutionError");
     }
-    
+
     Ok(())
 }
 
@@ -1081,13 +1137,13 @@ fn test_cel_executor_execute_runtime_error() -> Result<()> {
 fn test_cel_executor_execute_with_missing_field() -> Result<()> {
     let mut executor = CelExecutor::new();
     let (mut store, entity_id) = setup_test_store_with_entity()?;
-    
+
     // Test expression using non-existent field
     let result = executor.execute("NonExistentField == 'test'", entity_id, &mut store);
-    
+
     // This should fail because the field doesn't exist
     assert!(result.is_err());
-    
+
     Ok(())
 }
 
@@ -1097,9 +1153,10 @@ fn test_cel_executor_execute_with_mixed_field_access() -> Result<()> {
     let mut store = Store::new();
 
     // Create schemas using strings first - perform_mut will intern the types
-    
+
     // Create Department schema with required fields
-    let mut dept_schema = EntitySchema::<Single, String, String>::new("Department".to_string(), vec![]);
+    let mut dept_schema =
+        EntitySchema::<Single, String, String>::new("Department".to_string(), vec![]);
     dept_schema.fields.insert(
         "Name".to_string(),
         FieldSchema::String {
@@ -1107,7 +1164,7 @@ fn test_cel_executor_execute_with_mixed_field_access() -> Result<()> {
             default_value: String::new(),
             rank: 0,
             storage_scope: StorageScope::Runtime,
-        }
+        },
     );
     dept_schema.fields.insert(
         "Parent".to_string(),
@@ -1116,7 +1173,7 @@ fn test_cel_executor_execute_with_mixed_field_access() -> Result<()> {
             default_value: None,
             rank: 1,
             storage_scope: StorageScope::Runtime,
-        }
+        },
     );
     dept_schema.fields.insert(
         "Children".to_string(),
@@ -1125,11 +1182,11 @@ fn test_cel_executor_execute_with_mixed_field_access() -> Result<()> {
             default_value: vec![],
             rank: 2,
             storage_scope: StorageScope::Runtime,
-        }
+        },
     );
     let requests = sreq![sschemaupdate!(dept_schema)];
     store.perform_mut(requests)?;
-    
+
     // Create User schema with department reference and required fields
     let mut user_schema = EntitySchema::<Single, String, String>::new("User".to_string(), vec![]);
     user_schema.fields.insert(
@@ -1139,7 +1196,7 @@ fn test_cel_executor_execute_with_mixed_field_access() -> Result<()> {
             default_value: String::new(),
             rank: 0,
             storage_scope: StorageScope::Runtime,
-        }
+        },
     );
     user_schema.fields.insert(
         "Parent".to_string(),
@@ -1148,7 +1205,7 @@ fn test_cel_executor_execute_with_mixed_field_access() -> Result<()> {
             default_value: None,
             rank: 1,
             storage_scope: StorageScope::Runtime,
-        }
+        },
     );
     user_schema.fields.insert(
         "Children".to_string(),
@@ -1157,7 +1214,7 @@ fn test_cel_executor_execute_with_mixed_field_access() -> Result<()> {
             default_value: vec![],
             rank: 2,
             storage_scope: StorageScope::Runtime,
-        }
+        },
     );
     user_schema.fields.insert(
         "Age".to_string(),
@@ -1166,7 +1223,7 @@ fn test_cel_executor_execute_with_mixed_field_access() -> Result<()> {
             default_value: 0,
             rank: 3,
             storage_scope: StorageScope::Runtime,
-        }
+        },
     );
     user_schema.fields.insert(
         "Department".to_string(),
@@ -1175,7 +1232,7 @@ fn test_cel_executor_execute_with_mixed_field_access() -> Result<()> {
             default_value: None,
             rank: 4,
             storage_scope: StorageScope::Runtime,
-        }
+        },
     );
     let requests = sreq![sschemaupdate!(user_schema)];
     store.perform_mut(requests)?;
@@ -1188,22 +1245,24 @@ fn test_cel_executor_execute_with_mixed_field_access() -> Result<()> {
     let ft_department = store.get_field_type("Department")?;
 
     // Create department entity
-    let create_requests = store.perform_mut(sreq![screate!(
-        et_department,
-        "Sales".to_string()
-    )])?;
-    let dept_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
+    let create_requests = store.perform_mut(sreq![screate!(et_department, "Sales".to_string())])?;
+    let dept_id = if let Some(Request::Create {
+        created_entity_id: Some(id),
+        ..
+    }) = create_requests.get(0)
+    {
         id
     } else {
         panic!("Expected created entity ID");
     };
 
     // Create user entity
-    let create_requests = store.perform_mut(sreq![screate!(
-        et_user,
-        "John".to_string()
-    )])?;
-    let user_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
+    let create_requests = store.perform_mut(sreq![screate!(et_user, "John".to_string())])?;
+    let user_id = if let Some(Request::Create {
+        created_entity_id: Some(id),
+        ..
+    }) = create_requests.get(0)
+    {
         id
     } else {
         panic!("Expected created entity ID");
@@ -1219,24 +1278,16 @@ fn test_cel_executor_execute_with_mixed_field_access() -> Result<()> {
     store.perform_mut(field_requests)?;
 
     // Test direct field access (mixed indirection requires CelExecutor updates)
-    let result = executor.execute(
-        "Name == 'John' && Age == 30",
-        user_id,
-        &mut store
-    )?;
-    
+    let result = executor.execute("Name == 'John' && Age == 30", user_id, &mut store)?;
+
     match result {
         cel::Value::Bool(value) => assert_eq!(value, true),
         _ => panic!("Expected bool result for direct field access"),
     }
 
     // Test that direct field access still works when department reference exists
-    let result = executor.execute(
-        "Name == 'John'",
-        user_id,
-        &mut store
-    )?;
-    
+    let result = executor.execute("Name == 'John'", user_id, &mut store)?;
+
     match result {
         cel::Value::Bool(value) => assert_eq!(value, true),
         _ => panic!("Expected bool result for direct field access"),

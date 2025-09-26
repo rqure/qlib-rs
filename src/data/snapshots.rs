@@ -3,8 +3,8 @@ use sorted_vec::SortedVec;
 
 use serde::{Deserialize, Serialize};
 
-use crate::{EntityId, EntitySchema, EntityType, Field, FieldType, Single};
 use crate::data::interner::Interner;
+use crate::{EntityId, EntitySchema, EntityType, Field, FieldType, Single};
 
 /// Represents a complete snapshot of the store at a point in time
 #[derive(Debug, Clone, Serialize, Deserialize)]

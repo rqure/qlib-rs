@@ -1,6 +1,6 @@
 use ahash::AHashMap;
-use std::option::Option;
 use serde::{Deserialize, Serialize};
+use std::option::Option;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Interner {

@@ -1,16 +1,18 @@
-use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-use std::rc::Rc;
-use std::cell::RefCell;
-use std::io::{Read, Write};
 use anyhow;
-use mio::{Poll, Token, Interest, Events};
+use mio::{Events, Interest, Poll, Token};
+use serde::{Deserialize, Serialize};
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::io::{Read, Write};
+use std::rc::Rc;
 
-use crate::{
-    Complete, EntityId, EntitySchema, EntityType, Error, FieldSchema, FieldType, Notification, NotificationQueue, NotifyConfig, hash_notify_config, PageOpts, PageResult, Request, Requests, Result, Single, sreq
-};
 use crate::data::StoreTrait;
-use crate::qresp::{QrespMessageBuffer, encode_store_message};
+use crate::qresp::{encode_store_message, QrespMessageBuffer};
+use crate::{
+    hash_notify_config, sreq, Complete, EntityId, EntitySchema, EntityType, Error, FieldSchema,
+    FieldType, Notification, NotificationQueue, NotifyConfig, PageOpts, PageResult, Request,
+    Requests, Result, Single,
+};
 
 /// Result of authentication attempt
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -104,14 +106,15 @@ impl TcpConnection {
     pub fn new(stream: std::net::TcpStream) -> anyhow::Result<Self> {
         // Convert std::net::TcpStream to mio::net::TcpStream
         let mut stream = mio::net::TcpStream::from_std(stream);
-        
+
         // Create a poll instance
         let poll = Poll::new()?;
         let token = Token(0);
-        
+
         // Register the stream with the poll instance
-        poll.registry().register(&mut stream, token, Interest::READABLE)?;
-        
+        poll.registry()
+            .register(&mut stream, token, Interest::READABLE)?;
+
         Ok(Self {
             stream,
             message_buffer: QrespMessageBuffer::new(),
@@ -119,7 +122,7 @@ impl TcpConnection {
             token,
         })
     }
-    
+
     pub fn send_message(&mut self, message: &StoreMessage) -> anyhow::Result<()> {
         let encoded = encode_store_message(message)
             .map_err(|e| anyhow::anyhow!("QRESP encode failed: {}", e))?;
@@ -127,22 +130,25 @@ impl TcpConnection {
         self.stream.flush()?;
         Ok(())
     }
-    
+
     /// Wait for the socket to be ready for reading, with a timeout
-    pub fn wait_for_readable(&mut self, timeout: Option<std::time::Duration>) -> anyhow::Result<bool> {
+    pub fn wait_for_readable(
+        &mut self,
+        timeout: Option<std::time::Duration>,
+    ) -> anyhow::Result<bool> {
         let mut events = Events::with_capacity(1);
         self.poll.poll(&mut events, timeout)?;
-        
+
         // Check if our token has events
         for event in events.iter() {
             if event.token() == self.token && event.is_readable() {
                 return Ok(true);
             }
         }
-        
+
         Ok(false) // Timeout or no readable event
     }
-    
+
     pub fn try_receive_message(&mut self) -> anyhow::Result<Option<StoreMessage>> {
         // Try to read more data
         let mut buffer = [0u8; 8192];
@@ -156,7 +162,7 @@ impl TcpConnection {
             }
             Err(e) => return Err(anyhow::anyhow!("TCP read error: {}", e)),
         }
-        
+
         // Try to decode a message
         self.message_buffer
             .try_decode_store_message()
@@ -193,19 +199,23 @@ impl StoreProxy {
         credential: &str,
     ) -> Result<Self> {
         // Connect to TCP server
-        let stream = std::net::TcpStream::connect(address)
-            .map_err(|e| Error::StoreProxyError(format!("Failed to connect to {}: {}", address, e)))?;
-        
+        let stream = std::net::TcpStream::connect(address).map_err(|e| {
+            Error::StoreProxyError(format!("Failed to connect to {}: {}", address, e))
+        })?;
+
         // Optimize TCP socket for low latency
-        stream.set_nodelay(true)
+        stream
+            .set_nodelay(true)
             .map_err(|e| Error::StoreProxyError(format!("Failed to set TCP_NODELAY: {}", e)))?;
-        
+
         // Set to non-blocking for message handling
-        stream.set_nonblocking(true)
+        stream
+            .set_nonblocking(true)
             .map_err(|e| Error::StoreProxyError(format!("Failed to set non-blocking: {}", e)))?;
 
-        let mut tcp_connection = TcpConnection::new(stream)
-            .map_err(|e| Error::StoreProxyError(format!("Failed to create TCP connection: {}", e)))?;
+        let mut tcp_connection = TcpConnection::new(stream).map_err(|e| {
+            Error::StoreProxyError(format!("Failed to create TCP connection: {}", e))
+        })?;
 
         // Send authentication message immediately
         let auth_request = StoreMessage::Authenticate {
@@ -214,18 +224,19 @@ impl StoreProxy {
             credential: credential.to_string(),
         };
 
-        tcp_connection.send_message(&auth_request)
+        tcp_connection
+            .send_message(&auth_request)
             .map_err(|e| Error::StoreProxyError(format!("Failed to send auth message: {}", e)))?;
 
         // Wait for authentication response with timeout
         let auth_start = std::time::Instant::now();
         let auth_timeout = std::time::Duration::from_secs(5); // 5 second timeout
-        
+
         let auth_result = loop {
             if auth_start.elapsed() > auth_timeout {
                 return Err(Error::StoreProxyError("Authentication timeout".to_string()));
             }
-            
+
             match tcp_connection.try_receive_message() {
                 Ok(Some(message)) => break message,
                 Ok(None) => {
@@ -234,25 +245,44 @@ impl StoreProxy {
                     if remaining_timeout.is_zero() {
                         return Err(Error::StoreProxyError("Authentication timeout".to_string()));
                     }
-                    
-                    match tcp_connection.wait_for_readable(Some(std::time::Duration::from_millis(10))) {
-                        Ok(true) => continue, // Data is ready, try reading again
+
+                    match tcp_connection
+                        .wait_for_readable(Some(std::time::Duration::from_millis(10)))
+                    {
+                        Ok(true) => continue,  // Data is ready, try reading again
                         Ok(false) => continue, // Timeout, check overall timeout and try again
-                        Err(e) => return Err(Error::StoreProxyError(format!("Poll error during auth: {}", e))),
+                        Err(e) => {
+                            return Err(Error::StoreProxyError(format!(
+                                "Poll error during auth: {}",
+                                e
+                            )))
+                        }
                     }
                 }
-                Err(e) => return Err(Error::StoreProxyError(format!("TCP error during auth: {}", e))),
+                Err(e) => {
+                    return Err(Error::StoreProxyError(format!(
+                        "TCP error during auth: {}",
+                        e
+                    )))
+                }
             }
         };
 
         let authenticated_subject = match auth_result {
-            StoreMessage::AuthenticateResponse { response, .. } => {
-                match response {
-                    Ok(auth_result) => auth_result.subject_id,
-                    Err(error) => return Err(Error::StoreProxyError(format!("Authentication failed: {}", error))),
+            StoreMessage::AuthenticateResponse { response, .. } => match response {
+                Ok(auth_result) => auth_result.subject_id,
+                Err(error) => {
+                    return Err(Error::StoreProxyError(format!(
+                        "Authentication failed: {}",
+                        error
+                    )))
                 }
+            },
+            _ => {
+                return Err(Error::StoreProxyError(
+                    "Unexpected response to authentication".to_string(),
+                ))
             }
-            _ => return Err(Error::StoreProxyError("Unexpected response to authentication".to_string())),
         };
 
         // Create single-threaded collections
@@ -290,7 +320,9 @@ impl StoreProxy {
             _ => {
                 // Handle response to pending request - store the message directly
                 if let Some(id) = extract_message_id(store_message) {
-                    self.pending_requests.borrow_mut().insert(id, store_message.clone());
+                    self.pending_requests
+                        .borrow_mut()
+                        .insert(id, store_message.clone());
                 }
             }
         }
@@ -338,7 +370,7 @@ impl StoreProxy {
                         let mut conn = self.tcp_connection.borrow_mut();
                         conn.wait_for_readable(Some(std::time::Duration::from_millis(10)))
                     };
-                    
+
                     match wait_result {
                         Ok(true) => {
                             // Data is ready, continue loop to try reading again
@@ -371,16 +403,18 @@ impl StoreProxy {
             name: name.to_string(),
             entity_type: None,
         };
-        
+
         let requests = sreq![request];
         let response = self.perform(requests)?;
-        
+
         if let Some(req) = response.first() {
             match req {
-                Request::GetEntityType { entity_type, .. } => {
-                    entity_type.clone().ok_or_else(|| Error::StoreProxyError("Entity type not found".to_string()))
-                }
-                _ => Err(Error::StoreProxyError("Unexpected response type".to_string())),
+                Request::GetEntityType { entity_type, .. } => entity_type
+                    .clone()
+                    .ok_or_else(|| Error::StoreProxyError("Entity type not found".to_string())),
+                _ => Err(Error::StoreProxyError(
+                    "Unexpected response type".to_string(),
+                )),
             }
         } else {
             Err(Error::StoreProxyError("No response received".to_string()))
@@ -393,16 +427,18 @@ impl StoreProxy {
             entity_type,
             name: None,
         };
-        
+
         let requests = sreq![request];
         let response = self.perform(requests)?;
-        
+
         if let Some(req) = response.first() {
             match req {
-                Request::ResolveEntityType { name, .. } => {
-                    name.clone().ok_or_else(|| Error::StoreProxyError("Entity type name not found".to_string()))
-                }
-                _ => Err(Error::StoreProxyError("Unexpected response type".to_string())),
+                Request::ResolveEntityType { name, .. } => name.clone().ok_or_else(|| {
+                    Error::StoreProxyError("Entity type name not found".to_string())
+                }),
+                _ => Err(Error::StoreProxyError(
+                    "Unexpected response type".to_string(),
+                )),
             }
         } else {
             Err(Error::StoreProxyError("No response received".to_string()))
@@ -415,16 +451,18 @@ impl StoreProxy {
             name: name.to_string(),
             field_type: None,
         };
-        
+
         let requests = sreq![request];
         let response = self.perform(requests)?;
-        
+
         if let Some(req) = response.first() {
             match req {
-                Request::GetFieldType { field_type, .. } => {
-                    field_type.clone().ok_or_else(|| Error::StoreProxyError("Field type not found".to_string()))
-                }
-                _ => Err(Error::StoreProxyError("Unexpected response type".to_string())),
+                Request::GetFieldType { field_type, .. } => field_type
+                    .clone()
+                    .ok_or_else(|| Error::StoreProxyError("Field type not found".to_string())),
+                _ => Err(Error::StoreProxyError(
+                    "Unexpected response type".to_string(),
+                )),
             }
         } else {
             Err(Error::StoreProxyError("No response received".to_string()))
@@ -437,16 +475,18 @@ impl StoreProxy {
             field_type,
             name: None,
         };
-        
+
         let requests = sreq![request];
         let response = self.perform(requests)?;
-        
+
         if let Some(req) = response.first() {
             match req {
-                Request::ResolveFieldType { name, .. } => {
-                    name.clone().ok_or_else(|| Error::StoreProxyError("Field type name not found".to_string()))
-                }
-                _ => Err(Error::StoreProxyError("Unexpected response type".to_string())),
+                Request::ResolveFieldType { name, .. } => name
+                    .clone()
+                    .ok_or_else(|| Error::StoreProxyError("Field type name not found".to_string())),
+                _ => Err(Error::StoreProxyError(
+                    "Unexpected response type".to_string(),
+                )),
             }
         } else {
             Err(Error::StoreProxyError("No response received".to_string()))
@@ -454,24 +494,23 @@ impl StoreProxy {
     }
 
     /// Get entity schema
-    pub fn get_entity_schema(
-        &self,
-        entity_type: EntityType,
-    ) -> Result<EntitySchema<Single>> {
+    pub fn get_entity_schema(&self, entity_type: EntityType) -> Result<EntitySchema<Single>> {
         let request = Request::GetEntitySchema {
             entity_type,
             schema: None,
         };
-        
+
         let requests = sreq![request];
         let response = self.perform(requests)?;
-        
+
         if let Some(req) = response.first() {
             match req {
-                Request::GetEntitySchema { schema, .. } => {
-                    schema.clone().ok_or_else(|| Error::StoreProxyError("Entity schema not found".to_string()))
-                }
-                _ => Err(Error::StoreProxyError("Unexpected response type".to_string())),
+                Request::GetEntitySchema { schema, .. } => schema
+                    .clone()
+                    .ok_or_else(|| Error::StoreProxyError("Entity schema not found".to_string())),
+                _ => Err(Error::StoreProxyError(
+                    "Unexpected response type".to_string(),
+                )),
             }
         } else {
             Err(Error::StoreProxyError("No response received".to_string()))
@@ -487,16 +526,20 @@ impl StoreProxy {
             entity_type,
             schema: None,
         };
-        
+
         let requests = sreq![request];
         let response = self.perform(requests)?;
-        
+
         if let Some(req) = response.first() {
             match req {
                 Request::GetCompleteEntitySchema { schema, .. } => {
-                    schema.clone().ok_or_else(|| Error::StoreProxyError("Complete entity schema not found".to_string()))
+                    schema.clone().ok_or_else(|| {
+                        Error::StoreProxyError("Complete entity schema not found".to_string())
+                    })
                 }
-                _ => Err(Error::StoreProxyError("Unexpected response type".to_string())),
+                _ => Err(Error::StoreProxyError(
+                    "Unexpected response type".to_string(),
+                )),
             }
         } else {
             Err(Error::StoreProxyError("No response received".to_string()))
@@ -511,13 +554,11 @@ impl StoreProxy {
         schema: FieldSchema,
     ) -> Result<()> {
         let mut entity_schema = self.get_entity_schema(entity_type)?;
-        entity_schema
-            .fields
-            .insert(field_type, schema);
+        entity_schema.fields.insert(field_type, schema);
 
         let string_schema = entity_schema.to_string_schema(self);
-        let requests = sreq![Request::SchemaUpdate { 
-            schema: string_schema, 
+        let requests = sreq![Request::SchemaUpdate {
+            schema: string_schema,
             timestamp: None,
         }];
         self.perform(requests).map(|_| ())
@@ -534,16 +575,18 @@ impl StoreProxy {
             field_type,
             schema: None,
         };
-        
+
         let requests = sreq![request];
         let response = self.perform(requests)?;
-        
+
         if let Some(req) = response.first() {
             match req {
-                Request::GetFieldSchema { schema, .. } => {
-                    schema.clone().ok_or_else(|| Error::StoreProxyError("Field schema not found".to_string()))
-                }
-                _ => Err(Error::StoreProxyError("Unexpected response type".to_string())),
+                Request::GetFieldSchema { schema, .. } => schema
+                    .clone()
+                    .ok_or_else(|| Error::StoreProxyError("Field schema not found".to_string())),
+                _ => Err(Error::StoreProxyError(
+                    "Unexpected response type".to_string(),
+                )),
             }
         } else {
             Err(Error::StoreProxyError("No response received".to_string()))
@@ -556,7 +599,7 @@ impl StoreProxy {
             entity_id,
             exists: None,
         };
-        
+
         let requests = sreq![request];
         if let Ok(response) = self.perform(requests) {
             if let Some(req) = response.first() {
@@ -573,17 +616,13 @@ impl StoreProxy {
     }
 
     /// Check if field exists
-    pub fn field_exists(
-        &self,
-        entity_type: EntityType,
-        field_type: FieldType,
-    ) -> bool {
+    pub fn field_exists(&self, entity_type: EntityType, field_type: FieldType) -> bool {
         let request = Request::FieldExists {
             entity_type,
             field_type,
             exists: None,
         };
-        
+
         let requests = sreq![request];
         if let Ok(response) = self.perform(requests) {
             if let Some(req) = response.first() {
@@ -609,12 +648,12 @@ impl StoreProxy {
         let response: StoreMessage = self.send_request(request)?;
         match response {
             StoreMessage::PerformResponse { response, .. } => match response {
-                Ok(updated_requests) => {
-                    Ok(updated_requests)
-                }
+                Ok(updated_requests) => Ok(updated_requests),
                 Err(e) => Err(Error::StoreProxyError(e)),
             },
-            _ => Err(Error::StoreProxyError("Unexpected response type".to_string())),
+            _ => Err(Error::StoreProxyError(
+                "Unexpected response type".to_string(),
+            )),
         }
     }
 
@@ -631,16 +670,18 @@ impl StoreProxy {
             filter: filter.map(|s| s.to_string()),
             result: None,
         };
-        
+
         let requests = sreq![request];
         let response = self.perform(requests)?;
-        
+
         if let Some(req) = response.first() {
             match req {
-                Request::FindEntities { result, .. } => {
-                    result.clone().ok_or_else(|| Error::StoreProxyError("Find entities result not found".to_string()))
-                }
-                _ => Err(Error::StoreProxyError("Unexpected response type".to_string())),
+                Request::FindEntities { result, .. } => result.clone().ok_or_else(|| {
+                    Error::StoreProxyError("Find entities result not found".to_string())
+                }),
+                _ => Err(Error::StoreProxyError(
+                    "Unexpected response type".to_string(),
+                )),
             }
         } else {
             Err(Error::StoreProxyError("No response received".to_string()))
@@ -660,16 +701,18 @@ impl StoreProxy {
             filter: filter.map(|s| s.to_string()),
             result: None,
         };
-        
+
         let requests = sreq![request];
         let response = self.perform(requests)?;
-        
+
         if let Some(req) = response.first() {
             match req {
-                Request::FindEntitiesExact { result, .. } => {
-                    result.clone().ok_or_else(|| Error::StoreProxyError("Find entities exact result not found".to_string()))
-                }
-                _ => Err(Error::StoreProxyError("Unexpected response type".to_string())),
+                Request::FindEntitiesExact { result, .. } => result.clone().ok_or_else(|| {
+                    Error::StoreProxyError("Find entities exact result not found".to_string())
+                }),
+                _ => Err(Error::StoreProxyError(
+                    "Unexpected response type".to_string(),
+                )),
             }
         } else {
             Err(Error::StoreProxyError("No response received".to_string()))
@@ -685,8 +728,8 @@ impl StoreProxy {
         let mut page_opts: Option<PageOpts> = None;
 
         loop {
-            let page_result = self
-                .find_entities_paginated(entity_type.clone(), page_opts.as_ref(), filter)?;
+            let page_result =
+                self.find_entities_paginated(entity_type.clone(), page_opts.as_ref(), filter)?;
             if page_result.items.is_empty() {
                 break;
             }
@@ -708,9 +751,7 @@ impl StoreProxy {
         let mut page_opts: Option<PageOpts> = None;
 
         loop {
-            let page_result = self
-                .get_entity_types_paginated(page_opts.as_ref())
-                ?;
+            let page_result = self.get_entity_types_paginated(page_opts.as_ref())?;
             if page_result.items.is_empty() {
                 break;
             }
@@ -736,16 +777,18 @@ impl StoreProxy {
             page_opts: page_opts.cloned(),
             result: None,
         };
-        
+
         let requests = sreq![request];
         let response = self.perform(requests)?;
-        
+
         if let Some(req) = response.first() {
             match req {
-                Request::GetEntityTypes { result, .. } => {
-                    result.clone().ok_or_else(|| Error::StoreProxyError("Get entity types result not found".to_string()))
-                }
-                _ => Err(Error::StoreProxyError("Unexpected response type".to_string())),
+                Request::GetEntityTypes { result, .. } => result.clone().ok_or_else(|| {
+                    Error::StoreProxyError("Get entity types result not found".to_string())
+                }),
+                _ => Err(Error::StoreProxyError(
+                    "Unexpected response type".to_string(),
+                )),
             }
         } else {
             Err(Error::StoreProxyError("No response received".to_string()))
@@ -764,7 +807,7 @@ impl StoreProxy {
             id: self.next_id(),
             config: config.clone(),
         };
-        
+
         let response: StoreMessage = self.send_request(request)?;
         match response {
             StoreMessage::RegisterNotificationResponse { response, .. } => {
@@ -773,30 +816,39 @@ impl StoreProxy {
                         // Store the sender locally so we can forward notifications
                         let config_hash = hash_notify_config(&config);
                         let mut configs = self.notification_configs.borrow_mut();
-                        configs.entry(config_hash).or_insert_with(Vec::new).push(sender);
+                        configs
+                            .entry(config_hash)
+                            .or_insert_with(Vec::new)
+                            .push(sender);
                         Ok(())
                     }
                     Err(e) => Err(Error::StoreProxyError(e)),
                 }
             }
-            _ => Err(Error::StoreProxyError("Unexpected response type".to_string())),
+            _ => Err(Error::StoreProxyError(
+                "Unexpected response type".to_string(),
+            )),
         }
     }
 
     /// Unregister a notification by removing a specific sender
     /// Note: This will remove ALL notifications matching the config for proxy
-   pub fn unregister_notification(&mut self, target_config: &NotifyConfig, sender: &NotificationQueue) -> bool {
+    pub fn unregister_notification(
+        &mut self,
+        target_config: &NotifyConfig,
+        sender: &NotificationQueue,
+    ) -> bool {
         // First remove the sender from local mapping
         let config_hash = hash_notify_config(target_config);
         let mut configs = self.notification_configs.borrow_mut();
         let mut removed_locally = false;
-        
+
         if let Some(senders) = configs.get_mut(&config_hash) {
             // Find and remove the specific sender by comparing addresses
             if let Some(pos) = senders.iter().position(|s| std::ptr::eq(s, sender)) {
                 senders.remove(pos);
                 removed_locally = true;
-                
+
                 // If no more senders for this config, remove the entry
                 if senders.is_empty() {
                     configs.remove(&config_hash);
@@ -811,7 +863,7 @@ impl StoreProxy {
                 id: self.next_id(),
                 config: target_config.clone(),
             };
-            
+
             if let Ok(response) = self.send_request(request) {
                 match response {
                     StoreMessage::UnregisterNotificationResponse { response, .. } => response,
@@ -824,7 +876,6 @@ impl StoreProxy {
             false
         }
     }
-
 }
 
 impl StoreTrait for StoreProxy {
@@ -848,17 +899,29 @@ impl StoreTrait for StoreProxy {
         self.get_entity_schema(entity_type)
     }
 
-    fn get_complete_entity_schema(&self, _entity_type: EntityType) -> Result<&EntitySchema<Complete>> {
+    fn get_complete_entity_schema(
+        &self,
+        _entity_type: EntityType,
+    ) -> Result<&EntitySchema<Complete>> {
         // StoreProxy cannot return a reference since it gets data over network
         // This is a limitation of the proxy pattern with the reference-based API
         unimplemented!("StoreProxy cannot return references to remote data")
     }
 
-    fn get_field_schema(&self, entity_type: EntityType, field_type: FieldType) -> Result<FieldSchema> {
+    fn get_field_schema(
+        &self,
+        entity_type: EntityType,
+        field_type: FieldType,
+    ) -> Result<FieldSchema> {
         self.get_field_schema(entity_type, field_type)
     }
 
-    fn set_field_schema(&mut self, entity_type: EntityType, field_type: FieldType, schema: FieldSchema) -> Result<()> {
+    fn set_field_schema(
+        &mut self,
+        entity_type: EntityType,
+        field_type: FieldType,
+        schema: FieldSchema,
+    ) -> Result<()> {
         self.set_field_schema(entity_type, field_type, schema)
     }
 
@@ -870,7 +933,11 @@ impl StoreTrait for StoreProxy {
         self.field_exists(entity_type, field_type)
     }
 
-    fn resolve_indirection(&self, entity_id: EntityId, fields: &[FieldType]) -> Result<(EntityId, FieldType)> {
+    fn resolve_indirection(
+        &self,
+        entity_id: EntityId,
+        fields: &[FieldType],
+    ) -> Result<(EntityId, FieldType)> {
         // For StoreProxy, we need to use the old approach via perform() since we don't have direct field access
         crate::data::indirection::resolve_indirection_via_trait(self, entity_id, fields)
     }
@@ -883,15 +950,29 @@ impl StoreTrait for StoreProxy {
         self.perform(requests)
     }
 
-    fn find_entities_paginated(&self, entity_type: EntityType, page_opts: Option<&PageOpts>, filter: Option<&str>) -> Result<PageResult<EntityId>> {
+    fn find_entities_paginated(
+        &self,
+        entity_type: EntityType,
+        page_opts: Option<&PageOpts>,
+        filter: Option<&str>,
+    ) -> Result<PageResult<EntityId>> {
         self.find_entities_paginated(entity_type, page_opts, filter)
     }
 
-    fn find_entities_exact(&self, entity_type: EntityType, page_opts: Option<&PageOpts>, filter: Option<&str>) -> Result<PageResult<EntityId>> {
+    fn find_entities_exact(
+        &self,
+        entity_type: EntityType,
+        page_opts: Option<&PageOpts>,
+        filter: Option<&str>,
+    ) -> Result<PageResult<EntityId>> {
         self.find_entities_exact(entity_type, page_opts, filter)
     }
 
-    fn find_entities(&self, entity_type: EntityType, filter: Option<&str>) -> Result<Vec<EntityId>> {
+    fn find_entities(
+        &self,
+        entity_type: EntityType,
+        filter: Option<&str>,
+    ) -> Result<Vec<EntityId>> {
         self.find_entities(entity_type, filter)
     }
 
@@ -899,15 +980,26 @@ impl StoreTrait for StoreProxy {
         self.get_entity_types()
     }
 
-    fn get_entity_types_paginated(&self, page_opts: Option<&PageOpts>) -> Result<PageResult<EntityType>> {
+    fn get_entity_types_paginated(
+        &self,
+        page_opts: Option<&PageOpts>,
+    ) -> Result<PageResult<EntityType>> {
         self.get_entity_types_paginated(page_opts)
     }
 
-    fn register_notification(&mut self, config: NotifyConfig, sender: NotificationQueue) -> Result<()> {
+    fn register_notification(
+        &mut self,
+        config: NotifyConfig,
+        sender: NotificationQueue,
+    ) -> Result<()> {
         self.register_notification(config, sender)
     }
 
-    fn unregister_notification(&mut self, config: &NotifyConfig, sender: &NotificationQueue) -> bool {
+    fn unregister_notification(
+        &mut self,
+        config: &NotifyConfig,
+        sender: &NotificationQueue,
+    ) -> bool {
         self.unregister_notification(config, sender)
     }
 }
