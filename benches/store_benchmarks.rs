@@ -1,8 +1,9 @@
 use std::vec;
 
+use bytes::BytesMut;
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use qlib_rs::*;
-use qlib_rs::protocol::{ProtocolCodec, ProtocolMessage};
+use qlib_rs::{decode_message, QrespCodec, QrespMessage};
 use qlib_rs::data::StorageScope;
 
 // Helper to create an entity schema with basic fields
@@ -118,11 +119,13 @@ fn bench_store_message_serialization(c: &mut Criterion) {
 
         group.bench_function(BenchmarkId::new("decode", batch_size), |b| {
             b.iter(|| {
-                let (decoded, _consumed) = ProtocolCodec::decode(black_box(&encoded)).unwrap().unwrap();
-                if let ProtocolMessage::Store(store_message) = decoded {
-                    black_box(store_message);
-                } else {
-                    unreachable!("expected store message");
+                let mut buffer = BytesMut::from(black_box(encoded.as_slice()));
+                let frame = QrespCodec::decode(&mut buffer).unwrap().unwrap();
+                match decode_message(frame).unwrap() {
+                    QrespMessage::Store(store_message) => {
+                        black_box(store_message);
+                    }
+                    _ => unreachable!("expected store message"),
                 }
             })
         });

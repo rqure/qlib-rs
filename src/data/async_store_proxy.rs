@@ -5,13 +5,13 @@ use tokio::sync::{mpsc, oneshot, Mutex};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::time::{timeout, Duration};
-use anyhow::{Result as AnyhowResult};
+use anyhow::{Result as AnyhowResult, anyhow};
 
 use crate::{
     EntityId, EntityType, FieldType, PageOpts, PageResult, Request, Requests, Result, Error
 };
 use crate::data::StoreMessage;
-use crate::protocol::{MessageBuffer, encode_store_message};
+use crate::qresp::{QrespMessageBuffer, encode_store_message};
 
 /// Result of authentication attempt
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -33,7 +33,7 @@ enum ConnectionMessage {
 /// Async TCP connection handler
 struct ConnectionHandler {
     stream: TcpStream,
-    message_buffer: MessageBuffer,
+    message_buffer: QrespMessageBuffer,
     pending_requests: HashMap<u64, oneshot::Sender<StoreMessage>>,
     receiver: mpsc::UnboundedReceiver<ConnectionMessage>,
 }
@@ -42,7 +42,7 @@ impl ConnectionHandler {
     fn new(stream: TcpStream, receiver: mpsc::UnboundedReceiver<ConnectionMessage>) -> Self {
         Self {
             stream,
-            message_buffer: MessageBuffer::new(),
+            message_buffer: QrespMessageBuffer::new(),
             pending_requests: HashMap::new(),
             receiver,
         }
@@ -64,8 +64,12 @@ impl ConnectionHandler {
                             self.message_buffer.add_data(&buffer[..n]);
                             
                             // Process any complete messages
-                            while let Some(message) = self.message_buffer.try_decode()? {
-                                self.handle_incoming_message(message).await;
+                            while let Some(message) = self
+                                .message_buffer
+                                .try_decode_store_message()
+                                .map_err(|e| anyhow!("QRESP decode failed: {}", e))?
+                            {
+                                self.handle_incoming_message(message);
                             }
                         }
                         Err(e) => {
@@ -109,7 +113,8 @@ impl ConnectionHandler {
         response_sender: oneshot::Sender<StoreMessage>,
     ) -> AnyhowResult<()> {
         // Encode and send the message
-        let encoded = encode_store_message(&message)?;
+        let encoded = encode_store_message(&message)
+            .map_err(|e| anyhow!("QRESP encode failed: {}", e))?;
         self.stream.write_all(&encoded).await?;
         self.stream.flush().await?;
 
@@ -121,19 +126,13 @@ impl ConnectionHandler {
         Ok(())
     }
 
-    async fn handle_incoming_message(&mut self, message: crate::protocol::ProtocolMessage) {
-        match message {
-            crate::protocol::ProtocolMessage::Store(store_message) => {
-                if let Some(id) = extract_message_id(&store_message) {
-                    if let Some(sender) = self.pending_requests.remove(&id) {
-                        let _ = sender.send(store_message);
-                    }
-                }
-                // Handle notifications if needed (not implemented for simplicity)
+    fn handle_incoming_message(&mut self, message: StoreMessage) {
+        if let Some(id) = extract_message_id(&message) {
+            if let Some(sender) = self.pending_requests.remove(&id) {
+                let _ = sender.send(message);
             }
-            _ => {
-                // Ignore non-store messages
-            }
+        } else {
+            // Notifications or other untracked messages can be handled here if needed
         }
     }
 }

@@ -1,4 +1,5 @@
 use anyhow::Result;
+use bincode::Options;
 use serde::{Serialize, Deserialize};
 use crate::{Snapshot};
 use bytes::BytesMut;
@@ -111,6 +112,11 @@ pub enum ProtocolMessage {
 }
 
 impl ProtocolMessage {
+    fn bincode_options() -> impl Options {
+        bincode::DefaultOptions::new()
+            .with_little_endian()
+    }
+
     /// Get the message type
     pub fn message_type(&self) -> MessageType {
         match self {
@@ -120,40 +126,79 @@ impl ProtocolMessage {
             Self::Error { .. } => MessageType::Error,
         }
     }
-    
-    /// Serialize the message payload to bytes using the most appropriate method
-    pub fn serialize_payload(&self) -> Result<Vec<u8>> {
+
+    /// Estimate payload size for preallocation to reduce reallocations during serialization
+    fn estimated_payload_size(&self) -> usize {
         match self {
-            // Use bincode for legacy StoreMessage compatibility
-            Self::Store(msg) => bincode::serialize(msg)
-                .map_err(|e| anyhow::anyhow!("Failed to serialize store message: {}", e)),
-                
-            // Use bincode for all peer messages
-            Self::Peer(peer_msg) => bincode::serialize(peer_msg)
-                .map_err(|e| anyhow::anyhow!("Failed to serialize peer message: {}", e)),
-                
+            Self::Store(store_msg) => match store_msg {
+                crate::data::StoreMessage::Perform { requests, .. } => 512 + requests.len() * 96,
+                crate::data::StoreMessage::PerformResponse { response, .. } => {
+                    match response {
+                        Ok(requests) => 512 + requests.len() * 96,
+                        Err(msg) => 256 + msg.len(),
+                    }
+                }
+                crate::data::StoreMessage::RegisterNotification { .. }
+                | crate::data::StoreMessage::RegisterNotificationResponse { .. }
+                | crate::data::StoreMessage::UnregisterNotification { .. }
+                | crate::data::StoreMessage::UnregisterNotificationResponse { .. }
+                | crate::data::StoreMessage::Authenticate { .. }
+                | crate::data::StoreMessage::AuthenticateResponse { .. }
+                | crate::data::StoreMessage::Error { .. }
+                | crate::data::StoreMessage::Notification { .. } => 256,
+            },
+            Self::Peer(peer_msg) => match peer_msg {
+                PeerMessage::Handshake { machine_id, .. } => 256 + machine_id.len(),
+                PeerMessage::FullSyncRequest => 192,
+                PeerMessage::FullSyncResponse { .. } => 8192,
+                PeerMessage::SyncWrite { requests } => 512 + requests.len() * 96,
+            },
+            Self::Response { data, .. } => 256 + data.len(),
+            Self::Error { message, .. } => 256 + message.len(),
+        }
+    }
+
+    /// Serialize the message payload directly into the provided buffer (appends to buffer)
+    fn serialize_payload_into(&self, buffer: &mut Vec<u8>) -> Result<()> {
+        match self {
+            Self::Store(msg) => {
+                Self::bincode_options()
+                    .serialize_into(buffer, msg)
+                    .map_err(|e| anyhow::anyhow!("Failed to serialize store message: {}", e))
+            }
+            Self::Peer(peer_msg) => {
+                Self::bincode_options()
+                    .serialize_into(buffer, peer_msg)
+                    .map_err(|e| anyhow::anyhow!("Failed to serialize peer message: {}", e))
+            }
             Self::Response { id, data } => {
                 #[derive(Serialize)]
-                struct ResponsePayload {
-                    id: String,
-                    data: Vec<u8>,
+                struct ResponsePayload<'a> {
+                    id: &'a str,
+                    data: &'a [u8],
                 }
-                bincode::serialize(&ResponsePayload {
-                    id: id.clone(),
-                    data: data.clone(),
-                }).map_err(|e| anyhow::anyhow!("Failed to serialize response: {}", e))
-            },
+                let payload = ResponsePayload {
+                    id: id.as_str(),
+                    data,
+                };
+                Self::bincode_options()
+                    .serialize_into(buffer, &payload)
+                    .map_err(|e| anyhow::anyhow!("Failed to serialize response: {}", e))
+            }
             Self::Error { id, message } => {
                 #[derive(Serialize)]
-                struct ErrorPayload {
-                    id: Option<String>,
-                    message: String,
+                struct ErrorPayload<'a> {
+                    id: Option<&'a str>,
+                    message: &'a str,
                 }
-                bincode::serialize(&ErrorPayload {
-                    id: id.clone(),
-                    message: message.clone(),
-                }).map_err(|e| anyhow::anyhow!("Failed to serialize error: {}", e))
-            },
+                let payload = ErrorPayload {
+                    id: id.as_deref(),
+                    message: message.as_str(),
+                };
+                Self::bincode_options()
+                    .serialize_into(buffer, &payload)
+                    .map_err(|e| anyhow::anyhow!("Failed to serialize error: {}", e))
+            }
         }
     }
     
@@ -161,12 +206,14 @@ impl ProtocolMessage {
     pub fn deserialize_payload(message_type: MessageType, payload: &[u8]) -> Result<Self> {
         match message_type {
             MessageType::StoreMessage => {
-                let msg: crate::data::StoreMessage = bincode::deserialize(payload)
+                let msg: crate::data::StoreMessage = Self::bincode_options()
+                    .deserialize(payload)
                     .map_err(|e| anyhow::anyhow!("Failed to deserialize store message: {}", e))?;
                 Ok(Self::Store(msg))
             },
             MessageType::PeerMessage => {
-                let peer_msg: PeerMessage = bincode::deserialize(payload)
+                let peer_msg: PeerMessage = Self::bincode_options()
+                    .deserialize(payload)
                     .map_err(|e| anyhow::anyhow!("Failed to deserialize peer message: {}", e))?;
                 Ok(Self::Peer(peer_msg))
             },
@@ -176,7 +223,8 @@ impl ProtocolMessage {
                     id: String,
                     data: Vec<u8>,
                 }
-                let payload_data: ResponsePayload = bincode::deserialize(payload)
+                let payload_data: ResponsePayload = Self::bincode_options()
+                    .deserialize(payload)
                     .map_err(|e| anyhow::anyhow!("Failed to deserialize response: {}", e))?;
                 Ok(Self::Response {
                     id: payload_data.id,
@@ -189,7 +237,8 @@ impl ProtocolMessage {
                     id: Option<String>,
                     message: String,
                 }
-                let payload_data: ErrorPayload = bincode::deserialize(payload)
+                let payload_data: ErrorPayload = Self::bincode_options()
+                    .deserialize(payload)
                     .map_err(|e| anyhow::anyhow!("Failed to deserialize error: {}", e))?;
                 Ok(Self::Error {
                     id: payload_data.id,
@@ -206,13 +255,16 @@ pub struct ProtocolCodec;
 impl ProtocolCodec {
     /// Encode a message into bytes ready for TCP transmission
     pub fn encode(message: &ProtocolMessage) -> Result<Vec<u8>> {
-        let payload = message.serialize_payload()?;
-        let header = MessageHeader::new(message.message_type().as_u32(), payload.len() as u32);
-        
-        let mut encoded = Vec::with_capacity(MessageHeader::SIZE + payload.len());
-        encoded.extend_from_slice(&header.to_bytes());
-        encoded.extend_from_slice(&payload);
-        
+        let estimated = MessageHeader::SIZE + message.estimated_payload_size();
+        let mut encoded = Vec::with_capacity(estimated);
+        encoded.resize(MessageHeader::SIZE, 0);
+
+        message.serialize_payload_into(&mut encoded)?;
+
+        let payload_len = encoded.len() - MessageHeader::SIZE;
+        let header = MessageHeader::new(message.message_type().as_u32(), payload_len as u32);
+        encoded[..MessageHeader::SIZE].copy_from_slice(&header.to_bytes());
+
         Ok(encoded)
     }
     

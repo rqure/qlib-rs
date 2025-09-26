@@ -1,4 +1,5 @@
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
+use parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use crate::{data::{EntityId, EntityType, FieldType, Timestamp, Value}, EntitySchema, Single, Complete, FieldSchema, PageOpts, PageResult};
 use serde::{Deserialize, Serialize, ser::SerializeStruct};
@@ -467,8 +468,8 @@ impl Serialize for Requests {
     where
         S: serde::Serializer,
     {
-        let requests = self.0.read().unwrap();
-        let originator = self.1.read().unwrap();
+        let requests = self.0.read();
+        let originator = self.1.read();
 
         let mut state = serializer.serialize_struct("RequestsData", 2)?;
         state.serialize_field("requests", &*requests)?;
@@ -502,57 +503,57 @@ impl Requests {
     }
 
     pub fn push(&self, request: Request) {
-        let mut requests = self.0.write().unwrap();
+        let mut requests = self.0.write();
         requests.push(request);
     }
 
     pub fn originator(&self) -> Option<EntityId> {
-        *self.1.read().unwrap()
+        *self.1.read()
     }
 
     pub fn set_originator(&self, originator: Option<EntityId>) {
-        *self.1.write().unwrap() = originator;
+        *self.1.write() = originator;
     }
 
     pub fn extend(&self, other: Requests) {
-        let mut requests = self.0.write().unwrap();
+        let mut requests = self.0.write();
         requests.extend(other.read().clone());
         // If we don't have an originator but the other does, adopt it
-        if self.1.read().unwrap().is_none() && other.1.read().unwrap().is_some() {
-            *self.1.write().unwrap() = *other.1.read().unwrap();
+        if self.1.read().is_none() && other.1.read().is_some() {
+            *self.1.write() = *other.1.read();
         }
     }
 
-    pub fn read(&self) -> std::sync::RwLockReadGuard<'_, Vec<Request>> {
-        self.0.read().unwrap()
+    pub fn read(&self) -> RwLockReadGuard<'_, Vec<Request>> {
+        self.0.read()
     }
 
-    pub fn write(&self) -> std::sync::RwLockWriteGuard<'_, Vec<Request>> {
-        self.0.write().unwrap()
+    pub fn write(&self) -> RwLockWriteGuard<'_, Vec<Request>> {
+        self.0.write()
     }
 
     pub fn len(&self) -> usize {
-        let requests = self.0.read().unwrap();
+        let requests = self.0.read();
         requests.len()
     }
 
     pub fn is_empty(&self) -> bool {
-        let requests = self.0.read().unwrap();
+        let requests = self.0.read();
         requests.is_empty()
     }
 
     pub fn get(&self, index: usize) -> Option<Request> {
-        let requests = self.0.read().unwrap();
+        let requests = self.0.read();
         requests.get(index).cloned()
     }
 
     pub fn clear(&self) {
-        let mut requests = self.0.write().unwrap();
+        let mut requests = self.0.write();
         requests.clear();
     }
 
     pub fn first(&self) -> Option<Request> {
-        let requests = self.0.read().unwrap();
+        let requests = self.0.read();
         requests.first().cloned()
     }
 
@@ -561,70 +562,70 @@ impl Requests {
     /// Extract EntityList from the request at given index as a reference (no cloning)
     /// Returns None if index is out of bounds or the request doesn't contain an EntityList
     pub fn extract_entity_list(&self, index: usize) -> Option<Vec<crate::EntityId>> {
-        let requests = self.0.read().unwrap();
+        let requests = self.0.read();
         requests.get(index)
             .and_then(|req| req.extract_entity_list().cloned())
     }
 
     /// Extract EntityReference from the request at given index
     pub fn extract_entity_reference(&self, index: usize) -> Option<crate::EntityId> {
-        let requests = self.0.read().unwrap();
+        let requests = self.0.read();
         requests.get(index)
             .and_then(|req| req.extract_entity_reference())
     }
 
     /// Extract Choice from the request at given index
     pub fn extract_choice(&self, index: usize) -> Option<i64> {
-        let requests = self.0.read().unwrap();
+        let requests = self.0.read();
         requests.get(index)
             .and_then(|req| req.extract_choice())
     }
 
     /// Extract Int from the request at given index
     pub fn extract_int(&self, index: usize) -> Option<i64> {
-        let requests = self.0.read().unwrap();
+        let requests = self.0.read();
         requests.get(index)
             .and_then(|req| req.extract_int())
     }
 
     /// Extract String from the request at given index (cloned to avoid lifetime issues)
     pub fn extract_string(&self, index: usize) -> Option<String> {
-        let requests = self.0.read().unwrap();
+        let requests = self.0.read();
         requests.get(index)
             .and_then(|req| req.extract_string().map(|s| s.to_string()))
     }
 
     /// Extract Bool from the request at given index
     pub fn extract_bool(&self, index: usize) -> Option<bool> {
-        let requests = self.0.read().unwrap();
+        let requests = self.0.read();
         requests.get(index)
             .and_then(|req| req.extract_bool())
     }
 
     /// Extract Blob from the request at given index (cloned to return owned Vec<u8>)
     pub fn extract_blob(&self, index: usize) -> Option<Vec<u8>> {
-        let requests = self.0.read().unwrap();
+        let requests = self.0.read();
         requests.get(index)
             .and_then(|req| req.extract_blob().map(|b| b.to_vec()))
     }
 
     /// Extract Float from the request at given index
     pub fn extract_float(&self, index: usize) -> Option<f64> {
-        let requests = self.0.read().unwrap();
+        let requests = self.0.read();
         requests.get(index)
             .and_then(|req| req.extract_float())
     }
 
     /// Extract Timestamp from the request at given index
     pub fn extract_timestamp(&self, index: usize) -> Option<crate::Timestamp> {
-        let requests = self.0.read().unwrap();
+        let requests = self.0.read();
         requests.get(index)
             .and_then(|req| req.extract_timestamp())
     }
 
     /// Extract write_time from the request at given index
     pub fn extract_write_time(&self, index: usize) -> Option<crate::Timestamp> {
-        let requests = self.0.read().unwrap();
+        let requests = self.0.read();
         requests.get(index)
             .and_then(|req| req.extract_write_time())
     }

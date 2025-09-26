@@ -1,6 +1,6 @@
 pub mod data;
 pub mod auth;
-pub mod protocol;
+pub mod qresp;
 mod test;
 pub mod expr;
 
@@ -23,9 +23,16 @@ pub use auth::{
     change_password, validate_password, hash_password, verify_password,
 };
 
-pub use protocol::{
-    MessageHeader, MessageType, ProtocolMessage, ProtocolCodec, MessageBuffer, 
+pub use qresp::{
+    QrespCodec,
+    QrespFrame,
+    QrespError,
+    QrespMessageBuffer,
+    QrespMessage,
+    PeerMessage,
     encode_store_message,
+    encode_message,
+    decode_message,
 };
 
 pub use expr::CelExecutor;

@@ -10,7 +10,7 @@ use crate::{
     Complete, EntityId, EntitySchema, EntityType, Error, FieldSchema, FieldType, Notification, NotificationQueue, NotifyConfig, hash_notify_config, PageOpts, PageResult, Request, Requests, Result, Single, sreq
 };
 use crate::data::StoreTrait;
-use crate::protocol::{MessageBuffer, encode_store_message};
+use crate::qresp::{QrespMessageBuffer, encode_store_message};
 
 /// Result of authentication attempt
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -95,7 +95,7 @@ pub fn extract_message_id(message: &StoreMessage) -> Option<u64> {
 #[derive(Debug)]
 pub struct TcpConnection {
     stream: mio::net::TcpStream,
-    message_buffer: MessageBuffer,
+    message_buffer: QrespMessageBuffer,
     poll: Poll,
     token: Token,
 }
@@ -114,14 +114,15 @@ impl TcpConnection {
         
         Ok(Self {
             stream,
-            message_buffer: MessageBuffer::new(),
+            message_buffer: QrespMessageBuffer::new(),
             poll,
             token,
         })
     }
     
     pub fn send_message(&mut self, message: &StoreMessage) -> anyhow::Result<()> {
-        let encoded = encode_store_message(message)?;
+        let encoded = encode_store_message(message)
+            .map_err(|e| anyhow::anyhow!("QRESP encode failed: {}", e))?;
         self.stream.write_all(&encoded)?;
         self.stream.flush()?;
         Ok(())
@@ -157,7 +158,9 @@ impl TcpConnection {
         }
         
         // Try to decode a message
-        self.message_buffer.try_decode_store_message()
+        self.message_buffer
+            .try_decode_store_message()
+            .map_err(|e| anyhow::anyhow!("QRESP decode failed: {}", e))
     }
 }
 
