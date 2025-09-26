@@ -525,6 +525,21 @@ impl QrespMessageBuffer {
             None => Ok(None),
         }
     }
+
+    pub fn consume(&mut self, count: usize) {
+        if count == 0 {
+            return;
+        }
+        let to_consume = count.min(self.buffer.len());
+        if to_consume > 0 {
+            let _ = self.buffer.split_to(to_consume);
+        }
+    }
+
+    pub fn take_chunk(&mut self, count: usize) -> BytesMut {
+        let to_take = count.min(self.buffer.len());
+        self.buffer.split_to(to_take)
+    }
 }
 
 struct Parser<'a> {
@@ -1583,7 +1598,7 @@ pub mod store {
                     QrespFrame::Array(items) => {
                         let mut result = Vec::with_capacity(items.len());
                         for item in items {
-                            result.push(decode_request(item)?);
+                            result.push(decode_request_frame(item)?);
                         }
                         result
                     }
@@ -1803,7 +1818,7 @@ pub mod store {
         }
     }
 
-    fn decode_request(frame: QrespFrame) -> QrespResult<Request> {
+    pub fn decode_request_frame(frame: QrespFrame) -> QrespResult<Request> {
         let map = match frame {
             QrespFrame::Map(entries) => map_from_entries(entries)?,
             other => {

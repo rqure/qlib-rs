@@ -412,6 +412,20 @@ impl<'a> QrespRequestRef<'a> {
         }
     }
 
+    /// Extract field types from the request when required (e.g., read/write)
+    pub fn field_types(&self) -> QrespResult<Option<IndirectFieldType>> {
+        match self.request_type {
+            QrespRequestType::Read | QrespRequestType::Write => {
+                let field_frame = self
+                    .get_field("fields")
+                    .ok_or_else(|| QrespError::Invalid("Request missing fields".to_string()))?;
+                let field_types = Self::parse_field_types_ref(field_frame)?;
+                Ok(Some(field_types))
+            }
+            _ => Ok(None),
+        }
+    }
+
     /// Get the request type
     pub fn request_type(&self) -> &QrespRequestType {
         &self.request_type
@@ -419,23 +433,36 @@ impl<'a> QrespRequestRef<'a> {
 
     /// Convert this RequestRef to an owned Request
     pub fn to_owned(&self) -> QrespResult<Request> {
-        // Convert to owned and decode - this is a simplified implementation
-        match self.request_type {
-            QrespRequestType::Read => {
-                // Extract fields for Read request
-                let entity_id = self.entity_id()?.unwrap_or(EntityId(0));
-                // For now, return a basic Read request
-                // In a full implementation, you'd extract all fields
-                Ok(Request::Read {
-                    entity_id,
-                    field_types: SmallVec::new(),
-                    value: None,
-                    write_time: None,
-                    writer_id: None,
-                })
+        crate::qresp::store::decode_request_frame(self.frame.to_owned())
+    }
+
+    fn parse_field_types_ref(frame: &QrespFrameRef<'a>) -> QrespResult<IndirectFieldType> {
+        match frame {
+            QrespFrameRef::Array(items) => {
+                let mut field_types = IndirectFieldType::new();
+                for item in items {
+                    field_types.push(Self::parse_field_type_ref(item)?);
+                }
+                Ok(field_types)
             }
-            // Add other request types as needed
-            _ => Err(QrespError::Invalid("Request type conversion not implemented yet".to_string())),
+            other => Err(QrespError::Invalid(format!(
+                "field types must be array, got {:?}",
+                other
+            ))),
+        }
+    }
+
+    fn parse_field_type_ref(frame: &QrespFrameRef<'a>) -> QrespResult<FieldType> {
+        match frame {
+            QrespFrameRef::Bulk(bytes) if bytes.len() == 8 => {
+                let mut array = [0u8; 8];
+                array.copy_from_slice(bytes);
+                Ok(FieldType(u64::from_be_bytes(array)))
+            }
+            other => Err(QrespError::Invalid(format!(
+                "field type must be 8-byte bulk, got {:?}",
+                other
+            ))),
         }
     }
 }
@@ -523,13 +550,8 @@ impl<'a> QrespRequestsRef<'a> {
 
     /// Convert to owned Requests
     pub fn to_owned(&self) -> QrespResult<Requests> {
-        let mut requests = Vec::new();
-        for request_ref in self.iter() {
-            requests.push(request_ref?.to_owned()?);
-        }
-        let owned_requests = Requests::new(requests);
-        owned_requests.set_originator(self.originator);
-        Ok(owned_requests)
+        let requests = crate::qresp::store::decode_requests(self.frame.to_owned())?;
+        Ok(requests)
     }
 }
 
