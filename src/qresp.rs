@@ -2777,6 +2777,28 @@ pub mod store {
     fn optional_frame_owned(map: &FrameMap, key: &str) -> QrespResult<Option<QrespFrame>> {
         map.optional_owned(key)
     }
+
+    /// Parse a RequestsRef from a QrespFrameRef
+    pub fn parse_requests_ref<'a>(frame_ref: &'a QrespFrameRef<'a>) -> QrespResult<crate::data::RequestsRef<'a>> {
+        crate::data::RequestsRef::new(frame_ref)
+    }
+
+    /// Parse a single RequestRef from a QrespFrameRef
+    pub fn parse_request_ref<'a>(frame_ref: &'a QrespFrameRef<'a>) -> QrespResult<crate::data::RequestRef<'a>> {
+        crate::data::RequestRef::new(frame_ref)
+    }
+
+    /// Helper function to work with RequestsRef in zero-copy manner
+    pub fn process_requests_ref<'a, F, R>(
+        frame_ref: &'a QrespFrameRef<'a>, 
+        mut processor: F
+    ) -> QrespResult<R>
+    where
+        F: FnMut(crate::data::RequestsRef<'a>) -> QrespResult<R>,
+    {
+        let requests_ref = parse_requests_ref(frame_ref)?;
+        processor(requests_ref)
+    }
 }
 
 pub fn encode_store_message(message: &crate::data::StoreMessage) -> Result<Vec<u8>> {
