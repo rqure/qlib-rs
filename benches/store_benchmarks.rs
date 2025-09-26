@@ -115,8 +115,79 @@ fn bench_store_message_serialization(c: &mut Criterion) {
                 }
             })
         });
+        
+        // Zero-copy decoding benchmark
+        group.bench_function(BenchmarkId::new("decode_zero_copy", batch_size), |b| {
+            b.iter(|| {
+                let data = black_box(encoded.as_slice());
+                let (frame_ref, _consumed) = QrespCodec::decode_ref(data).unwrap().unwrap();
+                // Convert to owned only when necessary for full comparison
+                let frame = frame_ref.to_owned();
+                match decode_message(frame).unwrap() {
+                    QrespMessage::Store(store_message) => {
+                        black_box(store_message);
+                    }
+                    _ => unreachable!("expected store message"),
+                }
+            })
+        });
     }
 
+    group.finish();
+}
+
+fn bench_zero_copy_parsing(c: &mut Criterion) {
+    let mut group = c.benchmark_group("zero_copy_parsing");
+    
+    // Create test data with different frame types
+    let test_cases = vec![
+        ("bulk_string", b"$11\r\nhello world\r\n".to_vec()),
+        ("integer", b":12345\r\n".to_vec()),
+        ("simple_string", b"+hello\r\n".to_vec()),
+        ("boolean_true", b"#1\r\n".to_vec()),
+        ("array", b"*2\r\n$5\r\nhello\r\n$5\r\nworld\r\n".to_vec()),
+    ];
+    
+    for (name, data) in test_cases {
+        group.throughput(Throughput::Bytes(data.len() as u64));
+        
+        // Traditional owned parsing
+        group.bench_function(BenchmarkId::new("owned_parse", name), |b| {
+            b.iter(|| {
+                let mut buffer = BytesMut::from(black_box(data.as_slice()));
+                let frame = QrespCodec::decode(&mut buffer).unwrap().unwrap();
+                black_box(frame);
+            })
+        });
+        
+        // Zero-copy parsing
+        group.bench_function(BenchmarkId::new("zero_copy_parse", name), |b| {
+            b.iter(|| {
+                let data_slice = black_box(data.as_slice());
+                let (frame_ref, _consumed) = QrespCodec::decode_ref(data_slice).unwrap().unwrap();
+                black_box(frame_ref);
+            })
+        });
+        
+        // Zero-copy with minimal conversion
+        group.bench_function(BenchmarkId::new("zero_copy_extract", name), |b| {
+            b.iter(|| {
+                let data_slice = black_box(data.as_slice());
+                let (frame_ref, _consumed) = QrespCodec::decode_ref(data_slice).unwrap().unwrap();
+                // Only extract the data we need without full conversion
+                let result = match &frame_ref {
+                    qlib_rs::qresp::QrespFrameRef::Bulk(bytes) => bytes.len(),
+                    qlib_rs::qresp::QrespFrameRef::Integer(i) => *i as usize,
+                    qlib_rs::qresp::QrespFrameRef::Simple(s) => s.len(),
+                    qlib_rs::qresp::QrespFrameRef::Boolean(b) => if *b { 1 } else { 0 },
+                    qlib_rs::qresp::QrespFrameRef::Array(items) => items.len(),
+                    _ => 0,
+                };
+                black_box(result);
+            })
+        });
+    }
+    
     group.finish();
 }
 
@@ -463,6 +534,7 @@ fn bench_schema_operations(c: &mut Criterion) {
 criterion_group!(
     benches,
     bench_store_message_serialization,
+    bench_zero_copy_parsing,
     bench_entity_creation,
     bench_field_operations,
     bench_entity_search,

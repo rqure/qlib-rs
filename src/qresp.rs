@@ -388,6 +388,21 @@ impl QrespCodec {
         }
     }
 
+    /// Zero-copy decode that returns borrowed frames when possible
+    pub fn decode_ref(data: &[u8]) -> Result<Option<(QrespFrameRef, usize)>> {
+        if data.is_empty() {
+            return Ok(None);
+        }
+        let mut parser = ZeroCopyParser::new(data);
+        match parser.parse_frame_ref()? {
+            Some(frame) => {
+                let consumed = parser.position();
+                Ok(Some((frame, consumed)))
+            }
+            None => Ok(None),
+        }
+    }
+
     pub fn encode(frame: &QrespFrame) -> Vec<u8> {
         let capacity = estimate_frame_size(frame);
         let mut buffer = Vec::with_capacity(capacity);
@@ -443,6 +458,11 @@ impl QrespMessageBuffer {
     pub fn try_decode_frame(&mut self) -> Result<Option<QrespFrame>> {
         QrespCodec::decode(&mut self.buffer)
     }
+    
+    /// Zero-copy frame decoding - returns borrowed data when possible
+    pub fn try_decode_frame_ref(&mut self) -> Result<Option<(QrespFrameRef, usize)>> {
+        QrespCodec::decode_ref(&self.buffer)
+    }
 
     pub fn try_decode_message(&mut self) -> Result<Option<QrespMessage>> {
         match self.try_decode_frame()? {
@@ -462,6 +482,266 @@ impl QrespMessageBuffer {
 struct Parser<'a> {
     data: &'a [u8],
     pos: usize,
+}
+
+/// Zero-copy parser that returns borrowed data when possible
+struct ZeroCopyParser<'a> {
+    data: &'a [u8],
+    pos: usize,
+}
+
+impl<'a> ZeroCopyParser<'a> {
+    fn new(data: &'a [u8]) -> Self {
+        Self { data, pos: 0 }
+    }
+
+    fn position(&self) -> usize {
+        self.pos
+    }
+
+    fn parse_frame_ref(&mut self) -> Result<Option<QrespFrameRef<'a>>> {
+        if self.pos >= self.data.len() {
+            return Ok(None);
+        }
+        let prefix = self.data[self.pos];
+        match prefix {
+            b'*' => self.parse_array_ref(),
+            b'~' => self.parse_map_ref(),
+            b'$' => self.parse_bulk_ref(),
+            b':' => self.parse_integer_ref(),
+            b'#' => self.parse_boolean_ref(),
+            b'_' => self.parse_null_ref(),
+            b'!' => self.parse_error_ref(),
+            b'+' => self.parse_simple_ref(),
+            _ => Err(QrespError::Invalid(format!(
+                "unknown prefix: {}",
+                prefix as char
+            ))),
+        }
+    }
+
+    fn parse_array_ref(&mut self) -> Result<Option<QrespFrameRef<'a>>> {
+        let start = self.pos;
+        self.pos += 1;
+        let len = match self.read_decimal_line()? {
+            Some(value) => value,
+            None => {
+                self.pos = start;
+                return Ok(None);
+            }
+        };
+        if len < 0 {
+            return Ok(Some(QrespFrameRef::Null));
+        }
+        let len = len as usize;
+        let mut items = Vec::with_capacity(len);
+        for _ in 0..len {
+            match self.parse_frame_ref()? {
+                Some(frame) => items.push(frame),
+                None => {
+                    self.pos = start;
+                    return Ok(None);
+                }
+            }
+        }
+        Ok(Some(QrespFrameRef::Array(items)))
+    }
+
+    fn parse_map_ref(&mut self) -> Result<Option<QrespFrameRef<'a>>> {
+        let start = self.pos;
+        self.pos += 1;
+        let len = match self.read_decimal_line()? {
+            Some(value) => value,
+            None => {
+                self.pos = start;
+                return Ok(None);
+            }
+        };
+        if len < 0 {
+            return Ok(Some(QrespFrameRef::Null));
+        }
+        let len = len as usize;
+        let mut pairs = Vec::with_capacity(len);
+        for _ in 0..len {
+            let key = match self.parse_frame_ref()? {
+                Some(frame) => frame,
+                None => {
+                    self.pos = start;
+                    return Ok(None);
+                }
+            };
+            let value = match self.parse_frame_ref()? {
+                Some(frame) => frame,
+                None => {
+                    self.pos = start;
+                    return Ok(None);
+                }
+            };
+            pairs.push((key, value));
+        }
+        Ok(Some(QrespFrameRef::Map(pairs)))
+    }
+
+    fn parse_bulk_ref(&mut self) -> Result<Option<QrespFrameRef<'a>>> {
+        let start = self.pos;
+        self.pos += 1;
+        let len = match self.read_decimal_line()? {
+            Some(value) => value,
+            None => {
+                self.pos = start;
+                return Ok(None);
+            }
+        };
+        if len < 0 {
+            return Ok(Some(QrespFrameRef::Null));
+        }
+        let len = len as usize;
+        let end = self.pos + len + 2;
+        if end > self.data.len() {
+            self.pos = start;
+            return Ok(None);
+        }
+        let slice = &self.data[self.pos..self.pos + len];
+        self.pos += len;
+        if !self.consume_crlf() {
+            return Err(QrespError::Invalid("bulk string missing CRLF".to_string()));
+        }
+        Ok(Some(QrespFrameRef::Bulk(slice)))
+    }
+
+    fn parse_integer_ref(&mut self) -> Result<Option<QrespFrameRef<'a>>> {
+        let start = self.pos;
+        self.pos += 1;
+        let value = match self.read_decimal_line()? {
+            Some(value) => value,
+            None => {
+                self.pos = start;
+                return Ok(None);
+            }
+        };
+        Ok(Some(QrespFrameRef::Integer(value)))
+    }
+
+    fn parse_boolean_ref(&mut self) -> Result<Option<QrespFrameRef<'a>>> {
+        let start = self.pos;
+        self.pos += 1;
+        let line = match self.read_line()? {
+            Some(line) => line,
+            None => {
+                self.pos = start;
+                return Ok(None);
+            }
+        };
+        if line.len() != 1 {
+            return Err(QrespError::Invalid(
+                "boolean must be single character".to_string(),
+            ));
+        }
+        match line[0] {
+            b'1' => Ok(Some(QrespFrameRef::Boolean(true))),
+            b'0' => Ok(Some(QrespFrameRef::Boolean(false))),
+            _ => Err(QrespError::Invalid("boolean must be 0 or 1".to_string())),
+        }
+    }
+
+    fn parse_null_ref(&mut self) -> Result<Option<QrespFrameRef<'a>>> {
+        let start = self.pos;
+        self.pos += 1;
+        match self.read_line()? {
+            Some(line) if line.is_empty() => Ok(Some(QrespFrameRef::Null)),
+            Some(_) => Err(QrespError::Invalid("null frame must be empty".to_string())),
+            None => {
+                self.pos = start;
+                Ok(None)
+            }
+        }
+    }
+
+    fn parse_error_ref(&mut self) -> Result<Option<QrespFrameRef<'a>>> {
+        let start = self.pos;
+        self.pos += 1;
+        let line = match self.read_line()? {
+            Some(line) => line,
+            None => {
+                self.pos = start;
+                return Ok(None);
+            }
+        };
+        let parts: Vec<&[u8]> = line.splitn(2, |b| *b == b' ').collect();
+        if parts.is_empty() {
+            return Err(QrespError::Invalid("error must contain code".to_string()));
+        }
+        let code = unsafe {
+            debug_assert!(std::str::from_utf8(parts[0]).is_ok(), "Invalid UTF-8 in QRESP error code");
+            std::str::from_utf8_unchecked(parts[0])
+        };
+        let message = if parts.len() == 2 {
+            unsafe {
+                debug_assert!(std::str::from_utf8(parts[1]).is_ok(), "Invalid UTF-8 in QRESP error message");
+                std::str::from_utf8_unchecked(parts[1])
+            }
+        } else {
+            ""
+        };
+        Ok(Some(QrespFrameRef::Error { code, message }))
+    }
+
+    fn parse_simple_ref(&mut self) -> Result<Option<QrespFrameRef<'a>>> {
+        let start = self.pos;
+        self.pos += 1;
+        let line = match self.read_line()? {
+            Some(line) => line,
+            None => {
+                self.pos = start;
+                return Ok(None);
+            }
+        };
+        let string = unsafe {
+            // We can use unsafe here since QRESP protocol guarantees valid UTF-8
+            // but add a debug assertion to catch issues in development
+            debug_assert!(std::str::from_utf8(line).is_ok(), "Invalid UTF-8 in QRESP simple string");
+            std::str::from_utf8_unchecked(line)
+        };
+        Ok(Some(QrespFrameRef::Simple(string)))
+    }
+
+    fn read_decimal_line(&mut self) -> Result<Option<i64>> {
+        let line = match self.read_line()? {
+            Some(line) => line,
+            None => return Ok(None),
+        };
+        
+        // Fast integer parsing without string allocation
+        parse_i64_bytes(line).ok_or_else(|| QrespError::Invalid("invalid decimal".to_string()))
+            .map(Some)
+    }
+
+    fn read_line(&mut self) -> Result<Option<&'a [u8]>> {
+        let start = self.pos;
+        let data = &self.data[start..];
+        
+        // Fast CRLF search using memchr-like approach
+        if let Some(cr_pos) = memchr_cr(data) {
+            if cr_pos + 1 < data.len() && data[cr_pos + 1] == b'\n' {
+                let line = &data[..cr_pos];
+                self.pos = start + cr_pos + 2;
+                return Ok(Some(line));
+            }
+        }
+        Ok(None)
+    }
+
+    fn consume_crlf(&mut self) -> bool {
+        if self.pos + 1 >= self.data.len() {
+            return false;
+        }
+        if self.data[self.pos] == b'\r' && self.data[self.pos + 1] == b'\n' {
+            self.pos += 2;
+            true
+        } else {
+            false
+        }
+    }
 }
 
 impl<'a> Parser<'a> {
