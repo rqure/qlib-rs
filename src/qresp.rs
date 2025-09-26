@@ -2779,13 +2779,13 @@ pub mod store {
     }
 
     /// Parse a RequestsRef from a QrespFrameRef
-    pub fn parse_requests_ref<'a>(frame_ref: &'a QrespFrameRef<'a>) -> QrespResult<crate::data::RequestsRef<'a>> {
-        crate::data::RequestsRef::new(frame_ref)
+    pub fn parse_requests_ref<'a>(frame_ref: &'a QrespFrameRef<'a>) -> QrespResult<crate::data::QrespRequestsRef<'a>> {
+        crate::data::QrespRequestsRef::new(frame_ref)
     }
 
     /// Parse a single RequestRef from a QrespFrameRef
-    pub fn parse_request_ref<'a>(frame_ref: &'a QrespFrameRef<'a>) -> QrespResult<crate::data::RequestRef<'a>> {
-        crate::data::RequestRef::new(frame_ref)
+    pub fn parse_request_ref<'a>(frame_ref: &'a QrespFrameRef<'a>) -> QrespResult<crate::data::QrespRequestRef<'a>> {
+        crate::data::QrespRequestRef::new(frame_ref)
     }
 
     /// Helper function to work with RequestsRef in zero-copy manner
@@ -2794,7 +2794,7 @@ pub mod store {
         mut processor: F
     ) -> QrespResult<R>
     where
-        F: FnMut(crate::data::RequestsRef<'a>) -> QrespResult<R>,
+        F: FnMut(crate::data::QrespRequestsRef<'a>) -> QrespResult<R>,
     {
         let requests_ref = parse_requests_ref(frame_ref)?;
         processor(requests_ref)

@@ -33,7 +33,7 @@ pub use json_snapshot::{
 };
 pub use pagination::{PageOpts, PageResult};
 pub use request::IndirectFieldType;
-pub use request::{AdjustBehavior, PushCondition, Request, Requests, RequestRef, RequestsRef, RequestType, RequestsRefIterator};
+pub use request::{AdjustBehavior, PushCondition, Request, Requests, QrespRequestRef, QrespRequestsRef, QrespRequestType, QrespRequestsRefIterator};
 use serde::{Deserialize, Serialize};
 pub use snapshots::Snapshot;
 pub use store::Store;

@@ -129,13 +129,13 @@ pub enum Request {
 
 /// Zero-copy version of Request that references data in a QrespFrameRef
 #[derive(Debug, Clone, PartialEq)]
-pub struct RequestRef<'a> {
+pub struct QrespRequestRef<'a> {
     frame: &'a QrespFrameRef<'a>,
-    request_type: RequestType,
+    request_type: QrespRequestType,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum RequestType {
+pub enum QrespRequestType {
     Read,
     Write,
     Create,
@@ -156,18 +156,18 @@ pub enum RequestType {
     GetEntityTypes,
 }
 
-impl<'a> RequestRef<'a> {
+impl<'a> QrespRequestRef<'a> {
     /// Create a RequestRef from a QrespFrameRef (must be a Map frame representing a request)
     pub fn new(frame: &'a QrespFrameRef<'a>) -> QrespResult<Self> {
         let request_type = Self::extract_request_type(frame)?;
-        Ok(RequestRef {
+        Ok(QrespRequestRef {
             frame,
             request_type,
         })
     }
 
     /// Extract the request type from the frame
-    fn extract_request_type(frame: &'a QrespFrameRef<'a>) -> QrespResult<RequestType> {
+    fn extract_request_type(frame: &'a QrespFrameRef<'a>) -> QrespResult<QrespRequestType> {
         let map = match frame {
             QrespFrameRef::Map(pairs) => pairs,
             _ => return Err(QrespError::Invalid("Request must be a Map".to_string())),
@@ -178,24 +178,24 @@ impl<'a> RequestRef<'a> {
             if Self::matches_bulk_str(key, "type") {
                 let type_str = Self::extract_string_value(value)?;
                 return match type_str {
-                    "read" => Ok(RequestType::Read),
-                    "write" => Ok(RequestType::Write),
-                    "create" => Ok(RequestType::Create),
-                    "delete" => Ok(RequestType::Delete),
-                    "schema_update" => Ok(RequestType::SchemaUpdate),
-                    "snapshot" => Ok(RequestType::Snapshot),
-                    "get_entity_type" => Ok(RequestType::GetEntityType),
-                    "resolve_entity_type" => Ok(RequestType::ResolveEntityType),
-                    "get_field_type" => Ok(RequestType::GetFieldType),
-                    "resolve_field_type" => Ok(RequestType::ResolveFieldType),
-                    "get_entity_schema" => Ok(RequestType::GetEntitySchema),
-                    "get_complete_entity_schema" => Ok(RequestType::GetCompleteEntitySchema),
-                    "get_field_schema" => Ok(RequestType::GetFieldSchema),
-                    "entity_exists" => Ok(RequestType::EntityExists),
-                    "field_exists" => Ok(RequestType::FieldExists),
-                    "find_entities" => Ok(RequestType::FindEntities),
-                    "find_entities_exact" => Ok(RequestType::FindEntitiesExact),
-                    "get_entity_types" => Ok(RequestType::GetEntityTypes),
+                    "read" => Ok(QrespRequestType::Read),
+                    "write" => Ok(QrespRequestType::Write),
+                    "create" => Ok(QrespRequestType::Create),
+                    "delete" => Ok(QrespRequestType::Delete),
+                    "schema_update" => Ok(QrespRequestType::SchemaUpdate),
+                    "snapshot" => Ok(QrespRequestType::Snapshot),
+                    "get_entity_type" => Ok(QrespRequestType::GetEntityType),
+                    "resolve_entity_type" => Ok(QrespRequestType::ResolveEntityType),
+                    "get_field_type" => Ok(QrespRequestType::GetFieldType),
+                    "resolve_field_type" => Ok(QrespRequestType::ResolveFieldType),
+                    "get_entity_schema" => Ok(QrespRequestType::GetEntitySchema),
+                    "get_complete_entity_schema" => Ok(QrespRequestType::GetCompleteEntitySchema),
+                    "get_field_schema" => Ok(QrespRequestType::GetFieldSchema),
+                    "entity_exists" => Ok(QrespRequestType::EntityExists),
+                    "field_exists" => Ok(QrespRequestType::FieldExists),
+                    "find_entities" => Ok(QrespRequestType::FindEntities),
+                    "find_entities_exact" => Ok(QrespRequestType::FindEntitiesExact),
+                    "get_entity_types" => Ok(QrespRequestType::GetEntityTypes),
                     _ => Err(QrespError::Invalid(format!("Unknown request type: {}", type_str))),
                 };
             }
@@ -251,7 +251,7 @@ impl<'a> RequestRef<'a> {
     }
 
     /// Get the request type
-    pub fn request_type(&self) -> &RequestType {
+    pub fn request_type(&self) -> &QrespRequestType {
         &self.request_type
     }
 
@@ -259,7 +259,7 @@ impl<'a> RequestRef<'a> {
     pub fn to_owned(&self) -> QrespResult<Request> {
         // Convert to owned and decode - this is a simplified implementation
         match self.request_type {
-            RequestType::Read => {
+            QrespRequestType::Read => {
                 // Extract fields for Read request
                 let entity_id = self.entity_id()?.unwrap_or(EntityId(0));
                 // For now, return a basic Read request
@@ -280,17 +280,17 @@ impl<'a> RequestRef<'a> {
 
 /// Zero-copy version of Requests that references data in QrespFrameRef
 #[derive(Debug, Clone)]
-pub struct RequestsRef<'a> {
+pub struct QrespRequestsRef<'a> {
     frame: &'a QrespFrameRef<'a>,
     originator: Option<EntityId>,
 }
 
 /// Iterator over RequestRef items
-pub struct RequestsRefIterator<'a> {
+pub struct QrespRequestsRefIterator<'a> {
     requests: std::slice::Iter<'a, QrespFrameRef<'a>>,
 }
 
-impl<'a> RequestsRefIterator<'a> {
+impl<'a> QrespRequestsRefIterator<'a> {
     fn new(frame: &'a QrespFrameRef<'a>) -> Self {
         let requests = match frame {
             QrespFrameRef::Array(items) if items.len() >= 2 => {
@@ -302,19 +302,19 @@ impl<'a> RequestsRefIterator<'a> {
             }
             _ => [].iter(), // Empty slice if invalid format
         };
-        RequestsRefIterator { requests }
+        QrespRequestsRefIterator { requests }
     }
 }
 
-impl<'a> Iterator for RequestsRefIterator<'a> {
-    type Item = QrespResult<RequestRef<'a>>;
+impl<'a> Iterator for QrespRequestsRefIterator<'a> {
+    type Item = QrespResult<QrespRequestRef<'a>>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.requests.next().map(|frame| RequestRef::new(frame))
+        self.requests.next().map(|frame| QrespRequestRef::new(frame))
     }
 }
 
-impl<'a> RequestsRef<'a> {
+impl<'a> QrespRequestsRef<'a> {
     /// Create RequestsRef from a QrespFrameRef (must be an Array with originator and requests)
     pub fn new(frame: &'a QrespFrameRef<'a>) -> QrespResult<Self> {
         let array = match frame {
@@ -333,7 +333,7 @@ impl<'a> RequestsRef<'a> {
             _ => return Err(QrespError::Invalid("Invalid originator format".to_string())),
         };
 
-        Ok(RequestsRef {
+        Ok(QrespRequestsRef {
             frame,
             originator,
         })
@@ -345,8 +345,8 @@ impl<'a> RequestsRef<'a> {
     }
 
     /// Get an iterator over the requests
-    pub fn iter(&self) -> RequestsRefIterator<'a> {
-        RequestsRefIterator::new(self.frame)
+    pub fn iter(&self) -> QrespRequestsRefIterator<'a> {
+        QrespRequestsRefIterator::new(self.frame)
     }
 
     /// Get the number of requests
