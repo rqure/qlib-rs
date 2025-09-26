@@ -405,6 +405,11 @@ impl<'a> QrespRequestRef<'a> {
         match self.get_field("entity_id") {
             Some(frame) => match frame {
                 QrespFrameRef::Integer(id) => Ok(Some(EntityId(*id as u64))),
+                QrespFrameRef::Bulk(bytes) if bytes.len() == 8 => {
+                    let mut array = [0u8; 8];
+                    array.copy_from_slice(bytes);
+                    Ok(Some(EntityId(u64::from_be_bytes(array))))
+                }
                 QrespFrameRef::Null => Ok(None),
                 _ => Err(QrespError::Invalid("Invalid entity_id format".to_string())),
             },
