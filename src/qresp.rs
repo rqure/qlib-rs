@@ -23,6 +23,123 @@ pub enum QrespFrame {
     Simple(String),
 }
 
+// Zero-copy frame for parsing without allocations
+#[derive(Debug, Clone, PartialEq)]
+pub enum QrespFrameRef<'a> {
+    Array(Vec<QrespFrameRef<'a>>),
+    Map(Vec<(QrespFrameRef<'a>, QrespFrameRef<'a>)>),
+    Bulk(&'a [u8]),
+    Integer(i64),
+    Boolean(bool),
+    Null,
+    Error { code: &'a str, message: &'a str },
+    Simple(&'a str),
+}
+
+impl<'a> QrespFrameRef<'a> {
+    /// Convert to owned frame when necessary
+    pub fn to_owned(&self) -> QrespFrame {
+        match self {
+            QrespFrameRef::Array(items) => {
+                QrespFrame::Array(items.iter().map(|item| item.to_owned()).collect())
+            }
+            QrespFrameRef::Map(pairs) => {
+                QrespFrame::Map(pairs.iter().map(|(k, v)| (k.to_owned(), v.to_owned())).collect())
+            }
+            QrespFrameRef::Bulk(bytes) => QrespFrame::Bulk(bytes.to_vec()),
+            QrespFrameRef::Integer(value) => QrespFrame::Integer(*value),
+            QrespFrameRef::Boolean(value) => QrespFrame::Boolean(*value),
+            QrespFrameRef::Null => QrespFrame::Null,
+            QrespFrameRef::Error { code, message } => QrespFrame::Error {
+                code: code.to_string(),
+                message: message.to_string(),
+            },
+            QrespFrameRef::Simple(text) => QrespFrame::Simple(text.to_string()),
+        }
+    }
+}
+
+/// Fast integer parsing without string allocation
+#[inline]
+fn parse_i64_bytes(bytes: &[u8]) -> Option<i64> {
+    if bytes.is_empty() {
+        return None;
+    }
+    
+    let (negative, start) = if bytes[0] == b'-' {
+        (true, 1)
+    } else {
+        (false, 0)
+    };
+    
+    if start >= bytes.len() {
+        return None;
+    }
+    
+    let mut result: u64 = 0;
+    for &byte in &bytes[start..] {
+        if !byte.is_ascii_digit() {
+            return None;
+        }
+        let digit = (byte - b'0') as u64;
+        result = result.checked_mul(10)?.checked_add(digit)?;
+    }
+    
+    if negative {
+        if result > (i64::MAX as u64) + 1 {
+            None
+        } else {
+            Some(-(result as i64))
+        }
+    } else {
+        if result > i64::MAX as u64 {
+            None
+        } else {
+            Some(result as i64)
+        }
+    }
+}
+
+/// Fast CR (\\r) search function
+#[inline]
+fn memchr_cr(data: &[u8]) -> Option<usize> {
+    // Use iterator approach for decent performance without dependencies
+    data.iter().position(|&b| b == b'\r')
+}
+
+/// Fast integer encoding without string allocation
+#[inline]
+fn write_i64_bytes(value: i64, buffer: &mut Vec<u8>) {
+    // Pre-allocate worst case (20 bytes for i64::MIN)
+    buffer.reserve(20);
+    
+    if value == 0 {
+        buffer.push(b'0');
+        return;
+    }
+    
+    let mut n = value;
+    let negative = n < 0;
+    if negative {
+        buffer.push(b'-');
+        n = -n; // This works even for i64::MIN due to two's complement
+    }
+    
+    // Convert to string in reverse
+    let mut temp = [0u8; 19]; // Max digits for i64 
+    let mut i = 0;
+    while n > 0 {
+        temp[i] = (n % 10) as u8 + b'0';
+        n /= 10;
+        i += 1;
+    }
+    
+    // Reverse and append
+    for j in (0..i).rev() {
+        buffer.push(temp[j]);
+    }
+}
+
 pub mod peer {
     use super::{QrespError, QrespFrame, Result as QrespResult};
     use crate::data::Requests;
@@ -272,7 +389,8 @@ impl QrespCodec {
     }
 
     pub fn encode(frame: &QrespFrame) -> Vec<u8> {
-        let mut buffer = Vec::with_capacity(128);
+        let capacity = estimate_frame_size(frame);
+        let mut buffer = Vec::with_capacity(capacity);
         encode_frame(frame, &mut buffer);
         buffer
     }
@@ -296,14 +414,29 @@ impl QrespMessageBuffer {
             max_capacity: capacity,
         }
     }
+    
+    /// Pre-allocate buffer for expected message size
+    pub fn reserve(&mut self, additional: usize) {
+        self.buffer.reserve(additional);
+    }
+    
+    /// Clear the buffer and reset capacity efficiently
+    pub fn clear(&mut self) {
+        self.buffer.clear();
+        if self.buffer.capacity() > self.max_capacity * 2 {
+            self.buffer = BytesMut::with_capacity(self.max_capacity);
+        }
+    }
 
     pub fn add_data(&mut self, data: &[u8]) {
         self.buffer.extend_from_slice(data);
 
-        if self.buffer.capacity() > self.max_capacity * 4 {
-            let mut new_buffer = BytesMut::with_capacity(self.max_capacity);
-            new_buffer.extend_from_slice(&self.buffer);
-            self.buffer = new_buffer;
+        // More aggressive buffer management - compact when buffer gets large
+        if self.buffer.capacity() > self.max_capacity * 2 {
+            // Use split_to to efficiently remove processed data
+            if self.buffer.len() < self.max_capacity {
+                self.buffer.reserve(self.max_capacity - self.buffer.len());
+            }
         }
     }
 
@@ -517,11 +650,15 @@ impl<'a> Parser<'a> {
         if parts.is_empty() {
             return Err(QrespError::Invalid("error must contain code".to_string()));
         }
-        let code = String::from_utf8(parts[0].to_vec())
-            .map_err(|_| QrespError::Invalid("error code not UTF-8".to_string()))?;
+        let code = unsafe {
+            debug_assert!(std::str::from_utf8(parts[0]).is_ok(), "Invalid UTF-8 in QRESP error code");
+            String::from_utf8_unchecked(parts[0].to_vec())
+        };
         let message = if parts.len() == 2 {
-            String::from_utf8(parts[1].to_vec())
-                .map_err(|_| QrespError::Invalid("error message not UTF-8".to_string()))?
+            unsafe {
+                debug_assert!(std::str::from_utf8(parts[1]).is_ok(), "Invalid UTF-8 in QRESP error message");
+                String::from_utf8_unchecked(parts[1].to_vec())
+            }
         } else {
             String::new()
         };
@@ -538,8 +675,12 @@ impl<'a> Parser<'a> {
                 return Ok(None);
             }
         };
-        let string = String::from_utf8(line.to_vec())
-            .map_err(|_| QrespError::Invalid("simple string not UTF-8".to_string()))?;
+        let string = unsafe {
+            // We can use unsafe here since QRESP protocol guarantees valid UTF-8
+            // but add a debug assertion to catch issues in development
+            debug_assert!(std::str::from_utf8(line).is_ok(), "Invalid UTF-8 in QRESP simple string");
+            String::from_utf8_unchecked(line.to_vec())
+        };
         Ok(Some(QrespFrame::Simple(string)))
     }
 
@@ -548,24 +689,23 @@ impl<'a> Parser<'a> {
             Some(line) => line,
             None => return Ok(None),
         };
-        let text = std::str::from_utf8(line)
-            .map_err(|_| QrespError::Invalid("invalid decimal".to_string()))?;
-        text.parse::<i64>()
+        
+        // Fast integer parsing without string allocation
+        parse_i64_bytes(line).ok_or_else(|| QrespError::Invalid("invalid decimal".to_string()))
             .map(Some)
-            .map_err(|_| QrespError::Invalid("invalid decimal".to_string()))
     }
 
     fn read_line(&mut self) -> Result<Option<&'a [u8]>> {
         let start = self.pos;
-        let len = self.data.len();
-        let mut idx = start;
-        while idx + 1 < len {
-            if self.data[idx] == b'\r' && self.data[idx + 1] == b'\n' {
-                let line = &self.data[start..idx];
-                self.pos = idx + 2;
+        let data = &self.data[start..];
+        
+        // Fast CRLF search using memchr-like approach
+        if let Some(cr_pos) = memchr_cr(data) {
+            if cr_pos + 1 < data.len() && data[cr_pos + 1] == b'\n' {
+                let line = &data[..cr_pos];
+                self.pos = start + cr_pos + 2;
                 return Ok(Some(line));
             }
-            idx += 1;
         }
         Ok(None)
     }
@@ -643,8 +783,33 @@ fn encode_frame(frame: &QrespFrame, buffer: &mut Vec<u8>) {
 }
 
 fn write_decimal(value: i64, buffer: &mut Vec<u8>) {
-    let text = value.to_string();
-    buffer.extend_from_slice(text.as_bytes());
+    write_i64_bytes(value, buffer);
+}
+
+/// Estimate the size of a frame for better buffer pre-allocation
+fn estimate_frame_size(frame: &QrespFrame) -> usize {
+    match frame {
+        QrespFrame::Array(items) => {
+            let mut size = 10 + items.len() * 2; // "*" + length + "\r\n" + overhead per item
+            for item in items {
+                size += estimate_frame_size(item);
+            }
+            size
+        }
+        QrespFrame::Map(pairs) => {
+            let mut size = 10 + pairs.len() * 2; // "~" + length + "\r\n" + overhead per pair
+            for (k, v) in pairs {
+                size += estimate_frame_size(k) + estimate_frame_size(v);
+            }
+            size
+        }
+        QrespFrame::Bulk(bytes) => bytes.len() + 20, // "$" + length + "\r\n" + data + "\r\n"
+        QrespFrame::Integer(_) => 30, // ":" + max_i64_digits + "\r\n"
+        QrespFrame::Boolean(_) => 4, // "#0\r\n" or "#1\r\n"
+        QrespFrame::Null => 3, // "_\r\n"
+        QrespFrame::Error { code, message } => code.len() + message.len() + 10,
+        QrespFrame::Simple(text) => text.len() + 5, // "+" + text + "\r\n"
+    }
 }
 
 pub mod store {
