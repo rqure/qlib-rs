@@ -477,6 +477,54 @@ impl QrespMessageBuffer {
             None => Ok(None),
         }
     }
+    
+    /// Zero-copy store message decoding - returns store message but uses optimized parsing
+    pub fn try_decode_store_message_ref(&mut self) -> Result<Option<crate::data::StoreMessage>> {
+        match self.try_decode_frame_ref()? {
+            Some((frame_ref, consumed)) => {
+                // Use zero-copy parsing where possible, then convert to StoreMessage
+                let message = match frame_ref {
+                    QrespFrameRef::Array(ref items) if !items.is_empty() => {
+                        // Try to parse with zero-copy first, fallback to owned if needed
+                        match items.first() {
+                            Some(QrespFrameRef::Bulk(command_bytes)) => {
+                                let command_str = unsafe {
+                                    debug_assert!(std::str::from_utf8(command_bytes).is_ok(), "Invalid UTF-8 in command");
+                                    std::str::from_utf8_unchecked(command_bytes)
+                                };
+                                
+                                // For simple cases, avoid full conversion
+                                match command_str {
+                                    "AUTHENTICATE" if items.len() >= 4 => {
+                                        let id = store::extract_u64_ref(&items[1])?;
+                                        let subject_name = store::extract_string_ref(&items[2])?.to_string();
+                                        let credential = store::extract_string_ref(&items[3])?.to_string();
+                                        
+                                        crate::data::StoreMessage::Authenticate {
+                                            id,
+                                            subject_name,
+                                            credential,
+                                        }
+                                    }
+                                    _ => {
+                                        // Fallback to owned conversion for complex cases
+                                        store::decode_store_message(frame_ref.to_owned())?
+                                    }
+                                }
+                            }
+                            _ => store::decode_store_message(frame_ref.to_owned())?,
+                        }
+                    }
+                    _ => return Err(QrespError::Invalid("store message must be array".to_string())),
+                };
+                
+                // Advance the buffer by the consumed bytes
+                let _ = self.buffer.split_to(consumed);
+                Ok(Some(message))
+            }
+            None => Ok(None),
+        }
+    }
 }
 
 struct Parser<'a> {
@@ -1093,7 +1141,7 @@ fn estimate_frame_size(frame: &QrespFrame) -> usize {
 }
 
 pub mod store {
-    use super::{QrespError, QrespFrame, Result as QrespResult};
+    use super::{QrespError, QrespFrame, QrespFrameRef, Result as QrespResult};
     use crate::data::{
         AdjustBehavior, AuthenticationResult, EntityId, EntitySchema, EntityType, FieldSchema,
         FieldType, Notification, NotifyConfig, PageOpts, PageResult, PushCondition, Request,
@@ -1101,6 +1149,233 @@ pub mod store {
     };
     use std::convert::TryFrom;
     use time::OffsetDateTime;
+
+    /// Direct QRESP frame processing for store operations
+    /// This eliminates the StoreMessage intermediate representation
+    pub fn process_store_frame_ref<F>(
+        frame_ref: QrespFrameRef,
+        mut handler: F,
+    ) -> QrespResult<QrespFrame>
+    where
+        F: FnMut(StoreOperation) -> QrespResult<QrespFrame>,
+    {
+        match frame_ref {
+            QrespFrameRef::Array(ref items) if !items.is_empty() => {
+                let command = extract_command_str(items.first().unwrap())?;
+                let operation = match command {
+                    "AUTHENTICATE" => parse_authenticate_operation(items)?,
+                    "PERFORM" => parse_perform_operation(items)?,
+                    "REGISTER_NOTIFICATION" => parse_register_notification_operation(items)?,
+                    "UNREGISTER_NOTIFICATION" => parse_unregister_notification_operation(items)?,
+                    _ => return Err(QrespError::Invalid(format!("unknown command: {}", command))),
+                };
+                handler(operation)
+            }
+            _ => Err(QrespError::Invalid("store message must be array".to_string())),
+        }
+    }
+
+    /// Store operations extracted directly from QRESP frames
+    #[derive(Debug)]
+    pub enum StoreOperation<'a> {
+        Authenticate {
+            id: u64,
+            subject_name: &'a str,
+            credential: &'a str,
+        },
+        Perform {
+            id: u64,
+            requests: Requests, // Still need owned for complex operations
+        },
+        RegisterNotification {
+            id: u64,
+            config: NotifyConfig,
+        },
+        UnregisterNotification {
+            id: u64,
+            config: NotifyConfig,
+        },
+    }
+
+    /// Response builders for QRESP frames
+    pub fn build_authenticate_response(id: u64, result: Result<AuthenticationResult, String>) -> QrespFrame {
+        let payload = match result {
+            Ok(auth) => QrespFrame::Array(vec![
+                bulk_str("OK"),
+                encode_auth_result(&auth)
+            ]),
+            Err(err) => QrespFrame::Array(vec![
+                bulk_str("ERR"),
+                bulk_str(&err)
+            ]),
+        };
+        QrespFrame::Array(vec![
+            bulk_str("AUTHENTICATE_RESPONSE"),
+            QrespFrame::Integer(id as i64),
+            payload,
+        ])
+    }
+
+    pub fn build_perform_response(id: u64, result: Result<Requests, String>) -> QrespFrame {
+        let payload = match result {
+            Ok(requests) => match encode_requests(&requests) {
+                Ok(encoded) => QrespFrame::Array(vec![bulk_str("OK"), encoded]),
+                Err(_) => QrespFrame::Array(vec![
+                    bulk_str("ERR"),
+                    bulk_str("failed to encode response")
+                ]),
+            },
+            Err(err) => QrespFrame::Array(vec![
+                bulk_str("ERR"),
+                bulk_str(&err)
+            ]),
+        };
+        QrespFrame::Array(vec![
+            bulk_str("PERFORM_RESPONSE"),
+            QrespFrame::Integer(id as i64),
+            payload,
+        ])
+    }
+
+    pub fn build_register_notification_response(id: u64, result: Result<(), String>) -> QrespFrame {
+        let payload = match result {
+            Ok(()) => QrespFrame::Array(vec![bulk_str("OK")]),
+            Err(err) => QrespFrame::Array(vec![
+                bulk_str("ERR"),
+                bulk_str(&err)
+            ]),
+        };
+        QrespFrame::Array(vec![
+            bulk_str("REGISTER_NOTIFICATION_RESPONSE"),
+            QrespFrame::Integer(id as i64),
+            payload,
+        ])
+    }
+
+    pub fn build_unregister_notification_response(id: u64, success: bool) -> QrespFrame {
+        QrespFrame::Array(vec![
+            bulk_str("UNREGISTER_NOTIFICATION_RESPONSE"),
+            QrespFrame::Integer(id as i64),
+            QrespFrame::Boolean(success),
+        ])
+    }
+
+    pub fn build_notification(notification: &Notification) -> QrespResult<QrespFrame> {
+        Ok(QrespFrame::Array(vec![
+            bulk_str("NOTIFICATION"),
+            encode_notification(notification)?,
+        ]))
+    }
+
+    pub fn build_error(id: u64, error: &str) -> QrespFrame {
+        QrespFrame::Array(vec![
+            bulk_str("ERROR"),
+            QrespFrame::Integer(id as i64),
+            bulk_str(error),
+        ])
+    }
+
+    // Parsing functions for zero-copy extraction
+    fn extract_command_str<'a>(frame_ref: &'a QrespFrameRef<'a>) -> QrespResult<&'a str> {
+        match frame_ref {
+            QrespFrameRef::Bulk(bytes) => unsafe {
+                debug_assert!(std::str::from_utf8(bytes).is_ok(), "Invalid UTF-8 in command");
+                Ok(std::str::from_utf8_unchecked(bytes))
+            },
+            QrespFrameRef::Simple(text) => Ok(text),
+            other => Err(QrespError::Invalid(format!(
+                "expected command string, got {:?}",
+                other
+            ))),
+        }
+    }
+
+    fn parse_authenticate_operation<'a>(items: &'a [QrespFrameRef<'a>]) -> QrespResult<StoreOperation<'a>> {
+        if items.len() < 4 {
+            return Err(QrespError::Invalid("authenticate missing parameters".to_string()));
+        }
+        
+        let id = extract_u64_ref(&items[1])?;
+        let subject_name = extract_string_ref(&items[2])?;
+        let credential = extract_string_ref(&items[3])?;
+        
+        Ok(StoreOperation::Authenticate {
+            id,
+            subject_name,
+            credential,
+        })
+    }
+
+    fn parse_perform_operation<'a>(items: &'a [QrespFrameRef<'a>]) -> QrespResult<StoreOperation<'a>> {
+        if items.len() < 3 {
+            return Err(QrespError::Invalid("perform missing parameters".to_string()));
+        }
+        
+        let id = extract_u64_ref(&items[1])?;
+        // For requests, we still need to convert to owned since Requests owns its data
+        let requests = decode_requests(items[2].to_owned())?;
+        
+        Ok(StoreOperation::Perform { id, requests })
+    }
+
+    fn parse_register_notification_operation<'a>(items: &'a [QrespFrameRef<'a>]) -> QrespResult<StoreOperation<'a>> {
+        if items.len() < 3 {
+            return Err(QrespError::Invalid("register notification missing parameters".to_string()));
+        }
+        
+        let id = extract_u64_ref(&items[1])?;
+        let config = decode_notify_config(items[2].to_owned())?;
+        
+        Ok(StoreOperation::RegisterNotification { id, config })
+    }
+
+    fn parse_unregister_notification_operation<'a>(items: &'a [QrespFrameRef<'a>]) -> QrespResult<StoreOperation<'a>> {
+        if items.len() < 3 {
+            return Err(QrespError::Invalid("unregister notification missing parameters".to_string()));
+        }
+        
+        let id = extract_u64_ref(&items[1])?;
+        let config = decode_notify_config(items[2].to_owned())?;
+        
+        Ok(StoreOperation::UnregisterNotification { id, config })
+    }
+
+    /// Parse a store operation directly from QRESP frame items
+    pub fn parse_store_operation_ref<'a>(items: &'a [QrespFrameRef<'a>]) -> QrespResult<StoreOperation<'a>> {
+        let command = extract_command_str(items.first().unwrap())?;
+        match command {
+            "AUTHENTICATE" => parse_authenticate_operation(items),
+            "PERFORM" => parse_perform_operation(items),
+            "REGISTER_NOTIFICATION" => parse_register_notification_operation(items),
+            "UNREGISTER_NOTIFICATION" => parse_unregister_notification_operation(items),
+            _ => Err(QrespError::Invalid(format!("unknown command: {}", command))),
+        }
+    }
+    pub fn extract_u64_ref(frame_ref: &QrespFrameRef) -> QrespResult<u64> {
+        match frame_ref {
+            QrespFrameRef::Integer(value) if *value >= 0 => Ok(*value as u64),
+            other => Err(QrespError::Invalid(format!(
+                "expected non-negative integer, got {:?}",
+                other
+            ))),
+        }
+    }
+
+    pub fn extract_string_ref<'a>(frame_ref: &'a QrespFrameRef<'a>) -> QrespResult<&'a str> {
+        match frame_ref {
+            QrespFrameRef::Bulk(bytes) => {
+                unsafe {
+                    debug_assert!(std::str::from_utf8(bytes).is_ok(), "Invalid UTF-8 in bulk string");
+                    Ok(std::str::from_utf8_unchecked(bytes))
+                }
+            }
+            QrespFrameRef::Simple(text) => Ok(text),
+            other => Err(QrespError::Invalid(format!(
+                "expected string, got {:?}",
+                other
+            ))),
+        }
+    }
 
     pub fn encode_store_message(message: &crate::data::StoreMessage) -> QrespResult<QrespFrame> {
         match message {
