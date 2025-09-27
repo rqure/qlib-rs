@@ -42,9 +42,7 @@ let read_result = store.perform(sreq![sread!(user_id, sfield![name_field])])?;
 
 ```rust
 // Connect to remote server
-let stream = TcpStream::connect("127.0.0.1:8080")?;
-let mut proxy = StoreProxy::new(stream)?;
-proxy.authenticate("username", "password")?;
+let proxy = StoreProxy::connect("127.0.0.1:8080")?;
 
 // Same API as Store
 let users = proxy.find_entities(user_type, None)?;
@@ -60,7 +58,7 @@ let users = proxy.find_entities(user_type, None)?;
 
 ### Storage Options
 - **Store**: In-memory database for single-process applications
-- **StoreProxy**: TCP-based remote database access with authentication
+- **StoreProxy**: TCP-based remote database access
 
 Both implement `StoreTrait` and provide identical APIs for seamless switching between local and remote storage.
 
