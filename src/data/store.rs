@@ -2020,6 +2020,42 @@ impl Store {
             }
         }
     }
+
+    /// Get entity type by name
+    pub fn get_entity_type(&self, name: &str) -> Result<EntityType> {
+        if let Some(id) = self.entity_type_interner.get(name) {
+            Ok(EntityType(id as u32))
+        } else {
+            Err(Error::EntityTypeStrNotFound(name.to_string()))
+        }
+    }
+
+    /// Resolve entity type to name
+    pub fn resolve_entity_type(&self, entity_type: EntityType) -> Result<String> {
+        if let Some(entity_type_str) = self.entity_type_interner.resolve(entity_type.0 as u64) {
+            Ok(entity_type_str.clone())
+        } else {
+            Err(Error::EntityTypeNotFound(entity_type))
+        }
+    }
+
+    /// Get field type by name
+    pub fn get_field_type(&self, name: &str) -> Result<FieldType> {
+        if let Some(id) = self.field_type_interner.get(name) {
+            Ok(FieldType(id))
+        } else {
+            Err(Error::FieldTypeStrNotFound(name.to_string()))
+        }
+    }
+
+    /// Resolve field type to name
+    pub fn resolve_field_type(&self, field_type: FieldType) -> Result<String> {
+        if let Some(field_type_str) = self.field_type_interner.resolve(field_type.0 as u64) {
+            Ok(field_type_str.clone())
+        } else {
+            Err(Error::FieldTypeNotFound(EntityId(0), field_type))
+        }
+    }
 }
 
 impl StoreTrait for Store {

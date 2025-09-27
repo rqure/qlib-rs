@@ -1,4 +1,4 @@
-use crate::{EntityType, StoreTrait};
+use crate::{EntityType, Store, StoreProxy};
 
 pub const FAULT_TOLERANCE: &str = "FaultTolerance";
 pub const FOLDER: &str = "Folder";
@@ -25,7 +25,22 @@ pub struct ET {
 }
 
 impl ET {
-    pub fn new(store: &impl StoreTrait) -> Self {
+    pub fn new(store: &Store) -> Self {
+        ET {
+            fault_tolerance: store.get_entity_type(FAULT_TOLERANCE).ok(),
+            folder: store.get_entity_type(FOLDER).ok(),
+            machine: store.get_entity_type(MACHINE).ok(),
+            object: store.get_entity_type(OBJECT).ok(),
+            permission: store.get_entity_type(PERMISSION).ok(),
+            root: store.get_entity_type(ROOT).ok(),
+            service: store.get_entity_type(SERVICE).ok(),
+            subject: store.get_entity_type(SUBJECT).ok(),
+            user: store.get_entity_type(USER).ok(),
+            candidate: store.get_entity_type(CANDIDATE).ok(),
+        }
+    }
+
+    pub fn new_proxy(store: &StoreProxy) -> Self {
         ET {
             fault_tolerance: store.get_entity_type(FAULT_TOLERANCE).ok(),
             folder: store.get_entity_type(FOLDER).ok(),

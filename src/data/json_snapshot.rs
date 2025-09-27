@@ -5,9 +5,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 
 use crate::{
-    sschemaupdate, EntityId, EntitySchema, EntityType, Error, FieldSchema, Result, Single, Store, Value, StoreProxy, Requests, FieldType
+    sschemaupdate, EntityId, EntitySchema, EntityType, Error, FieldSchema, Result, Single, Store, Value
 };
-use crate::data::StorageScope;
+use crate::data::{StoreTrait, StorageScope};
 
 /// JSON-friendly representation of a field schema
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -51,8 +51,8 @@ pub struct JsonSnapshot {
 }
 
 impl JsonFieldSchema {
-    /// Convert from internal FieldSchema to JSON format (Store version)
-    pub fn from_field_schema(field_schema: &FieldSchema, store: &Store) -> Self {
+    /// Convert from internal FieldSchema to JSON format
+    pub fn from_field_schema(field_schema: &FieldSchema, store: &impl StoreTrait) -> Self {
         let (data_type, default, choices) = match field_schema {
             FieldSchema::Blob { default_value, .. } => {
                 ("Blob".to_string(), serde_json::to_value(default_value).unwrap_or(JsonValue::Null), None)
@@ -103,127 +103,8 @@ impl JsonFieldSchema {
         }
     }
 
-    /// Convert from internal FieldSchema to JSON format (StoreProxy version)
-    pub fn from_field_schema_proxy(field_schema: &FieldSchema, store: &StoreProxy) -> Self {
-        let (data_type, default, choices) = match field_schema {
-            FieldSchema::Blob { default_value, .. } => {
-                ("Blob".to_string(), serde_json::to_value(default_value).unwrap_or(JsonValue::Null), None)
-            },
-            FieldSchema::Bool { default_value, .. } => {
-                ("Bool".to_string(), JsonValue::Bool(*default_value), None)
-            },
-            FieldSchema::Choice { default_value, choices, .. } => {
-                let choice_name = if *default_value >= 0 && (*default_value as usize) < choices.len() {
-                    JsonValue::String(choices[*default_value as usize].clone())
-                } else {
-                    JsonValue::Null
-                };
-                ("Choice".to_string(), choice_name, Some(choices.clone()))
-            },
-            FieldSchema::EntityList { default_value, .. } => {
-                let json_list: Vec<String> = default_value.iter().map(|id| format!("{:?}", id)).collect();
-                ("EntityList".to_string(), serde_json::to_value(json_list).unwrap_or(JsonValue::Array(vec![])), None)
-            },
-            FieldSchema::EntityReference { default_value, .. } => {
-                let json_ref = default_value.as_ref().map(|id| format!("{:?}", id));
-                ("EntityReference".to_string(), serde_json::to_value(json_ref).unwrap_or(JsonValue::Null), None)
-            },
-            FieldSchema::Float { default_value, .. } => {
-                ("Float".to_string(), JsonValue::Number(serde_json::Number::from_f64(*default_value).unwrap_or_else(|| serde_json::Number::from(0))), None)
-            },
-            FieldSchema::Int { default_value, .. } => {
-                ("Int".to_string(), JsonValue::Number(serde_json::Number::from(*default_value)), None)
-            },
-            FieldSchema::String { default_value, .. } => {
-                ("String".to_string(), JsonValue::String(default_value.clone()), None)
-            },
-            FieldSchema::Timestamp { default_value, .. } => {
-                ("Timestamp".to_string(), serde_json::to_value(default_value.unix_timestamp()).unwrap_or(JsonValue::Null), None)
-            },
-        };
-
-        Self {
-            name: store.resolve_field_type(field_schema.field_type()).unwrap_or_else(|_| format!("{:?}", field_schema.field_type())),
-            data_type,
-            default,
-            choices,
-            rank: Some(field_schema.rank()),
-            storage_scope: Some(match field_schema.storage_scope() {
-                StorageScope::Runtime => "Runtime".to_string(),
-                StorageScope::Configuration => "Configuration".to_string(),
-            }),
-        }
-    }
-
-    /// Convert to internal FieldSchema (Store version)
-    pub fn to_field_schema(&self, store: &Store) -> Result<FieldSchema> {
-        let field_type = store.get_field_type(&self.name)?;
-        let rank = self.rank.unwrap_or(0);
-        let storage_scope = match self.storage_scope.as_deref() {
-            Some("Configuration") => StorageScope::Configuration,
-            _ => StorageScope::Runtime, // Default to Runtime if not specified or invalid
-        };
-
-        match self.data_type.as_str() {
-            "Blob" => {
-                let default_value: Vec<u8> = serde_json::from_value(self.default.clone())
-                    .unwrap_or_default();
-                Ok(FieldSchema::Blob { field_type, default_value, rank, storage_scope })
-            },
-            "Bool" => {
-                let default_value = self.default.as_bool().unwrap_or(false);
-                Ok(FieldSchema::Bool { field_type, default_value, rank, storage_scope })
-            },
-            "Choice" => {
-                let choices = self.choices.clone().unwrap_or_default();
-                let default_value = if let Some(choice_str) = self.default.as_str() {
-                    choices.iter().position(|c| c == choice_str).unwrap_or(0) as i64
-                } else {
-                    0
-                };
-                Ok(FieldSchema::Choice { field_type, default_value, rank, choices, storage_scope })
-            },
-            "EntityList" => {
-                let default_value = if let Some(array) = self.default.as_array() {
-                    array.iter()
-                        .filter_map(|v| v.as_str())
-                        .filter_map(|s| s.parse::<u64>().ok().map(EntityId))
-                        .collect()
-                } else {
-                    Vec::new()
-                };
-                Ok(FieldSchema::EntityList { field_type, default_value, rank, storage_scope })
-            },
-            "EntityReference" => {
-                let default_value = self.default.as_str()
-                    .and_then(|s| s.parse::<u64>().ok().map(EntityId));
-                Ok(FieldSchema::EntityReference { field_type, default_value, rank, storage_scope })
-            },
-            "Float" => {
-                let default_value = self.default.as_f64().unwrap_or(0.0);
-                Ok(FieldSchema::Float { field_type, default_value, rank, storage_scope })
-            },
-            "Int" => {
-                let default_value = self.default.as_i64().unwrap_or(0);
-                Ok(FieldSchema::Int { field_type, default_value, rank, storage_scope })
-            },
-            "String" => {
-                let default_value = self.default.as_str().unwrap_or("").to_string();
-                Ok(FieldSchema::String { field_type, default_value, rank, storage_scope })
-            },
-            "Timestamp" => {
-                let unix_timestamp: i64 = serde_json::from_value(self.default.clone())
-                    .unwrap_or(0);
-                let default_value = time::OffsetDateTime::from_unix_timestamp(unix_timestamp)
-                    .unwrap_or_else(|_| super::epoch());
-                Ok(FieldSchema::Timestamp { field_type, default_value, rank, storage_scope })
-            },
-            _ => Err(Error::InvalidFieldType(format!("Unknown data type: {}", self.data_type))),
-        }
-    }
-
-    /// Convert to internal FieldSchema (StoreProxy version)
-    pub fn to_field_schema_proxy(&self, store: &StoreProxy) -> Result<FieldSchema> {
+    /// Convert to internal FieldSchema
+    pub fn to_field_schema(&self, store: &impl StoreTrait) -> Result<FieldSchema> {
         let field_type = store.get_field_type(&self.name)?;
         let rank = self.rank.unwrap_or(0);
         let storage_scope = match self.storage_scope.as_deref() {
