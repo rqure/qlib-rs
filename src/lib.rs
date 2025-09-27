@@ -13,7 +13,7 @@ pub use data::{
     restore_entity_recursive, factory_restore_json_snapshot, restore_json_snapshot_via_proxy,
     EntityType, FieldType, Timestamp, now, epoch, nanos_to_timestamp, secs_to_timestamp, 
     millis_to_timestamp, micros_to_timestamp, ft, et, Cache, path, path_to_entity_id,
-    StoreTrait, from_base64, to_base64, IndirectFieldType
+    from_base64, to_base64, IndirectFieldType
 };
 
 pub use auth::{

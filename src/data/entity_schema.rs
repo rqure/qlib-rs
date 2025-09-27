@@ -3,7 +3,7 @@ use std::hash::Hash;
 use rustc_hash::FxHashMap;
 use serde::{Deserialize, Serialize};
 
-use crate::{data::{EntityType, FieldSchema, FieldType}, StoreTrait};
+use crate::{data::{EntityType, FieldSchema, FieldType}, Store, StoreProxy};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Single;
@@ -74,7 +74,7 @@ impl From<EntitySchema<Single, EntityType, FieldType>> for EntitySchema<Complete
 }
 
 impl EntitySchema<Single, EntityType, FieldType> {
-    pub fn from_string_schema(schema: EntitySchema<Single, String, String>, store: &impl StoreTrait) -> Self {
+    pub fn from_string_schema(schema: EntitySchema<Single, String, String>, store: &Store) -> Self {
         Self {
             entity_type: store.get_entity_type(schema.entity_type.as_str()).expect("Entity type not found"),
             inherit: schema.inherit.into_iter().map(|et| store.get_entity_type(et.as_str()).expect("Entity type not found")).collect(),
@@ -87,7 +87,7 @@ impl EntitySchema<Single, EntityType, FieldType> {
         }
     }
 
-    pub fn to_string_schema(&self, store: &impl StoreTrait) -> EntitySchema<Single, String, String> {
+    pub fn to_string_schema(&self, store: &Store) -> EntitySchema<Single, String, String> {
         EntitySchema {
             entity_type: store.resolve_entity_type(self.entity_type.clone()).expect("Entity type does not exist"),
             inherit: self.inherit.iter().map(|et| store.resolve_entity_type(et.clone()).expect("Entity type does not exist")).collect(),
@@ -95,6 +95,19 @@ impl EntitySchema<Single, EntityType, FieldType> {
                 .fields
                 .iter()
                 .map(|(k, v)| (store.resolve_field_type(k.clone()).expect("Field type does not exist"), v.to_string_schema(store)))
+                .collect(),
+            _marker: std::marker::PhantomData,
+        }
+    }
+
+    pub fn to_string_schema_proxy(&self, store: &StoreProxy) -> EntitySchema<Single, String, String> {
+        EntitySchema {
+            entity_type: store.resolve_entity_type(self.entity_type.clone()).expect("Entity type does not exist"),
+            inherit: self.inherit.iter().map(|et| store.resolve_entity_type(et.clone()).expect("Entity type does not exist")).collect(),
+            fields: self
+                .fields
+                .iter()
+                .map(|(k, v)| (store.resolve_field_type(k.clone()).expect("Field type does not exist"), v.to_string_schema_proxy(store)))
                 .collect(),
             _marker: std::marker::PhantomData,
         }
