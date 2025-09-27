@@ -11,7 +11,7 @@ use crate::{
     data::{
         entity_schema::Complete, hash_notify_config,
         interner::Interner, now, request::PushCondition, EntityType, FieldType, Notification,
-        NotificationQueue, NotifyConfig, StoreTrait, Timestamp,
+        NotificationQueue, NotifyConfig, Timestamp,
     },
     et::ET,
     expr::CelExecutor,
@@ -2020,10 +2020,9 @@ impl Store {
             }
         }
     }
-}
 
-impl StoreTrait for Store {
-    fn get_entity_type(&self, name: &str) -> Result<EntityType> {
+    /// Get entity type by name
+    pub fn get_entity_type(&self, name: &str) -> Result<EntityType> {
         if let Some(id) = self.entity_type_interner.get(name) {
             Ok(EntityType(id as u32))
         } else {
@@ -2031,7 +2030,8 @@ impl StoreTrait for Store {
         }
     }
 
-    fn resolve_entity_type(&self, entity_type: EntityType) -> Result<String> {
+    /// Resolve entity type to name
+    pub fn resolve_entity_type(&self, entity_type: EntityType) -> Result<String> {
         if let Some(entity_type_str) = self.entity_type_interner.resolve(entity_type.0 as u64) {
             Ok(entity_type_str.clone())
         } else {
@@ -2039,7 +2039,8 @@ impl StoreTrait for Store {
         }
     }
 
-    fn get_field_type(&self, name: &str) -> Result<FieldType> {
+    /// Get field type by name
+    pub fn get_field_type(&self, name: &str) -> Result<FieldType> {
         if let Some(id) = self.field_type_interner.get(name) {
             Ok(FieldType(id))
         } else {
@@ -2047,112 +2048,13 @@ impl StoreTrait for Store {
         }
     }
 
-    fn resolve_field_type(&self, field_type: FieldType) -> Result<String> {
+    /// Resolve field type to name
+    pub fn resolve_field_type(&self, field_type: FieldType) -> Result<String> {
         if let Some(field_type_str) = self.field_type_interner.resolve(field_type.0 as u64) {
             Ok(field_type_str.clone())
         } else {
             Err(Error::FieldTypeNotFound(EntityId(0), field_type))
         }
     }
-
-    fn get_entity_schema(&self, entity_type: EntityType) -> Result<EntitySchema<Single>> {
-        self.get_entity_schema(entity_type)
-    }
-
-    fn get_complete_entity_schema(
-        &self,
-        entity_type: EntityType,
-    ) -> Result<&EntitySchema<Complete>> {
-        self.get_complete_entity_schema(entity_type)
-    }
-
-    fn get_field_schema(
-        &self,
-        entity_type: EntityType,
-        field_type: FieldType,
-    ) -> Result<FieldSchema> {
-        self.get_field_schema(entity_type, field_type)
-    }
-
-    fn set_field_schema(
-        &mut self,
-        entity_type: EntityType,
-        field_type: FieldType,
-        schema: FieldSchema,
-    ) -> Result<()> {
-        self.set_field_schema(entity_type, field_type, schema)
-    }
-
-    fn entity_exists(&self, entity_id: EntityId) -> bool {
-        self.entity_exists(entity_id)
-    }
-
-    fn field_exists(&self, entity_type: EntityType, field_type: FieldType) -> bool {
-        self.field_exists(entity_type, field_type)
-    }
-
-    fn resolve_indirection(&self, entity_id: EntityId, fields: &[FieldType]) -> Result<(EntityId, FieldType)> {
-        self.resolve_indirection(entity_id, fields)
-    }
-
-    fn perform(&self, requests: Requests) -> Result<Requests> {
-        self.perform(requests)
-    }
-
-    fn perform_mut(&mut self, requests: Requests) -> Result<Requests> {
-        self.perform_mut(requests)
-    }
-
-    fn find_entities_paginated(
-        &self,
-        entity_type: EntityType,
-        page_opts: Option<&PageOpts>,
-        filter: Option<&str>,
-    ) -> Result<PageResult<EntityId>> {
-        self.find_entities_paginated(entity_type, page_opts, filter)
-    }
-
-    fn find_entities_exact(
-        &self,
-        entity_type: EntityType,
-        page_opts: Option<&PageOpts>,
-        filter: Option<&str>,
-    ) -> Result<PageResult<EntityId>> {
-        self.find_entities_exact(entity_type, page_opts, filter)
-    }
-
-    fn find_entities(
-        &self,
-        entity_type: EntityType,
-        filter: Option<&str>,
-    ) -> Result<Vec<EntityId>> {
-        self.find_entities(entity_type, filter)
-    }
-
-    fn get_entity_types(&self) -> Result<Vec<EntityType>> {
-        self.get_entity_types()
-    }
-
-    fn get_entity_types_paginated(
-        &self,
-        page_opts: Option<&PageOpts>,
-    ) -> Result<PageResult<EntityType>> {
-        self.get_entity_types_paginated(page_opts)
-    }
-
-    fn register_notification(
-        &mut self,
-        config: NotifyConfig,
-        sender: NotificationQueue,
-    ) -> Result<()> {
-        self.register_notification(config, sender)
-    }
-
-    fn unregister_notification(
-        &mut self,
-        config: &NotifyConfig,
-        sender: &NotificationQueue,
-    ) -> bool {
-        self.unregister_notification(config, sender)
-    }
 }
+

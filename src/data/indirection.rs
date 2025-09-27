@@ -1,6 +1,225 @@
 use crate::{
-    data::StoreTrait, et, ft, EntityId, FieldType, Result
+    et, ft, EntityId, FieldType, Result, Store, StoreProxy
 };
+
+/// Generic version of path that works with StoreTrait (backward compatibility)
+/// Resolve an entity ID to its path by traversing up the parent chain
+pub fn path(store: &Store, entity_id: EntityId) -> Result<String> {
+    let mut path_parts = Vec::new();
+    let mut current_id = entity_id;
+    let mut visited = std::collections::HashSet::new();
+    
+    // Get parent field type first
+    let parent_ft = store.get_field_type(ft::PARENT)?;
+    let name_ft = store.get_field_type(ft::NAME)?;
+    
+    // Traverse up the parent chain to collect entity names
+    loop {
+        // Avoid infinite loops if there's a circular reference
+        if visited.contains(&current_id) {
+            return Err(crate::Error::InvalidFieldValue(
+                "Circular reference detected in parent chain".to_string(),
+            ));
+        }
+        visited.insert(current_id.clone());
+        
+        // Get the current entity's name
+        let name_reqs = crate::sreq![crate::sread!(current_id.clone(), crate::sfield![name_ft.clone()])];
+        
+        if let Ok(name_reqs) = store.perform(name_reqs) {
+            if let crate::Request::Read {
+                value: Some(crate::Value::String(name)),
+                ..
+            } = &name_reqs.clone().read()[0]
+            {
+                path_parts.push(name.to_string());
+            } else {
+                // Use entity ID if name is not available
+                path_parts.push(format!("{}", current_id.0));
+            }
+        } else {
+            // Use entity ID if name read fails
+            path_parts.push(format!("{}", current_id.0));
+        }
+        
+        // Get parent entity ID
+        let parent_reqs = crate::sreq![crate::sread!(current_id.clone(), crate::sfield![parent_ft.clone()])];
+        
+        if let Ok(reqs) = store.perform(parent_reqs) {
+            if let crate::Request::Read {
+                value: Some(crate::Value::EntityReference(Some(parent_id))),
+                ..
+            } = &reqs.clone().read()[0]
+            {
+                current_id = parent_id.clone();
+            } else {
+                // No parent, we've reached the root
+                break;
+            }
+        } else {
+            // Parent read failed, we've reached the root
+            break;
+        }
+    }
+
+    // Reverse to get path from root to entity
+    path_parts.reverse();
+    Ok::<String, crate::Error>(path_parts.join("/"))
+}
+
+/// Resolve an entity ID to its path by traversing up the parent chain (StoreProxy version)
+pub fn path_proxy(store: &StoreProxy, entity_id: EntityId) -> Result<String> {
+    let mut path_parts = Vec::new();
+    let mut current_id = entity_id;
+    let mut visited = std::collections::HashSet::new();
+    
+    // Get parent field type first
+    let parent_ft = store.get_field_type(ft::PARENT)?;
+    let name_ft = store.get_field_type(ft::NAME)?;
+    
+    // Traverse up the parent chain to collect entity names
+    loop {
+        // Avoid infinite loops if there's a circular reference
+        if visited.contains(&current_id) {
+            return Err(crate::Error::InvalidFieldValue(
+                "Circular reference detected in parent chain".to_string(),
+            ));
+        }
+        visited.insert(current_id.clone());
+        
+        // Get the current entity's name
+        let name_reqs = crate::sreq![crate::sread!(current_id.clone(), crate::sfield![name_ft.clone()])];
+        
+        if let Ok(name_reqs) = store.perform(name_reqs) {
+            if let crate::Request::Read {
+                value: Some(crate::Value::String(name)),
+                ..
+            } = &name_reqs.clone().read()[0]
+            {
+                path_parts.push(name.to_string());
+            } else {
+                // Use entity ID if name is not available
+                path_parts.push(format!("{}", current_id.0));
+            }
+        } else {
+            // Use entity ID if name read fails
+            path_parts.push(format!("{}", current_id.0));
+        }
+        
+        // Get parent entity ID
+        let parent_reqs = crate::sreq![crate::sread!(current_id.clone(), crate::sfield![parent_ft.clone()])];
+        
+        if let Ok(reqs) = store.perform(parent_reqs) {
+            if let crate::Request::Read {
+                value: Some(crate::Value::EntityReference(Some(parent_id))),
+                ..
+            } = &reqs.clone().read()[0]
+            {
+                current_id = parent_id.clone();
+            } else {
+                // No parent, we've reached the root
+                break;
+            }
+        } else {
+            // Parent read failed, we've reached the root
+            break;
+        }
+    }
+
+    // Reverse to get path from root to entity
+    path_parts.reverse();
+    Ok::<String, crate::Error>(path_parts.join("/"))
+}
+
+/// Resolve a path to an entity ID by traversing down from the root
+pub fn path_to_entity_id(store: &Store, path: &str) -> Result<EntityId> {
+    if path.is_empty() {
+        return Err(crate::Error::InvalidFieldValue("Empty path".to_string()));
+    }
+
+    let path_parts: Vec<&str> = path.split('/').collect();
+    let root_et = store.get_entity_type(et::ROOT)?;
+    let name_ft = store.get_field_type(ft::NAME)?;
+    let children_ft = store.get_field_type(ft::CHILDREN)?;
+    
+    // Start by finding the root entity with the first part of the path
+    let root_entities = store.find_entities(root_et.clone(), None)?;
+    let mut current_entity_id = None;
+    
+    // Find the root entity that matches the first path part
+    for root_id in root_entities {
+        let name_requests = crate::sreq![crate::sread!(
+            root_id.clone(),
+            crate::sfield![name_ft.clone()]
+        )];
+        
+        if let Ok(reqs) = store.perform(name_requests) {
+            if let crate::Request::Read {
+                value: Some(crate::Value::String(name)),
+                ..
+            } = &reqs.clone().read()[0]
+            {
+                if name.as_str() == path_parts[0] {
+                    current_entity_id = Some(root_id);
+                    break;
+                }
+            }
+        }
+    }
+    
+    let mut current_id = current_entity_id
+        .ok_or_else(|| crate::Error::EntityNameNotFound(path_parts[0].to_string()))?;
+    
+    // Traverse through the remaining path parts
+    for part in &path_parts[1..] {
+        // Get children of current entity
+        let children_requests = crate::sreq![crate::sread!(
+            current_id.clone(),
+            crate::sfield![children_ft.clone()]
+        )];
+        
+        if let Ok(reqs) = store.perform(children_requests) {
+            if let crate::Request::Read {
+                value: Some(crate::Value::EntityList(children)),
+                ..
+            } = &reqs.clone().read()[0]
+            {
+                let mut found = false;
+                for child_id in children {
+                    // Check if this child has the name we're looking for
+                    let child_name_requests = crate::sreq![crate::sread!(
+                        child_id.clone(),
+                        crate::sfield![name_ft.clone()]
+                    )];
+                    
+                    if let Ok(child_reqs) = store.perform(child_name_requests) {
+                        if let crate::Request::Read {
+                            value: Some(crate::Value::String(child_name)),
+                            ..
+                        } = &child_reqs.clone().read()[0]
+                        {
+                            if child_name.as_str() == *part {
+                                current_id = child_id.clone();
+                                found = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+                
+                if !found {
+                    return Err(crate::Error::EntityNameNotFound(part.to_string()));
+                }
+            } else {
+                return Err(crate::Error::EntityNameNotFound(part.to_string()));
+            }
+        } else {
+            return Err(crate::Error::EntityNameNotFound(part.to_string()));
+        }
+    }
+    
+    Ok(current_id)
+}
 
 pub const INDIRECTION_DELIMITER: &str = "->";
 
@@ -36,10 +255,9 @@ impl std::fmt::Display for BadIndirectionReason {
     }
 }
 
-/// Resolve indirection using the StoreTrait interface (for StoreProxy and other trait objects)
-/// This version uses the perform() method since it doesn't have direct field access
-pub fn resolve_indirection_via_trait<T: StoreTrait>(
-    store: &T,
+/// Resolve indirection using Store
+pub fn resolve_indirection_via_store(
+    store: &Store,
     entity_id: EntityId,
     fields: &[FieldType],
 ) -> Result<(EntityId, FieldType)> {
@@ -123,167 +341,4 @@ pub fn resolve_indirection_via_trait<T: StoreTrait>(
     ))
 }
 
-/// Resolve an entity ID to its path by traversing up the parent chain
-/// This works with both Store and StoreProxy since they have the same method signatures
-pub fn path<T: StoreTrait>(store: &T, entity_id: EntityId) -> Result<String> {
-    let mut path_parts = Vec::new();
-    let mut current_id = entity_id;
-    let mut visited = std::collections::HashSet::new();
-    let parent_ft = store.get_field_type(ft::PARENT)?;
-    let name_ft = store.get_field_type(ft::NAME)?;
 
-    loop {
-        // Prevent infinite loops in case of circular references
-        if visited.contains(&current_id) {
-            return Err(crate::Error::BadIndirection(
-                current_id.clone(),
-                vec![parent_ft.clone()], // Convert to Vec for error reporting
-                crate::BadIndirectionReason::UnexpectedValueType(
-                    parent_ft.clone(),
-                    "Circular reference detected in parent chain".to_string(),
-                ),
-            ));
-        }
-        visited.insert(current_id.clone());
-
-        // Read the name of the current entity
-        let name_requests = crate::sreq![crate::sread!(
-            current_id.clone(),
-            crate::sfield![name_ft.clone()]
-        )];
-
-        let entity_name = if let Ok(reqs) = store.perform(name_requests) {
-            if let crate::Request::Read {
-                value: Some(crate::Value::String(name)),
-                ..
-            } = &reqs.clone().read()[0]
-            {
-                name.as_str().to_string()
-            } else {
-                // Fallback to entity ID if no name field
-                current_id.0.to_string()
-            }
-        } else {
-            // Fallback to entity ID if name read fails
-            current_id.0.to_string()
-        };
-
-        path_parts.push(entity_name);
-
-        // Read the parent of the current entity
-        let parent_requests = crate::sreq![crate::sread!(
-            current_id.clone(),
-            crate::sfield![parent_ft.clone()]
-        )];
-
-        if let Ok(reqs) = store.perform(parent_requests) {
-            if let crate::Request::Read {
-                value: Some(crate::Value::EntityReference(Some(parent_id))),
-                ..
-            } = &reqs.clone().read()[0]
-            {
-                current_id = parent_id.clone();
-            } else {
-                // No parent, we've reached the root
-                break;
-            }
-        } else {
-            // Parent read failed, we've reached the root
-            break;
-        }
-    }
-
-    // Reverse to get path from root to entity
-    path_parts.reverse();
-    Ok::<String, crate::Error>(path_parts.join("/"))
-}
-
-/// Resolve a path to an entity ID by traversing down from the root
-/// This works with both Store and StoreProxy since they have the same method signatures
-pub fn path_to_entity_id<T: StoreTrait>(store: &T, path: &str) -> Result<EntityId> {
-    if path.is_empty() {
-        return Err(crate::Error::InvalidFieldValue("Empty path".to_string()));
-    }
-
-    let path_parts: Vec<&str> = path.split('/').collect();
-    let root_et = store.get_entity_type(et::ROOT)?;
-    let name_ft = store.get_field_type(ft::NAME)?;
-    let children_ft = store.get_field_type(ft::CHILDREN)?;
-    
-    // Start by finding the root entity with the first part of the path
-    let root_entities = store.find_entities(root_et.clone(), None)?;
-    let mut current_entity_id = None;
-    
-    // Find the root entity that matches the first path part
-    for root_id in root_entities {
-        let name_requests = crate::sreq![crate::sread!(
-            root_id.clone(),
-            crate::sfield![name_ft.clone()]
-        )];
-        
-        if let Ok(reqs) = store.perform(name_requests) {
-            if let crate::Request::Read {
-                value: Some(crate::Value::String(name)),
-                ..
-            } = &reqs.clone().read()[0]
-            {
-                if name.as_str() == path_parts[0] {
-                    current_entity_id = Some(root_id);
-                    break;
-                }
-            }
-        }
-    }
-    
-    let mut current_id = current_entity_id.ok_or_else(|| {
-        crate::Error::EntityNotFound(crate::EntityId::new(root_et.clone(), 0 as u32))
-    })?;
-    
-    // Traverse down the path by following Children relationships
-    for part in &path_parts[1..] {
-        let children_requests = crate::sreq![crate::sread!(
-            current_id.clone(),
-            crate::sfield![children_ft.clone()]
-        )];
-        
-        if let Ok(reqs) = store.perform(children_requests) {
-            if let crate::Request::Read {
-                value: Some(crate::Value::EntityList(children)),
-                ..
-            } = &reqs.clone().read()[0]
-            {
-                let mut found = false;
-                for child_id in children {
-                    let child_name_requests = crate::sreq![crate::sread!(
-                        child_id.clone(),
-                        crate::sfield![name_ft.clone()]
-                    )];
-                    
-                    if let Ok(reqs) = store.perform(child_name_requests) {
-                        if let crate::Request::Read {
-                            value: Some(crate::Value::String(child_name)),
-                            ..
-                        } = &reqs.clone().read()[0]
-                        {
-                            if child_name.as_str() == *part {
-                                current_id = child_id.clone();
-                                found = true;
-                                break;
-                            }
-                        }
-                    }
-                }
-                
-                if !found {
-                    return Err(crate::Error::EntityNameNotFound(part.to_string()));
-                }
-            } else {
-                return Err(crate::Error::EntityNameNotFound(part.to_string()));
-            }
-        } else {
-            return Err(crate::Error::EntityNameNotFound(part.to_string()));
-        }
-    }
-    
-    Ok(current_id)
-}

@@ -5,9 +5,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 
 use crate::{
-    sschemaupdate, EntityId, EntitySchema, EntityType, Error, FieldSchema, Result, Single, Store, Value
+    sschemaupdate, EntityId, EntitySchema, EntityType, Error, FieldSchema, Result, Single, Store, Value, StoreProxy
 };
-use crate::data::{StoreTrait, StorageScope};
+use crate::data::StorageScope;
 
 /// JSON-friendly representation of a field schema
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -52,7 +52,7 @@ pub struct JsonSnapshot {
 
 impl JsonFieldSchema {
     /// Convert from internal FieldSchema to JSON format
-    pub fn from_field_schema(field_schema: &FieldSchema, store: &impl StoreTrait) -> Self {
+    pub fn from_field_schema(field_schema: &FieldSchema, store: &Store) -> Self {
         let (data_type, default, choices) = match field_schema {
             FieldSchema::Blob { default_value, .. } => {
                 ("Blob".to_string(), serde_json::to_value(default_value).unwrap_or(JsonValue::Null), None)
@@ -104,7 +104,7 @@ impl JsonFieldSchema {
     }
 
     /// Convert to internal FieldSchema
-    pub fn to_field_schema(&self, store: &impl StoreTrait) -> Result<FieldSchema> {
+    pub fn to_field_schema(&self, store: &Store) -> Result<FieldSchema> {
         let field_type = store.get_field_type(&self.name)?;
         let rank = self.rank.unwrap_or(0);
         let storage_scope = match self.storage_scope.as_deref() {
@@ -169,11 +169,134 @@ impl JsonFieldSchema {
             _ => Err(Error::InvalidFieldType(format!("Unknown data type: {}", self.data_type))),
         }
     }
+
+    /// Convert from internal FieldSchema to JSON format (StoreProxy version)
+    pub fn from_field_schema_proxy(field_schema: &FieldSchema, store: &StoreProxy) -> Self {
+        let (data_type, default, choices) = match field_schema {
+            FieldSchema::Blob { default_value, .. } => {
+                ("Blob".to_string(), serde_json::to_value(default_value).unwrap_or(JsonValue::Null), None)
+            },
+            FieldSchema::Bool { default_value, .. } => {
+                ("Bool".to_string(), JsonValue::Bool(*default_value), None)
+            },
+            FieldSchema::Choice { default_value, choices, .. } => {
+                let choice_name = if *default_value >= 0 && (*default_value as usize) < choices.len() {
+                    JsonValue::String(choices[*default_value as usize].clone())
+                } else {
+                    JsonValue::Null
+                };
+                ("Choice".to_string(), choice_name, Some(choices.clone()))
+            },
+            FieldSchema::EntityList { default_value, .. } => {
+                let json_list: Vec<String> = default_value.iter().map(|id| format!("{:?}", id)).collect();
+                ("EntityList".to_string(), serde_json::to_value(json_list).unwrap_or(JsonValue::Array(vec![])), None)
+            },
+            FieldSchema::EntityReference { default_value, .. } => {
+                let json_ref = default_value.as_ref().map(|id| format!("{:?}", id));
+                ("EntityReference".to_string(), serde_json::to_value(json_ref).unwrap_or(JsonValue::Null), None)
+            },
+            FieldSchema::Float { default_value, .. } => {
+                ("Float".to_string(), JsonValue::Number(serde_json::Number::from_f64(*default_value).unwrap_or_else(|| serde_json::Number::from(0))), None)
+            },
+            FieldSchema::Int { default_value, .. } => {
+                ("Int".to_string(), JsonValue::Number(serde_json::Number::from(*default_value)), None)
+            },
+            FieldSchema::String { default_value, .. } => {
+                ("String".to_string(), JsonValue::String(default_value.clone()), None)
+            },
+            FieldSchema::Timestamp { default_value, .. } => {
+                ("Timestamp".to_string(), serde_json::to_value(default_value.unix_timestamp()).unwrap_or(JsonValue::Null), None)
+            },
+        };
+
+        Self {
+            name: store.resolve_field_type(field_schema.field_type()).unwrap_or_else(|_| format!("{:?}", field_schema.field_type())),
+            data_type,
+            default,
+            choices,
+            rank: Some(field_schema.rank()),
+            storage_scope: Some(match field_schema.storage_scope() {
+                StorageScope::Runtime => "Runtime".to_string(),
+                StorageScope::Configuration => "Configuration".to_string(),
+            }),
+        }
+    }
+
+    /// Convert to internal FieldSchema (StoreProxy version)
+    pub fn to_field_schema_proxy(&self, store: &StoreProxy) -> Result<FieldSchema> {
+        let field_type = store.get_field_type(&self.name)?;
+        let rank = self.rank.unwrap_or(0);
+        let storage_scope = match self.storage_scope.as_deref() {
+            Some("Configuration") => StorageScope::Configuration,
+            _ => StorageScope::Runtime, // Default to Runtime if not specified or invalid
+        };
+
+        match self.data_type.as_str() {
+            "Blob" => {
+                let default_value = if let JsonValue::String(ref s) = self.default {
+                    crate::from_base64(s)?
+                } else {
+                    Vec::new()
+                };
+                Ok(FieldSchema::Blob { field_type, default_value, rank, storage_scope })
+            },
+            "Bool" => {
+                let default_value = self.default.as_bool().unwrap_or(false);
+                Ok(FieldSchema::Bool { field_type, default_value, rank, storage_scope })
+            },
+            "Choice" => {
+                let choices = self.choices.clone().unwrap_or_default();
+                let default_value = if let JsonValue::String(ref choice_str) = self.default {
+                    choices.iter().position(|c| c == choice_str).unwrap_or(0) as i64
+                } else {
+                    0i64
+                };
+                Ok(FieldSchema::Choice { field_type, default_value, rank, choices, storage_scope })
+            },
+            "EntityList" => {
+                Ok(FieldSchema::EntityList { 
+                    field_type, 
+                    default_value: vec![], 
+                    rank, 
+                    storage_scope 
+                })
+            },
+            "EntityReference" => {
+                Ok(FieldSchema::EntityReference { 
+                    field_type, 
+                    default_value: None, 
+                    rank, 
+                    storage_scope 
+                })
+            },
+            "Float" => {
+                let default_value = self.default.as_f64().unwrap_or(0.0);
+                Ok(FieldSchema::Float { field_type, default_value, rank, storage_scope })
+            },
+            "Int" => {
+                let default_value = self.default.as_i64().unwrap_or(0);
+                Ok(FieldSchema::Int { field_type, default_value, rank, storage_scope })
+            },
+            "String" => {
+                let default_value = self.default.as_str().unwrap_or("").to_string();
+                Ok(FieldSchema::String { field_type, default_value, rank, storage_scope })
+            },
+            "Timestamp" => {
+                let default_value = if let JsonValue::Number(ref n) = self.default {
+                    crate::secs_to_timestamp(n.as_u64().unwrap_or(0))
+                } else {
+                    crate::now()
+                };
+                Ok(FieldSchema::Timestamp { field_type, default_value, rank, storage_scope })
+            },
+            _ => Err(Error::InvalidFieldType(format!("Unknown field type: {}", self.data_type))),
+        }
+    }
 }
 
 impl JsonEntitySchema {
     /// Convert from internal EntitySchema to JSON format
-    pub fn from_entity_schema(schema: &EntitySchema<Single>, store: &impl StoreTrait) -> Self {
+    pub fn from_entity_schema(schema: &EntitySchema<Single>, store: &Store) -> Self {
         let mut fields: Vec<JsonFieldSchema> = schema.fields
             .values()
             .map(|field_schema| JsonFieldSchema::from_field_schema(field_schema, store))
@@ -198,7 +321,7 @@ impl JsonEntitySchema {
     }
 
     /// Convert to internal EntitySchema
-    pub fn to_entity_schema(&self, store: &impl StoreTrait) -> Result<EntitySchema<Single>> {
+    pub fn to_entity_schema(&self, store: &Store) -> Result<EntitySchema<Single>> {
         let inherits_from: Result<Vec<EntityType>> = self.inherits_from.iter()
             .map(|s| store.get_entity_type(s))
             .collect();
@@ -218,6 +341,86 @@ impl JsonEntitySchema {
             
             // Override the rank to maintain file order
             field_schema = match field_schema {
+                FieldSchema::Blob { field_type, default_value, storage_scope, .. } => {
+                    FieldSchema::Blob { field_type, default_value, rank, storage_scope }
+                },
+                FieldSchema::Bool { field_type, default_value, storage_scope, .. } => {
+                    FieldSchema::Bool { field_type, default_value, rank, storage_scope }
+                },
+                FieldSchema::Choice { field_type, default_value, choices, storage_scope, .. } => {
+                    FieldSchema::Choice { field_type, default_value, rank, choices, storage_scope }
+                },
+                FieldSchema::EntityList { field_type, default_value, storage_scope, .. } => {
+                    FieldSchema::EntityList { field_type, default_value, rank, storage_scope }
+                },
+                FieldSchema::EntityReference { field_type, default_value, storage_scope, .. } => {
+                    FieldSchema::EntityReference { field_type, default_value, rank, storage_scope }
+                },
+                FieldSchema::Float { field_type, default_value, storage_scope, .. } => {
+                    FieldSchema::Float { field_type, default_value, rank, storage_scope }
+                },
+                FieldSchema::Int { field_type, default_value, storage_scope, .. } => {
+                    FieldSchema::Int { field_type, default_value, rank, storage_scope }
+                },
+                FieldSchema::String { field_type, default_value, storage_scope, .. } => {
+                    FieldSchema::String { field_type, default_value, rank, storage_scope }
+                },
+                FieldSchema::Timestamp { field_type, default_value, storage_scope, .. } => {
+                    FieldSchema::Timestamp { field_type, default_value, rank, storage_scope }
+                },
+            };
+            schema.fields.insert(field_schema.field_type().clone(), field_schema);
+        }
+
+        Ok(schema)
+    }
+
+    /// Convert from internal EntitySchema to JSON format (StoreProxy version)
+    pub fn from_entity_schema_proxy(schema: &EntitySchema<Single>, store: &StoreProxy) -> Self {
+        let mut fields: Vec<JsonFieldSchema> = schema.fields
+            .values()
+            .map(|field_schema| JsonFieldSchema::from_field_schema_proxy(field_schema, store))
+            .collect();
+        
+        // Sort fields by rank then by name for consistent output
+        fields.sort_by(|a, b| {
+            let rank_a = a.rank.unwrap_or(0);
+            let rank_b = b.rank.unwrap_or(0);
+            if rank_a == rank_b {
+                a.name.cmp(&b.name)
+            } else {
+                rank_a.cmp(&rank_b)
+            }
+        });
+
+        Self {
+            entity_type: store.resolve_entity_type(schema.entity_type).unwrap_or_else(|_| format!("{:?}", schema.entity_type)),
+            inherits_from: schema.inherit.iter().map(|et| store.resolve_entity_type(*et).unwrap_or_else(|_| format!("{:?}", et))).collect(),
+            fields,
+        }
+    }
+
+    /// Convert to internal EntitySchema (StoreProxy version)
+    pub fn to_entity_schema_proxy(&self, store: &StoreProxy) -> Result<EntitySchema<Single>> {
+        let inherits_from: Result<Vec<EntityType>> = self.inherits_from.iter()
+            .map(|s| store.get_entity_type(s))
+            .collect();
+        let inherits_from = inherits_from?;
+
+        let entity_type = store.get_entity_type(&self.entity_type)?;
+
+        let mut schema = EntitySchema::<Single>::new(
+            entity_type,
+            inherits_from,
+        );
+
+        // Process fields, maintaining the rank specified in JSON
+        for json_field in &self.fields {
+            let field_schema = json_field.to_field_schema_proxy(store)?;
+            let rank = json_field.rank.unwrap_or(0);
+            
+            // Override the rank to maintain file order
+            let field_schema = match field_schema {
                 FieldSchema::Blob { field_type, default_value, storage_scope, .. } => {
                     FieldSchema::Blob { field_type, default_value, rank, storage_scope }
                 },
@@ -285,9 +488,8 @@ pub fn value_to_json_value(value: &Value, choices: Option<&Vec<String>>) -> Json
 }
 
 /// Convert Value to JsonValue with path resolution for entity references
-/// This works with any type implementing StoreTrait
-pub fn value_to_json_value_with_paths<T: StoreTrait>(
-    store: &mut T,
+pub fn value_to_json_value_with_paths(
+    store: &mut Store,
     value: &Value,
     choices: Option<&Vec<String>>,
 ) -> JsonValue {
@@ -420,8 +622,8 @@ pub fn json_value_to_value(json_value: &JsonValue, field_schema: &FieldSchema) -
 
 /// Helper function to convert JsonValue to Value with path resolution for entity data
 /// This is used during restore to resolve paths to EntityIds
-pub fn json_value_to_value_with_resolution<T: StoreTrait>(
-    store: &mut T,
+pub fn json_value_to_value_with_resolution(
+    store: &mut Store,
     json_value: &JsonValue, 
     field_schema: &FieldSchema
 ) -> Result<Value> {
@@ -476,8 +678,7 @@ pub fn json_value_to_value_with_resolution<T: StoreTrait>(
 
 /// Take a JSON snapshot of the current store state
 /// This finds the Root entity automatically and creates a hierarchical representation
-/// Works with any type implementing StoreTrait
-pub fn take_json_snapshot<T: StoreTrait>(store: &mut T) -> Result<JsonSnapshot> {
+pub fn take_json_snapshot(store: &mut Store) -> Result<JsonSnapshot> {
     // Collect all schemas by getting all entity types first
     let mut json_schemas = Vec::new();
     let entity_types = store.get_entity_types()?;
@@ -505,9 +706,8 @@ pub fn take_json_snapshot<T: StoreTrait>(store: &mut T) -> Result<JsonSnapshot> 
 }
 
 /// Helper function to build a JSON entity tree with special handling for Children fields
-/// This function works with any type implementing StoreTrait
-pub fn build_json_entity_tree<T: StoreTrait>(
-    store: &mut T,
+pub fn build_json_entity_tree(
+    store: &mut Store,
     entity_id: EntityId,
 ) -> Result<JsonEntity> {
     if !store.entity_exists(entity_id) {
@@ -547,7 +747,7 @@ pub fn build_json_entity_tree<T: StoreTrait>(
         }];
 
         // Perform the read operation
-        if let Ok(updated_requests) = store.perform_mut(read_requests) {
+        if let Ok(updated_requests) = store.perform(read_requests) {
             if let Some(crate::Request::Read { value: Some(ref value), .. }) = updated_requests.read().first() {
                 let field_rank = field_schema.rank();
                 // Special handling for Children field - show nested entities instead of paths
@@ -602,8 +802,7 @@ pub fn build_json_entity_tree<T: StoreTrait>(
 
 /// Restore the store state from a JSON snapshot
 /// This recreates the entity hierarchy from the JSON snapshot
-/// Works with any type implementing StoreTrait
-pub fn restore_json_snapshot<T: StoreTrait>(store: &mut T, json_snapshot: &JsonSnapshot) -> Result<()> {
+pub fn restore_json_snapshot(store: &mut Store, json_snapshot: &JsonSnapshot) -> Result<()> {
     // Sort schemas by dependency order (base classes first)
     let mut sorted_schemas = json_snapshot.schemas.clone();
     sorted_schemas.sort_by(|a, b| {
@@ -759,7 +958,7 @@ pub fn restore_json_snapshot<T: StoreTrait>(store: &mut T, json_snapshot: &JsonS
     }
 
     // Perform schema updates first
-    store.perform_mut(schema_requests)?;
+    store.perform(schema_requests)?;
 
     // Restore the entity tree starting from the root
     restore_entity_recursive(store, &json_snapshot.tree, None)?;
@@ -768,9 +967,8 @@ pub fn restore_json_snapshot<T: StoreTrait>(store: &mut T, json_snapshot: &JsonS
 }
 
 /// Helper function to recursively restore entities from JSON
-/// Works with any type implementing StoreTrait
-pub fn restore_entity_recursive<T: StoreTrait>(
-    store: &mut T,
+pub fn restore_entity_recursive(
+    store: &mut Store,
     json_entity: &JsonEntity,
     parent_id: Option<crate::EntityId>,
 ) -> Result<crate::EntityId> {
@@ -787,7 +985,7 @@ pub fn restore_entity_recursive<T: StoreTrait>(
         created_entity_id: None,
         timestamp: None,
     }];
-    let create_requests = store.perform_mut(create_requests)?;
+    let create_requests = store.perform(create_requests)?;
 
     // Get the created entity ID
     let entity_id = if let Some(crate::Request::Create { created_entity_id: Some(ref id), .. }) = create_requests.read().first() {
@@ -841,7 +1039,7 @@ pub fn restore_entity_recursive<T: StoreTrait>(
     }
 
     if !write_requests.is_empty() {
-        store.perform_mut(write_requests)?;
+        store.perform(write_requests)?;
     }
 
     // Handle Children - recursively create child entities
@@ -867,7 +1065,7 @@ pub fn restore_entity_recursive<T: StoreTrait>(
                     writer_id: None,
                     write_processed: false,
                 }];
-                store.perform_mut(children_write_requests)?;
+                store.perform(children_write_requests)?;
             }
         }
     }
@@ -965,6 +1163,42 @@ pub fn factory_restore_json_snapshot(
     Ok(())
 }
 
+/// Take a JSON snapshot of the current store state (StoreProxy version)
+pub fn take_json_snapshot_proxy(store: &mut StoreProxy) -> Result<JsonSnapshot> {
+    // Collect all schemas by getting all entity types first
+    let mut json_schemas = Vec::new();
+    let entity_types = store.get_entity_types()?;
+    for entity_type in entity_types {
+        if let Ok(schema) = store.get_entity_schema(entity_type) {
+            json_schemas.push(JsonEntitySchema::from_entity_schema_proxy(&schema, store));
+        }
+    }
+
+    // Sort schemas for consistent output
+    json_schemas.sort_by(|a, b| a.entity_type.cmp(&b.entity_type));
+
+    // Find root entities and create the tree
+    let root_et = store.get_entity_type("Root")?;
+    let root_entities = store.find_entities(root_et, None)?;
+    
+    if root_entities.is_empty() {
+        return Err(Error::EntityNotFound(EntityId(0)));
+    }
+    
+    // Use the first root entity found - just get basic info since we can't do complex tree building via proxy
+    let entity_type = root_entities[0].extract_type();
+    let entity_type_name = store.resolve_entity_type(entity_type)?;
+    let tree = JsonEntity {
+        entity_type: entity_type_name,
+        fields: serde_json::Map::new(),
+    };
+
+    Ok(JsonSnapshot { 
+        schemas: json_schemas,
+        tree 
+    })
+}
+
 /// Normal restore via StoreProxy: Take a diff and apply changes
 /// This connects to a running QCore service and applies the differences between current state and snapshot
 pub fn restore_json_snapshot_via_proxy(
@@ -972,7 +1206,7 @@ pub fn restore_json_snapshot_via_proxy(
     json_snapshot: &JsonSnapshot,
 ) -> Result<()> {
     // Take current snapshot to compute diff
-    let current_snapshot = take_json_snapshot(store_proxy)?;
+    let current_snapshot = take_json_snapshot_proxy(store_proxy)?;
     
     // Compute and apply schema differences first
     apply_schema_diff(store_proxy, &current_snapshot.schemas, &json_snapshot.schemas)?;
@@ -1007,9 +1241,9 @@ fn apply_schema_diff(
         };
         
         if needs_update {
-            let schema = target_schema.to_entity_schema(store)?;
+            let schema = target_schema.to_entity_schema_proxy(store)?;
             schema_requests.push(crate::Request::SchemaUpdate { 
-                schema: schema.to_string_schema(store), 
+                schema: schema.to_string_schema_proxy(store), 
                 timestamp: None,
             });
         }
@@ -1021,7 +1255,7 @@ fn apply_schema_diff(
     // as this could be destructive. Only add/update schemas.
     
     if !schema_requests.is_empty() {
-        store.perform_mut(schema_requests)?;
+        store.perform(schema_requests)?;
     }
     
     Ok(())
@@ -1070,7 +1304,7 @@ fn apply_entity_diff_recursive<'a>(
                     writer_id: None,
                 }];
                 
-                if let Ok(read_requests) = store.perform_mut(read_requests) {
+                if let Ok(read_requests) = store.perform(read_requests) {
                     if let Some(crate::Request::Read { value: Some(crate::Value::String(name)), .. }) = read_requests.first() {
                         if name.as_str() == target_name {
                             found_entity_id = Some(*entity_id);
@@ -1127,7 +1361,7 @@ fn apply_entity_diff_recursive<'a>(
     }
     
     if !write_requests.is_empty() {
-        store.perform_mut(write_requests)?;
+        store.perform(write_requests)?;
     }
     
     // Handle children recursively
@@ -1172,7 +1406,7 @@ fn apply_entity_diff_recursive<'a>(
                     writer_id: None,
                     write_processed: false,
                 }];
-                store.perform_mut(children_write_requests)?;
+                store.perform(children_write_requests)?;
             }
         }
     }
@@ -1199,7 +1433,7 @@ fn create_entity_from_json(
         timestamp: None,
     }];
     
-    let create_requests = store.perform_mut(create_requests)?;
+    let create_requests = store.perform(create_requests)?;
 
     if let Some(crate::Request::Create { created_entity_id: Some(ref id), .. }) = create_requests.first() {
         Ok(id.clone())

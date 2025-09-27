@@ -1,4 +1,4 @@
-use crate::{Store, Cache, CelExecutor, EntityId, Error, FieldType, Result, Value, StoreTrait};
+use crate::{Store, Cache, CelExecutor, EntityId, Error, FieldType, Result, Value};
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 #[allow(dead_code)]
