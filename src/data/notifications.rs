@@ -5,7 +5,7 @@ use std::hash::{Hash, Hasher};
 use std::rc::Rc;
 use serde::{Deserialize, Serialize};
 
-use crate::{EntityId, EntityType, FieldType, IndirectFieldType, Request, Value, Timestamp};
+use crate::{EntityId, EntityType, FieldType, IndirectFieldType, Value, Timestamp};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash)]
 pub enum NotifyConfig {
