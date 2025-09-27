@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use rustc_hash::FxHashMap;
 
 use crate::{
-    data::StoreTrait, EntityId, EntityType, FieldType, NotificationQueue, NotifyConfig, Request, Value
+    data::StoreTrait, EntityId, EntityType, FieldType, NotificationQueue, NotifyConfig, NotifyInfo, Value
 };
 
 #[derive(Debug)]
@@ -135,10 +135,10 @@ impl Cache {
     pub fn process_notifications(&mut self) {
         // Extract entity_id and field_type from the current request
         while let Some(notification) = self.notify_queue.pop() {
-            if let Request::Read { entity_id, field_types, value: current_value, .. } = &notification.current {
-                if let Request::Read { value: previous_value, .. } = &notification.previous {
-                    // Handle the case where field_types is Vec<FieldType> - take the first one
-                    if let Some(field_type) = field_types.first() {
+            if let NotifyInfo { entity_id, field_path: field_type, value: current_value, .. } = &notification.current {
+                if let NotifyInfo { value: previous_value, .. } = &notification.previous {
+                    // Handle the case where field_type is Vec<FieldType> - take the first one
+                    if let Some(field_type) = field_type.first() {
                         if let Some(curr_val) = current_value {
                             self.fields_by_entity_id
                                 .entry(*entity_id)

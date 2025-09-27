@@ -37,7 +37,7 @@ pub use request::IndirectFieldType;
 pub use store_proxy::{StoreProxy, StoreMessage, extract_message_id};
 pub use async_store_proxy::AsyncStoreProxy;
 pub use value::{Value, ArcString, ArcBlob};
-pub use notifications::{NotifyConfig, Notification, NotificationQueue, hash_notify_config};
+pub use notifications::{NotifyConfig, Notification, NotificationQueue, NotifyInfo, hash_notify_config};
 
 pub use utils::{from_base64, to_base64};
 

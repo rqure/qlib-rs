@@ -11,7 +11,7 @@ use crate::{
     data::{
         entity_schema::Complete, hash_notify_config,
         interner::Interner, now, request::PushCondition, EntityType, FieldType, Notification,
-        NotificationQueue, NotifyConfig, StoreTrait, Timestamp,
+        NotificationQueue, NotifyConfig, NotifyInfo, StoreTrait, Timestamp,
     },
     et::ET,
     expr::CelExecutor,
@@ -23,7 +23,7 @@ use crate::{
 pub enum WriteInfo {
     FieldUpdate {
         entity_id: EntityId,
-        field_types: IndirectFieldType,
+        field_type: FieldType,
         value: Option<Value>,
         push_condition: PushCondition,
         adjust_behavior: AdjustBehavior,
@@ -1560,18 +1560,18 @@ impl Store {
                     }
 
                     // Trigger notifications after a write operation
-                    let current_request = Request::Read {
-                        entity_id: entity_id,
-                        field_types: crate::sfield![field_type],
+                    let current_info = NotifyInfo {
+                        entity_id,
+                        field_path: crate::sfield![field_type],
                         value: Some(notification_new_value.clone()),
-                        write_time: Some(field.write_time),
+                        timestamp: Some(field.write_time),
                         writer_id: field.writer_id.clone(),
                     };
-                    let previous_request = Request::Read {
-                        entity_id: entity_id,
-                        field_types: crate::sfield![field_type],
+                    let previous_info = NotifyInfo {
+                        entity_id,
+                        field_path: crate::sfield![field_type],
                         value: Some(notification_old_value.clone()),
-                        write_time: Some(field.write_time), // Use the time before the write
+                        timestamp: Some(field.write_time), // Use the time before the write
                         writer_id: field.writer_id.clone(),
                     };
 
@@ -1583,8 +1583,8 @@ impl Store {
                     self.trigger_notifications(
                         entity_id,
                         field_type,
-                        current_request,
-                        previous_request,
+                        current_info,
+                        previous_info,
                     );
                 } else {
                     // Incoming write is older, ignore it
@@ -1606,18 +1606,18 @@ impl Store {
                     }
 
                     // Trigger notifications after a write operation
-                    let current_request = Request::Read {
-                        entity_id: entity_id,
-                        field_types: crate::sfield![field_type],
+                    let current_info = NotifyInfo {
+                        entity_id,
+                        field_path: crate::sfield![field_type],
                         value: Some(notification_new_value.clone()),
-                        write_time: Some(field.write_time),
+                        timestamp: Some(field.write_time),
                         writer_id: field.writer_id.clone(),
                     };
-                    let previous_request = Request::Read {
-                        entity_id: entity_id,
-                        field_types: crate::sfield![field_type],
+                    let previous_info = NotifyInfo {
+                        entity_id,
+                        field_path: crate::sfield![field_type],
                         value: Some(notification_old_value.clone()),
-                        write_time: Some(field.write_time), // Use the time before the write
+                        timestamp: Some(field.write_time), // Use the time before the write
                         writer_id: field.writer_id.clone(),
                     };
 
@@ -1629,8 +1629,8 @@ impl Store {
                     self.trigger_notifications(
                         entity_id,
                         field_type,
-                        current_request,
-                        previous_request,
+                        current_info,
+                        previous_info,
                     );
                 } else if write_time.is_some() && incoming_time < field.write_time {
                     // Incoming write is older, ignore it
@@ -1796,20 +1796,35 @@ impl Store {
         &mut self,
         entity_id: EntityId,
         context_fields: &[Vec<FieldType>],
-    ) -> std::collections::BTreeMap<Vec<FieldType>, Request> {
+    ) -> std::collections::BTreeMap<Vec<FieldType>, NotifyInfo> {
         let mut context_map = std::collections::BTreeMap::new();
 
         for context_field in context_fields {
             // Use perform to handle indirection properly
             let field_types: IndirectFieldType = context_field.clone().into_iter().collect();
             if let Ok(updated_requests) = self.perform(sreq![sread!(entity_id, field_types.clone())]) {
-                context_map.insert(
-                    context_field.clone(),
-                    updated_requests.read().first().unwrap().clone(),
-                );
+                if let Some(req) = updated_requests.read().first() {
+                    if let Request::Read { entity_id, field_types, value, write_time, writer_id } = req {
+                        let notify_info = NotifyInfo {
+                            entity_id: *entity_id,
+                            field_path: field_types.clone(),
+                            value: value.clone(),
+                            timestamp: *write_time,
+                            writer_id: *writer_id,
+                        };
+                        context_map.insert(context_field.clone(), notify_info);
+                    }
+                }
             } else {
-                // If perform_mut fails, insert the original request
-                context_map.insert(context_field.clone(), sread!(entity_id, field_types));
+                // If perform_mut fails, insert a NotifyInfo with None values
+                let notify_info = NotifyInfo {
+                    entity_id,
+                    field_path: field_types,
+                    value: None,
+                    timestamp: None,
+                    writer_id: None,
+                };
+                context_map.insert(context_field.clone(), notify_info);
             }
         }
 
@@ -1908,8 +1923,8 @@ impl Store {
         &mut self,
         entity_id: EntityId,
         field_type: FieldType,
-        current_request: Request,
-        previous_request: Request,
+        current_info: NotifyInfo,
+        previous_info: NotifyInfo,
     ) {
         // Skip notifications if they are disabled
         if self.notifications_disabled {
@@ -1930,18 +1945,8 @@ impl Store {
                     } = config
                     {
                         let should_notify = if *trigger_on_change {
-                            // Compare values from the requests
-                            if let (
-                                Request::Read {
-                                    value: Some(current_val),
-                                    ..
-                                },
-                                Request::Read {
-                                    value: Some(previous_val),
-                                    ..
-                                },
-                            ) = (&current_request, &previous_request)
-                            {
+                            // Compare values from the infos
+                            if let (Some(current_val), Some(previous_val)) = (&current_info.value, &previous_info.value) {
                                 current_val != previous_val
                             } else {
                                 true // Always notify if we can't compare values
@@ -1975,18 +1980,8 @@ impl Store {
                         } = config
                         {
                             let should_notify = if *trigger_on_change {
-                                // Compare values from the requests
-                                if let (
-                                    Request::Read {
-                                        value: Some(current_val),
-                                        ..
-                                    },
-                                    Request::Read {
-                                        value: Some(previous_val),
-                                        ..
-                                    },
-                                ) = (&current_request, &previous_request)
-                                {
+                                // Compare values from the infos
+                                if let (Some(current_val), Some(previous_val)) = (&current_info.value, &previous_info.value) {
                                     current_val != previous_val
                                 } else {
                                     true // Always notify if we can't compare values
@@ -2010,8 +2005,8 @@ impl Store {
             let config_hash = hash_notify_config(&config);
 
             let notification = Notification {
-                current: current_request.clone(),
-                previous: previous_request.clone(),
+                current: current_info.clone(),
+                previous: previous_info.clone(),
                 context: context_fields,
                 config_hash,
             };
@@ -2285,24 +2280,24 @@ impl StoreTrait for Store {
                     }
 
                     // Trigger notifications after a write operation
-                    let current_request = Request::Read {
-                        entity_id: entity_id,
-                        field_types: crate::sfield![field_type],
+                    let current_info = NotifyInfo {
+                        entity_id,
+                        field_path: crate::sfield![field_type],
                         value: Some(notification_new_value.clone()),
-                        write_time: Some(field.write_time),
+                        timestamp: Some(field.write_time),
                         writer_id: field.writer_id.clone(),
                     };
-                    let previous_request = Request::Read {
-                        entity_id: entity_id,
-                        field_types: crate::sfield![field_type],
+                    let previous_info = NotifyInfo {
+                        entity_id,
+                        field_path: crate::sfield![field_type],
                         value: Some(notification_old_value.clone()),
-                        write_time: Some(field.write_time), // Use the time before the write
+                        timestamp: Some(field.write_time), // Use the time before the write
                         writer_id: field.writer_id.clone(),
                     };
 
                     self.write_queue.push_back(WriteInfo::FieldUpdate {
                         entity_id,
-                        field_types: crate::sfield![field_type],
+                        field_type,
                         value: Some(notification_new_value.clone()),
                         push_condition,
                         adjust_behavior,
@@ -2313,8 +2308,8 @@ impl StoreTrait for Store {
                     self.trigger_notifications(
                         entity_id,
                         field_type,
-                        current_request,
-                        previous_request,
+                        current_info,
+                        previous_info,
                     );
 
                 } else {
@@ -2337,36 +2332,36 @@ impl StoreTrait for Store {
                     }
 
                     // Trigger notifications after a write operation
-                    let current_request = Request::Read {
+                    let current_info = NotifyInfo {
                         entity_id: entity_id,
-                        field_types: crate::sfield![field_type],
+                        field_path: crate::sfield![field_type],
                         value: Some(notification_new_value.clone()),
-                        write_time: Some(field.write_time),
+                        timestamp: Some(field.write_time),
                         writer_id: field.writer_id.clone(),
                     };
-                    let previous_request = Request::Read {
+                    let previous_info = NotifyInfo {
                         entity_id: entity_id,
-                        field_types: crate::sfield![field_type],
+                        field_path: crate::sfield![field_type],
                         value: Some(notification_old_value.clone()),
-                        write_time: Some(field.write_time), // Use the time before the write
+                        timestamp: Some(field.write_time), // Use the time before the write
                         writer_id: field.writer_id.clone(),
                     };
 
                     self.write_queue.push_back(WriteInfo::FieldUpdate {
                         entity_id,
-                        field_types: crate::sfield![field_type],
+                        field_type,
                         value: Some(notification_new_value.clone()),
                         push_condition,
                         adjust_behavior,
                         write_time: Some(field.write_time),
                         writer_id: field.writer_id.clone(),
                     });
-                    
+
                     self.trigger_notifications(
                         entity_id,
                         field_type,
-                        current_request,
-                        previous_request,
+                        current_info,
+                        previous_info,
                     );
                 } else if write_time.is_some() && incoming_time < field.write_time {
                     // Incoming write is older, ignore it
