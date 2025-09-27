@@ -1,6 +1,5 @@
 #[allow(unused_imports)]
 use crate::*;
-use crate::data::StorageScope;
 
 #[test]
 fn test_direct_methods_basic_functionality() {
@@ -77,7 +76,7 @@ fn test_direct_methods_functional() {
     // by creating a schema, entity, and performing operations using direct methods
     let mut store = Store::new();
     
-    // First create a proper schema with all required fields using the existing schema update functionality
+    // First create a proper schema using the standard perform method
     let mut schema = EntitySchema::<Single, String, String>::new("TestEntity".to_string(), vec![]);
     
     // Add default fields common to all entities (required by the Store)
@@ -87,7 +86,7 @@ fn test_direct_methods_functional() {
             field_type: "Name".to_string(),
             default_value: "".to_string(),
             rank: 1,
-            storage_scope: StorageScope::Configuration,
+            storage_scope: crate::data::StorageScope::Configuration,
         }
     );
 
@@ -97,7 +96,7 @@ fn test_direct_methods_functional() {
             field_type: "Parent".to_string(),
             default_value: None,
             rank: 2,
-            storage_scope: StorageScope::Configuration,
+            storage_scope: crate::data::StorageScope::Configuration,
         }
     );
 
@@ -107,7 +106,7 @@ fn test_direct_methods_functional() {
             field_type: "Children".to_string(),
             default_value: vec![],
             rank: 3,
-            storage_scope: StorageScope::Configuration,
+            storage_scope: crate::data::StorageScope::Configuration,
         }
     );
     
@@ -117,11 +116,15 @@ fn test_direct_methods_functional() {
             field_type: "test_field".to_string(),
             default_value: 0,
             rank: 4,
-            storage_scope: StorageScope::Runtime,
+            storage_scope: crate::data::StorageScope::Runtime,
         }
     );
     
-    // Test the update_schema direct method
+    // Use the traditional perform method to set up schema first
+    let requests = sreq![sschemaupdate!(schema.clone())];
+    store.perform_mut(requests).expect("Schema should be created via perform_mut");
+    
+    // Now test the update_schema direct method (should work the same)
     let schema_result = store.update_schema(schema);
     assert!(schema_result.is_ok());
     let timestamp = schema_result.unwrap();

@@ -1,6 +1,7 @@
 use itertools::Itertools;
 use rustc_hash::FxHashMap;
 use sorted_vec::SortedVec;
+use smallvec::smallvec;
 use std::{
     collections::VecDeque,
     mem::discriminant,
@@ -2096,98 +2097,105 @@ impl StoreTrait for Store {
     }
 
     fn read(&self, entity_id: EntityId, field_type: FieldType) -> Result<(Option<Value>, Option<Timestamp>, Option<EntityId>)> {
-        let mut value = None;
-        let mut write_time = None;
-        let mut writer_id = None;
-        self.read(entity_id, field_type, &mut value, &mut write_time, &mut writer_id)?;
-        Ok((value, write_time, writer_id))
+        let read_request = Request::Read {
+            entity_id,
+            field_types: smallvec![field_type],
+            value: None,
+            write_time: None,
+            writer_id: None,
+        };
+        let requests = Requests::new(vec![read_request]);
+        let updated_requests = self.perform(requests)?;
+        
+        if let Some(Request::Read { value, write_time, writer_id, .. }) = updated_requests.get(0) {
+            Ok((value, write_time, writer_id))
+        } else {
+            Err(Error::InvalidRequest("No response from read request".to_string()))
+        }
     }
 
     fn write(&mut self, entity_id: EntityId, field_type: FieldType, value: Option<Value>, push_condition: PushCondition, adjust_behavior: AdjustBehavior) -> Result<(bool, Option<Timestamp>, Option<EntityId>)> {
-        let mut write_time = Some(now());
-        let mut writer_id = self.default_writer_id.clone();
-        let was_written = self.write(entity_id, field_type, &value, &mut write_time, &mut writer_id, &push_condition, &adjust_behavior)?;
-        Ok((was_written, write_time, writer_id))
+        let write_request = Request::Write {
+            entity_id,
+            field_types: smallvec![field_type],
+            value,
+            push_condition,
+            adjust_behavior,
+            write_time: None,
+            writer_id: None,
+            write_processed: false,
+        };
+        let requests = Requests::new(vec![write_request]);
+        let updated_requests = self.perform_mut(requests)?;
+        
+        if let Some(Request::Write { write_processed, write_time, writer_id, .. }) = updated_requests.get(0) {
+            Ok((write_processed, write_time, writer_id))
+        } else {
+            Err(Error::InvalidRequest("No response from write request".to_string()))
+        }
     }
 
     fn create_entity(&mut self, entity_type: EntityType, parent_id: Option<EntityId>, name: String) -> Result<(EntityId, Option<Timestamp>)> {
-        let mut created_entity_id = None;
-        self.create_entity_internal(entity_type, parent_id, &mut created_entity_id, &name)?;
-        let timestamp = Some(now());
-        Ok((created_entity_id.unwrap(), timestamp))
+        let create_request = Request::Create {
+            entity_type,
+            parent_id,
+            name,
+            created_entity_id: None,
+            timestamp: None,
+        };
+        let requests = Requests::new(vec![create_request]);
+        let updated_requests = self.perform_mut(requests)?;
+        
+        if let Some(Request::Create { created_entity_id: Some(entity_id), timestamp, .. }) = updated_requests.get(0) {
+            Ok((entity_id, timestamp))
+        } else {
+            Err(Error::InvalidRequest("Entity creation failed".to_string()))
+        }
     }
 
     fn delete_entity(&mut self, entity_id: EntityId) -> Result<Option<Timestamp>> {
-        self.delete_entity_internal(entity_id)?;
-        Ok(Some(now()))
+        let delete_request = Request::Delete {
+            entity_id,
+            timestamp: None,
+        };
+        let requests = Requests::new(vec![delete_request]);
+        let updated_requests = self.perform_mut(requests)?;
+        
+        if let Some(Request::Delete { timestamp, .. }) = updated_requests.get(0) {
+            Ok(timestamp)
+        } else {
+            Err(Error::InvalidRequest("No response from delete request".to_string()))
+        }
     }
 
     fn update_schema(&mut self, schema: EntitySchema<Single, String, String>) -> Result<Option<Timestamp>> {
-        // Validate whether inherited entity types exist or not:
-        for parent in schema.inherit.iter() {
-            self.entity_type_interner
-                .get(parent.as_str())
-                .ok_or_else(|| Error::EntityTypeStrNotFound(parent.clone()))?;
-        }
-
-        // Get or create the entity type if it doesn't exist
-        let entity_type = EntityType(
-            self.entity_type_interner
-                .intern(schema.entity_type.as_str()) as u32,
-        );
-
-        // Intern all field types before converting the schema
-        for field_name in schema.fields.keys() {
-            self.field_type_interner.intern(field_name.as_str());
-        }
-
-        // Convert schema from string-based to ID-based
-        let converted_schema = EntitySchema::<Single>::from_string_schema(schema.clone(), self);
-
-        // Store the schema
-        self.schemas.insert(entity_type, converted_schema);
-
-        // Initialize ET and FT if this is the first schema that includes standard fields
-        if self.field_type_interner.get("Name").is_some() 
-            && self.field_type_interner.get("Parent").is_some() 
-            && self.field_type_interner.get("Children").is_some() 
-            && self.et.is_none() {
-            self.et = Some(ET::new(self));
-            self.ft = Some(FT::new(self));
-        }
-
-        // This will also rebuild the complete entity schema cache
-        self.rebuild_inheritance_map();
-        let timestamp = Some(now());
+        let schema_request = Request::SchemaUpdate {
+            schema,
+            timestamp: None,
+        };
+        let requests = Requests::new(vec![schema_request]);
+        let updated_requests = self.perform_mut(requests)?;
         
-        // Add to write queue for persistence
-        self.write_queue.push_back({
-            let request = Request::SchemaUpdate {
-                schema,
-                timestamp,
-            };
-            Requests::new(vec![request])
-        });
-        
-        Ok(timestamp)
+        if let Some(Request::SchemaUpdate { timestamp, .. }) = updated_requests.get(0) {
+            Ok(timestamp)
+        } else {
+            Err(Error::InvalidRequest("No response from schema update request".to_string()))
+        }
     }
 
     fn create_snapshot(&mut self, snapshot_counter: u64) -> Result<Option<Timestamp>> {
-        let timestamp = Some(now());
-
-        // Add to write queue for persistence
-        self.write_queue.push_back({
-            let request = Request::Snapshot {
-                snapshot_counter,
-                timestamp,
-            };
-            Requests::new(vec![request])
-        });
-
-        // Snapshot requests are mainly for WAL marking purposes
-        // The actual snapshot logic is handled elsewhere
-        // We just log this event and include it in write requests for WAL persistence
-        Ok(timestamp)
+        let snapshot_request = Request::Snapshot {
+            snapshot_counter,
+            timestamp: None,
+        };
+        let requests = Requests::new(vec![snapshot_request]);
+        let updated_requests = self.perform_mut(requests)?;
+        
+        if let Some(Request::Snapshot { timestamp, .. }) = updated_requests.get(0) {
+            Ok(timestamp)
+        } else {
+            Err(Error::InvalidRequest("No response from snapshot request".to_string()))
+        }
     }
 
     fn perform(&self, requests: Requests) -> Result<Requests> {
