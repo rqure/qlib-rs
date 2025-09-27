@@ -5,7 +5,7 @@ use crate::sreq;
 use crate::data::StorageScope;
 
 #[allow(unused_imports)]
-use crate::{sstr};
+use crate::{StoreTrait, sstr};
 
 #[allow(unused_imports)]
 use crate::{restore_json_snapshot, screate, sschemaupdate, swrite, take_json_snapshot, EntitySchema, EntityType, FieldSchema, FieldType, Request, Single, Store, Value, now};

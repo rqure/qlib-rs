@@ -1,4 +1,4 @@
-use crate::{data::{FieldType, Timestamp}, EntityId, Store, StoreProxy, Value};
+use crate::{data::{FieldType, Timestamp}, EntityId, StoreTrait, Value};
 use crate::data::value::{ArcString, ArcBlob};
 use serde::{Deserialize, Serialize};
 
@@ -126,7 +126,7 @@ impl<T: Clone> FieldSchema<T> {
 }
 
 impl FieldSchema {
-    pub fn from_string_schema(schema: FieldSchema<String>, store: &Store) -> Self {
+    pub fn from_string_schema(schema: FieldSchema<String>, store: &impl StoreTrait) -> Self {
         match schema {
             FieldSchema::Blob { field_type, default_value, rank, storage_scope } => FieldSchema::Blob {
                 field_type: store.get_field_type(field_type.as_str()).expect("Field type not found"),
@@ -186,7 +186,7 @@ impl FieldSchema {
         }
     }
 
-    pub fn to_string_schema(&self, store: &Store) -> FieldSchema<String> {
+    pub fn to_string_schema(&self, store: &impl StoreTrait) -> FieldSchema<String> {
         match self {
             FieldSchema::Blob { field_type, default_value, rank, storage_scope } => FieldSchema::Blob {
                 field_type: store.resolve_field_type(*field_type).expect("Field type not found"),
@@ -216,66 +216,6 @@ impl FieldSchema {
             FieldSchema::EntityReference { field_type, default_value, rank, storage_scope } => FieldSchema::EntityReference {
                 field_type: store.resolve_field_type(*field_type).expect("Field type not found"),
                 default_value: default_value.clone(),
-                rank: *rank,
-                storage_scope: storage_scope.clone(),
-            },
-            FieldSchema::Float { field_type, default_value, rank, storage_scope } => FieldSchema::Float {
-                field_type: store.resolve_field_type(*field_type).expect("Field type not found"),
-                default_value: *default_value,
-                rank: *rank,
-                storage_scope: storage_scope.clone(),
-            },
-            FieldSchema::Int { field_type, default_value, rank, storage_scope } => FieldSchema::Int {
-                field_type: store.resolve_field_type(*field_type).expect("Field type not found"),
-                default_value: *default_value,
-                rank: *rank,
-                storage_scope: storage_scope.clone(),
-            },
-            FieldSchema::String { field_type, default_value, rank, storage_scope } => FieldSchema::String {
-                field_type: store.resolve_field_type(*field_type).expect("Field type not found"),
-                default_value: default_value.clone(),
-                rank: *rank,
-                storage_scope: storage_scope.clone(),
-            },
-            FieldSchema::Timestamp { field_type, default_value, rank, storage_scope } => FieldSchema::Timestamp {
-                field_type: store.resolve_field_type(*field_type).expect("Field type not found"),
-                default_value: *default_value,
-                rank: *rank,
-                storage_scope: storage_scope.clone(),
-            },
-        }
-    }
-
-    pub fn to_string_schema_proxy(&self, store: &StoreProxy) -> FieldSchema<String> {
-        match self {
-            FieldSchema::Blob { field_type, default_value, rank, storage_scope } => FieldSchema::Blob {
-                field_type: store.resolve_field_type(*field_type).expect("Field type not found"),
-                default_value: default_value.clone(),
-                rank: *rank,
-                storage_scope: storage_scope.clone(),
-            },
-            FieldSchema::Bool { field_type, default_value, rank, storage_scope } => FieldSchema::Bool {
-                field_type: store.resolve_field_type(*field_type).expect("Field type not found"),
-                default_value: *default_value,
-                rank: *rank,
-                storage_scope: storage_scope.clone(),
-            },
-            FieldSchema::Choice { field_type, default_value, rank, choices, storage_scope } => FieldSchema::Choice {
-                field_type: store.resolve_field_type(*field_type).expect("Field type not found"),
-                default_value: *default_value,
-                rank: *rank,
-                choices: choices.clone(),
-                storage_scope: storage_scope.clone(),
-            },
-            FieldSchema::EntityList { field_type, default_value, rank, storage_scope } => FieldSchema::EntityList {
-                field_type: store.resolve_field_type(*field_type).expect("Field type not found"),
-                default_value: default_value.clone(),
-                rank: *rank,
-                storage_scope: storage_scope.clone(),
-            },
-            FieldSchema::EntityReference { field_type, default_value, rank, storage_scope } => FieldSchema::EntityReference {
-                field_type: store.resolve_field_type(*field_type).expect("Field type not found"),
-                default_value: *default_value,
                 rank: *rank,
                 storage_scope: storage_scope.clone(),
             },

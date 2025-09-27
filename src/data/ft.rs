@@ -1,4 +1,4 @@
-use crate::{FieldType, Store, StoreProxy};
+use crate::{FieldType, StoreTrait};
 
 pub const ACTIVE: &str = "Active";
 pub const AUTH_METHOD: &str = "AuthMethod";
@@ -53,36 +53,7 @@ pub struct FT {
 }
 
 impl FT {
-    pub fn new(store: &Store) -> Self {
-        FT {
-            active: store.get_field_type(ACTIVE).ok(),
-            auth_method: store.get_field_type(AUTH_METHOD).ok(),
-            available_list: store.get_field_type(AVAILABLE_LIST).ok(),
-            candidate_list: store.get_field_type(CANDIDATE_LIST).ok(),
-            children: store.get_field_type(CHILDREN).ok(),
-            condition: store.get_field_type(CONDITION).ok(),
-            current_leader: store.get_field_type(CURRENT_LEADER).ok(),
-            death_detection_timeout: store.get_field_type(DEATH_DETECTION_TIMEOUT).ok(),
-            description: store.get_field_type(DESCRIPTION).ok(),
-            failed_attempts: store.get_field_type(FAILED_ATTEMPTS).ok(),
-            heartbeat: store.get_field_type(HEARTBEAT).ok(),
-            last_login: store.get_field_type(LAST_LOGIN).ok(),
-            locked_until: store.get_field_type(LOCKED_UNTIL).ok(),
-            make_me: store.get_field_type(MAKE_ME).ok(),
-            name: store.get_field_type(NAME).ok(),
-            parent: store.get_field_type(PARENT).ok(),
-            password: store.get_field_type(PASSWORD).ok(),
-            resource_field: store.get_field_type(RESOURCE_FIELD).ok(),
-            resource_type: store.get_field_type(RESOURCE_TYPE).ok(),
-            scope: store.get_field_type(SCOPE).ok(),
-            secret: store.get_field_type(SECRET).ok(),
-            start_time: store.get_field_type(START_TIME).ok(),
-            status: store.get_field_type(STATUS).ok(),
-            sync_status: store.get_field_type(SYNC_STATUS).ok(),
-        }
-    }
-
-    pub fn new_proxy(store: &StoreProxy) -> Self {
+    pub fn new(store: &impl StoreTrait) -> Self {
         FT {
             active: store.get_field_type(ACTIVE).ok(),
             auth_method: store.get_field_type(AUTH_METHOD).ok(),

@@ -9,6 +9,7 @@ use mio::{Poll, Token, Interest, Events};
 use crate::{
     Complete, EntityId, EntitySchema, EntityType, Error, FieldSchema, FieldType, Notification, NotificationQueue, NotifyConfig, hash_notify_config, PageOpts, PageResult, Request, Requests, Result, Single, sreq
 };
+use crate::data::StoreTrait;
 use crate::protocol::{MessageBuffer, encode_store_message};
 
 /// TCP message types for Store proxy communication
@@ -430,7 +431,7 @@ impl StoreProxy {
             .fields
             .insert(field_type, schema);
 
-        let string_schema = entity_schema.to_string_schema_proxy(self);
+        let string_schema = entity_schema.to_string_schema(self);
         let requests = sreq![Request::SchemaUpdate { 
             schema: string_schema, 
             timestamp: None,
@@ -742,3 +743,87 @@ impl StoreProxy {
 
 }
 
+impl StoreTrait for StoreProxy {
+    fn get_entity_type(&self, name: &str) -> Result<EntityType> {
+        self.get_entity_type(name)
+    }
+
+    fn resolve_entity_type(&self, entity_type: EntityType) -> Result<String> {
+        self.resolve_entity_type(entity_type)
+    }
+
+    fn get_field_type(&self, name: &str) -> Result<FieldType> {
+        self.get_field_type(name)
+    }
+
+    fn resolve_field_type(&self, field_type: FieldType) -> Result<String> {
+        self.resolve_field_type(field_type)
+    }
+
+    fn get_entity_schema(&self, entity_type: EntityType) -> Result<EntitySchema<Single>> {
+        self.get_entity_schema(entity_type)
+    }
+
+    fn get_complete_entity_schema(&self, _entity_type: EntityType) -> Result<&EntitySchema<Complete>> {
+        // StoreProxy cannot return a reference since it gets data over network
+        // This is a limitation of the proxy pattern with the reference-based API
+        unimplemented!("StoreProxy cannot return references to remote data")
+    }
+
+    fn get_field_schema(&self, entity_type: EntityType, field_type: FieldType) -> Result<FieldSchema> {
+        self.get_field_schema(entity_type, field_type)
+    }
+
+    fn set_field_schema(&mut self, entity_type: EntityType, field_type: FieldType, schema: FieldSchema) -> Result<()> {
+        self.set_field_schema(entity_type, field_type, schema)
+    }
+
+    fn entity_exists(&self, entity_id: EntityId) -> bool {
+        self.entity_exists(entity_id)
+    }
+
+    fn field_exists(&self, entity_type: EntityType, field_type: FieldType) -> bool {
+        self.field_exists(entity_type, field_type)
+    }
+
+    fn resolve_indirection(&self, entity_id: EntityId, fields: &[FieldType]) -> Result<(EntityId, FieldType)> {
+        // For StoreProxy, we need to use the old approach via perform() since we don't have direct field access
+        crate::data::indirection::resolve_indirection_via_trait(self, entity_id, fields)
+    }
+
+    fn perform(&self, requests: Requests) -> Result<Requests> {
+        self.perform(requests)
+    }
+
+    fn perform_mut(&mut self, requests: Requests) -> Result<Requests> {
+        self.perform(requests)
+    }
+
+    fn find_entities_paginated(&self, entity_type: EntityType, page_opts: Option<&PageOpts>, filter: Option<&str>) -> Result<PageResult<EntityId>> {
+        self.find_entities_paginated(entity_type, page_opts, filter)
+    }
+
+    fn find_entities_exact(&self, entity_type: EntityType, page_opts: Option<&PageOpts>, filter: Option<&str>) -> Result<PageResult<EntityId>> {
+        self.find_entities_exact(entity_type, page_opts, filter)
+    }
+
+    fn find_entities(&self, entity_type: EntityType, filter: Option<&str>) -> Result<Vec<EntityId>> {
+        self.find_entities(entity_type, filter)
+    }
+
+    fn get_entity_types(&self) -> Result<Vec<EntityType>> {
+        self.get_entity_types()
+    }
+
+    fn get_entity_types_paginated(&self, page_opts: Option<&PageOpts>) -> Result<PageResult<EntityType>> {
+        self.get_entity_types_paginated(page_opts)
+    }
+
+    fn register_notification(&mut self, config: NotifyConfig, sender: NotificationQueue) -> Result<()> {
+        self.register_notification(config, sender)
+    }
+
+    fn unregister_notification(&mut self, config: &NotifyConfig, sender: &NotificationQueue) -> bool {
+        self.unregister_notification(config, sender)
+    }
+}

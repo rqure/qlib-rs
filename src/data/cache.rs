@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use rustc_hash::FxHashMap;
 
 use crate::{
-    EntityId, EntityType, FieldType, NotificationQueue, NotifyConfig, Request, Value, Store
+    data::StoreTrait, EntityId, EntityType, FieldType, NotificationQueue, NotifyConfig, Request, Value
 };
 
 #[derive(Debug)]
@@ -26,7 +26,7 @@ pub struct Cache {
 
 impl Cache {
     pub fn new(
-        store: &mut Store,
+        store: &mut impl StoreTrait,
         entity_type: EntityType,
         index_fields: Vec<FieldType>,
         other_fields: Vec<FieldType>,
