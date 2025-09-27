@@ -12,28 +12,10 @@ use crate::{
 use crate::data::StoreTrait;
 use crate::protocol::{MessageBuffer, encode_store_message};
 
-/// Result of authentication attempt
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AuthenticationResult {
-    /// The authenticated subject ID
-    pub subject_id: EntityId,
-}
-
 /// TCP message types for Store proxy communication
 /// These messages are compatible with the qcore-rs protocol
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum StoreMessage {
-    // Authentication messages - MUST be first message from client
-    Authenticate {
-        id: u64,
-        subject_name: String,
-        credential: String, // Password for users, secret key for services
-    },
-    AuthenticateResponse {
-        id: u64,
-        response: std::result::Result<AuthenticationResult, String>,
-    },
-
     // Perform operation using Request enum
     Perform {
         id: u64,
@@ -78,8 +60,6 @@ pub enum StoreMessage {
 /// Extract the message ID from a StoreMessage
 pub fn extract_message_id(message: &StoreMessage) -> Option<u64> {
     match message {
-        StoreMessage::Authenticate { id, .. } => Some(*id),
-        StoreMessage::AuthenticateResponse { id, .. } => Some(*id),
         StoreMessage::Perform { id, .. } => Some(*id),
         StoreMessage::PerformResponse { id, .. } => Some(*id),
         StoreMessage::RegisterNotification { id, .. } => Some(*id),
@@ -167,8 +147,6 @@ pub struct StoreProxy {
     pending_requests: Rc<RefCell<HashMap<u64, StoreMessage>>>,
     // Map from config hash to list of notification senders
     notification_configs: Rc<RefCell<HashMap<u64, Vec<NotificationQueue>>>>,
-    // Authentication state - set once during connection
-    authenticated_subject: Option<EntityId>,
     // Counter for generating strictly increasing IDs
     next_id: Rc<RefCell<u64>>,
 }
@@ -182,13 +160,8 @@ impl StoreProxy {
         current
     }
 
-    /// Connect to TCP server and authenticate immediately
-    /// If authentication fails, the connection will be closed by the server
-    pub fn connect_and_authenticate(
-        address: &str,
-        subject_name: &str,
-        credential: &str,
-    ) -> Result<Self> {
+    /// Connect to TCP server
+    pub fn connect(address: &str) -> Result<Self> {
         // Connect to TCP server
         let stream = std::net::TcpStream::connect(address)
             .map_err(|e| Error::StoreProxyError(format!("Failed to connect to {}: {}", address, e)))?;
@@ -201,56 +174,8 @@ impl StoreProxy {
         stream.set_nonblocking(true)
             .map_err(|e| Error::StoreProxyError(format!("Failed to set non-blocking: {}", e)))?;
 
-        let mut tcp_connection = TcpConnection::new(stream)
+        let tcp_connection = TcpConnection::new(stream)
             .map_err(|e| Error::StoreProxyError(format!("Failed to create TCP connection: {}", e)))?;
-
-        // Send authentication message immediately
-        let auth_request = StoreMessage::Authenticate {
-            id: 1, // First message always has ID 1
-            subject_name: subject_name.to_string(),
-            credential: credential.to_string(),
-        };
-
-        tcp_connection.send_message(&auth_request)
-            .map_err(|e| Error::StoreProxyError(format!("Failed to send auth message: {}", e)))?;
-
-        // Wait for authentication response with timeout
-        let auth_start = std::time::Instant::now();
-        let auth_timeout = std::time::Duration::from_secs(5); // 5 second timeout
-        
-        let auth_result = loop {
-            if auth_start.elapsed() > auth_timeout {
-                return Err(Error::StoreProxyError("Authentication timeout".to_string()));
-            }
-            
-            match tcp_connection.try_receive_message() {
-                Ok(Some(message)) => break message,
-                Ok(None) => {
-                    // No message yet, wait for data to be ready
-                    let remaining_timeout = auth_timeout.saturating_sub(auth_start.elapsed());
-                    if remaining_timeout.is_zero() {
-                        return Err(Error::StoreProxyError("Authentication timeout".to_string()));
-                    }
-                    
-                    match tcp_connection.wait_for_readable(Some(std::time::Duration::from_millis(10))) {
-                        Ok(true) => continue, // Data is ready, try reading again
-                        Ok(false) => continue, // Timeout, check overall timeout and try again
-                        Err(e) => return Err(Error::StoreProxyError(format!("Poll error during auth: {}", e))),
-                    }
-                }
-                Err(e) => return Err(Error::StoreProxyError(format!("TCP error during auth: {}", e))),
-            }
-        };
-
-        let authenticated_subject = match auth_result {
-            StoreMessage::AuthenticateResponse { response, .. } => {
-                match response {
-                    Ok(auth_result) => auth_result.subject_id,
-                    Err(error) => return Err(Error::StoreProxyError(format!("Authentication failed: {}", error))),
-                }
-            }
-            _ => return Err(Error::StoreProxyError("Unexpected response to authentication".to_string())),
-        };
 
         // Create single-threaded collections
         let tcp_connection = Rc::new(RefCell::new(tcp_connection));
@@ -262,7 +187,6 @@ impl StoreProxy {
             tcp_connection,
             pending_requests,
             notification_configs,
-            authenticated_subject: Some(authenticated_subject),
             next_id,
         })
     }
@@ -355,11 +279,6 @@ impl StoreProxy {
                 }
             }
         }
-    }
-
-    /// Get the authenticated subject ID
-    pub fn get_authenticated_subject(&self) -> Option<EntityId> {
-        self.authenticated_subject.clone()
     }
 
     /// Get entity type by name

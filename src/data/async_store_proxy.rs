@@ -1,10 +1,8 @@
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{mpsc, oneshot, Mutex};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
-use tokio::time::{timeout, Duration};
 use anyhow::{Result as AnyhowResult};
 
 use crate::{
@@ -12,13 +10,6 @@ use crate::{
 };
 use crate::data::StoreMessage;
 use crate::protocol::{MessageBuffer, encode_store_message};
-
-/// Result of authentication attempt
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AuthenticationResult {
-    /// The authenticated subject ID
-    pub subject_id: EntityId,
-}
 
 /// Internal message for communication with the connection task
 #[derive(Debug)]
@@ -141,8 +132,6 @@ impl ConnectionHandler {
 /// Extract the message ID from a StoreMessage
 fn extract_message_id(message: &StoreMessage) -> Option<u64> {
     match message {
-        StoreMessage::Authenticate { id, .. } => Some(*id),
-        StoreMessage::AuthenticateResponse { id, .. } => Some(*id),
         StoreMessage::Perform { id, .. } => Some(*id),
         StoreMessage::PerformResponse { id, .. } => Some(*id),
         StoreMessage::RegisterNotification { id, .. } => Some(*id),
@@ -159,16 +148,11 @@ fn extract_message_id(message: &StoreMessage) -> Option<u64> {
 pub struct AsyncStoreProxy {
     sender: mpsc::UnboundedSender<ConnectionMessage>,
     next_id: Arc<Mutex<u64>>,
-    authenticated_subject: Option<EntityId>,
 }
 
 impl AsyncStoreProxy {
-    /// Connect to TCP server and authenticate immediately
-    pub async fn connect_and_authenticate(
-        address: &str,
-        subject_name: &str,
-        credential: &str,
-    ) -> Result<Self> {
+    /// Connect to TCP server
+    pub async fn connect(address: &str) -> Result<Self> {
         // Connect to TCP server
         let stream = TcpStream::connect(address).await
             .map_err(|e| Error::StoreProxyError(format!("Failed to connect to {}: {}", address, e)))?;
@@ -188,36 +172,9 @@ impl AsyncStoreProxy {
             }
         });
 
-        let proxy = Self {
-            sender,
-            next_id: Arc::new(Mutex::new(2)), // Start from 2, will use 1 for auth
-            authenticated_subject: None,
-        };
-
-        // Authenticate immediately
-        let auth_request = StoreMessage::Authenticate {
-            id: 1,
-            subject_name: subject_name.to_string(),
-            credential: credential.to_string(),
-        };
-
-        let auth_response = timeout(Duration::from_secs(5), proxy.send_request(auth_request)).await
-            .map_err(|_| Error::StoreProxyError("Authentication timeout".to_string()))??;
-
-        let authenticated_subject = match auth_response {
-            StoreMessage::AuthenticateResponse { response, .. } => {
-                match response {
-                    Ok(auth_result) => auth_result.subject_id,
-                    Err(error) => return Err(Error::StoreProxyError(format!("Authentication failed: {}", error))),
-                }
-            }
-            _ => return Err(Error::StoreProxyError("Unexpected response to authentication".to_string())),
-        };
-
         Ok(Self {
-            sender: proxy.sender,
-            next_id: proxy.next_id,
-            authenticated_subject: Some(authenticated_subject),
+            sender,
+            next_id: Arc::new(Mutex::new(1)), // Start from 1
         })
     }
 
@@ -381,11 +338,6 @@ impl AsyncStoreProxy {
         }
 
         Ok(result)
-    }
-
-    /// Get authenticated subject ID
-    pub fn get_authenticated_subject(&self) -> Option<EntityId> {
-        self.authenticated_subject.clone()
     }
 
     /// Shutdown the connection
