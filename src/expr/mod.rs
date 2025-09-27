@@ -2,7 +2,7 @@ use cel::{Context, Program};
 use lru::LruCache;
 use std::num::NonZeroUsize;
 
-use crate::{sread, sreq, to_base64, EntityId, IndirectFieldType, Result, Store, StoreTrait, Value, INDIRECTION_DELIMITER};
+use crate::{sread, sreq, to_base64, EntityId, IndirectFieldType, Result, Store, Value, INDIRECTION_DELIMITER};
 
 /// CelExecutor with LRU cache for compiled CEL programs
 #[derive(Debug)]
