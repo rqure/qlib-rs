@@ -16,8 +16,8 @@ use crate::{
     et::ET,
     expr::CelExecutor,
     ft::FT,
-    sread, sreq, sschemaupdate, AdjustBehavior, EntityId, EntitySchema, Error, Field, FieldSchema,
-    IndirectFieldType, PageOpts, PageResult, Request, Requests, Result, Single, Snapshot, Value,
+    AdjustBehavior, EntityId, EntitySchema, Error, Field, FieldSchema,
+    PageOpts, PageResult, Result, Single, Snapshot, Value,
 };
 
 pub enum WriteInfo {
@@ -359,8 +359,7 @@ impl Store {
 
         entity_schema.fields.insert(field_type, field_schema);
 
-        let requests = sreq![sschemaupdate!(entity_schema.to_string_schema(self))];
-        self.perform_mut(requests).map(|_| ())
+        self.update_schema(entity_schema.to_string_schema(self))
     }
 
     pub fn entity_exists(&self, entity_id: EntityId) -> bool {
@@ -1121,7 +1120,7 @@ impl Store {
         parent_types
     }
 
-    /// Build context fields using the perform method to handle indirection
+    /// Build context fields using direct read method to handle indirection
     fn build_context_fields(
         &mut self,
         entity_id: EntityId,
@@ -1130,26 +1129,21 @@ impl Store {
         let mut context_map = std::collections::BTreeMap::new();
 
         for context_field in context_fields {
-            // Use perform to handle indirection properly
-            let field_types: IndirectFieldType = context_field.clone().into_iter().collect();
-            if let Ok(updated_requests) = self.perform(sreq![sread!(entity_id, field_types.clone())]) {
-                if let Some(req) = updated_requests.read().first() {
-                    if let Request::Read { entity_id, field_types, value, write_time, writer_id } = req {
-                        let notify_info = NotifyInfo {
-                            entity_id: *entity_id,
-                            field_path: field_types.clone(),
-                            value: value.clone(),
-                            timestamp: *write_time,
-                            writer_id: *writer_id,
-                        };
-                        context_map.insert(context_field.clone(), notify_info);
-                    }
-                }
-            } else {
-                // If perform_mut fails, insert a NotifyInfo with None values
+            // Use direct read method to handle indirection properly
+            if let Ok((value, timestamp, writer_id)) = self.read(entity_id, context_field) {
                 let notify_info = NotifyInfo {
                     entity_id,
-                    field_path: field_types,
+                    field_path: context_field.clone().into_iter().collect(),
+                    value: Some(value),
+                    timestamp: Some(timestamp),
+                    writer_id,
+                };
+                context_map.insert(context_field.clone(), notify_info);
+            } else {
+                // If read fails, insert a NotifyInfo with None values
+                let notify_info = NotifyInfo {
+                    entity_id,
+                    field_path: context_field.clone().into_iter().collect(),
                     value: None,
                     timestamp: None,
                     writer_id: None,
