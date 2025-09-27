@@ -2122,14 +2122,72 @@ impl StoreTrait for Store {
         Ok(Some(now()))
     }
 
-    fn update_schema(&mut self, _schema: EntitySchema<Single, String, String>) -> Result<Option<Timestamp>> {
-        // This would need to be implemented properly - for now, let's return an error
-        Err(Error::InvalidRequest("Direct schema update not yet implemented".to_string()))
+    fn update_schema(&mut self, schema: EntitySchema<Single, String, String>) -> Result<Option<Timestamp>> {
+        // Validate whether inherited entity types exist or not:
+        for parent in schema.inherit.iter() {
+            self.entity_type_interner
+                .get(parent.as_str())
+                .ok_or_else(|| Error::EntityTypeStrNotFound(parent.clone()))?;
+        }
+
+        // Get or create the entity type if it doesn't exist
+        let entity_type = EntityType(
+            self.entity_type_interner
+                .intern(schema.entity_type.as_str()) as u32,
+        );
+
+        // Intern all field types before converting the schema
+        for field_name in schema.fields.keys() {
+            self.field_type_interner.intern(field_name.as_str());
+        }
+
+        // Convert schema from string-based to ID-based
+        let converted_schema = EntitySchema::<Single>::from_string_schema(schema.clone(), self);
+
+        // Store the schema
+        self.schemas.insert(entity_type, converted_schema);
+
+        // Initialize ET and FT if this is the first schema that includes standard fields
+        if self.field_type_interner.get("Name").is_some() 
+            && self.field_type_interner.get("Parent").is_some() 
+            && self.field_type_interner.get("Children").is_some() 
+            && self.et.is_none() {
+            self.et = Some(ET::new(self));
+            self.ft = Some(FT::new(self));
+        }
+
+        // This will also rebuild the complete entity schema cache
+        self.rebuild_inheritance_map();
+        let timestamp = Some(now());
+        
+        // Add to write queue for persistence
+        self.write_queue.push_back({
+            let request = Request::SchemaUpdate {
+                schema,
+                timestamp,
+            };
+            Requests::new(vec![request])
+        });
+        
+        Ok(timestamp)
     }
 
-    fn create_snapshot(&mut self, _snapshot_counter: u64) -> Result<Option<Timestamp>> {
-        // This would need to be implemented properly - for now, let's return an error
-        Err(Error::InvalidRequest("Direct snapshot creation not yet implemented".to_string()))
+    fn create_snapshot(&mut self, snapshot_counter: u64) -> Result<Option<Timestamp>> {
+        let timestamp = Some(now());
+
+        // Add to write queue for persistence
+        self.write_queue.push_back({
+            let request = Request::Snapshot {
+                snapshot_counter,
+                timestamp,
+            };
+            Requests::new(vec![request])
+        });
+
+        // Snapshot requests are mainly for WAL marking purposes
+        // The actual snapshot logic is handled elsewhere
+        // We just log this event and include it in write requests for WAL persistence
+        Ok(timestamp)
     }
 
     fn perform(&self, requests: Requests) -> Result<Requests> {
