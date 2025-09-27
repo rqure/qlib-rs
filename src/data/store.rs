@@ -2095,6 +2095,43 @@ impl StoreTrait for Store {
         self.resolve_indirection(entity_id, fields)
     }
 
+    fn read(&self, entity_id: EntityId, field_type: FieldType) -> Result<(Option<Value>, Option<Timestamp>, Option<EntityId>)> {
+        let mut value = None;
+        let mut write_time = None;
+        let mut writer_id = None;
+        self.read(entity_id, field_type, &mut value, &mut write_time, &mut writer_id)?;
+        Ok((value, write_time, writer_id))
+    }
+
+    fn write(&mut self, entity_id: EntityId, field_type: FieldType, value: Option<Value>, push_condition: PushCondition, adjust_behavior: AdjustBehavior) -> Result<(bool, Option<Timestamp>, Option<EntityId>)> {
+        let mut write_time = Some(now());
+        let mut writer_id = self.default_writer_id.clone();
+        let was_written = self.write(entity_id, field_type, &value, &mut write_time, &mut writer_id, &push_condition, &adjust_behavior)?;
+        Ok((was_written, write_time, writer_id))
+    }
+
+    fn create_entity(&mut self, entity_type: EntityType, parent_id: Option<EntityId>, name: String) -> Result<(EntityId, Option<Timestamp>)> {
+        let mut created_entity_id = None;
+        self.create_entity_internal(entity_type, parent_id, &mut created_entity_id, &name)?;
+        let timestamp = Some(now());
+        Ok((created_entity_id.unwrap(), timestamp))
+    }
+
+    fn delete_entity(&mut self, entity_id: EntityId) -> Result<Option<Timestamp>> {
+        self.delete_entity_internal(entity_id)?;
+        Ok(Some(now()))
+    }
+
+    fn update_schema(&mut self, _schema: EntitySchema<Single, String, String>) -> Result<Option<Timestamp>> {
+        // This would need to be implemented properly - for now, let's return an error
+        Err(Error::InvalidRequest("Direct schema update not yet implemented".to_string()))
+    }
+
+    fn create_snapshot(&mut self, _snapshot_counter: u64) -> Result<Option<Timestamp>> {
+        // This would need to be implemented properly - for now, let's return an error
+        Err(Error::InvalidRequest("Direct snapshot creation not yet implemented".to_string()))
+    }
+
     fn perform(&self, requests: Requests) -> Result<Requests> {
         self.perform(requests)
     }

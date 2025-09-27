@@ -1,7 +1,7 @@
 use std::{collections::HashMap};
 
 use crate::{
-    data::request::Requests, Complete, EntityId, EntitySchema, EntityType, FieldSchema, FieldType, IndirectFieldType, NotificationQueue, NotifyConfig, PageOpts, PageResult, Request, Result, Single
+    data::request::{Requests, PushCondition, AdjustBehavior}, Complete, EntityId, EntitySchema, EntityType, FieldSchema, FieldType, IndirectFieldType, NotificationQueue, NotifyConfig, PageOpts, PageResult, Request, Result, Single, Timestamp, Value
 };
 
 /// Async trait defining the common interface for store implementations
@@ -35,6 +35,24 @@ pub trait StoreTrait {
 
     /// Resolve indirection for field lookups
     fn resolve_indirection(&self, entity_id: EntityId, fields: &[FieldType]) -> Result<(EntityId, FieldType)>;
+
+    /// Read a field value from an entity
+    fn read(&self, entity_id: EntityId, field_type: FieldType) -> Result<(Option<Value>, Option<Timestamp>, Option<EntityId>)>;
+
+    /// Write a field value to an entity
+    fn write(&mut self, entity_id: EntityId, field_type: FieldType, value: Option<Value>, push_condition: PushCondition, adjust_behavior: AdjustBehavior) -> Result<(bool, Option<Timestamp>, Option<EntityId>)>;
+
+    /// Create a new entity
+    fn create_entity(&mut self, entity_type: EntityType, parent_id: Option<EntityId>, name: String) -> Result<(EntityId, Option<Timestamp>)>;
+
+    /// Delete an entity
+    fn delete_entity(&mut self, entity_id: EntityId) -> Result<Option<Timestamp>>;
+
+    /// Update entity schema
+    fn update_schema(&mut self, schema: EntitySchema<Single, String, String>) -> Result<Option<Timestamp>>;
+
+    /// Create a snapshot
+    fn create_snapshot(&mut self, snapshot_counter: u64) -> Result<Option<Timestamp>>;
 
     /// Perform a batch of requests
     fn perform(&self, requests: Requests) -> Result<Requests>;

@@ -6,3 +6,4 @@ mod json_snapshot;
 mod cel_executor;
 mod auth;
 mod perform;
+mod direct_methods;

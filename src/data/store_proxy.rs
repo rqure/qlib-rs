@@ -5,9 +5,10 @@ use std::cell::RefCell;
 use std::io::{Read, Write};
 use anyhow;
 use mio::{Poll, Token, Interest, Events};
+use smallvec::smallvec;
 
 use crate::{
-    Complete, EntityId, EntitySchema, EntityType, Error, FieldSchema, FieldType, Notification, NotificationQueue, NotifyConfig, hash_notify_config, PageOpts, PageResult, Request, Requests, Result, Single, sreq
+    Complete, EntityId, EntitySchema, EntityType, Error, FieldSchema, FieldType, Notification, NotificationQueue, NotifyConfig, hash_notify_config, PageOpts, PageResult, Request, Requests, Result, Single, sreq, sread, screate, sdelete, sschemaupdate, PushCondition, AdjustBehavior, Timestamp, Value
 };
 use crate::data::StoreTrait;
 use crate::protocol::{MessageBuffer, encode_store_message};
@@ -789,6 +790,140 @@ impl StoreTrait for StoreProxy {
     fn resolve_indirection(&self, entity_id: EntityId, fields: &[FieldType]) -> Result<(EntityId, FieldType)> {
         // For StoreProxy, we need to use the old approach via perform() since we don't have direct field access
         crate::data::indirection::resolve_indirection_via_trait(self, entity_id, fields)
+    }
+
+    fn read(&self, entity_id: EntityId, field_type: FieldType) -> Result<(Option<Value>, Option<Timestamp>, Option<EntityId>)> {
+        use crate::{sread, sreq, Request};
+        let read_request = sread!(entity_id, smallvec![field_type]);
+        let requests = sreq![read_request];
+        let updated_requests = self.perform(requests)?;
+        
+        if let Some(request) = updated_requests.get(0) {
+            match request {
+                Request::Read { value, write_time, writer_id, .. } => {
+                    Ok((value.clone(), write_time.clone(), writer_id.clone()))
+                }
+                _ => Err(Error::InvalidRequest("Unexpected request type in read response".to_string()))
+            }
+        } else {
+            Err(Error::InvalidRequest("No response from read request".to_string()))
+        }
+    }
+
+    fn write(&mut self, entity_id: EntityId, field_type: FieldType, value: Option<Value>, push_condition: PushCondition, adjust_behavior: AdjustBehavior) -> Result<(bool, Option<Timestamp>, Option<EntityId>)> {
+        use crate::{sreq, Request};
+        let write_request = Request::Write {
+            entity_id,
+            field_types: smallvec![field_type],
+            value,
+            push_condition,
+            adjust_behavior,
+            write_time: None,
+            writer_id: None,
+            write_processed: false,
+        };
+        let requests = sreq![write_request];
+        let updated_requests = self.perform(requests)?;
+        
+        if let Some(request) = updated_requests.get(0) {
+            match request {
+                Request::Write { write_processed, write_time, writer_id, .. } => {
+                    Ok((write_processed.clone(), write_time.clone(), writer_id.clone()))
+                }
+                _ => Err(Error::InvalidRequest("Unexpected request type in write response".to_string()))
+            }
+        } else {
+            Err(Error::InvalidRequest("No response from write request".to_string()))
+        }
+    }
+
+    fn create_entity(&mut self, entity_type: EntityType, parent_id: Option<EntityId>, name: String) -> Result<(EntityId, Option<Timestamp>)> {
+        use crate::{screate, sreq, Request};
+        let create_request = if let Some(parent) = parent_id {
+            screate!(entity_type, name.clone(), parent)
+        } else {
+            Request::Create {
+                entity_type,
+                parent_id: None,
+                name,
+                created_entity_id: None,
+                timestamp: None,
+            }
+        };
+        let requests = sreq![create_request];
+        let updated_requests = self.perform(requests)?;
+        
+        if let Some(request) = updated_requests.get(0) {
+            match request {
+                Request::Create { created_entity_id, timestamp, .. } => {
+                    if let Some(entity_id) = created_entity_id {
+                        Ok((entity_id.clone(), timestamp.clone()))
+                    } else {
+                        Err(Error::InvalidRequest("Created entity ID not returned".to_string()))
+                    }
+                }
+                _ => Err(Error::InvalidRequest("Unexpected request type in create response".to_string()))
+            }
+        } else {
+            Err(Error::InvalidRequest("No response from create request".to_string()))
+        }
+    }
+
+    fn delete_entity(&mut self, entity_id: EntityId) -> Result<Option<Timestamp>> {
+        use crate::{sdelete, sreq, Request};
+        let delete_request = sdelete!(entity_id);
+        let requests = sreq![delete_request];
+        let updated_requests = self.perform(requests)?;
+        
+        if let Some(request) = updated_requests.get(0) {
+            match request {
+                Request::Delete { timestamp, .. } => {
+                    Ok(timestamp.clone())
+                }
+                _ => Err(Error::InvalidRequest("Unexpected request type in delete response".to_string()))
+            }
+        } else {
+            Err(Error::InvalidRequest("No response from delete request".to_string()))
+        }
+    }
+
+    fn update_schema(&mut self, schema: EntitySchema<Single, String, String>) -> Result<Option<Timestamp>> {
+        use crate::{sschemaupdate, sreq, Request};
+        let schema_request = sschemaupdate!(schema);
+        let requests = sreq![schema_request];
+        let updated_requests = self.perform(requests)?;
+        
+        if let Some(request) = updated_requests.get(0) {
+            match request {
+                Request::SchemaUpdate { timestamp, .. } => {
+                    Ok(timestamp.clone())
+                }
+                _ => Err(Error::InvalidRequest("Unexpected request type in schema update response".to_string()))
+            }
+        } else {
+            Err(Error::InvalidRequest("No response from schema update request".to_string()))
+        }
+    }
+
+    fn create_snapshot(&mut self, snapshot_counter: u64) -> Result<Option<Timestamp>> {
+        use crate::{sreq, Request};
+        let snapshot_request = Request::Snapshot {
+            snapshot_counter,
+            timestamp: None,
+        };
+        let requests = sreq![snapshot_request];
+        let updated_requests = self.perform(requests)?;
+        
+        if let Some(request) = updated_requests.get(0) {
+            match request {
+                Request::Snapshot { timestamp, .. } => {
+                    Ok(timestamp.clone())
+                }
+                _ => Err(Error::InvalidRequest("Unexpected request type in snapshot response".to_string()))
+            }
+        } else {
+            Err(Error::InvalidRequest("No response from snapshot request".to_string()))
+        }
     }
 
     fn perform(&self, requests: Requests) -> Result<Requests> {
