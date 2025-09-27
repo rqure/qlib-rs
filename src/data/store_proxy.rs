@@ -7,7 +7,7 @@ use anyhow;
 use mio::{Poll, Token, Interest, Events};
 
 use crate::{
-    Complete, EntityId, EntitySchema, EntityType, Error, FieldSchema, FieldType, Notification, NotificationQueue, NotifyConfig, hash_notify_config, PageOpts, PageResult, Request, Requests, Result, Single, sreq
+    Complete, EntityId, EntitySchema, EntityType, Error, FieldSchema, FieldType, Notification, NotificationQueue, NotifyConfig, hash_notify_config, PageOpts, PageResult, Request, Requests, Result, Single, sreq, Value, Timestamp, now, PushCondition, AdjustBehavior
 };
 use crate::data::StoreTrait;
 use crate::protocol::{MessageBuffer, encode_store_message};
@@ -789,6 +789,103 @@ impl StoreTrait for StoreProxy {
     fn resolve_indirection(&self, entity_id: EntityId, fields: &[FieldType]) -> Result<(EntityId, FieldType)> {
         // For StoreProxy, we need to use the old approach via perform() since we don't have direct field access
         crate::data::indirection::resolve_indirection_via_trait(self, entity_id, fields)
+    }
+
+    fn read(&self, entity_id: EntityId, field_path: &[FieldType]) -> Result<(Value, Timestamp, Option<EntityId>)> {
+        let request = Request::Read {
+            entity_id,
+            field_types: field_path.iter().cloned().collect(),
+            value: None,
+            write_time: None,
+            writer_id: None,
+        };
+        
+        let requests = Requests::new(vec![request]);
+        let response = self.perform(requests)?;
+        
+        if let Some(req) = response.first() {
+            match req {
+                Request::Read { value, write_time, writer_id, .. } => {
+                    if let (Some(val), Some(time)) = (value, write_time) {
+                        Ok((val.clone(), time.clone(), writer_id.clone()))
+                    } else {
+                        Err(Error::StoreProxyError("Read result incomplete".to_string()))
+                    }
+                }
+                _ => Err(Error::StoreProxyError("Unexpected response type".to_string())),
+            }
+        } else {
+            Err(Error::StoreProxyError("No response received".to_string()))
+        }
+    }
+
+    fn write(&mut self, entity_id: EntityId, field_path: &[FieldType], value: Value, writer_id: Option<EntityId>) -> Result<()> {
+        let request = Request::Write {
+            entity_id,
+            field_types: field_path.iter().cloned().collect(),
+            value: Some(value),
+            push_condition: PushCondition::Always,
+            adjust_behavior: AdjustBehavior::Set,
+            write_time: Some(now()),
+            writer_id,
+            write_processed: false,
+        };
+        
+        let requests = Requests::new(vec![request]);
+        let _response = self.perform_mut(requests)?;
+        Ok(())
+    }
+
+    fn create_entity(&mut self, entity_type: EntityType, parent_id: Option<EntityId>, name: &str) -> Result<EntityId> {
+        let request = Request::Create {
+            entity_type,
+            parent_id,
+            name: name.to_string(),
+            created_entity_id: None,
+            timestamp: Some(now()),
+        };
+        
+        let requests = Requests::new(vec![request]);
+        let response = self.perform_mut(requests)?;
+        
+        if let Some(req) = response.first() {
+            match req {
+                Request::Create { created_entity_id, .. } => {
+                    created_entity_id.ok_or_else(|| Error::StoreProxyError("Entity creation failed".to_string()))
+                }
+                _ => Err(Error::StoreProxyError("Unexpected response type".to_string())),
+            }
+        } else {
+            Err(Error::StoreProxyError("No response received".to_string()))
+        }
+    }
+
+    fn delete_entity(&mut self, entity_id: EntityId) -> Result<()> {
+        let request = Request::Delete {
+            entity_id,
+            timestamp: Some(now()),
+        };
+        
+        let requests = Requests::new(vec![request]);
+        let _response = self.perform_mut(requests)?;
+        Ok(())
+    }
+
+    fn update_schema(&mut self, schema: EntitySchema<Single, String, String>) -> Result<()> {
+        let request = Request::SchemaUpdate {
+            schema,
+            timestamp: Some(now()),
+        };
+        
+        let requests = Requests::new(vec![request]);
+        let _response = self.perform_mut(requests)?;
+        Ok(())
+    }
+
+    fn take_snapshot(&self) -> crate::data::Snapshot {
+        // For StoreProxy, snapshots are not directly supported
+        // This would need to be implemented via perform if needed
+        unimplemented!("Snapshots not supported in StoreProxy")
     }
 
     fn perform(&self, requests: Requests) -> Result<Requests> {

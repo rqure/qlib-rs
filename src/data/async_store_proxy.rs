@@ -6,7 +6,7 @@ use tokio::net::TcpStream;
 use anyhow::{Result as AnyhowResult};
 
 use crate::{
-    EntityId, EntityType, FieldType, PageOpts, PageResult, Request, Requests, Result, Error
+    EntityId, EntityType, FieldType, PageOpts, PageResult, Request, Requests, Result, Error, Value, Timestamp, now, PushCondition, AdjustBehavior, EntitySchema, Single
 };
 use crate::data::StoreMessage;
 use crate::protocol::{MessageBuffer, encode_store_message};
@@ -280,6 +280,108 @@ impl AsyncStoreProxy {
             },
             _ => Err(Error::StoreProxyError("Unexpected response type".to_string())),
         }
+    }
+
+    /// Read a field value asynchronously
+    pub async fn read(&self, entity_id: EntityId, field_path: &[FieldType]) -> Result<(Value, Timestamp, Option<EntityId>)> {
+        let request = Request::Read {
+            entity_id,
+            field_types: field_path.iter().cloned().collect(),
+            value: None,
+            write_time: None,
+            writer_id: None,
+        };
+        
+        let requests = Requests::new(vec![request]);
+        let response = self.perform(requests).await?;
+        
+        if let Some(req) = response.first() {
+            match req {
+                Request::Read { value, write_time, writer_id, .. } => {
+                    if let (Some(val), Some(time)) = (value, write_time) {
+                        Ok((val.clone(), time.clone(), writer_id.clone()))
+                    } else {
+                        Err(Error::StoreProxyError("Read result incomplete".to_string()))
+                    }
+                }
+                _ => Err(Error::StoreProxyError("Unexpected response type".to_string())),
+            }
+        } else {
+            Err(Error::StoreProxyError("No response received".to_string()))
+        }
+    }
+
+    /// Write a field value asynchronously
+    pub async fn write(&self, entity_id: EntityId, field_path: &[FieldType], value: Value, writer_id: Option<EntityId>) -> Result<()> {
+        let request = Request::Write {
+            entity_id,
+            field_types: field_path.iter().cloned().collect(),
+            value: Some(value),
+            push_condition: PushCondition::Always,
+            adjust_behavior: AdjustBehavior::Set,
+            write_time: Some(now()),
+            writer_id,
+            write_processed: false,
+        };
+        
+        let requests = Requests::new(vec![request]);
+        let _response = self.perform(requests).await?;
+        Ok(())
+    }
+
+    /// Create a new entity asynchronously
+    pub async fn create_entity(&self, entity_type: EntityType, parent_id: Option<EntityId>, name: &str) -> Result<EntityId> {
+        let request = Request::Create {
+            entity_type,
+            parent_id,
+            name: name.to_string(),
+            created_entity_id: None,
+            timestamp: Some(now()),
+        };
+        
+        let requests = Requests::new(vec![request]);
+        let response = self.perform(requests).await?;
+        
+        if let Some(req) = response.first() {
+            match req {
+                Request::Create { created_entity_id, .. } => {
+                    created_entity_id.ok_or_else(|| Error::StoreProxyError("Entity creation failed".to_string()))
+                }
+                _ => Err(Error::StoreProxyError("Unexpected response type".to_string())),
+            }
+        } else {
+            Err(Error::StoreProxyError("No response received".to_string()))
+        }
+    }
+
+    /// Delete an entity asynchronously
+    pub async fn delete_entity(&self, entity_id: EntityId) -> Result<()> {
+        let request = Request::Delete {
+            entity_id,
+            timestamp: Some(now()),
+        };
+        
+        let requests = Requests::new(vec![request]);
+        let _response = self.perform(requests).await?;
+        Ok(())
+    }
+
+    /// Update schema asynchronously
+    pub async fn update_schema(&self, schema: EntitySchema<Single, String, String>) -> Result<()> {
+        let request = Request::SchemaUpdate {
+            schema,
+            timestamp: Some(now()),
+        };
+        
+        let requests = Requests::new(vec![request]);
+        let _response = self.perform(requests).await?;
+        Ok(())
+    }
+
+    /// Take a snapshot asynchronously
+    pub async fn take_snapshot(&self) -> Result<crate::data::Snapshot> {
+        // For now, snapshots are not supported in async proxy
+        Err(Error::StoreProxyError("Snapshots not supported in async proxy".to_string()))
     }
 
     /// Find entities asynchronously

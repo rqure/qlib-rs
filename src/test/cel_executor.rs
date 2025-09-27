@@ -126,8 +126,8 @@ fn setup_test_store_with_entity() -> Result<(Store, EntityId)> {
         }
     );
 
-    let requests = sreq![sschemaupdate!(schema)];
-    store.perform_mut(requests)?;
+    store.update_schema(schema)?;
+
 
     // Now we can get the interned types
     let et_test = store.get_entity_type("TestEntity")?;
@@ -142,26 +142,17 @@ fn setup_test_store_with_entity() -> Result<(Store, EntityId)> {
     let ft_data = store.get_field_type("Data")?;
 
     // Create a test entity
-    let create_requests = store.perform_mut(sreq![screate!(
-        et_test,
-        "test_entity".to_string()
-    )])?;
-    
-    let entity_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
-        id
-    } else {
-        panic!("Expected created entity ID");
-    };
+    let entity_id = store.create_entity(et_test, None, "test_entity")?;
 
     // Set some field values
     let now = now();
     
     // Create additional entity types for Manager and Tag references
     let manager_schema = EntitySchema::<Single, String, String>::new("Manager".to_string(), vec![]);
-    store.perform_mut(sreq![sschemaupdate!(manager_schema)])?;
+    store.update_schema(manager_schema)?;
     
     let tag_schema = EntitySchema::<Single, String, String>::new("Tag".to_string(), vec![]);
-    store.perform_mut(sreq![sschemaupdate!(tag_schema)])?;
+    store.update_schema(tag_schema)?;
     
     let et_manager = store.get_entity_type("Manager")?;
     let et_tag = store.get_entity_type("Tag")?;
@@ -170,18 +161,15 @@ fn setup_test_store_with_entity() -> Result<(Store, EntityId)> {
     let tag2_id = EntityId::new(et_tag, 2);
     let test_data = vec![72, 101, 108, 108, 111]; // "Hello" in bytes
     
-    let field_requests = sreq![
-        swrite!(entity_id, crate::sfield![ft_name], sstr!("John Doe")),
-        swrite!(entity_id, crate::sfield![ft_age], sint!(30)),
-        swrite!(entity_id, crate::sfield![ft_score], sfloat!(95.5)),
-        swrite!(entity_id, crate::sfield![ft_is_active], sbool!(true)),
-        swrite!(entity_id, crate::sfield![ft_status], schoice!(1)),
-        swrite!(entity_id, crate::sfield![ft_manager], sref!(Some(manager_id))),
-        swrite!(entity_id, crate::sfield![ft_tags], sreflist![tag1_id, tag2_id]),
-        swrite!(entity_id, crate::sfield![ft_created_at], stimestamp!(now)),
-        swrite!(entity_id, crate::sfield![ft_data], sblob!(test_data)),
-    ];
-    store.perform_mut(field_requests)?;
+    store.write(entity_id, &[ft_name], Value::from_string("John Doe".to_string()), None)?;
+    store.write(entity_id, &[ft_age], Value::Int(30), None)?;
+    store.write(entity_id, &[ft_score], Value::Float(95.5), None)?;
+    store.write(entity_id, &[ft_is_active], Value::Bool(true), None)?;
+    store.write(entity_id, &[ft_status], Value::Choice(1), None)?;
+    store.write(entity_id, &[ft_manager], Value::EntityReference(Some(manager_id)), None)?;
+    store.write(entity_id, &[ft_tags], Value::EntityList(vec![tag1_id, tag2_id]), None)?;
+    store.write(entity_id, &[ft_created_at], Value::Timestamp(now), None)?;
+    store.write(entity_id, &[ft_data], Value::Blob(ArcBlob::new(test_data)), None)?;
 
     Ok((store, entity_id))
 }

@@ -95,35 +95,9 @@ fn test_inheritance_in_find_entities() -> Result<()> {
     let et_cat = store.get_entity_type("Cat")?;
 
     // Create some entities
-    let create_requests = store.perform_mut(sreq![screate!(
-        et_dog,
-        "Buddy".to_string()
-    )])?;
-    let dog1_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
-        id
-    } else {
-        panic!("Expected created entity ID");
-    };
-
-    let create_requests = store.perform_mut(sreq![screate!(
-        et_dog,
-        "Rex".to_string()
-    )])?;
-    let dog2_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
-        id
-    } else {
-        panic!("Expected created entity ID");
-    };
-
-    let create_requests = store.perform_mut(sreq![screate!(
-        et_cat,
-        "Whiskers".to_string()
-    )])?;
-    let cat1_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
-        id
-    } else {
-        panic!("Expected created entity ID");
-    };
+    let dog1_id = store.create_entity(et_dog, None, "Buddy")?;
+    let dog2_id = store.create_entity(et_dog, None, "Rex")?;
+    let cat1_id = store.create_entity(et_cat, None, "Whiskers")?;
 
     // Test: Finding Dog entities should return only dogs
     let dogs = store.find_entities(et_dog, None)?;
@@ -192,25 +166,8 @@ fn test_inheritance_with_direct_instances() -> Result<()> {
     let et_mammal = store.get_entity_type("Mammal")?;
 
     // Create direct instances of both types
-    let create_requests = store.perform_mut(sreq![screate!(
-        et_animal,
-        "Generic Animal".to_string()
-    )])?;
-    let animal1_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
-        id
-    } else {
-        panic!("Expected created entity ID");
-    };
-
-    let create_requests = store.perform_mut(sreq![screate!(
-        et_mammal,
-        "Generic Mammal".to_string()
-    )])?;
-    let mammal1_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
-        id
-    } else {
-        panic!("Expected created entity ID");
-    };
+    let animal1_id = store.create_entity(et_animal, None, "Generic Animal")?;
+    let mammal1_id = store.create_entity(et_mammal, None, "Generic Mammal")?;
 
     // Test: Finding Animal entities should return both (mammal inherits from animal)
     let animals = store.find_entities(et_animal, None)?;
@@ -401,15 +358,7 @@ fn test_multi_inheritance() -> Result<()> {
     let ft_echolocation_range = store.get_field_type("EcholocationRange")?;
 
     // Create a bat entity
-    let create_requests = store.perform_mut(sreq![screate!(
-        et_bat,
-        "Vampire Bat".to_string()
-    )])?;
-    let bat_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
-        id
-    } else {
-        panic!("Expected created entity ID");
-    };
+    let bat_id = store.create_entity(et_bat, None, "Vampire Bat")?;
 
     // Verify that the bat has fields from all parent types
     let complete_schema = store.get_complete_entity_schema(et_bat)?;

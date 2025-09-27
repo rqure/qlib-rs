@@ -2095,6 +2095,163 @@ impl StoreTrait for Store {
         self.resolve_indirection(entity_id, fields)
     }
 
+    fn read(&self, entity_id: EntityId, field_path: &[FieldType]) -> Result<(Value, Timestamp, Option<EntityId>)> {
+        let (resolved_entity_id, resolved_field_type) = self.resolve_indirection(entity_id, field_path)?;
+        let field_key = (resolved_entity_id, resolved_field_type);
+        
+        if let Some(field) = self.fields.get(&field_key) {
+            Ok((field.value.clone(), field.write_time, field.writer_id))
+        } else {
+            Err(Error::FieldTypeNotFound(resolved_entity_id, resolved_field_type))
+        }
+    }
+
+    fn write(&mut self, entity_id: EntityId, field_path: &[FieldType], value: Value, writer_id: Option<EntityId>) -> Result<()> {
+        let (resolved_entity_id, resolved_field_type) = self.resolve_indirection(entity_id, field_path)?;
+        
+        // Get the schema to validate the value type
+        let entity_schema = self.get_complete_entity_schema(resolved_entity_id.extract_type())?;
+        let field_schema = entity_schema
+            .fields
+            .get(&resolved_field_type)
+            .ok_or_else(|| Error::FieldTypeNotFound(resolved_entity_id, resolved_field_type))?;
+        
+        // Check value type matches schema
+        let default_value = field_schema.default_value();
+        if discriminant(&value) != discriminant(&default_value) {
+            return Err(Error::ValueTypeMismatch(resolved_entity_id, resolved_field_type, default_value, value));
+        }
+        
+        // Get or create the field
+        let field = self
+            .fields
+            .entry((resolved_entity_id, resolved_field_type))
+            .or_insert_with(|| Field {
+                field_type: resolved_field_type,
+                value: default_value,
+                write_time: now(),
+                writer_id: None,
+            });
+        
+        // Update the field
+        field.value = value;
+        field.write_time = now();
+        field.writer_id = writer_id;
+        
+        // Trigger notifications
+        let current_request = Request::Read {
+            entity_id: resolved_entity_id,
+            field_types: field_path.iter().cloned().collect(),
+            value: Some(field.value.clone()),
+            write_time: Some(field.write_time),
+            writer_id: field.writer_id,
+        };
+        
+        self.trigger_notifications(
+            resolved_entity_id,
+            resolved_field_type,
+            current_request.clone(),
+            current_request, // Use same for previous since we don't track previous values in direct API
+        );
+        
+        Ok(())
+    }
+
+    fn create_entity(&mut self, entity_type: EntityType, parent_id: Option<EntityId>, name: &str) -> Result<EntityId> {
+        let mut created_entity_id = None;
+        self.create_entity_internal(entity_type, parent_id, &mut created_entity_id, name)?;
+        created_entity_id.ok_or_else(|| Error::InvalidRequest("Failed to create entity".to_string()))
+    }
+
+    fn delete_entity(&mut self, entity_id: EntityId) -> Result<()> {
+        self.delete_entity_internal(entity_id)
+    }
+
+    fn update_schema(&mut self, schema: EntitySchema<Single, String, String>) -> Result<()> {
+        // Validate whether inherited entity types exist or not:
+        for parent in schema.inherit.iter() {
+            self.entity_type_interner
+                .get(parent.as_str())
+                .ok_or_else(|| Error::EntityTypeStrNotFound(parent.clone()))?;
+        }
+
+        // Get or create the entity type if it doesn't exist
+        let entity_type = EntityType(
+            self.entity_type_interner
+                .intern(schema.entity_type.as_str()) as u32,
+        );
+
+        // Intern all field types before converting the schema
+        for field_name in schema.fields.keys() {
+            self.field_type_interner.intern(field_name.as_str());
+        }
+
+        let schema = EntitySchema::<Single>::from_string_schema(schema.clone(), self);
+
+        // Get a copy of the existing schema if it exists
+        let complete_old_schema = self
+            .get_complete_entity_schema(entity_type.clone())
+            .map(|schema| schema.clone())
+            .unwrap_or_else(|_| EntitySchema::<Complete>::new(entity_type.clone()));
+
+        self.schemas.insert(entity_type.clone(), schema.clone());
+
+        if !self.entities.contains_key(&entity_type) {
+            self.entities.insert(entity_type.clone(), SortedVec::new());
+        }
+
+        // Clear the complete entity schema cache since a schema was updated
+        self.complete_entity_schema_cache.clear();
+
+        // Get the complete schema for the entity type (will rebuild since cache is cleared)
+        let complete_new_schema =
+            self.build_complete_entity_schema(schema.entity_type.clone())?;
+
+        for removed_field in complete_old_schema.diff(&complete_new_schema) {
+            // If the field was removed, we need to remove it from all entities
+            for entity_id in self
+                .entities
+                .get(&schema.entity_type)
+                .unwrap_or(&SortedVec::new())
+            {
+                let field_key = (*entity_id, removed_field.field_type().clone());
+                self.fields.remove(&field_key);
+            }
+        }
+
+        for added_field in complete_new_schema.diff(&complete_old_schema) {
+            // If the field was added, we need to add it to all entities
+            for entity_id in self
+                .entities
+                .get(&schema.entity_type)
+                .unwrap_or(&SortedVec::new())
+            {
+                let field_key = (*entity_id, added_field.field_type().clone());
+                self.fields.insert(
+                    field_key,
+                    Field {
+                        field_type: added_field.field_type().clone(),
+                        value: added_field.default_value(),
+                        write_time: now(),
+                        writer_id: None,
+                    },
+                );
+            }
+        }
+
+        self.et = Some(ET::new(self));
+        self.ft = Some(FT::new(self));
+
+        // Rebuild inheritance map after schema changes
+        self.rebuild_inheritance_map();
+
+        Ok(())
+    }
+
+    fn take_snapshot(&self) -> crate::data::Snapshot {
+        self.take_snapshot()
+    }
+
     fn perform(&self, requests: Requests) -> Result<Requests> {
         self.perform(requests)
     }

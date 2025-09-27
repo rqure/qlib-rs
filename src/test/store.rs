@@ -37,8 +37,7 @@ fn create_entity_schema_with_name(store: &mut Store, entity_type_name: &str) -> 
         }
     );
 
-    let requests = sreq![sschemaupdate!(schema)];
-    store.perform_mut(requests)?;
+    store.update_schema(schema)?;
     Ok(())
 }
 
@@ -68,85 +67,34 @@ fn test_create_entity_hierarchy() -> Result<()> {
     assert_eq!(root_entities.len(), 0);
 
     // Create root entity
-    let create_requests = sreq![screate!(
-        et_folder,
-        "Security Models".to_string()
-    )];
-    let create_requests = store.perform_mut(create_requests)?;
-    let root_entity_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
-        id
-    } else {
-        panic!("Expected created entity ID");
-    };
+    let root_entity_id = store.create_entity(et_folder, None, "Security Models")?;
     let root_entity_id_ref = root_entity_id;
 
-    let create_requests = sreq![screate!(
-        et_folder,
-        "Users".to_string(),
-        root_entity_id_ref
-    )];
-    let create_requests = store.perform_mut(create_requests)?;
-    let users_folder_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
-        id
-    } else {
-        panic!("Expected created entity ID");
-    };
+    let users_folder_id = store.create_entity(et_folder, Some(root_entity_id_ref), "Users")?;
     let users_folder_id_ref = users_folder_id;
 
-    let create_requests = sreq![screate!(
-        et_folder,
-        "Roles".to_string(),
-        root_entity_id_ref
-    )];
-    let create_requests = store.perform_mut(create_requests)?;
-    let roles_folder_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
-        id
-    } else {
-        panic!("Expected created entity ID");
-    };
+    let roles_folder_id = store.create_entity(et_folder, Some(root_entity_id_ref), "Roles")?;
     let roles_folder_id_ref = roles_folder_id;
 
-    let create_requests = sreq![screate!(
-        et_user,
-        "qei".to_string(),
-        users_folder_id_ref
-    )];
-    let create_requests = store.perform_mut(create_requests)?;
-    let user_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
-        id
-    } else {
-        panic!("Expected created entity ID");
-    };
+    let user_id = store.create_entity(et_user, Some(users_folder_id_ref), "qei")?;
     let user_id_ref = user_id;
 
-    let create_requests = sreq![screate!(
-        et_user,
-        "admin".to_string(),
-        roles_folder_id_ref
-    )];
-    store.perform_mut(create_requests)?;
+    store.create_entity(et_user, Some(roles_folder_id_ref), "admin")?;
 
     // Test relationships
     let ft_parent = store.get_field_type("Parent")?;
     let ft_name = store.get_field_type("Name")?;
     
-    let reqs = store.perform_mut(sreq![
-        sread!(user_id_ref, crate::sfield![ft_parent]),
-        sread!(user_id_ref, crate::sfield![ft_name]),
-    ])?;
-
-    if let Some(Request::Read { value: Some(Value::EntityReference(Some(parent_id))), .. }) = reqs.get(0) {
+    let (parent_value, _, _) = store.read(user_id_ref, &[ft_parent])?;
+    if let Value::EntityReference(Some(parent_id)) = parent_value {
         assert_eq!(parent_id, users_folder_id_ref);
     } else {
         panic!("Expected parent reference");
     }
 
     // Verify name
-    let reqs = store.perform_mut(sreq![
-        sread!(users_folder_id_ref, crate::sfield![ft_name]),
-    ])?;
-
-    if let Some(Request::Read { value: Some(Value::String(name)), .. }) = reqs.get(0) {
+    let (name_value, _, _) = store.read(users_folder_id_ref, &[ft_name])?;
+    if let Value::String(name) = name_value {
         assert_eq!(name.as_str(), "Users");
     } else {
         panic!("Expected folder name");
@@ -162,56 +110,27 @@ fn test_field_operations() -> Result<()> {
     let et_folder = store.get_entity_type("Folder")?;
     let et_user = store.get_entity_type("User")?;
 
-    let create_requests = sreq![screate!(
-        et_folder,
-        "Users".to_string()
-    )];
-    let create_requests = store.perform_mut(create_requests)?;
-    let users_folder_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
-        id
-    } else {
-        panic!("Expected created entity ID");
-    };
+    let users_folder_id = store.create_entity(et_folder, None, "Users")?;
 
-    let create_requests = sreq![screate!(
-        et_user,
-        "testuser".to_string(),
-        users_folder_id
-    )];
-    let create_requests = store.perform_mut(create_requests)?;
-    let user_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
-        id
-    } else {
-        panic!("Expected created entity ID");
-    };
+    let user_id = store.create_entity(et_user, Some(users_folder_id), "testuser")?;
     let user_ref = user_id;
 
     // Test write and read operations
     let ft_name = store.get_field_type("Name")?;
-    store.perform_mut(sreq![
-        swrite!(user_ref, crate::sfield![ft_name], sstr!("Updated User")),
-    ])?;
+    store.write(user_ref, &[ft_name], Value::from_string("Updated User".to_string()), None)?;
 
-    let reads = store.perform_mut(sreq![
-        sread!(user_ref, crate::sfield![ft_name]),
-    ])?;
-
-    if let Some(Request::Read { value: Some(Value::String(name)), .. }) = reads.get(0) {
+    let (name_value, _, _) = store.read(user_ref, &[ft_name])?;
+    if let Value::String(name) = name_value {
         assert_eq!(name.as_str(), "Updated User");
     } else {
         panic!("Expected updated name");
     }
 
     // Test field updates
-    store.perform_mut(sreq![
-        swrite!(user_ref, crate::sfield![ft_name], sstr!("Final Name")),
-    ])?;
+    store.write(user_ref, &[ft_name], Value::from_string("Final Name".to_string()), None)?;
 
-    let verify = store.perform_mut(sreq![
-        sread!(user_ref, crate::sfield![ft_name]),
-    ])?;
-
-    if let Some(Request::Read { value: Some(Value::String(name)), .. }) = verify.get(0) {
+    let (final_name_value, _, _) = store.read(user_ref, &[ft_name])?;
+    if let Value::String(name) = final_name_value {
         assert_eq!(name.as_str(), "Final Name");
     } else {
         panic!("Expected final name");
@@ -228,59 +147,25 @@ fn test_indirection_resolution() -> Result<()> {
     let et_user = store.get_entity_type("User")?;
 
     // Create entities
-    let create_requests = sreq![screate!(
-        et_folder,
-        "Security".to_string()
-    )];
-    let create_requests = store.perform_mut(create_requests)?;
-    let security_folder_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
-        id
-    } else {
-        panic!("Expected created entity ID");
-    };
+    let security_folder_id = store.create_entity(et_folder, None, "Security")?;
     let security_folder_ref = security_folder_id;
 
-    let create_requests = sreq![screate!(
-        et_folder,
-        "Users".to_string(),
-        security_folder_ref
-    )];
-    let create_requests = store.perform_mut(create_requests)?;
-    let users_folder_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
-        id
-    } else {
-        panic!("Expected created entity ID");
-    };
+    let users_folder_id = store.create_entity(et_folder, Some(security_folder_ref), "Users")?;
     let users_folder_ref = users_folder_id;
 
-    let create_requests = sreq![screate!(
-        et_user,
-        "admin".to_string(),
-        users_folder_ref
-    )];
-    let create_requests = store.perform_mut(create_requests)?;
-    let admin_user_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
-        id
-    } else {
-        panic!("Expected created entity ID");
-    };
+    let admin_user_id = store.create_entity(et_user, Some(users_folder_ref), "admin")?;
     let admin_user_ref = admin_user_id;
 
     // Test indirection: User->Parent->Name should resolve to "Users"
     let ft_parent = store.get_field_type("Parent")?;
     let ft_name = store.get_field_type("Name")?;
-    let parent_name_field = crate::sfield![ft_parent, ft_name];
+    let parent_name_field = vec![ft_parent, ft_name];
 
-    store.perform_mut(sreq![
-        swrite!(admin_user_ref, crate::sfield![ft_name], sstr!("Administrator")),
-    ])?;
+    store.write(admin_user_ref, &[ft_name], Value::from_string("Administrator".to_string()), None)?;
 
     // Test indirection resolution
-    let indirect_reads = store.perform_mut(sreq![
-        sread!(admin_user_ref, parent_name_field),
-    ])?;
-
-    if let Some(Request::Read { value: Some(Value::String(name)), .. }) = indirect_reads.get(0) {
+    let (indirect_value, _, _) = store.read(admin_user_ref, &parent_name_field)?;
+    if let Value::String(name) = indirect_value {
         assert_eq!(name.as_str(), "Users");
     } else {
         panic!("Expected indirection to resolve to parent name");
@@ -296,43 +181,23 @@ fn test_entity_deletion() -> Result<()> {
     let et_folder = store.get_entity_type("Folder")?;
     let et_user = store.get_entity_type("User")?;
 
-    let create_requests = sreq![screate!(
-        et_folder,
-        "Users".to_string()
-    )];
-    let create_requests = store.perform_mut(create_requests)?;
-    let users_folder_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
-        id
-    } else {
-        panic!("Expected created entity ID");
-    };
+    let users_folder_id = store.create_entity(et_folder, None, "Users")?;
 
-    let create_requests = sreq![screate!(
-        et_user,
-        "testuser".to_string(),
-        users_folder_id
-    )];
-    let create_requests = store.perform_mut(create_requests)?;
-    let user_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
-        id
-    } else {
-        panic!("Expected created entity ID");
-    };
+    let user_id = store.create_entity(et_user, Some(users_folder_id), "testuser")?;
     let user_ref = user_id;
 
     // Verify entity exists
     assert!(store.entity_exists(user_ref));
 
     // Delete the entity
-    store.perform_mut(sreq![sdelete!(user_ref)])?;
+    store.delete_entity(user_ref)?;
 
     // Verify entity is gone
     assert!(!store.entity_exists(user_ref));
 
     // Try to read from deleted entity - the request should succeed but return no value
     let ft_name = store.get_field_type("Name")?;
-    let request = sreq![sread!(user_ref, crate::sfield![ft_name])];
-    let result = store.perform_mut(request);
+    let result = store.read(user_ref, &[ft_name]);
     
     // The request should fail for a deleted entity
     match result {
@@ -350,25 +215,11 @@ fn test_entity_listing_with_pagination() -> Result<()> {
     let et_folder = store.get_entity_type("Folder")?;
     let et_user = store.get_entity_type("User")?;
 
-    let create_requests = sreq![screate!(
-        et_folder,
-        "Users".to_string()
-    )];
-    let create_requests = store.perform_mut(create_requests)?;
-    let users_folder_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
-        id
-    } else {
-        panic!("Expected created entity ID");
-    };
+    let users_folder_id = store.create_entity(et_folder, None, "Users")?;
 
     // Create multiple users
     for i in 0..5 {
-        let create_requests = sreq![screate!(
-            et_user,
-            format!("user{}", i),
-            users_folder_id
-        )];
-        store.perform_mut(create_requests)?;
+        store.create_entity(et_user, Some(users_folder_id), &format!("user{}", i))?;
     }
 
     let user_entities = store.find_entities(et_user, None)?;
@@ -384,12 +235,9 @@ fn test_cel_filtering_parameters() -> Result<()> {
     let et_user = store.get_entity_type("User")?;
     
     // Create some test users
-    let create_requests = sreq![
-        screate!(et_user, "user1".to_string()),
-        screate!(et_user, "user2".to_string()),
-        screate!(et_user, "user3".to_string()),
-    ];
-    store.perform_mut(create_requests)?;
+    store.create_entity(et_user, None, "user1")?;
+    store.create_entity(et_user, None, "user2")?;
+    store.create_entity(et_user, None, "user3")?;
     
     // Test with None filter (should work fine)
     let all_users = store.find_entities(et_user, None)?;
@@ -443,8 +291,7 @@ fn test_find_entities_comprehensive() -> Result<()> {
             storage_scope: StorageScope::Configuration,
         }
     );
-    let requests = sreq![sschemaupdate!(user_schema)];
-    store.perform_mut(requests)?;
+    store.update_schema(user_schema)?;
     
     // Now we can get the interned types
     let et_user = store.get_entity_type("User")?;
@@ -460,20 +307,16 @@ fn test_find_entities_comprehensive() -> Result<()> {
     assert!(empty_paginated.next_cursor.is_none());
     
     // Create test entities with various field values
-    let create_requests = sreq![
-        screate!(et_user, "Alice".to_string()),
-        screate!(et_user, "Bob".to_string()),
-        screate!(et_user, "Charlie".to_string()),
-    ];
-    let create_requests = store.perform_mut(create_requests)?;
+    store.create_entity(et_user, None, "Alice")?;
+    store.create_entity(et_user, None, "Bob")?;
+    store.create_entity(et_user, None, "Charlie")?;
     
     // Extract created entity IDs for later use
-    let alice_id = create_requests.read()[0].entity_id().unwrap();
+    let alice_id = store.find_entities(et_user, Some("Name == \"Alice\""))?[0];
     
     // Verify the names were set correctly
-    let name_read = sreq![sread!(alice_id, crate::sfield![ft_name])];
-    let name_read = store.perform_mut(name_read)?;
-    if let Some(Request::Read { value: Some(Value::String(alice_name)), .. }) = name_read.get(0) {
+    let (alice_name_value, _, _) = store.read(alice_id, &[ft_name])?;
+    if let Value::String(alice_name) = alice_name_value {
         println!("Alice's name in store: '{}'", alice_name);
         assert_eq!(alice_name.as_str(), "Alice");
     } else {
@@ -540,19 +383,14 @@ fn test_find_entities_pagination() -> Result<()> {
             storage_scope: StorageScope::Configuration,
         }
     );
-    let requests = sreq![sschemaupdate!(user_schema)];
-    store.perform_mut(requests)?;
+    store.update_schema(user_schema)?;
     
     // Now get the interned types
     let et_user = store.get_entity_type("User")?;
     
     // Create 10 test users
     for i in 0..10 {
-        let create_requests = sreq![screate!(
-            et_user, 
-            format!("User{:02}", i)
-        )];
-        store.perform_mut(create_requests)?;
+        store.create_entity(et_user, None, &format!("User{:02}", i))?;
     }
     
     // Test pagination with different page sizes
@@ -640,8 +478,7 @@ fn test_find_entities_inheritance() -> Result<()> {
             storage_scope: StorageScope::Runtime,
         }
     );
-    let requests = sreq![sschemaupdate!(animal_schema)];
-    store.perform_mut(requests)?;
+    store.update_schema(animal_schema)?;
     
     // Create Mammal schema (inherits from Animal)
     let mut mammal_schema = EntitySchema::<Single, String, String>::new("Mammal".to_string(), vec!["Animal".to_string()]);
@@ -654,8 +491,7 @@ fn test_find_entities_inheritance() -> Result<()> {
             storage_scope: StorageScope::Runtime,
         }
     );
-    let requests = sreq![sschemaupdate!(mammal_schema)];
-    store.perform_mut(requests)?;
+    store.update_schema(mammal_schema)?;
     
     // Create Dog schema (inherits from Mammal)
     let mut dog_schema = EntitySchema::<Single, String, String>::new("Dog".to_string(), vec!["Mammal".to_string()]);
@@ -668,8 +504,7 @@ fn test_find_entities_inheritance() -> Result<()> {
             storage_scope: StorageScope::Runtime,
         }
     );
-    let requests = sreq![sschemaupdate!(dog_schema)];
-    store.perform_mut(requests)?;
+    store.update_schema(dog_schema)?;
     
     // Create Cat schema (inherits from Mammal)  
     let mut cat_schema = EntitySchema::<Single, String, String>::new("Cat".to_string(), vec!["Mammal".to_string()]);
@@ -682,8 +517,7 @@ fn test_find_entities_inheritance() -> Result<()> {
             storage_scope: StorageScope::Runtime,
         }
     );
-    let requests = sreq![sschemaupdate!(cat_schema)];
-    store.perform_mut(requests)?;
+    store.update_schema(cat_schema)?;
     
     // Create Bird schema (inherits from Animal)
     let mut bird_schema = EntitySchema::<Single, String, String>::new("Bird".to_string(), vec!["Animal".to_string()]);
@@ -696,8 +530,7 @@ fn test_find_entities_inheritance() -> Result<()> {
             storage_scope: StorageScope::Runtime,
         }
     );
-    let requests = sreq![sschemaupdate!(bird_schema)];
-    store.perform_mut(requests)?;
+    store.update_schema(bird_schema)?;
     
     // Now we can get the interned entity types
     let et_animal = store.get_entity_type("Animal")?;
@@ -707,16 +540,13 @@ fn test_find_entities_inheritance() -> Result<()> {
     let et_bird = store.get_entity_type("Bird")?;
     
     // Create test entities
-    let create_requests = sreq![
-        screate!(et_animal, "Generic Animal".to_string()),
-        screate!(et_mammal, "Generic Mammal".to_string()),
-        screate!(et_dog, "Rex".to_string()),
-        screate!(et_dog, "Buddy".to_string()),
-        screate!(et_cat, "Whiskers".to_string()),
-        screate!(et_cat, "Mittens".to_string()),
-        screate!(et_bird, "Tweety".to_string()),
-    ];
-    store.perform_mut(create_requests)?;
+    store.create_entity(et_animal, None, "Generic Animal")?;
+    store.create_entity(et_mammal, None, "Generic Mammal")?;
+    store.create_entity(et_dog, None, "Rex")?;
+    store.create_entity(et_dog, None, "Buddy")?;
+    store.create_entity(et_cat, None, "Whiskers")?;
+    store.create_entity(et_cat, None, "Mittens")?;
+    store.create_entity(et_bird, None, "Tweety")?;
     
     // Test find_entities with inheritance (includes derived types)
     let all_animals = store.find_entities(et_animal, None)?;
@@ -816,18 +646,14 @@ fn test_find_entities_cel_edge_cases() -> Result<()> {
             storage_scope: StorageScope::Configuration,
         }
     );
-    let requests = sreq![sschemaupdate!(user_schema)];
-    store.perform_mut(requests)?;
+    store.update_schema(user_schema)?;
     
     // Now get the interned types
     let et_user = store.get_entity_type("User")?;
     
     // Create test users
-    let create_requests = sreq![
-        screate!(et_user, "Alice".to_string()),
-        screate!(et_user, "Bob".to_string()),
-    ];
-    store.perform_mut(create_requests)?;
+    store.create_entity(et_user, None, "Alice")?;
+    store.create_entity(et_user, None, "Bob")?;
     
     // Test CEL expression that returns non-boolean
     let non_boolean = store.find_entities(et_user, Some("42"))?;
@@ -889,8 +715,7 @@ fn test_complete_entity_schema_caching() -> Result<()> {
             storage_scope: StorageScope::Runtime,
         }
     );
-    let requests = sreq![sschemaupdate!(base_schema)];
-    store.perform_mut(requests)?;
+    store.update_schema(base_schema)?;
     
     // Create derived entity type
     let mut derived_schema = EntitySchema::<Single, String, String>::new("DerivedEntity".to_string(), vec!["BaseEntity".to_string()]);
@@ -903,8 +728,7 @@ fn test_complete_entity_schema_caching() -> Result<()> {
             storage_scope: StorageScope::Runtime,
         }
     );
-    let requests = sreq![sschemaupdate!(derived_schema)];
-    store.perform_mut(requests)?;
+    store.update_schema(derived_schema)?;
     
     // Now get the interned types
     let et_derived = store.get_entity_type("DerivedEntity")?;
@@ -971,8 +795,7 @@ fn test_complete_entity_schema_caching() -> Result<()> {
         }
     );
     
-    let requests = sreq![sschemaupdate!(updated_base_schema)];
-    store.perform_mut(requests)?;
+    store.update_schema(updated_base_schema)?;
     
     // Now get the new field type
     let ft_new_base_field = store.get_field_type("NewBaseField")?;

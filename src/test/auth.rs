@@ -117,15 +117,7 @@ fn test_create_and_authenticate_user() -> Result<()> {
     store.perform_mut(requests)?;
     
     // Create an object entity to serve as parent
-    let create_requests = store.perform_mut(sreq![screate!(
-        object_entity_type,
-        "TestParent".to_string()
-    )])?;
-    let parent_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
-        id
-    } else {
-        panic!("Failed to create parent entity");
-    };
+    let parent_id = store.create_entity(object_entity_type, None, "TestParent")?;
     
     // Create a test user
     let username = "testuser";
@@ -268,16 +260,8 @@ fn test_authentication_with_factory_restore_format() -> Result<()> {
     let username = "qei";
     let password = "qei";
     
-    // Create the entity using the screate! macro instead of manual entity creation
-    let create_requests = store.perform_mut(sreq![screate!(
-        user_entity_type,
-        username.to_string()
-    )])?;
-    let user_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
-        id
-    } else {
-        panic!("Failed to create user entity");
-    };
+    // Create the entity using direct method instead of macro
+    let user_id = store.create_entity(user_entity_type, None, username)?;
     
     // Set the user fields as factory restore would
     let auth_config = AuthConfig::default();
@@ -292,12 +276,9 @@ fn test_authentication_with_factory_restore_format() -> Result<()> {
     let _locked_until_field_type = store.get_field_type("LockedUntil")?;
     let _last_login_field_type = store.get_field_type("LastLogin")?;
     
-    let field_requests = sreq![
-        swrite!(user_id, crate::sfield![name_field_type], sstr!(username)),
-        swrite!(user_id, crate::sfield![secret_field_type], sstr!(password_hash)),
-        swrite!(user_id, crate::sfield![active_field_type], sbool!(true)),
-    ];
-    store.perform_mut(field_requests)?;
+    store.write(user_id, &[name_field_type], Value::from_string(username.to_string()), None)?;
+    store.write(user_id, &[secret_field_type], Value::from_string(password_hash), None)?;
+    store.write(user_id, &[active_field_type], Value::Bool(true), None)?;
     
     // Test finding the user by name
     let found_user = find_user_by_name(&mut store, username)?;

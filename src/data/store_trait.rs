@@ -1,7 +1,7 @@
 use std::{collections::HashMap};
 
 use crate::{
-    data::request::Requests, Complete, EntityId, EntitySchema, EntityType, FieldSchema, FieldType, IndirectFieldType, NotificationQueue, NotifyConfig, PageOpts, PageResult, Request, Result, Single
+    data::request::Requests, Complete, EntityId, EntitySchema, EntityType, FieldSchema, FieldType, IndirectFieldType, NotificationQueue, NotifyConfig, PageOpts, PageResult, Request, Result, Single, Value, Timestamp
 };
 
 /// Async trait defining the common interface for store implementations
@@ -35,6 +35,24 @@ pub trait StoreTrait {
 
     /// Resolve indirection for field lookups
     fn resolve_indirection(&self, entity_id: EntityId, fields: &[FieldType]) -> Result<(EntityId, FieldType)>;
+
+    /// Read a field value with indirection support
+    fn read(&self, entity_id: EntityId, field_path: &[FieldType]) -> Result<(Value, Timestamp, Option<EntityId>)>;
+
+    /// Write a field value with indirection support
+    fn write(&mut self, entity_id: EntityId, field_path: &[FieldType], value: Value, writer_id: Option<EntityId>) -> Result<()>;
+
+    /// Create a new entity
+    fn create_entity(&mut self, entity_type: EntityType, parent_id: Option<EntityId>, name: &str) -> Result<EntityId>;
+
+    /// Delete an entity
+    fn delete_entity(&mut self, entity_id: EntityId) -> Result<()>;
+
+    /// Update entity schema
+    fn update_schema(&mut self, schema: EntitySchema<Single, String, String>) -> Result<()>;
+
+    /// Take a snapshot
+    fn take_snapshot(&self) -> crate::data::Snapshot;
 
     /// Perform a batch of requests
     fn perform(&self, requests: Requests) -> Result<Requests>;
