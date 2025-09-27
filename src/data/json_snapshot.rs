@@ -284,10 +284,9 @@ pub fn value_to_json_value(value: &Value, choices: Option<&Vec<String>>) -> Json
     }
 }
 
-/// Convert Value to JsonValue with path resolution for entity references
-/// This works with any type implementing StoreTrait
-pub fn value_to_json_value_with_paths<T: StoreTrait>(
-    store: &mut T,
+/// Convert Value to JsonValue with path resolution for entity references (Store version)
+pub fn value_to_json_value_with_paths(
+    store: &mut Store,
     value: &Value,
     choices: Option<&Vec<String>>,
 ) -> JsonValue {
