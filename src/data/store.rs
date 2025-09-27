@@ -42,7 +42,7 @@ pub enum WriteInfo {
         timestamp: Timestamp,
     },
     SchemaUpdate {
-        schema: EntitySchema<Single, String, String>,
+        schema: EntitySchema<Single>,
         timestamp: Timestamp,
     },
     Snapshot {
@@ -2376,11 +2376,28 @@ impl StoreTrait for Store {
     fn create_entity(&mut self, entity_type: EntityType, parent_id: Option<EntityId>, name: &str) -> Result<EntityId> {
         let mut created_entity_id = None;
         self.create_entity_internal(entity_type, parent_id, &mut created_entity_id, name)?;
-        created_entity_id.ok_or_else(|| Error::InvalidRequest("Failed to create entity".to_string()))
+        let created_entity_id = created_entity_id.ok_or_else(|| Error::InvalidRequest("Failed to create entity".to_string()))?;
+
+        self.write_queue.push_back(WriteInfo::CreateEntity {
+            entity_type,
+            parent_id,
+            name: name.to_string(),
+            created_entity_id,
+            timestamp: now(),
+        });
+
+        Ok(created_entity_id)
     }
 
     fn delete_entity(&mut self, entity_id: EntityId) -> Result<()> {
-        self.delete_entity_internal(entity_id)
+        self.delete_entity_internal(entity_id)?;
+
+        self.write_queue.push_back(WriteInfo::DeleteEntity {
+            entity_id,
+            timestamp: now(),
+        });
+
+        Ok(())
     }
 
     fn update_schema(&mut self, schema: EntitySchema<Single, String, String>) -> Result<()> {
@@ -2460,6 +2477,11 @@ impl StoreTrait for Store {
 
         // Rebuild inheritance map after schema changes
         self.rebuild_inheritance_map();
+
+        self.write_queue.push_back(WriteInfo::SchemaUpdate {
+            schema,
+            timestamp: now(),
+        });
 
         Ok(())
     }
