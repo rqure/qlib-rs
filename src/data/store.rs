@@ -20,6 +20,37 @@ use crate::{
     IndirectFieldType, PageOpts, PageResult, Request, Requests, Result, Single, Snapshot, Value,
 };
 
+pub enum WriteInfo {
+    FieldUpdate {
+        entity_id: EntityId,
+        field_types: IndirectFieldType,
+        value: Option<Value>,
+        push_condition: PushCondition,
+        adjust_behavior: AdjustBehavior,
+        write_time: Option<Timestamp>,
+        writer_id: Option<EntityId>,
+    },
+    CreateEntity {
+        entity_type: EntityType,
+        parent_id: Option<EntityId>,
+        name: String,
+        created_entity_id: EntityId,
+        timestamp: Timestamp,
+    },
+    DeleteEntity {
+        entity_id: EntityId,
+        timestamp: Timestamp,
+    },
+    SchemaUpdate {
+        schema: EntitySchema<Single, String, String>,
+        timestamp: Timestamp,
+    },
+    Snapshot {
+        snapshot_counter: u64,
+        timestamp: Timestamp,
+    },
+}
+
 pub struct Store {
     schemas: FxHashMap<EntityType, EntitySchema<Single>>,
     entities: FxHashMap<EntityType, SortedVec<EntityId>>,
@@ -54,7 +85,7 @@ pub struct Store {
         FxHashMap<FieldType, FxHashMap<NotifyConfig, Vec<NotificationQueue>>>,
     >,
 
-    pub write_queue: VecDeque<Requests>,
+    pub write_queue: VecDeque<WriteInfo>,
 
     /// Flag to temporarily disable notifications (e.g., during WAL replay)
     notifications_disabled: bool,
@@ -2106,54 +2137,244 @@ impl StoreTrait for Store {
         }
     }
 
-    fn write(&mut self, entity_id: EntityId, field_path: &[FieldType], value: Value, writer_id: Option<EntityId>) -> Result<()> {
-        let (resolved_entity_id, resolved_field_type) = self.resolve_indirection(entity_id, field_path)?;
-        
-        // Get the schema to validate the value type
-        let entity_schema = self.get_complete_entity_schema(resolved_entity_id.extract_type())?;
-        let field_schema = entity_schema
-            .fields
-            .get(&resolved_field_type)
-            .ok_or_else(|| Error::FieldTypeNotFound(resolved_entity_id, resolved_field_type))?;
-        
-        // Check value type matches schema
-        let default_value = field_schema.default_value();
-        if discriminant(&value) != discriminant(&default_value) {
-            return Err(Error::ValueTypeMismatch(resolved_entity_id, resolved_field_type, default_value, value));
-        }
-        
-        // Get or create the field
+    fn write(&mut self, entity_id: EntityId, field_path: &[FieldType], value: Value, writer_id: Option<EntityId>, write_time: Option<Timestamp>, push_condition: Option<PushCondition>, adjust_behavior: Option<AdjustBehavior>) -> Result<()> {
+        let (entity_id, field_type) = self.resolve_indirection(entity_id, field_path)?;
+        let push_condition = push_condition.unwrap_or(PushCondition::Always);
+        let adjust_behavior = adjust_behavior.unwrap_or(AdjustBehavior::Set);
+
+        // Get the schema from cache (should be populated by rebuild_complete_entity_schema_cache())
+        let entity_schema = self.get_complete_entity_schema(entity_id.extract_type())?;
+        let default_value = {
+            let field_schema = entity_schema
+                .fields
+                .get(&field_type)
+                .ok_or_else(|| Error::FieldTypeNotFound(entity_id, field_type))?;
+            field_schema.default_value()
+        };
+
         let field = self
             .fields
-            .entry((resolved_entity_id, resolved_field_type))
+            .entry((entity_id, field_type))
             .or_insert_with(|| Field {
-                field_type: resolved_field_type,
-                value: default_value,
+                field_type: field_type,
+                value: default_value.clone(),
                 write_time: now(),
                 writer_id: None,
             });
-        
-        // Update the field
-        field.value = value;
-        field.write_time = now();
-        field.writer_id = writer_id;
-        
-        // Trigger notifications
-        let current_request = Request::Read {
-            entity_id: resolved_entity_id,
-            field_types: field_path.iter().cloned().collect(),
-            value: Some(field.value.clone()),
-            write_time: Some(field.write_time),
-            writer_id: field.writer_id,
-        };
-        
-        self.trigger_notifications(
-            resolved_entity_id,
-            resolved_field_type,
-            current_request.clone(),
-            current_request, // Use same for previous since we don't track previous values in direct API
-        );
-        
+
+        let old_value = field.value.clone();
+        // Check that the value being written is the same type as the field schema
+        // If the value is None, use the default value from the schema
+        if discriminant(&value) != discriminant(&default_value) {
+            return Err(Error::ValueTypeMismatch(
+                entity_id,
+                field_type,
+                default_value,
+                value.clone(),
+            ));
+        }
+
+        let mut new_value = value.clone();
+
+        match adjust_behavior {
+            AdjustBehavior::Add => match &old_value {
+                Value::Int(old_int) => {
+                    new_value = Value::Int(old_int + new_value.as_int().unwrap_or(0));
+                }
+                Value::Float(old_float) => {
+                    new_value = Value::Float(old_float + new_value.as_float().unwrap_or(0.0));
+                }
+                Value::EntityReference(old_ref) => {
+                    if old_ref.is_some() {
+                        // prefer the old value if old value exists
+                        new_value = old_value.clone();
+                    }
+                    // otherwise just use the new value (which could be None or Some)
+                }
+                Value::EntityList(old_list) => {
+                    new_value = Value::EntityList(
+                        old_list
+                            .iter()
+                            .chain(new_value.as_entity_list().unwrap_or(&Vec::new()).iter())
+                            .unique()
+                            .cloned()
+                            .collect(),
+                    );
+                }
+                Value::String(old_string) => {
+                    new_value = Value::String(format!(
+                        "{}{}",
+                        old_string,
+                        new_value.as_string().unwrap_or_default()
+                    ).into());
+                }
+                Value::Blob(old_file) => {
+                    let combined_vec: Vec<u8> = old_file
+                        .iter()
+                        .chain(new_value.as_blob().unwrap_or(&[]).iter())
+                        .cloned()
+                        .collect();
+                    new_value = Value::Blob(combined_vec.into());
+                }
+                _ => {
+                    return Err(Error::UnsupportedAdjustBehavior(
+                        entity_id,
+                        field_type,
+                        adjust_behavior.clone(),
+                    ));
+                }
+            },
+            AdjustBehavior::Subtract => match &old_value {
+                Value::Int(old_int) => {
+                    new_value = Value::Int(old_int - new_value.as_int().unwrap_or(0));
+                }
+                Value::Float(old_float) => {
+                    new_value = Value::Float(old_float - new_value.as_float().unwrap_or(0.0));
+                }
+                Value::EntityReference(old_ref) => {
+                    if let Some(old_id) = old_ref {
+                        if let Some(new_id) = new_value.as_entity_reference().unwrap_or(&None) {
+                            if old_id == new_id {
+                                // If the new value matches the old value, set to None
+                                new_value = Value::EntityReference(None);
+                            } else {
+                                // Otherwise, keep the old value
+                                new_value = old_value.clone();
+                            }
+                        }
+                    }
+                }
+                Value::EntityList(old_list) => {
+                    let new_list = new_value.as_entity_list().cloned().unwrap_or_default();
+                    new_value = Value::EntityList(
+                        old_list
+                            .iter()
+                            .filter(|item| !new_list.contains(item))
+                            .cloned()
+                            .collect(),
+                    );
+                }
+                _ => {
+                    return Err(Error::UnsupportedAdjustBehavior(
+                        entity_id,
+                        field_type,
+                        adjust_behavior.clone(),
+                    ));
+                }
+            },
+            _ => {
+                // No adjustment needed
+            }
+        }
+
+        // Store values for notification before updating the field
+        let notification_new_value = new_value.clone();
+        let notification_old_value = old_value.clone();
+
+        match push_condition {
+            PushCondition::Always => {
+                // Only update if the incoming write is newer or if no write_time is specified (local write)
+                let incoming_time = write_time.unwrap_or_else(|| now());
+                if write_time.is_none() || incoming_time >= field.write_time {
+                    field.value = new_value;
+                    field.write_time = incoming_time;
+                    if let Some(writer_id) = writer_id {
+                        field.writer_id = Some(writer_id.clone());
+                    } else {
+                        field.writer_id = self.default_writer_id.clone();
+                    }
+
+                    // Trigger notifications after a write operation
+                    let current_request = Request::Read {
+                        entity_id: entity_id,
+                        field_types: crate::sfield![field_type],
+                        value: Some(notification_new_value.clone()),
+                        write_time: Some(field.write_time),
+                        writer_id: field.writer_id.clone(),
+                    };
+                    let previous_request = Request::Read {
+                        entity_id: entity_id,
+                        field_types: crate::sfield![field_type],
+                        value: Some(notification_old_value.clone()),
+                        write_time: Some(field.write_time), // Use the time before the write
+                        writer_id: field.writer_id.clone(),
+                    };
+
+                    self.write_queue.push_back(WriteInfo::FieldUpdate {
+                        entity_id,
+                        field_types: crate::sfield![field_type],
+                        value: Some(notification_new_value.clone()),
+                        push_condition,
+                        adjust_behavior,
+                        write_time: Some(field.write_time),
+                        writer_id: field.writer_id.clone(),
+                    });
+
+                    self.trigger_notifications(
+                        entity_id,
+                        field_type,
+                        current_request,
+                        previous_request,
+                    );
+
+                } else {
+                    // Incoming write is older, ignore it
+                    return Ok(());
+                }
+            }
+            PushCondition::Changes => {
+                // Changes write, only update if the value is different AND the write is newer
+                let incoming_time = write_time.unwrap_or_else(|| now());
+                if (write_time.is_none() || incoming_time >= field.write_time)
+                    && field.value != new_value
+                {
+                    field.value = new_value;
+                    field.write_time = incoming_time;
+                    if let Some(writer_id) = writer_id {
+                        field.writer_id = Some(writer_id.clone());
+                    } else {
+                        field.writer_id = self.default_writer_id.clone();
+                    }
+
+                    // Trigger notifications after a write operation
+                    let current_request = Request::Read {
+                        entity_id: entity_id,
+                        field_types: crate::sfield![field_type],
+                        value: Some(notification_new_value.clone()),
+                        write_time: Some(field.write_time),
+                        writer_id: field.writer_id.clone(),
+                    };
+                    let previous_request = Request::Read {
+                        entity_id: entity_id,
+                        field_types: crate::sfield![field_type],
+                        value: Some(notification_old_value.clone()),
+                        write_time: Some(field.write_time), // Use the time before the write
+                        writer_id: field.writer_id.clone(),
+                    };
+
+                    self.write_queue.push_back(WriteInfo::FieldUpdate {
+                        entity_id,
+                        field_types: crate::sfield![field_type],
+                        value: Some(notification_new_value.clone()),
+                        push_condition,
+                        adjust_behavior,
+                        write_time: Some(field.write_time),
+                        writer_id: field.writer_id.clone(),
+                    });
+                    
+                    self.trigger_notifications(
+                        entity_id,
+                        field_type,
+                        current_request,
+                        previous_request,
+                    );
+                } else if write_time.is_some() && incoming_time < field.write_time {
+                    // Incoming write is older, ignore it
+                    return Ok(());
+                }
+            }
+        }
+
         Ok(())
     }
 

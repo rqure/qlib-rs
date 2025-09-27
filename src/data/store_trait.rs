@@ -1,7 +1,7 @@
 use std::{collections::HashMap};
 
 use crate::{
-    data::request::Requests, Complete, EntityId, EntitySchema, EntityType, FieldSchema, FieldType, IndirectFieldType, NotificationQueue, NotifyConfig, PageOpts, PageResult, Request, Result, Single, Value, Timestamp
+    data::request::Requests, AdjustBehavior, Complete, EntityId, EntitySchema, EntityType, FieldSchema, FieldType, IndirectFieldType, NotificationQueue, NotifyConfig, PageOpts, PageResult, PushCondition, Request, Result, Single, Timestamp, Value
 };
 
 /// Async trait defining the common interface for store implementations
@@ -40,7 +40,7 @@ pub trait StoreTrait {
     fn read(&self, entity_id: EntityId, field_path: &[FieldType]) -> Result<(Value, Timestamp, Option<EntityId>)>;
 
     /// Write a field value with indirection support
-    fn write(&mut self, entity_id: EntityId, field_path: &[FieldType], value: Value, writer_id: Option<EntityId>) -> Result<()>;
+    fn write(&mut self, entity_id: EntityId, field_path: &[FieldType], value: Value, writer_id: Option<EntityId>, write_time: Option<Timestamp>, push_condition: Option<PushCondition>, adjust_behavior: Option<AdjustBehavior>) -> Result<()>;
 
     /// Create a new entity
     fn create_entity(&mut self, entity_type: EntityType, parent_id: Option<EntityId>, name: &str) -> Result<EntityId>;
