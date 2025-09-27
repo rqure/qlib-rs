@@ -1,152 +1,18 @@
 use std::hash::{Hash, Hasher};
-use std::sync::Arc;
 
 use crate::{data::Timestamp, epoch, EntityId, Result};
-use serde::{Deserialize, Serialize, Deserializer, Serializer};
-
-/// Wrapper around Arc<String> that implements Serialize/Deserialize
-#[derive(Debug, Clone, PartialEq)]
-pub struct ArcString(Arc<String>);
-
-impl ArcString {
-    pub fn new(s: String) -> Self {
-        ArcString(Arc::new(s))
-    }
-    
-    pub fn as_str(&self) -> &str {
-        self.0.as_str()
-    }
-    
-    pub fn into_inner(self) -> Arc<String> {
-        self.0
-    }
-    
-    pub fn to_string(&self) -> String {
-        (*self.0).clone()
-    }
-    
-    pub fn eq_ignore_ascii_case(&self, other: &str) -> bool {
-        self.0.eq_ignore_ascii_case(other)
-    }
-}
-
-impl std::fmt::Display for ArcString {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.0.fmt(f)
-    }
-}
-
-impl From<String> for ArcString {
-    fn from(s: String) -> Self {
-        ArcString::new(s)
-    }
-}
-
-impl From<Arc<String>> for ArcString {
-    fn from(arc: Arc<String>) -> Self {
-        ArcString(arc)
-    }
-}
-
-impl Serialize for ArcString {
-    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        self.0.as_str().serialize(serializer)
-    }
-}
-
-impl<'de> Deserialize<'de> for ArcString {
-    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let s = String::deserialize(deserializer)?;
-        Ok(ArcString(Arc::new(s)))
-    }
-}
-
-impl Hash for ArcString {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.0.as_str().hash(state);
-    }
-}
-
-/// Wrapper around Arc<Vec<u8>> that implements Serialize/Deserialize
-#[derive(Debug, Clone, PartialEq)]
-pub struct ArcBlob(Arc<Vec<u8>>);
-
-impl ArcBlob {
-    pub fn new(data: Vec<u8>) -> Self {
-        ArcBlob(Arc::new(data))
-    }
-    
-    pub fn as_slice(&self) -> &[u8] {
-        self.0.as_slice()
-    }
-    
-    pub fn into_inner(self) -> Arc<Vec<u8>> {
-        self.0
-    }
-    
-    pub fn iter(&self) -> std::slice::Iter<'_, u8> {
-        self.0.iter()
-    }
-    
-    pub fn to_vec(&self) -> Vec<u8> {
-        (*self.0).clone()
-    }
-}
-
-impl From<Vec<u8>> for ArcBlob {
-    fn from(data: Vec<u8>) -> Self {
-        ArcBlob::new(data)
-    }
-}
-
-impl From<Arc<Vec<u8>>> for ArcBlob {
-    fn from(arc: Arc<Vec<u8>>) -> Self {
-        ArcBlob(arc)
-    }
-}
-
-impl Serialize for ArcBlob {
-    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        self.0.as_slice().serialize(serializer)
-    }
-}
-
-impl<'de> Deserialize<'de> for ArcBlob {
-    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let data = Vec::<u8>::deserialize(deserializer)?;
-        Ok(ArcBlob(Arc::new(data)))
-    }
-}
-
-impl Hash for ArcBlob {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.0.as_slice().hash(state);
-    }
-}
-
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Value {
-    Blob(ArcBlob),
+    Blob(Vec<u8>),
     Bool(bool),
     Choice(i64),
     EntityList(Vec<EntityId>),
     EntityReference(Option<EntityId>),
     Float(f64),
     Int(i64),
-    String(ArcString),
+    String(String),
     Timestamp(Timestamp),
 }
 
@@ -303,11 +169,11 @@ impl Value {
     }
 
     pub fn from_string(s: String) -> Self {
-        Value::String(ArcString::new(s))
+        Value::String(s)
     }
 
     pub fn from_blob(b: Vec<u8>) -> Self {
-        Value::Blob(ArcBlob::new(b))
+        Value::Blob(b)
     }
 
     pub fn from_entity_reference(e: Option<EntityId>) -> Self {
@@ -370,7 +236,7 @@ impl Value {
         if let Value::String(s) = self {
             Ok(s.as_str())
         } else {
-            Err(crate::Error::BadValueCast(self.clone(), Value::String(ArcString::new("".to_string()))))
+            Err(crate::Error::BadValueCast(self.clone(), Value::String("".to_string())))
         }
     }
 
@@ -378,7 +244,7 @@ impl Value {
         if let Value::Blob(b) = self {
             Ok(b.as_slice())
         } else {
-            Err(crate::Error::BadValueCast(self.clone(), Value::Blob(ArcBlob::new(vec![]))))
+            Err(crate::Error::BadValueCast(self.clone(), Value::Blob(vec![])))
         }
     }
 

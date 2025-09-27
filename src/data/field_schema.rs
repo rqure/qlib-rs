@@ -1,5 +1,4 @@
 use crate::{data::{FieldType, Timestamp}, EntityId, StoreTrait, Value};
-use crate::data::value::{ArcString, ArcBlob};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -84,14 +83,14 @@ impl<T: Clone> FieldSchema<T> {
 
     pub fn default_value(&self) -> Value {
         match self {
-            FieldSchema::Blob { default_value, .. } => Value::Blob(ArcBlob::new(default_value.clone())),
+            FieldSchema::Blob { default_value, .. } => Value::Blob(default_value.clone()),
             FieldSchema::Bool { default_value, .. } => Value::Bool(*default_value),
             FieldSchema::Choice { default_value, .. } => Value::Choice(*default_value),
             FieldSchema::EntityList { default_value, .. } => Value::EntityList(default_value.clone()),
             FieldSchema::EntityReference { default_value, .. } => Value::EntityReference(default_value.clone()),
             FieldSchema::Float { default_value, .. } => Value::Float(*default_value),
             FieldSchema::Int { default_value, .. } => Value::Int(*default_value),
-            FieldSchema::String { default_value, .. } => Value::String(ArcString::new(default_value.clone())),
+            FieldSchema::String { default_value, .. } => Value::String(default_value.clone()),
             FieldSchema::Timestamp { default_value, .. } => Value::Timestamp(*default_value),
         }
     }

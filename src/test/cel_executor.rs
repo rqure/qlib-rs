@@ -169,7 +169,7 @@ fn setup_test_store_with_entity() -> Result<(Store, EntityId)> {
     store.write(entity_id, &[ft_manager], Value::EntityReference(Some(manager_id)), None)?;
     store.write(entity_id, &[ft_tags], Value::EntityList(vec![tag1_id, tag2_id]), None)?;
     store.write(entity_id, &[ft_created_at], Value::Timestamp(now), None)?;
-    store.write(entity_id, &[ft_data], Value::Blob(ArcBlob::new(test_data)), None)?;
+    store.write(entity_id, &[ft_data], Value::Blob(test_data), None)?;
 
     Ok((store, entity_id))
 }
