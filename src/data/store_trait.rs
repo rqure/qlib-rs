@@ -54,23 +54,6 @@ pub trait StoreTrait {
     /// Take a snapshot
     fn take_snapshot(&self) -> crate::data::Snapshot;
 
-    /// Perform a batch of requests
-    fn perform(&self, requests: Requests) -> Result<Requests>;
-    fn perform_mut(&mut self, requests: Requests) -> Result<Requests>;
-
-    fn perform_map(&self, requests: Requests) -> Result<HashMap<IndirectFieldType, Request>> {
-        let updated_requests = self.perform(requests)?;
-
-        let mut result_map = HashMap::new();
-        for request in updated_requests.read().iter() {
-            if let Some(field_type) = request.field_type() {
-                result_map.insert(field_type.clone(), request.clone());
-            }
-        }
-
-        Ok(result_map)
-    }
-
     /// Find entities of a specific type with pagination (includes inherited types)
     fn find_entities_paginated(&self, entity_type: EntityType, page_opts: Option<&PageOpts>, filter: Option<&str>) -> Result<PageResult<EntityId>>;
 

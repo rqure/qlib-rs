@@ -888,14 +888,6 @@ impl StoreTrait for StoreProxy {
         unimplemented!("Snapshots not supported in StoreProxy")
     }
 
-    fn perform(&self, requests: Requests) -> Result<Requests> {
-        self.perform(requests)
-    }
-
-    fn perform_mut(&mut self, requests: Requests) -> Result<Requests> {
-        self.perform(requests)
-    }
-
     fn find_entities_paginated(&self, entity_type: EntityType, page_opts: Option<&PageOpts>, filter: Option<&str>) -> Result<PageResult<EntityId>> {
         self.find_entities_paginated(entity_type, page_opts, filter)
     }
