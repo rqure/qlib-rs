@@ -34,7 +34,7 @@ pub use json_snapshot::{JsonSnapshot, JsonEntitySchema, JsonEntity, value_to_jso
 pub use cache::Cache;
 pub use request::IndirectFieldType;
 
-pub use store_proxy::{StoreProxy, StoreMessage, extract_message_id};
+pub use store_proxy::StoreProxy;
 pub use async_store_proxy::AsyncStoreProxy;
 pub use value::Value;
 pub use notifications::{NotifyConfig, Notification, NotificationQueue, NotifyInfo, hash_notify_config};

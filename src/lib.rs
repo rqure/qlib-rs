@@ -8,7 +8,7 @@ pub use data::{
     BadIndirectionReason, Store, PageOpts,
     PageResult, NotificationQueue, hash_notify_config, Snapshot, EntityId, EntitySchema, Single, Complete, 
     Field, FieldSchema, AdjustBehavior, PushCondition, Request, Requests,
-    StoreProxy, AsyncStoreProxy, StoreMessage, extract_message_id, Value, INDIRECTION_DELIMITER, NotifyConfig, Notification, NotifyInfo,
+    StoreProxy, AsyncStoreProxy, Value, INDIRECTION_DELIMITER, NotifyConfig, Notification, NotifyInfo,
     JsonSnapshot, JsonEntitySchema, JsonEntity, value_to_json_value, json_value_to_value, value_to_json_value_with_paths, build_json_entity_tree, take_json_snapshot, restore_json_snapshot,
     restore_entity_recursive, factory_restore_json_snapshot, restore_json_snapshot_via_proxy,
     EntityType, FieldType, Timestamp, now, epoch, nanos_to_timestamp, secs_to_timestamp, 
@@ -23,8 +23,7 @@ pub use auth::{
 };
 
 pub use protocol::{
-    MessageHeader, MessageType, ProtocolMessage, ProtocolCodec, MessageBuffer, 
-    encode_store_message,
+    QuspMessage, MessageBuffer, encode_qusp_message, extract_message_id,
 };
 
 pub use expr::CelExecutor;

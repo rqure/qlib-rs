@@ -1,75 +1,83 @@
-use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-use std::rc::Rc;
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::io::{Read, Write};
+use std::rc::Rc;
+use std::time::Duration;
+
 use anyhow;
-use mio::{Poll, Token, Interest, Events};
+use bytes::Bytes;
+use bincode;
+use mio::{Events, Interest, Poll, Token};
+use serde::{de::DeserializeOwned, Serialize};
 
 use crate::{
     Complete, EntityId, EntitySchema, EntityType, Error, FieldSchema, FieldType, Notification, NotificationQueue, NotifyConfig, hash_notify_config, PageOpts, PageResult, Request, Requests, Result, Single, sreq, Value, Timestamp, now, PushCondition, AdjustBehavior
 };
 use crate::data::StoreTrait;
-use crate::protocol::{MessageBuffer, encode_store_message};
+use crate::protocol::{MessageBuffer, QuspCommand, QuspFrame, QuspResponse, encode_command};
 
-/// TCP message types for Store proxy communication
-/// These messages are compatible with the qcore-rs protocol
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum StoreMessage {
-    // Perform operation using Request enum
-    Perform {
-        id: u64,
-        requests: Requests,
-    },
-    PerformResponse {
-        id: u64,
-        response: std::result::Result<Requests, String>,
-    },
+const READ_POLL_INTERVAL: Duration = Duration::from_millis(10);
 
-    // Notification support - these need to remain separate due to NotificationQueue limitations
-    RegisterNotification {
-        id: u64,
-        config: NotifyConfig,
-    },
-    RegisterNotificationResponse {
-        id: u64,
-        response: std::result::Result<(), String>,
-    },
-
-    UnregisterNotification {
-        id: u64,
-        config: NotifyConfig,
-    },
-    UnregisterNotificationResponse {
-        id: u64,
-        response: bool,
-    },
-
-    // Notification delivery
-    Notification {
-        notification: Notification,
-    },
-
-    // Connection management
-    Error {
-        id: u64,
-        error: String,
-    },
+fn encode_utf8(value: &str) -> Bytes {
+    Bytes::copy_from_slice(value.as_bytes())
 }
 
-/// Extract the message ID from a StoreMessage
-pub fn extract_message_id(message: &StoreMessage) -> Option<u64> {
-    match message {
-        StoreMessage::Perform { id, .. } => Some(*id),
-        StoreMessage::PerformResponse { id, .. } => Some(*id),
-        StoreMessage::RegisterNotification { id, .. } => Some(*id),
-        StoreMessage::RegisterNotificationResponse { id, .. } => Some(*id),
-        StoreMessage::UnregisterNotification { id, .. } => Some(*id),
-        StoreMessage::UnregisterNotificationResponse { id, .. } => Some(*id),
-        StoreMessage::Error { id, .. } => Some(*id),
-        StoreMessage::Notification { .. } => None, // Notifications don't have request IDs
+fn encode_bincode<T: Serialize>(value: &T) -> Result<Bytes> {
+    bincode::serialize(value)
+        .map(Bytes::from)
+        .map_err(|e| Error::StoreProxyError(format!("Failed to serialize payload: {}", e)))
+}
+
+fn decode_bincode<T: DeserializeOwned>(value: &Bytes) -> Result<T> {
+    bincode::deserialize(value.as_ref())
+        .map_err(|e| Error::StoreProxyError(format!("Failed to deserialize payload: {}", e)))
+}
+
+fn response_to_bytes(response: QuspResponse) -> Result<Bytes> {
+    match response {
+        QuspResponse::Bulk(data) | QuspResponse::Simple(data) => Ok(data),
+        QuspResponse::Null => Err(Error::StoreProxyError("Expected payload but received NULL".into())),
+        QuspResponse::Integer(_) => Err(Error::StoreProxyError("Expected payload but received integer".into())),
+        QuspResponse::Array(_) => Err(Error::StoreProxyError("Expected payload but received array".into())),
+        QuspResponse::Error(msg) => Err(Error::StoreProxyError(msg)),
     }
 }
+
+fn response_to_string(response: QuspResponse) -> Result<String> {
+    let bytes = response_to_bytes(response)?;
+    String::from_utf8(bytes.to_vec())
+        .map_err(|e| Error::StoreProxyError(format!("Invalid UTF-8 payload: {}", e)))
+}
+
+fn response_to_bincode<T: DeserializeOwned>(response: QuspResponse) -> Result<T> {
+    let bytes = response_to_bytes(response)?;
+    decode_bincode(&bytes)
+}
+
+fn response_to_bool(response: QuspResponse) -> Result<bool> {
+    match response {
+        QuspResponse::Integer(value) => Ok(value != 0),
+        QuspResponse::Simple(data) => Ok(data.as_ref() == b"1" || data.as_ref() == b"true"),
+        QuspResponse::Bulk(data) => Ok(data.as_ref() == b"1" || data.as_ref() == b"true"),
+        QuspResponse::Null => Ok(false),
+        QuspResponse::Array(_) => Err(Error::StoreProxyError("Expected boolean but received array".into())),
+        QuspResponse::Error(msg) => Err(Error::StoreProxyError(msg)),
+    }
+}
+
+fn expect_ok(response: QuspResponse) -> Result<()> {
+    match response {
+        QuspResponse::Simple(data) if data.as_ref() == b"OK" => Ok(()),
+        QuspResponse::Null => Ok(()),
+        QuspResponse::Error(msg) => Err(Error::StoreProxyError(msg)),
+        QuspResponse::Array(_) => Err(Error::StoreProxyError("Unexpected array response".into())),
+        other => Err(Error::StoreProxyError(format!(
+            "Unexpected response (expected OK): {:?}",
+            other
+        ))),
+    }
+}
+
 
 /// TCP connection with message buffering
 #[derive(Debug)]
@@ -100,8 +108,8 @@ impl TcpConnection {
         })
     }
     
-    pub fn send_message(&mut self, message: &StoreMessage) -> anyhow::Result<()> {
-        let encoded = encode_store_message(message)?;
+    pub fn send_command(&mut self, command: &QuspCommand) -> anyhow::Result<()> {
+        let encoded = encode_command(command)?;
         self.stream.write_all(&encoded)?;
         self.stream.flush()?;
         Ok(())
@@ -122,7 +130,11 @@ impl TcpConnection {
         Ok(false) // Timeout or no readable event
     }
     
-    pub fn try_receive_message(&mut self) -> anyhow::Result<Option<StoreMessage>> {
+    pub fn try_receive_frame(&mut self) -> anyhow::Result<Option<QuspFrame>> {
+        if let Some(frame) = self.message_buffer.try_decode()? {
+            return Ok(Some(frame));
+        }
+
         // Try to read more data
         let mut buffer = [0u8; 8192];
         match self.stream.read(&mut buffer) {
@@ -132,34 +144,24 @@ impl TcpConnection {
             }
             Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
                 // No data available right now
+                return Ok(None);
             }
             Err(e) => return Err(anyhow::anyhow!("TCP read error: {}", e)),
         }
-        
+
         // Try to decode a message
-        self.message_buffer.try_decode_store_message()
+        self.message_buffer.try_decode()
     }
 }
 
 #[derive(Debug)]
 pub struct StoreProxy {
     tcp_connection: Rc<RefCell<TcpConnection>>,
-    pending_requests: Rc<RefCell<HashMap<u64, StoreMessage>>>,
     // Map from config hash to list of notification senders
     notification_configs: Rc<RefCell<HashMap<u64, Vec<NotificationQueue>>>>,
-    // Counter for generating strictly increasing IDs
-    next_id: Rc<RefCell<u64>>,
 }
 
 impl StoreProxy {
-    /// Generate the next strictly increasing ID
-    fn next_id(&self) -> u64 {
-        let mut id = self.next_id.borrow_mut();
-        let current = *id;
-        *id += 1;
-        current
-    }
-
     /// Connect to TCP server
     pub fn connect(address: &str) -> Result<Self> {
         // Connect to TCP server
@@ -179,106 +181,105 @@ impl StoreProxy {
 
         // Create single-threaded collections
         let tcp_connection = Rc::new(RefCell::new(tcp_connection));
-        let pending_requests = Rc::new(RefCell::new(HashMap::new()));
         let notification_configs = Rc::new(RefCell::new(HashMap::new()));
-        let next_id = Rc::new(RefCell::new(1u64)); // Start from 1
 
         Ok(StoreProxy {
             tcp_connection,
-            pending_requests,
             notification_configs,
-            next_id,
         })
     }
 
-    /// Handle incoming messages from the TCP connection
-    /// This is called synchronously to process messages as they arrive
-    fn handle_incoming_message(
-        &self,
-        store_message: &StoreMessage,
-    ) -> std::result::Result<(), String> {
-        match store_message {
-            StoreMessage::Notification { notification } => {
-                // Handle notification
-                let config_hash = notification.config_hash;
-                let configs = self.notification_configs.borrow();
-                if let Some(senders) = configs.get(&config_hash) {
-                    for sender in senders {
-                        sender.push(notification.clone());
+    fn handle_incoming_command(&self, command: QuspCommand) -> Result<()> {
+        let name = command
+            .uppercase_name()
+            .map_err(|e| Error::StoreProxyError(format!("Invalid command name: {}", e)))?;
+        match name.as_str() {
+            "NOTIFY" => {
+                let payload = command
+                    .args
+                    .get(0)
+                    .ok_or_else(|| Error::StoreProxyError("Notification missing payload".into()))?;
+                let notification: Notification = decode_bincode(payload)?;
+                if let Some(queues) = self
+                    .notification_configs
+                    .borrow()
+                    .get(&notification.config_hash)
+                {
+                    for queue in queues {
+                        queue.push(notification.clone());
                     }
                 }
+                Ok(())
             }
-            _ => {
-                // Handle response to pending request - store the message directly
-                if let Some(id) = extract_message_id(store_message) {
-                    self.pending_requests.borrow_mut().insert(id, store_message.clone());
-                }
-            }
+            other => Err(Error::StoreProxyError(format!(
+                "Unexpected server command: {}",
+                other
+            ))),
         }
-        Ok(())
     }
 
-    /// Send a request and wait for response
-    fn send_request(&self, request: StoreMessage) -> Result<StoreMessage> {
-        let id = extract_message_id(&request)
-            .ok_or_else(|| Error::StoreProxyError("Request missing ID".to_string()))?;
+    fn poll_for_frame(&self) -> Result<Option<QuspFrame>> {
+        let result = {
+            let mut conn = self.tcp_connection.borrow_mut();
+            conn.try_receive_frame()
+        };
 
-        // Send message
+        result.map_err(|e| Error::StoreProxyError(format!("TCP error: {}", e)))
+    }
+
+    fn send_command(&self, name: &str, args: Vec<Bytes>) -> Result<QuspResponse> {
+        let command = QuspCommand::new(name.to_ascii_uppercase().into_bytes(), args);
+
         {
             let mut conn = self.tcp_connection.borrow_mut();
-            conn.send_message(&request)
-                .map_err(|e| Error::StoreProxyError(format!("Failed to send message: {}", e)))?;
+            conn.send_command(&command)
+                .map_err(|e| Error::StoreProxyError(format!("Failed to send {} command: {}", name, e)))?;
         }
 
-        // Wait for response by polling the TCP connection until we get our response
         loop {
-            // Check if we already have the response
-            {
-                let mut pending = self.pending_requests.borrow_mut();
-                if let Some(response) = pending.remove(&id) {
-                    drop(pending); // Explicitly drop the borrow
-                    return Ok(response);
-                }
-            }
-
-            // Read next message from TCP connection
-            let message_result = {
-                let mut conn = self.tcp_connection.borrow_mut();
-                conn.try_receive_message()
-            };
-
-            match message_result {
-                Ok(Some(message)) => {
-                    if let Err(_) = self.handle_incoming_message(&message) {
-                        // Handle error if needed
+            match self.poll_for_frame()? {
+                Some(QuspFrame::Response(response)) => {
+                    return match response {
+                        QuspResponse::Error(msg) => Err(Error::StoreProxyError(msg)),
+                        other => Ok(other),
                     }
                 }
-                Ok(None) => {
-                    // No message available, wait for data to be ready using mio
-                    let wait_result = {
+                Some(QuspFrame::Command(command)) => {
+                    self.handle_incoming_command(command)?;
+                }
+                None => {
+                    let readable = {
                         let mut conn = self.tcp_connection.borrow_mut();
-                        conn.wait_for_readable(Some(std::time::Duration::from_millis(10)))
-                    };
-                    
-                    match wait_result {
-                        Ok(true) => {
-                            // Data is ready, continue loop to try reading again
-                            continue;
-                        }
-                        Ok(false) => {
-                            // Timeout, continue loop to check for pending responses
-                            continue;
-                        }
-                        Err(e) => {
-                            return Err(Error::StoreProxyError(format!("Poll error: {}", e)));
-                        }
+                        conn.wait_for_readable(Some(READ_POLL_INTERVAL))
                     }
-                }
-                Err(e) => {
-                    return Err(Error::StoreProxyError(format!("TCP error: {}", e)));
+                    .map_err(|e| Error::StoreProxyError(format!("Poll error: {}", e)))?;
+
+                    if !readable {
+                        continue;
+                    }
                 }
             }
         }
+    }
+
+    fn send_command_ok(&self, name: &str, args: Vec<Bytes>) -> Result<()> {
+        let response = self.send_command(name, args)?;
+        expect_ok(response)
+    }
+
+    fn send_command_bincode<T: DeserializeOwned>(&self, name: &str, args: Vec<Bytes>) -> Result<T> {
+        let response = self.send_command(name, args)?;
+        response_to_bincode(response)
+    }
+
+    fn send_command_string(&self, name: &str, args: Vec<Bytes>) -> Result<String> {
+        let response = self.send_command(name, args)?;
+        response_to_string(response)
+    }
+
+    fn send_command_bool(&self, name: &str, args: Vec<Bytes>) -> Result<bool> {
+        let response = self.send_command(name, args)?;
+        response_to_bool(response)
     }
 
     /// Get entity type by name
@@ -517,21 +518,27 @@ impl StoreProxy {
 
     /// Perform requests
     pub fn perform(&self, requests: Requests) -> Result<Requests> {
-        let request = StoreMessage::Perform {
-            id: self.next_id(),
-            requests,
-        };
+        let id = self.next_id();
+        let payload = serialize_requests(&requests)?;
+        let response = self.send_request(QuspMessage::Perform { id, payload })?;
 
-        let response: StoreMessage = self.send_request(request)?;
         match response {
-            StoreMessage::PerformResponse { response, .. } => match response {
-                Ok(updated_requests) => {
-                    Ok(updated_requests)
-                }
-                Err(e) => Err(Error::StoreProxyError(e)),
-            },
-            _ => Err(Error::StoreProxyError("Unexpected response type".to_string())),
+            QuspMessage::PerformOk { payload, .. } => deserialize_requests(&payload),
+            QuspMessage::PerformErr { message, .. } => {
+                Err(Error::StoreProxyError(bytes_to_string(&message)))
+            }
+            QuspMessage::Error { message, .. } => {
+                Err(Error::StoreProxyError(bytes_to_string(&message)))
+            }
+            other => Err(Error::StoreProxyError(format!(
+                "Unexpected response type: {:?}",
+                other
+            ))),
         }
+    }
+
+    pub fn perform_mut(&mut self, requests: Requests) -> Result<Requests> {
+        StoreProxy::perform(self, requests)
     }
 
     /// Find entities
@@ -676,26 +683,27 @@ impl StoreProxy {
         config: NotifyConfig,
         sender: NotificationQueue,
     ) -> Result<()> {
-        let request = StoreMessage::RegisterNotification {
+        let payload = serialize_notify_config(&config)?;
+        match self.send_request(QuspMessage::Register {
             id: self.next_id(),
-            config: config.clone(),
-        };
-        
-        let response: StoreMessage = self.send_request(request)?;
-        match response {
-            StoreMessage::RegisterNotificationResponse { response, .. } => {
-                match response {
-                    Ok(_) => {
-                        // Store the sender locally so we can forward notifications
-                        let config_hash = hash_notify_config(&config);
-                        let mut configs = self.notification_configs.borrow_mut();
-                        configs.entry(config_hash).or_insert_with(Vec::new).push(sender);
-                        Ok(())
-                    }
-                    Err(e) => Err(Error::StoreProxyError(e)),
-                }
+            config: payload,
+        })? {
+            QuspMessage::RegisterOk { .. } => {
+                let config_hash = hash_notify_config(&config);
+                let mut configs = self.notification_configs.borrow_mut();
+                configs.entry(config_hash).or_insert_with(Vec::new).push(sender);
+                Ok(())
             }
-            _ => Err(Error::StoreProxyError("Unexpected response type".to_string())),
+            QuspMessage::RegisterErr { message, .. } => {
+                Err(Error::StoreProxyError(bytes_to_string(&message)))
+            }
+            QuspMessage::Error { message, .. } => {
+                Err(Error::StoreProxyError(bytes_to_string(&message)))
+            }
+            other => Err(Error::StoreProxyError(format!(
+                "Unexpected response type: {:?}",
+                other
+            ))),
         }
     }
 
@@ -723,19 +731,21 @@ impl StoreProxy {
 
         // If we removed a sender locally, also unregister from remote
         if removed_locally {
-            let request = StoreMessage::UnregisterNotification {
-                id: self.next_id(),
-                config: target_config.clone(),
-            };
-            
-            if let Ok(response) = self.send_request(request) {
-                match response {
-                    StoreMessage::UnregisterNotificationResponse { response, .. } => response,
-                    _ => false,
+                let payload = match serialize_notify_config(target_config) {
+                    Ok(bytes) => bytes,
+                    Err(_) => return false,
+                };
+
+                match self.send_request(QuspMessage::Unregister {
+                    id: self.next_id(),
+                    config: payload,
+                }) {
+                    Ok(QuspMessage::UnregisterOk { removed, .. }) => removed,
+                    Ok(QuspMessage::UnregisterErr { .. }) => false,
+                    Ok(QuspMessage::Error { .. }) => false,
+                    Ok(_) => false,
+                    Err(_) => false,
                 }
-            } else {
-                false
-            }
         } else {
             false
         }
