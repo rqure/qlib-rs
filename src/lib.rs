@@ -8,7 +8,7 @@ pub use data::{
     BadIndirectionReason, Store, PageOpts,
     PageResult, NotificationQueue, hash_notify_config, Snapshot, EntityId, EntitySchema, Single, Complete, 
     Field, FieldSchema, AdjustBehavior, PushCondition, Request, Requests,
-    StoreProxy, AsyncStoreProxy, Value, INDIRECTION_DELIMITER, NotifyConfig, Notification, NotifyInfo,
+    StoreProxy, Value, INDIRECTION_DELIMITER, NotifyConfig, Notification, NotifyInfo,
     JsonSnapshot, JsonEntitySchema, JsonEntity, value_to_json_value, json_value_to_value, value_to_json_value_with_paths, build_json_entity_tree, take_json_snapshot, restore_json_snapshot,
     restore_entity_recursive, factory_restore_json_snapshot, restore_json_snapshot_via_proxy,
     EntityType, FieldType, Timestamp, now, epoch, nanos_to_timestamp, secs_to_timestamp, 
@@ -123,80 +123,6 @@ macro_rules! sfield {
         {
             use smallvec::smallvec;
             smallvec![$($x),*]
-        }
-    };
-}
-
-/// Creates a read request for a field path
-///
-/// This macro creates a read operation that can be executed directly
-/// on a StoreTrait implementation.
-///
-/// # Arguments
-///
-/// * `store` - The store to read from
-/// * `entity_id` - The entity ID to read from
-/// * `field_path` - The field path as an IndirectFieldType (created with sfield!)
-///
-/// # Returns
-///
-/// * Result containing (Value, Timestamp, Option<EntityId>)
-#[macro_export]
-macro_rules! sread {
-    ($store:expr, $entity_id:expr, $field_path:expr) => {
-        $store.read($entity_id, $field_path)
-    };
-}
-
-/// Creates a write request for a field path
-///
-/// This macro creates a write operation that can be executed directly
-/// on a StoreTrait implementation.
-///
-/// # Arguments
-///
-/// * `store` - The store to write to
-/// * `entity_id` - The entity ID to write to
-/// * `field_path` - The field path as an IndirectFieldType (created with sfield!)
-/// * `value` - The value to write
-/// * Optional additional parameters for write operation
-///
-/// # Returns
-///
-/// * Result<()>
-#[macro_export]
-macro_rules! swrite {
-    ($store:expr, $entity_id:expr, $field_path:expr, $value:expr) => {
-        $store.write($entity_id, $field_path, $value, None, None, None, None)
-    };
-    ($store:expr, $entity_id:expr, $field_path:expr, $value:expr, $($args:expr),*) => {
-        $store.write($entity_id, $field_path, $value, $($args),*)
-    };
-}
-
-/// Creates a collection of requests
-///
-/// This macro creates a Requests object containing multiple operations.
-/// Since perform/perform_mut are being replaced with direct calls,
-/// this macro now executes the requests directly.
-///
-/// # Arguments
-///
-/// * `store` - The store to execute operations on
-/// * Operations to execute
-///
-/// # Returns
-///
-/// * Result of executing the operations
-#[macro_export]
-macro_rules! sreq {
-    ($store:expr, $($req:expr),* $(,)?) => {
-        {
-            // Execute each request directly
-            $(
-                $req?;
-            )*
-            Ok(())
         }
     };
 }
