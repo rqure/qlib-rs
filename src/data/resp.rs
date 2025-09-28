@@ -101,7 +101,7 @@
 //! ```
 
 use crate::{
-    data::{EntityId, EntityType, FieldType, PushCondition, AdjustBehavior, Timestamp, Value},
+    data::{EntityId, EntityType, FieldType, Timestamp, Value},
     Result,
 };
 
@@ -780,319 +780,87 @@ impl RespEncode for String {
     }
 }
 
+impl<'a> RespDecode<'a> for String {
+    fn decode(input: &'a [u8]) -> Result<(Self, &'a [u8])> {
+        let (value, remaining) = RespValue::decode(input)?;
+        match value {
+            RespValue::BulkString(data) => {
+                let s = std::str::from_utf8(data)
+                    .map_err(|_| crate::Error::InvalidRequest("Invalid UTF-8 in string".to_string()))?;
+                Ok((s.to_string(), remaining))
+            },
+            RespValue::SimpleString(s) => Ok((s.to_string(), remaining)),
+            _ => Err(crate::Error::InvalidRequest("Expected string type".to_string())),
+        }
+    }
+}
+
+impl RespEncode for Vec<FieldType> {
+    fn encode(&self) -> Vec<u8> {
+        let elements: Vec<RespValue> = self.iter()
+            .map(|ft| RespValue::Integer(ft.0 as i64))
+            .collect();
+        RespValue::Array(elements).encode()
+    }
+}
+
+impl<'a> RespDecode<'a> for Timestamp {
+    fn decode(input: &'a [u8]) -> Result<(Self, &'a [u8])> {
+        let (value, remaining) = RespValue::decode(input)?;
+        match value {
+            RespValue::BulkString(data) => {
+                let timestamp_str = std::str::from_utf8(data)
+                    .map_err(|_| crate::Error::InvalidRequest("Invalid UTF-8 in timestamp".to_string()))?;
+                // Try to parse as seconds since epoch first
+                if let Ok(secs) = timestamp_str.parse::<i64>() {
+                    let timestamp = crate::data::secs_to_timestamp(secs as u64);
+                    Ok((timestamp, remaining))
+                } else {
+                    // TODO: Add proper timestamp string parsing when needed
+                    Err(crate::Error::InvalidRequest("Timestamp parsing not implemented for string format".to_string()))
+                }
+            },
+            RespValue::SimpleString(s) => {
+                // Try to parse as seconds since epoch
+                let secs = s.parse::<i64>()
+                    .map_err(|_| crate::Error::InvalidRequest("Invalid timestamp format".to_string()))?;
+                let timestamp = crate::data::secs_to_timestamp(secs as u64);
+                Ok((timestamp, remaining))
+            },
+            RespValue::Integer(i) => {
+                // Treat as seconds since epoch
+                let timestamp = crate::data::secs_to_timestamp(i as u64);
+                Ok((timestamp, remaining))
+            },
+            _ => Err(crate::Error::InvalidRequest("Expected timestamp type".to_string())),
+        }
+    }
+}
+
+impl RespEncode for Timestamp {
+    fn encode(&self) -> Vec<u8> {
+        RespValue::BulkString(self.to_string().as_bytes()).encode()
+    }
+}
+
 // ============================================================================
-// Individual Command Implementations  
+// RESP Commands for all StoreTrait methods
 // ============================================================================
 
-/// READ command: READ <entity_id> <field_path...>
-#[derive(Debug, Clone)]
+/*
+
+Example
+```
+
+#[resp_command(name = "READ")]
+#[derive(Debug, Clone, RespEncode, RespDecode)]
 pub struct ReadCommand<'a> {
     pub entity_id: EntityId,
     pub field_path: Vec<FieldType>,
-    pub _marker: std::marker::PhantomData<&'a ()>,
+    pub options: Option<String>, // Optional field
+    _marker: std::marker::PhantomData<&'a ()>,
 }
 
-impl<'a> RespDecode<'a> for ReadCommand<'a> {
-    fn decode(input: &'a [u8]) -> Result<(Self, &'a [u8])> {
-        let (array, remaining) = match RespValue::decode(input)? {
-            (RespValue::Array(arr), rem) => (arr, rem),
-            _ => return Err(crate::Error::InvalidRequest("Command must be an array".to_string())),
-        };
-        
-        if array.len() < 3 {
-            return Err(crate::Error::InvalidRequest("READ requires command name, entity_id, and field_path".to_string()));
-        }
-        
-        // Decode entity_id from second element
-        let entity_id_bytes = array[1].encode();
-        let (entity_id, _) = EntityId::decode(&entity_id_bytes)?;
-        
-        // Decode field_path from remaining elements
-        let mut field_path = Vec::new();
-        for element in &array[2..] {
-            let field_type_bytes = element.encode();
-            let (field_type, _) = FieldType::decode(&field_type_bytes)?;
-            field_path.push(field_type);
-        }
-        
-        Ok((ReadCommand {
-            entity_id,
-            field_path,
-            _marker: std::marker::PhantomData,
-        }, remaining))
-    }
-}
+```
 
-impl<'a> RespEncode for ReadCommand<'a> {
-    fn encode(&self) -> Vec<u8> {
-        let mut elements = Vec::new();
-        elements.push(RespValue::BulkString(b"READ"));
-        elements.push(RespValue::Integer(self.entity_id.0 as i64));
-        for field_type in &self.field_path {
-            elements.push(RespValue::Integer(field_type.0 as i64));
-        }
-        
-        let array = RespValue::Array(elements);
-        array.encode()
-    }
-}
-
-impl<'a> RespCommand<'a> for ReadCommand<'a> {
-    const COMMAND_NAME: &'static str = "READ";
-    
-    fn execute(&self, store: &mut dyn crate::data::StoreTrait) -> Result<RespResponse> {
-        let (value, timestamp, writer_id) = store.read(self.entity_id, &self.field_path)?;
-        // Return a structured response with value, timestamp, and writer_id
-        let response_array = vec![
-            RespResponse::Bulk(value.encode()),
-            RespResponse::Bulk(timestamp.to_string().into_bytes()),
-            match writer_id {
-                Some(id) => RespResponse::Integer(id.0 as i64),
-                None => RespResponse::Null,
-            },
-        ];
-        Ok(RespResponse::Array(response_array))
-    }
-}
-
-/// WRITE command: WRITE <entity_id> <field_type> <value> [writer_id]
-#[derive(Debug, Clone)]
-pub struct WriteCommand<'a> {
-    pub entity_id: EntityId,
-    pub field_path: Vec<FieldType>,
-    pub value: Value,
-    pub writer_id: Option<EntityId>,
-    pub write_time: Option<Timestamp>,
-    pub push_condition: Option<PushCondition>,
-    pub adjust_behavior: Option<AdjustBehavior>,
-    pub _marker: std::marker::PhantomData<&'a ()>,
-}
-
-impl<'a> RespDecode<'a> for WriteCommand<'a> {
-    fn decode(input: &'a [u8]) -> Result<(Self, &'a [u8])> {
-        let (array, remaining) = match RespValue::decode(input)? {
-            (RespValue::Array(arr), rem) => (arr, rem),
-            _ => return Err(crate::Error::InvalidRequest("Command must be an array".to_string())),
-        };
-        
-        if array.len() < 4 {
-            return Err(crate::Error::InvalidRequest("WRITE requires command name, entity_id, field_type, and value".to_string()));
-        }
-        
-        // Decode entity_id from second element
-        let entity_id_bytes = array[1].encode();
-        let (entity_id, _) = EntityId::decode(&entity_id_bytes)?;
-        
-        // Decode field_type from third element (simplified to single field for now)
-        let field_type_bytes = array[2].encode();
-        let (field_type, _) = FieldType::decode(&field_type_bytes)?;
-        let field_path = vec![field_type];
-        
-        // Decode value from fourth element
-        let value_bytes = array[3].encode();
-        let (value, _) = Value::decode(&value_bytes)?;
-        
-        // Optional writer_id from fifth element
-        let writer_id = if array.len() > 4 {
-            let writer_id_bytes = array[4].encode();
-            let (writer_id, _) = EntityId::decode(&writer_id_bytes)?;
-            Some(writer_id)
-        } else {
-            None
-        };
-        
-        Ok((WriteCommand {
-            entity_id,
-            field_path,
-            value,
-            writer_id,
-            write_time: None, // TODO: Parse from args
-            push_condition: None, // TODO: Parse from args 
-            adjust_behavior: None, // TODO: Parse from args
-            _marker: std::marker::PhantomData,
-        }, remaining))
-    }
-}
-
-impl<'a> RespEncode for WriteCommand<'a> {
-    fn encode(&self) -> Vec<u8> {
-        let mut elements = Vec::new();
-        elements.push(RespValue::BulkString(b"WRITE"));
-        elements.push(RespValue::Integer(self.entity_id.0 as i64));
-        for field_type in &self.field_path {
-            elements.push(RespValue::Integer(field_type.0 as i64));
-        }
-        
-        // Encode value using its RespEncode impl
-        let value_bytes = self.value.encode();
-        let (value_resp, _) = RespValue::decode(&value_bytes).unwrap();
-        elements.push(value_resp);
-        
-        if let Some(writer) = &self.writer_id {
-            elements.push(RespValue::Integer(writer.0 as i64));
-        }
-        
-        let array = RespValue::Array(elements);
-        array.encode()
-    }
-}
-
-impl<'a> RespCommand<'a> for WriteCommand<'a> {
-    const COMMAND_NAME: &'static str = "WRITE";
-    
-    fn execute(&self, store: &mut dyn crate::data::StoreTrait) -> Result<RespResponse> {
-        store.write(
-            self.entity_id, 
-            &self.field_path, 
-            self.value.clone(), 
-            self.writer_id, 
-            self.write_time, 
-            self.push_condition.clone(), 
-            self.adjust_behavior.clone()
-        )?;
-        Ok(RespResponse::Ok)
-    }
-}
-
-/// CREATE_ENTITY command: CREATE_ENTITY <entity_type> [parent_id] <name>
-#[derive(Debug, Clone)]
-pub struct CreateEntityCommand<'a> {
-    pub entity_type: EntityType,
-    pub parent_id: Option<EntityId>,
-    pub name: String,
-    pub _marker: std::marker::PhantomData<&'a ()>,
-}
-
-impl<'a> RespDecode<'a> for CreateEntityCommand<'a> {
-    fn decode(input: &'a [u8]) -> Result<(Self, &'a [u8])> {
-        let (array, remaining) = match RespValue::decode(input)? {
-            (RespValue::Array(arr), rem) => (arr, rem),
-            _ => return Err(crate::Error::InvalidRequest("Command must be an array".to_string())),
-        };
-        
-        if array.len() < 3 {
-            return Err(crate::Error::InvalidRequest("CREATE_ENTITY requires command name, entity_type, and name".to_string()));
-        }
-        
-        // Decode entity_type from second element
-        let entity_type_bytes = array[1].encode();
-        let (entity_type, _) = EntityType::decode(&entity_type_bytes)?;
-        
-        // Check if we have parent_id or go straight to name
-        let (parent_id, name) = if array.len() == 3 {
-            // No parent_id: CREATE_ENTITY <entity_type> <name>
-            let name_bytes = array[2].encode();
-            let (name_str, _) = <&str>::decode(&name_bytes)?;
-            (None, name_str.to_string())
-        } else {
-            // With parent_id: CREATE_ENTITY <entity_type> <parent_id> <name>
-            let parent_id = if matches!(array[2], RespValue::Null) {
-                None
-            } else {
-                let parent_id_bytes = array[2].encode();
-                let (parent_id, _) = EntityId::decode(&parent_id_bytes)?;
-                Some(parent_id)
-            };
-            let name_bytes = array[3].encode();
-            let (name_str, _) = <&str>::decode(&name_bytes)?;
-            (parent_id, name_str.to_string())
-        };
-        
-        Ok((CreateEntityCommand {
-            entity_type,
-            parent_id,
-            name,
-            _marker: std::marker::PhantomData,
-        }, remaining))
-    }
-}
-
-impl<'a> RespEncode for CreateEntityCommand<'a> {
-    fn encode(&self) -> Vec<u8> {
-        let mut elements = Vec::new();
-        elements.push(RespValue::BulkString(b"CREATE_ENTITY"));
-        elements.push(RespValue::Integer(self.entity_type.0 as i64));
-        
-        if let Some(parent) = &self.parent_id {
-            elements.push(RespValue::Integer(parent.0 as i64));
-        } else {
-            elements.push(RespValue::Null);
-        }
-        
-        elements.push(RespValue::BulkString(self.name.as_bytes()));
-        
-        let array = RespValue::Array(elements);
-        array.encode()
-    }
-}
-
-impl<'a> RespCommand<'a> for CreateEntityCommand<'a> {
-    const COMMAND_NAME: &'static str = "CREATE_ENTITY";
-    
-    fn execute(&self, store: &mut dyn crate::data::StoreTrait) -> Result<RespResponse> {
-        let entity_id = store.create_entity(self.entity_type, self.parent_id, &self.name)?;
-        Ok(RespResponse::Integer(entity_id.0 as i64))
-    }
-}
-
-// ============================================================================
-// Command Dispatcher
-// ============================================================================
-
-/// Dispatches RESP commands based on command name
-#[derive(Debug)]
-pub enum RespCommandDispatcher<'a> {
-    Read(ReadCommand<'a>),
-    Write(WriteCommand<'a>),
-    CreateEntity(CreateEntityCommand<'a>),
-}
-
-impl<'a> RespCommandDispatcher<'a> {
-    /// Parse and dispatch a command from RESP input
-    pub fn parse_and_dispatch(input: &'a [u8]) -> Result<(Self, &'a [u8])> {
-        let (array, remaining) = match RespValue::decode(input)? {
-            (RespValue::Array(arr), rem) => (arr, rem),
-            _ => return Err(crate::Error::InvalidRequest("Command must be an array".to_string())),
-        };
-        
-        if array.is_empty() {
-            return Err(crate::Error::InvalidRequest("Empty command array".to_string()));
-        }
-        
-        let command_name = match &array[0] {
-            RespValue::BulkString(data) => std::str::from_utf8(data)
-                .map_err(|_| crate::Error::InvalidRequest("Invalid UTF-8 in command name".to_string()))?,
-            RespValue::SimpleString(s) => s,
-            _ => return Err(crate::Error::InvalidRequest("Command name must be string".to_string())),
-        };
-        
-        let dispatcher = match command_name.to_uppercase().as_str() {
-            "READ" => {
-                let (cmd, _) = ReadCommand::decode(input)?;
-                RespCommandDispatcher::Read(cmd)
-            },
-            "WRITE" => {
-                let (cmd, _) = WriteCommand::decode(input)?;
-                RespCommandDispatcher::Write(cmd)
-            },
-            "CREATE_ENTITY" => {
-                let (cmd, _) = CreateEntityCommand::decode(input)?;
-                RespCommandDispatcher::CreateEntity(cmd)
-            },
-            _ => {
-                return Err(crate::Error::InvalidRequest(format!("Unknown command: {}", command_name)));
-            }
-        };
-        
-        Ok((dispatcher, remaining))
-    }
-    
-    /// Execute the dispatched command
-    pub fn execute(&self, store: &mut dyn crate::data::StoreTrait) -> Result<RespResponse> {
-        match self {
-            RespCommandDispatcher::Read(cmd) => cmd.execute(store),
-            RespCommandDispatcher::Write(cmd) => cmd.execute(store),
-            RespCommandDispatcher::CreateEntity(cmd) => cmd.execute(store),
-        }
-    }
-}
+*/

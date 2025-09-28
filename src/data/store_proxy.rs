@@ -385,15 +385,13 @@ impl StoreProxy {
     }
 
     /// Write a field value
+    #[allow(unused_variables)]
     pub fn write(&mut self, entity_id: EntityId, field_path: &[FieldType], value: Value, writer_id: Option<EntityId>, write_time: Option<Timestamp>, push_condition: Option<PushCondition>, adjust_behavior: Option<AdjustBehavior>) -> Result<()> {
         let command = WriteCommand {
             entity_id,
             field_path: field_path.to_vec(),
             value,
             writer_id,
-            write_time,
-            push_condition,
-            adjust_behavior,
             _marker: std::marker::PhantomData,
         };
         self.send_command_ok(&command)

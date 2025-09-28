@@ -1,6 +1,6 @@
 use proc_macro::TokenStream;
 use quote::{quote, format_ident};
-use syn::{parse_macro_input, Data, DeriveInput, Fields, Index, parse::Parse, Token, Ident, Type, punctuated::Punctuated, LitStr};
+use syn::{parse_macro_input, Data, DeriveInput, Fields, Index, parse::Parse, Token, Ident, Type, punctuated::Punctuated, LitStr, braced};
 
 /// Derive macro for `RespEncode` trait
 #[proc_macro_derive(RespEncode)]
@@ -385,14 +385,17 @@ impl Parse for RespCommandInput {
         let struct_name: Ident = input.parse()?;
         
         let content;
-        syn::braced!(content in input);
+        braced!(content in input);
         
         // Parse fields
         let mut fields = Punctuated::new();
         while !content.peek(syn::token::Brace) && !content.is_empty() {
-            fields.push_value(content.parse::<CommandField>()?);
-            if !content.peek(syn::token::Brace) && !content.is_empty() {
+            let field = content.parse::<CommandField>()?;
+            fields.push_value(field);
+            if content.peek(Token![,]) && !content.peek2(syn::token::Brace) {
                 fields.push_punct(content.parse::<Token![,]>()?);
+            } else if content.peek(syn::token::Brace) {
+                break;
             }
         }
         
@@ -414,19 +417,13 @@ impl Parse for RespCommandInput {
 /// 
 /// ```rust,ignore
 /// resp_command! {
-///     "READ" => ReadCommand {
-///         entity_id: EntityId,
-///         field_path: Vec<FieldType>,
+///     "PING" => PingCommand {
+///         ?message: String,
 ///         {
-///             let (value, timestamp, writer_id) = store.read(self.entity_id, &self.field_path)?;
-///             Ok(RespResponse::Array(vec![
-///                 RespResponse::Bulk(value.encode()),
-///                 RespResponse::Bulk(timestamp.to_string().into_bytes()),
-///                 match writer_id {
-///                     Some(id) => RespResponse::Integer(id.0 as i64),
-///                     None => RespResponse::Null,
-///                 },
-///             ]))
+///             match &self.message {
+///                 Some(msg) => Ok(RespResponse::String(format!("PONG: {}", msg))),
+///                 None => Ok(RespResponse::String("PONG".to_string())),
+///             }
 ///         }
 ///     }
 /// }
@@ -453,15 +450,16 @@ pub fn resp_command(input: TokenStream) -> TokenStream {
     // Generate decoding logic
     let field_decoders: Vec<_> = input.fields.iter().enumerate().map(|(i, field)| {
         let name = &field.name;
+        let ty = &field.ty;
         let field_index = i + 1; // Skip command name
         if field.optional {
             quote! {
                 let #name = if elements.len() > #field_index {
                     match &elements[#field_index] {
-                        crate::data::resp::RespValue::Null => None,
+                        qlib_rs::data::resp::RespValue::Null => None,
                         element => {
                             let field_bytes = element.encode();
-                            let (decoded_field, _) = crate::data::resp::RespDecode::decode(&field_bytes)?;
+                            let (decoded_field, _) = <#ty as qlib_rs::data::resp::RespDecode>::decode(&field_bytes)?;
                             Some(decoded_field)
                         }
                     }
@@ -473,10 +471,10 @@ pub fn resp_command(input: TokenStream) -> TokenStream {
             quote! {
                 let #name = if elements.len() > #field_index {
                     let field_bytes = elements[#field_index].encode();
-                    let (decoded_field, _) = crate::data::resp::RespDecode::decode(&field_bytes)?;
+                    let (decoded_field, _) = <#ty as qlib_rs::data::resp::RespDecode>::decode(&field_bytes)?;
                     decoded_field
                 } else {
-                    return Err(crate::Error::InvalidRequest(format!("Missing required field {}", stringify!(#name))));
+                    return Err(qlib_rs::Error::InvalidRequest(format!("Missing required field {}", stringify!(#name))));
                 };
             }
         }
@@ -491,18 +489,18 @@ pub fn resp_command(input: TokenStream) -> TokenStream {
             quote! {
                 if let Some(ref value) = self.#name {
                     let field_bytes = value.encode();
-                    let (field_value, _) = crate::data::resp::RespValue::decode(&field_bytes)
-                        .map_err(|_| crate::Error::InvalidRequest("Failed to re-encode field".to_string()))?;
+                    let (field_value, _) = qlib_rs::data::resp::RespValue::decode(&field_bytes)
+                        .map_err(|_| qlib_rs::Error::InvalidRequest("Failed to re-encode field".to_string()))?;
                     elements.push(field_value);
                 } else {
-                    elements.push(crate::data::resp::RespValue::Null);
+                    elements.push(qlib_rs::data::resp::RespValue::Null);
                 }
             }
         } else {
             quote! {
                 let field_bytes = self.#name.encode();
-                let (field_value, _) = crate::data::resp::RespValue::decode(&field_bytes)
-                    .map_err(|_| crate::Error::InvalidRequest("Failed to re-encode field".to_string()))?;
+                let (field_value, _) = qlib_rs::data::resp::RespValue::decode(&field_bytes)
+                    .map_err(|_| qlib_rs::Error::InvalidRequest("Failed to re-encode field".to_string()))?;
                 elements.push(field_value);
             }
         }
@@ -516,29 +514,29 @@ pub fn resp_command(input: TokenStream) -> TokenStream {
             pub _marker: std::marker::PhantomData<&'a ()>,
         }
         
-        impl<'a> crate::data::resp::RespDecode<'a> for #struct_name<'a> {
-            fn decode(input: &'a [u8]) -> crate::Result<(Self, &'a [u8])> {
-                let (array, remaining) = match crate::data::resp::RespValue::decode(input)? {
-                    (crate::data::resp::RespValue::Array(arr), rem) => (arr, rem),
-                    _ => return Err(crate::Error::InvalidRequest("Command must be an array".to_string())),
+        impl<'a> qlib_rs::data::resp::RespDecode<'a> for #struct_name<'a> {
+            fn decode(input: &'a [u8]) -> qlib_rs::Result<(Self, &'a [u8])> {
+                let (array, remaining) = match qlib_rs::data::resp::RespValue::decode(input)? {
+                    (qlib_rs::data::resp::RespValue::Array(arr), rem) => (arr, rem),
+                    _ => return Err(qlib_rs::Error::InvalidRequest("Command must be an array".to_string())),
                 };
                 
                 if array.is_empty() {
-                    return Err(crate::Error::InvalidRequest("Empty command array".to_string()));
+                    return Err(qlib_rs::Error::InvalidRequest("Empty command array".to_string()));
                 }
                 
                 // Verify command name
                 let command_name = match &array[0] {
-                    crate::data::resp::RespValue::BulkString(data) => {
+                    qlib_rs::data::resp::RespValue::BulkString(data) => {
                         std::str::from_utf8(data)
-                            .map_err(|_| crate::Error::InvalidRequest("Invalid UTF-8 in command name".to_string()))?
+                            .map_err(|_| qlib_rs::Error::InvalidRequest("Invalid UTF-8 in command name".to_string()))?
                     },
-                    crate::data::resp::RespValue::SimpleString(s) => s,
-                    _ => return Err(crate::Error::InvalidRequest("Command name must be string".to_string())),
+                    qlib_rs::data::resp::RespValue::SimpleString(s) => s,
+                    _ => return Err(qlib_rs::Error::InvalidRequest("Command name must be string".to_string())),
                 };
                 
                 if !command_name.eq_ignore_ascii_case(#command_name_str) {
-                    return Err(crate::Error::InvalidRequest(format!("Expected command {}, got {}", #command_name_str, command_name)));
+                    return Err(qlib_rs::Error::InvalidRequest(format!("Expected command {}, got {}", #command_name_str, command_name)));
                 }
                 
                 // Decode fields
@@ -551,22 +549,22 @@ pub fn resp_command(input: TokenStream) -> TokenStream {
             }
         }
         
-        impl<'a> crate::data::resp::RespEncode for #struct_name<'a> {
+        impl<'a> qlib_rs::data::resp::RespEncode for #struct_name<'a> {
             fn encode(&self) -> Vec<u8> {
                 let mut elements = Vec::new();
-                elements.push(crate::data::resp::RespValue::BulkString(#command_name_str.as_bytes()));
+                elements.push(qlib_rs::data::resp::RespValue::BulkString(#command_name_str.as_bytes()));
                 
                 #(#field_encoders)*
                 
-                let array = crate::data::resp::RespValue::Array(elements);
+                let array = qlib_rs::data::resp::RespValue::Array(elements);
                 array.encode()
             }
         }
         
-        impl<'a> crate::data::resp::RespCommand<'a> for #struct_name<'a> {
+        impl<'a> qlib_rs::data::resp::RespCommand<'a> for #struct_name<'a> {
             const COMMAND_NAME: &'static str = #command_name_str;
             
-            fn execute(&self, store: &mut dyn crate::data::StoreTrait) -> crate::Result<crate::data::resp::RespResponse> {
+            fn execute(&self, store: &mut dyn qlib_rs::data::StoreTrait) -> qlib_rs::Result<qlib_rs::data::resp::RespResponse> {
                 #execute_block
             }
         }
