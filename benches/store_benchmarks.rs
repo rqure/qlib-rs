@@ -2,7 +2,6 @@ use std::vec;
 
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use qlib_rs::*;
-use qlib_rs::protocol::{ProtocolCodec, ProtocolMessage};
 use qlib_rs::data::StorageScope;
 
 // Helper to create an entity schema with basic fields
@@ -208,7 +207,7 @@ fn bench_inheritance_operations(c: &mut Criterion) {
                 storage_scope: StorageScope::Runtime,
             }
         );
-        store.update_schema(user_schema)?;
+        store.update_schema(user_schema).unwrap();
         
         // AdminUser inherits from User
         let mut admin_schema = EntitySchema::<Single, String, String>::new("AdminUser".to_string(), vec!["User".to_string()]);
@@ -221,7 +220,7 @@ fn bench_inheritance_operations(c: &mut Criterion) {
                 storage_scope: StorageScope::Runtime,
             }
         );
-        store.update_schema(admin_schema)?;
+        store.update_schema(admin_schema).unwrap();
         
         // Get the interned entity types
         let et_entity = store.get_entity_type("Entity").unwrap();
@@ -331,7 +330,6 @@ fn bench_schema_operations(c: &mut Criterion) {
 
 criterion_group!(
     benches,
-    bench_store_message_serialization,
     bench_entity_creation,
     bench_field_operations,
     bench_entity_search,
