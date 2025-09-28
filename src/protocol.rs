@@ -10,8 +10,10 @@ const CRLF: &[u8] = b"\r\n";
 
 /// Trait for types that can encode themselves to RESP format
 pub trait RespEncode {
+    #[inline]
     fn encode_to(&self, out: &mut Vec<u8>);
     
+    #[inline]
     fn encode(&self) -> Vec<u8> {
         let mut out = Vec::new();
         self.encode_to(&mut out);
@@ -21,6 +23,7 @@ pub trait RespEncode {
 
 /// Trait for types that can decode themselves from RESP frames
 pub trait RespDecode: Sized {
+    #[inline]
     fn decode_from(bytes: &Bytes) -> Result<Self>;
 }
 
@@ -392,7 +395,11 @@ fn write_response(out: &mut Vec<u8>, response: &QuspResponse) {
 }
 
 pub fn encode_command(command: &QuspCommand) -> Vec<u8> {
-	let mut out = Vec::with_capacity(128);
+	// Better capacity estimation: array header + bulk headers + content
+	let estimated_capacity = 32 + command.name.len() + 
+		command.args.iter().map(|arg| arg.len() + 8).sum::<usize>();
+	let mut out = Vec::with_capacity(estimated_capacity);
+	
 	write_array_header(&mut out, 1 + command.args.len());
 	write_bulk(&mut out, command.name.as_ref());
 	for arg in &command.args {
@@ -440,30 +447,35 @@ pub fn encode_error(message: &str) -> Vec<u8> {
 
 // Trait implementations for basic types
 impl RespEncode for i64 {
+    #[inline]
     fn encode_to(&self, out: &mut Vec<u8>) {
         write_integer(out, *self);
     }
 }
 
 impl RespEncode for String {
+    #[inline]
     fn encode_to(&self, out: &mut Vec<u8>) {
         write_bulk(out, self.as_bytes());
     }
 }
 
 impl RespEncode for &str {
+    #[inline]
     fn encode_to(&self, out: &mut Vec<u8>) {
         write_bulk(out, self.as_bytes());
     }
 }
 
 impl RespEncode for &[u8] {
+    #[inline]
     fn encode_to(&self, out: &mut Vec<u8>) {
         write_bulk(out, self);
     }
 }
 
 impl RespEncode for Bytes {
+    #[inline]
     fn encode_to(&self, out: &mut Vec<u8>) {
         write_bulk(out, self.as_ref());
     }
@@ -578,14 +590,14 @@ impl ResponseBuilder {
     }
     
     /// Create a paginated response with consistent structure
+    #[inline]
     pub fn paginated<T>(result: &PageResult<T>) -> QuspResponse
     where 
         T: Clone + Into<QuspResponse>,
     {
-        let mut response = vec![
-            ResponseBuilder::array(result.items.iter().cloned().map(|item| item.into())),
-            ResponseBuilder::integer(result.total as i64),
-        ];
+        let mut response = Vec::with_capacity(3); // Pre-allocate for known size
+        response.push(ResponseBuilder::array(result.items.iter().cloned().map(|item| item.into())));
+        response.push(ResponseBuilder::integer(result.total as i64));
         
         if let Some(cursor) = result.next_cursor {
             response.push(ResponseBuilder::integer(cursor as i64));
@@ -2073,6 +2085,7 @@ pub trait CommandArguments {
 }
 
 impl CommandArguments for QuspCommand {
+    #[inline]
     fn expect_args(&self, count: usize, command_name: &str) -> Result<()> {
         if self.args.len() != count {
             return Err(anyhow!("{} expects {} argument{}", 
@@ -2081,6 +2094,7 @@ impl CommandArguments for QuspCommand {
         Ok(())
     }
     
+    #[inline]
     fn expect_args_range(&self, min: usize, max: usize, command_name: &str) -> Result<()> {
         if self.args.len() < min || self.args.len() > max {
             return Err(anyhow!("{} expects {}-{} arguments", command_name, min, max));
