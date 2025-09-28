@@ -10,6 +10,7 @@ mod json_snapshot;
 mod notifications;
 mod pagination;
 mod request;
+pub mod resp;
 mod snapshots;
 mod store_proxy;
 mod store;
