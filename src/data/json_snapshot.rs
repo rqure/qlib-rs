@@ -535,52 +535,41 @@ pub fn build_json_entity_tree<T: StoreTrait>(
     // Collect fields with their rank for ordering
     let mut field_data: Vec<(i64, String, serde_json::Value)> = Vec::new();
 
-    // Read all field values for this entity using perform()
+    // Read all field values for this entity using direct read calls
     for (field_type, field_schema) in sorted_fields {
-        // Create a read request
-        let read_requests = crate::sreq![crate::Request::Read {
-            entity_id: entity_id,
-            field_types: crate::sfield![field_type],
-            value: None,
-            write_time: None,
-            writer_id: None,
-        }];
-
-        // Perform the read operation
-        if let Ok(updated_requests) = store.perform_mut(read_requests) {
-            if let Some(crate::Request::Read { value: Some(ref value), .. }) = updated_requests.read().first() {
-                let field_rank = field_schema.rank();
-                // Special handling for Children field - show nested entities instead of paths
-                if store.resolve_field_type(field_type).unwrap_or_default() == "Children" {
-                    if let crate::Value::EntityList(child_ids) = value {
-                        let mut children = Vec::new();
-                        for child_id in child_ids {
-                            // Recursively build each child entity
-                            if let Ok(child_entity) = build_json_entity_tree(store, *child_id) {
-                                children.push(serde_json::to_value(child_entity).unwrap_or(serde_json::Value::Null));
-                            }
+        // Perform the read operation directly
+        if let Ok((value, _, _)) = store.read(entity_id, &[field_type]) {
+            let field_rank = field_schema.rank();
+            // Special handling for Children field - show nested entities instead of paths
+            if store.resolve_field_type(field_type).unwrap_or_default() == "Children" {
+                if let crate::Value::EntityList(child_ids) = &value {
+                    let mut children = Vec::new();
+                    for child_id in child_ids {
+                        // Recursively build each child entity
+                        if let Ok(child_entity) = build_json_entity_tree(store, *child_id) {
+                            children.push(serde_json::to_value(child_entity).unwrap_or(serde_json::Value::Null));
                         }
-                        field_data.push((field_schema.rank(), "Children".to_string(), serde_json::Value::Array(children)));
-                    } else {
-                        field_data.push((field_schema.rank(), "Children".to_string(), serde_json::Value::Array(vec![])));
                     }
+                    field_data.push((field_schema.rank(), "Children".to_string(), serde_json::Value::Array(children)));
                 } else {
-                    // For other fields, use path-aware value conversion for entity references
-                    let choices_ref = if let crate::FieldSchema::Choice { choices, .. } = field_schema {
-                        Some(choices)
-                    } else {
-                        None
-                    };
-                    
-                    // Use path resolution for EntityReference and EntityList fields (but not Children)
-                    let json_value = match value {
-                        crate::Value::EntityReference(_) | crate::Value::EntityList(_) => {
-                            value_to_json_value_with_paths(store, value, choices_ref.as_ref())
-                        },
-                        _ => value_to_json_value(value, choices_ref.as_ref())
-                    };
-                    field_data.push((field_rank, store.resolve_field_type(field_type).unwrap_or_default(), json_value));
+                    field_data.push((field_schema.rank(), "Children".to_string(), serde_json::Value::Array(vec![])));
                 }
+            } else {
+                // For other fields, use path-aware value conversion for entity references
+                let choices_ref = if let crate::FieldSchema::Choice { choices, .. } = field_schema {
+                    Some(choices)
+                } else {
+                    None
+                };
+                
+                // Use path resolution for EntityReference and EntityList fields (but not Children)
+                let json_value = match &value {
+                    crate::Value::EntityReference(_) | crate::Value::EntityList(_) => {
+                        value_to_json_value_with_paths(store, &value, choices_ref.as_ref())
+                    },
+                    _ => value_to_json_value(&value, choices_ref.as_ref())
+                };
+                field_data.push((field_rank, store.resolve_field_type(field_type).unwrap_or_default(), json_value));
             }
         }
     }
