@@ -231,7 +231,7 @@ fn test_circular_inheritance_protection() -> Result<()> {
         Ok(_) => {
             // If it succeeded, verify that circular inheritance is handled properly
             // by checking that the inheritance map doesn't create infinite loops
-            let b_id = store.create_entity(et_b, None, "Test B")?;
+            let _b_id = store.create_entity(et_b, None, "Test B")?;
             let entities_a = store.find_entities(et_a, None)?;
             
             // Should not crash or loop infinitely

@@ -603,7 +603,7 @@ fn test_json_snapshot_storage_scope() {
     let root_et = store.get_entity_type("Root").unwrap();
 
     // Create a root entity
-    let root_id = store.create_entity(root_et, None, "TestRoot").unwrap();
+    let _root_id = store.create_entity(root_et, None, "TestRoot").unwrap();
 
     // Take JSON snapshot
     let snapshot = take_json_snapshot(&mut store).unwrap();

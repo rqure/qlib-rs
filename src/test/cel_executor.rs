@@ -507,8 +507,7 @@ fn test_cel_executor_execute_with_indirection() -> Result<()> {
             storage_scope: StorageScope::Runtime,
         }
     );
-    let requests = sreq![sschemaupdate!(dept_schema)];
-    store.perform_mut(requests)?;
+    store.update_schema(dept_schema)?;
     
     // Create User schema with department reference
     let mut user_schema = EntitySchema::<Single, String, String>::new("User".to_string(), vec![]);
@@ -548,8 +547,7 @@ fn test_cel_executor_execute_with_indirection() -> Result<()> {
             storage_scope: StorageScope::Runtime,
         }
     );
-    let requests = sreq![sschemaupdate!(user_schema)];
-    store.perform_mut(requests)?;
+    store.update_schema(user_schema)?;
 
     // Now get the interned types
     let et_user = store.get_entity_type("User")?;
@@ -559,35 +557,16 @@ fn test_cel_executor_execute_with_indirection() -> Result<()> {
     let ft_department = store.get_field_type("Department")?;
 
     // Create department entity
-    let create_requests = store.perform_mut(sreq![screate!(
-        et_department,
-        "Engineering".to_string()
-    )])?;
-    let dept_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
-        id
-    } else {
-        panic!("Expected created entity ID");
-    };
+    let dept_id = store.create_entity(et_department, None, "Engineering")?;
 
     // Create user entity
-    let create_requests = store.perform_mut(sreq![screate!(
-        et_user,
-        "Alice".to_string()
-    )])?;
-    let user_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
-        id
-    } else {
-        panic!("Expected created entity ID");
-    };
+    let user_id = store.create_entity(et_user, None, "Alice")?;
 
     // Set field values
-    let field_requests = sreq![
-        swrite!(dept_id, crate::sfield![ft_name], sstr!("Engineering")),
-        swrite!(dept_id, crate::sfield![ft_budget], sint!(100000)),
-        swrite!(user_id, crate::sfield![ft_name], sstr!("Alice")),
-        swrite!(user_id, crate::sfield![ft_department], sref!(Some(dept_id))),
-    ];
-    store.perform_mut(field_requests)?;
+    store.write(dept_id, &[ft_name], Value::from_string("Engineering".to_string()), None, None, None, None)?;
+    store.write(dept_id, &[ft_budget], Value::Int(100000), None, None, None, None)?;
+    store.write(user_id, &[ft_name], Value::from_string("Alice".to_string()), None, None, None, None)?;
+    store.write(user_id, &[ft_department], Value::EntityReference(Some(dept_id)), None, None, None, None)?;
 
     // Test indirection: Department->Name should resolve to "Engineering"
     // NOTE: The CEL executor needs to be updated to handle Vec<FieldType> indirection
@@ -741,11 +720,11 @@ fn test_cel_executor_execute_with_deep_indirection() -> Result<()> {
     let ft_department = store.get_field_type("Department")?;
 
     // Create entities
-    let company_id = store.create_entity(et_company, None, "TechCorp".to_string())?;
+    let company_id = store.create_entity(et_company, None, "TechCorp")?;
 
-    let dept_id = store.create_entity(et_department, None, "Engineering".to_string())?;
+    let dept_id = store.create_entity(et_department, None, "Engineering")?;
 
-    let employee_id = store.create_entity(et_employee, None, "Bob".to_string())?;
+    let employee_id = store.create_entity(et_employee, None, "Bob")?;
 
     // Set up the entity relationships and data
     store.write(company_id, &[ft_name], Value::from_string("TechCorp".to_string()), None, None, None, None)?;
@@ -865,11 +844,11 @@ fn test_cel_executor_execute_with_indirection_and_entity_lists() -> Result<()> {
     let ft_projects = store.get_field_type("Projects")?;
 
     // Create project entities
-    let project1_id = store.create_entity(et_project, None, "WebApp".to_string())?;
-    let project2_id = store.create_entity(et_project, None, "MobileApp".to_string())?;
+    let project1_id = store.create_entity(et_project, None, "WebApp")?;
+    let project2_id = store.create_entity(et_project, None, "MobileApp")?;
 
     // Create team entity
-    let team_id = store.create_entity(et_team, None, "DevTeam".to_string())?;
+    let team_id = store.create_entity(et_team, None, "DevTeam")?;
 
     // Set up the data
     store.write(project1_id, &[ft_name], Value::from_string("WebApp".to_string()), None, None, None, None)?;
@@ -950,7 +929,7 @@ fn test_cel_executor_execute_with_null_entity_reference() -> Result<()> {
     // Now we can get the interned types
     let et_user = store.get_entity_type("User")?;
 
-    let user_id = store.create_entity(et_user, None, "User".to_string())?;
+    let user_id = store.create_entity(et_user, None, "User")?;
 
     // Manager field should be null/empty
     let result = executor.execute("Manager == ''", user_id, &mut store)?;
@@ -1122,10 +1101,10 @@ fn test_cel_executor_execute_with_mixed_field_access() -> Result<()> {
     let ft_department = store.get_field_type("Department")?;
 
     // Create department entity
-    let dept_id = store.create_entity(et_department, None, "Sales".to_string())?;
+    let dept_id = store.create_entity(et_department, None, "Sales")?;
 
     // Create user entity
-    let user_id = store.create_entity(et_user, None, "John".to_string())?;
+    let user_id = store.create_entity(et_user, None, "John")?;
 
     // Set field values
     store.write(dept_id, &[ft_name], Value::from_string("Sales".to_string()), None, None, None, None)?;

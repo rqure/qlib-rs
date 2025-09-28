@@ -191,7 +191,7 @@ pub fn path_to_entity_id<T: StoreTrait>(store: &T, path: &str) -> Result<EntityI
     
     // Find the root entity that matches the first path part
     for root_id in root_entities {
-        let entity_name = match store.read(root_id.clone(), &[name_ft.clone()]) {
+        let _entity_name = match store.read(root_id.clone(), &[name_ft.clone()]) {
             Ok((crate::Value::String(name), _, _)) => {
                 if name.as_str() == path_parts[0] {
                     current_entity_id = Some(root_id);
@@ -215,7 +215,7 @@ pub fn path_to_entity_id<T: StoreTrait>(store: &T, path: &str) -> Result<EntityI
 
         let mut found = false;
         for child_id in children {
-            let child_name = match store.read(child_id.clone(), &[name_ft.clone()]) {
+            let _child_name = match store.read(child_id.clone(), &[name_ft.clone()]) {
                 Ok((crate::Value::String(child_name), _, _)) => {
                     if child_name.as_str() == *part {
                         current_id = child_id.clone();

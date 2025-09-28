@@ -8,61 +8,19 @@ use anyhow;
 use bytes::Bytes;
 use bincode;
 use mio::{Events, Interest, Poll, Token};
-use serde::{de::DeserializeOwned, Serialize};
+use serde::{de::DeserializeOwned};
 
 use crate::{
     Complete, EntityId, EntitySchema, EntityType, Error, FieldSchema, FieldType, Notification, NotificationQueue, NotifyConfig, hash_notify_config, PageOpts, PageResult, Result, Single, Value, Timestamp, PushCondition, AdjustBehavior
 };
 use crate::data::StoreTrait;
-use crate::protocol::{MessageBuffer, QuspCommand, QuspFrame, QuspResponse, encode_command, parse_indirection_response, parse_read_response, parse_entity_id_response, parse_snapshot_response, parse_page_result_entity_ids_response, parse_page_result_entity_types_response, parse_bool_response, encode_value, encode_page_opts, encode_notify_config, field_path_to_string, encode_optional_timestamp, encode_optional_entity_id, encode_push_condition, encode_adjust_behavior, encode_entity_schema_string};
+use crate::protocol::{MessageBuffer, QuspCommand, QuspFrame, QuspResponse, encode_command};
 
 const READ_POLL_INTERVAL: Duration = Duration::from_millis(10);
-
-fn encode_utf8(value: &str) -> Bytes {
-    Bytes::copy_from_slice(value.as_bytes())
-}
-
-fn encode_bincode<T: Serialize>(value: &T) -> Result<Bytes> {
-    bincode::serialize(value)
-        .map(Bytes::from)
-        .map_err(|e| Error::StoreProxyError(format!("Failed to serialize payload: {}", e)))
-}
 
 fn decode_bincode<T: DeserializeOwned>(value: &Bytes) -> Result<T> {
     bincode::deserialize(value.as_ref())
         .map_err(|e| Error::StoreProxyError(format!("Failed to deserialize payload: {}", e)))
-}
-
-fn response_to_bytes(response: QuspResponse) -> Result<Bytes> {
-    match response {
-        QuspResponse::Bulk(data) | QuspResponse::Simple(data) => Ok(data),
-        QuspResponse::Null => Err(Error::StoreProxyError("Expected payload but received NULL".into())),
-        QuspResponse::Integer(_) => Err(Error::StoreProxyError("Expected payload but received integer".into())),
-        QuspResponse::Array(_) => Err(Error::StoreProxyError("Expected payload but received array".into())),
-        QuspResponse::Error(msg) => Err(Error::StoreProxyError(msg)),
-    }
-}
-
-fn response_to_string(response: QuspResponse) -> Result<String> {
-    let bytes = response_to_bytes(response)?;
-    String::from_utf8(bytes.to_vec())
-        .map_err(|e| Error::StoreProxyError(format!("Invalid UTF-8 payload: {}", e)))
-}
-
-fn response_to_bincode<T: DeserializeOwned>(response: QuspResponse) -> Result<T> {
-    let bytes = response_to_bytes(response)?;
-    decode_bincode(&bytes)
-}
-
-fn response_to_bool(response: QuspResponse) -> Result<bool> {
-    match response {
-        QuspResponse::Integer(value) => Ok(value != 0),
-        QuspResponse::Simple(data) => Ok(data.as_ref() == b"1" || data.as_ref() == b"true"),
-        QuspResponse::Bulk(data) => Ok(data.as_ref() == b"1" || data.as_ref() == b"true"),
-        QuspResponse::Null => Ok(false),
-        QuspResponse::Array(_) => Err(Error::StoreProxyError("Expected boolean but received array".into())),
-        QuspResponse::Error(msg) => Err(Error::StoreProxyError(msg)),
-    }
 }
 
 fn expect_ok(response: QuspResponse) -> Result<()> {
@@ -265,21 +223,6 @@ impl StoreProxy {
     fn send_command_ok(&self, name: &str, args: Vec<Bytes>) -> Result<()> {
         let response = self.send_command(name, args)?;
         expect_ok(response)
-    }
-
-    fn send_command_bincode<T: DeserializeOwned>(&self, name: &str, args: Vec<Bytes>) -> Result<T> {
-        let response = self.send_command(name, args)?;
-        response_to_bincode(response)
-    }
-
-    fn send_command_string(&self, name: &str, args: Vec<Bytes>) -> Result<String> {
-        let response = self.send_command(name, args)?;
-        response_to_string(response)
-    }
-
-    fn send_command_bool(&self, name: &str, args: Vec<Bytes>) -> Result<bool> {
-        let response = self.send_command(name, args)?;
-        response_to_bool(response)
     }
 
     /// Get entity type by name

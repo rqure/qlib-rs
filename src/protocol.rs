@@ -1839,21 +1839,6 @@ fn parse_adjust_behavior(bytes: &Bytes) -> Result<AdjustBehavior> {
     }
 }
 
-fn parse_page_opts(bytes: &Bytes) -> Result<PageOpts> {
-    let s = parse_str(bytes)?;
-    let parts: Vec<&str> = s.split(',').collect();
-    if parts.len() != 2 {
-        return Err(anyhow!("PageOpts expects limit,cursor"));
-    }
-    let limit: usize = parts[0].trim().parse().map_err(|e| anyhow!("invalid limit: {}", e))?;
-    let cursor = if parts[1].trim() == "null" {
-        None
-    } else {
-        Some(parts[1].trim().parse().map_err(|e| anyhow!("invalid cursor: {}", e))?)
-    };
-    Ok(PageOpts::new(limit, cursor))
-}
-
 #[derive(Debug)]
 pub enum StoreCommand<'a> {
     GetEntityType { name: &'a str },
@@ -2197,10 +2182,6 @@ fn parse_field_type_str(s: &str) -> Result<FieldType> {
     s.trim().parse().map_err(|e| anyhow!("invalid field type: {}", e)).map(FieldType)
 }
 
-fn parse_entity_id_str(s: &str) -> Result<EntityId> {
-    s.trim().parse().map_err(|e| anyhow!("invalid entity id: {}", e)).map(EntityId)
-}
-
 // Response encoding functions
 pub fn encode_entity_type_response(entity_type: EntityType) -> QuspResponse {
     QuspResponse::Integer(entity_type.0 as i64)
@@ -2266,8 +2247,6 @@ pub fn encode_entity_id_response(entity_id: EntityId) -> QuspResponse {
 }
 
 pub fn encode_snapshot_response(snapshot: &Snapshot) -> Result<QuspResponse> {
-    // TODO: Implement pure RESP encoding for Snapshot - this is complex due to nested structures
-    // For now, use bincode but this should be replaced with RESP encoding
     let encoded = bincode::serialize(snapshot).map_err(|e| anyhow!("failed to encode Snapshot: {}", e))?;
     Ok(QuspResponse::Bulk(Bytes::copy_from_slice(&encoded)))
 }
