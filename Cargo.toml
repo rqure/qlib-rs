@@ -6,7 +6,7 @@ description = "A flexible in-memory database library"
 license-file = "LICENSE"
 
 [features]
-default = []
+default = ["derive"]
 derive = ["qlib-rs-derive"]
 
 [dependencies]

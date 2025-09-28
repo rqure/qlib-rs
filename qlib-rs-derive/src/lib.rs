@@ -1,6 +1,6 @@
 use proc_macro::TokenStream;
 use quote::{quote, format_ident};
-use syn::{parse_macro_input, Data, DeriveInput, Fields, Index, parse::Parse, Token, Ident, LitStr, Type, Path};
+use syn::{parse_macro_input, Data, DeriveInput, Fields, Index, parse::Parse, Token, Ident, LitStr, Type};
 
 /// Helper function to check if a type is PhantomData
 fn is_phantom_data(ty: &Type) -> bool {
