@@ -4,7 +4,7 @@ mod entity_schema;
 mod field_schema;
 mod field;
 pub mod ft;
-mod interner;
+pub mod interner;
 mod indirection;
 mod json_snapshot;
 mod notifications;
@@ -12,7 +12,6 @@ mod pagination;
 mod request;
 mod snapshots;
 mod store_proxy;
-mod async_store_proxy;
 mod store;
 mod store_trait;
 mod value;
@@ -35,9 +34,9 @@ pub use cache::Cache;
 pub use request::IndirectFieldType;
 
 pub use store_proxy::StoreProxy;
-pub use async_store_proxy::AsyncStoreProxy;
 pub use value::Value;
 pub use notifications::{NotifyConfig, Notification, NotificationQueue, NotifyInfo, hash_notify_config};
+pub use interner::Interner;
 
 pub use utils::{from_base64, to_base64};
 

@@ -11,7 +11,7 @@ use mio::{Events, Interest, Poll, Token};
 use serde::{de::DeserializeOwned, Serialize};
 
 use crate::{
-    Complete, EntityId, EntitySchema, EntityType, Error, FieldSchema, FieldType, Notification, NotificationQueue, NotifyConfig, hash_notify_config, PageOpts, PageResult, Request, Requests, Result, Single, sreq, Value, Timestamp, now, PushCondition, AdjustBehavior
+    Complete, EntityId, EntitySchema, EntityType, Error, FieldSchema, FieldType, Notification, NotificationQueue, NotifyConfig, hash_notify_config, PageOpts, PageResult, Request, Requests, Result, Single, Value, Timestamp, now, PushCondition, AdjustBehavior
 };
 use crate::data::StoreTrait;
 use crate::protocol::{MessageBuffer, QuspCommand, QuspFrame, QuspResponse, encode_command};
@@ -284,140 +284,44 @@ impl StoreProxy {
 
     /// Get entity type by name
     pub fn get_entity_type(&self, name: &str) -> Result<EntityType> {
-        let request = Request::GetEntityType {
-            name: name.to_string(),
-            entity_type: None,
-        };
-        
-        let requests = sreq![request];
-        let response = self.perform(requests)?;
-        
-        if let Some(req) = response.first() {
-            match req {
-                Request::GetEntityType { entity_type, .. } => {
-                    entity_type.clone().ok_or_else(|| Error::StoreProxyError("Entity type not found".to_string()))
-                }
-                _ => Err(Error::StoreProxyError("Unexpected response type".to_string())),
-            }
-        } else {
-            Err(Error::StoreProxyError("No response received".to_string()))
-        }
+        let args = vec![Bytes::copy_from_slice(name.as_bytes())];
+        let response = self.send_command("GET_ENTITY_TYPE", args)?;
+        crate::protocol::parse_entity_type_response(response)
     }
 
     /// Resolve entity type to name
     pub fn resolve_entity_type(&self, entity_type: EntityType) -> Result<String> {
-        let request = Request::ResolveEntityType {
-            entity_type,
-            name: None,
-        };
-        
-        let requests = sreq![request];
-        let response = self.perform(requests)?;
-        
-        if let Some(req) = response.first() {
-            match req {
-                Request::ResolveEntityType { name, .. } => {
-                    name.clone().ok_or_else(|| Error::StoreProxyError("Entity type name not found".to_string()))
-                }
-                _ => Err(Error::StoreProxyError("Unexpected response type".to_string())),
-            }
-        } else {
-            Err(Error::StoreProxyError("No response received".to_string()))
-        }
+        let args = vec![Bytes::copy_from_slice(&entity_type.0.to_string().as_bytes())];
+        let response = self.send_command("RESOLVE_ENTITY_TYPE", args)?;
+        crate::protocol::parse_string_response(response)
     }
 
     /// Get field type by name
     pub fn get_field_type(&self, name: &str) -> Result<FieldType> {
-        let request = Request::GetFieldType {
-            name: name.to_string(),
-            field_type: None,
-        };
-        
-        let requests = sreq![request];
-        let response = self.perform(requests)?;
-        
-        if let Some(req) = response.first() {
-            match req {
-                Request::GetFieldType { field_type, .. } => {
-                    field_type.clone().ok_or_else(|| Error::StoreProxyError("Field type not found".to_string()))
-                }
-                _ => Err(Error::StoreProxyError("Unexpected response type".to_string())),
-            }
-        } else {
-            Err(Error::StoreProxyError("No response received".to_string()))
-        }
+        let args = vec![Bytes::copy_from_slice(name.as_bytes())];
+        let response = self.send_command("GET_FIELD_TYPE", args)?;
+        crate::protocol::parse_field_type_response(response)
     }
 
     /// Resolve field type to name
     pub fn resolve_field_type(&self, field_type: FieldType) -> Result<String> {
-        let request = Request::ResolveFieldType {
-            field_type,
-            name: None,
-        };
-        
-        let requests = sreq![request];
-        let response = self.perform(requests)?;
-        
-        if let Some(req) = response.first() {
-            match req {
-                Request::ResolveFieldType { name, .. } => {
-                    name.clone().ok_or_else(|| Error::StoreProxyError("Field type name not found".to_string()))
-                }
-                _ => Err(Error::StoreProxyError("Unexpected response type".to_string())),
-            }
-        } else {
-            Err(Error::StoreProxyError("No response received".to_string()))
-        }
+        let args = vec![Bytes::copy_from_slice(&field_type.0.to_string().as_bytes())];
+        let response = self.send_command("RESOLVE_FIELD_TYPE", args)?;
+        crate::protocol::parse_string_response(response)
     }
 
     /// Get entity schema
-    pub fn get_entity_schema(
-        &self,
-        entity_type: EntityType,
-    ) -> Result<EntitySchema<Single>> {
-        let request = Request::GetEntitySchema {
-            entity_type,
-            schema: None,
-        };
-        
-        let requests = sreq![request];
-        let response = self.perform(requests)?;
-        
-        if let Some(req) = response.first() {
-            match req {
-                Request::GetEntitySchema { schema, .. } => {
-                    schema.clone().ok_or_else(|| Error::StoreProxyError("Entity schema not found".to_string()))
-                }
-                _ => Err(Error::StoreProxyError("Unexpected response type".to_string())),
-            }
-        } else {
-            Err(Error::StoreProxyError("No response received".to_string()))
-        }
+    pub fn get_entity_schema(&self, entity_type: EntityType) -> Result<EntitySchema<Single>> {
+        let args = vec![Bytes::copy_from_slice(&entity_type.0.to_string().as_bytes())];
+        let response = self.send_command("GET_ENTITY_SCHEMA", args)?;
+        crate::protocol::parse_entity_schema_response(response)
     }
 
     /// Get complete entity schema
-    pub fn get_complete_entity_schema(
-        &self,
-        entity_type: EntityType,
-    ) -> Result<EntitySchema<Complete>> {
-        let request = Request::GetCompleteEntitySchema {
-            entity_type,
-            schema: None,
-        };
-        
-        let requests = sreq![request];
-        let response = self.perform(requests)?;
-        
-        if let Some(req) = response.first() {
-            match req {
-                Request::GetCompleteEntitySchema { schema, .. } => {
-                    schema.clone().ok_or_else(|| Error::StoreProxyError("Complete entity schema not found".to_string()))
-                }
-                _ => Err(Error::StoreProxyError("Unexpected response type".to_string())),
-            }
-        } else {
-            Err(Error::StoreProxyError("No response received".to_string()))
-        }
+    pub fn get_complete_entity_schema(&self, entity_type: EntityType) -> Result<EntitySchema<Complete>> {
+        let args = vec![Bytes::copy_from_slice(&entity_type.0.to_string().as_bytes())];
+        let response = self.send_command("GET_COMPLETE_ENTITY_SCHEMA", args)?;
+        crate::protocol::parse_complete_entity_schema_response(response)
     }
 
     /// Set field schema
@@ -427,17 +331,15 @@ impl StoreProxy {
         field_type: FieldType,
         schema: FieldSchema,
     ) -> Result<()> {
-        let mut entity_schema = self.get_entity_schema(entity_type)?;
-        entity_schema
-            .fields
-            .insert(field_type, schema);
-
-        let string_schema = entity_schema.to_string_schema(self);
-        let requests = sreq![Request::SchemaUpdate { 
-            schema: string_schema, 
-            timestamp: None,
-        }];
-        self.perform(requests).map(|_| ())
+        let encoded_schema = crate::protocol::encode_field_schema(&schema)
+            .map_err(|e| Error::StoreProxyError(format!("Failed to encode schema: {}", e)))?;
+        
+        let args = vec![
+            Bytes::copy_from_slice(&entity_type.0.to_string().as_bytes()),
+            Bytes::copy_from_slice(&field_type.0.to_string().as_bytes()),
+            Bytes::copy_from_slice(&encoded_schema),
+        ];
+        self.send_command_ok("SET_FIELD_SCHEMA", args)
     }
 
     /// Get field schema
@@ -446,46 +348,20 @@ impl StoreProxy {
         entity_type: EntityType,
         field_type: FieldType,
     ) -> Result<FieldSchema> {
-        let request = Request::GetFieldSchema {
-            entity_type,
-            field_type,
-            schema: None,
-        };
-        
-        let requests = sreq![request];
-        let response = self.perform(requests)?;
-        
-        if let Some(req) = response.first() {
-            match req {
-                Request::GetFieldSchema { schema, .. } => {
-                    schema.clone().ok_or_else(|| Error::StoreProxyError("Field schema not found".to_string()))
-                }
-                _ => Err(Error::StoreProxyError("Unexpected response type".to_string())),
-            }
-        } else {
-            Err(Error::StoreProxyError("No response received".to_string()))
-        }
+        let args = vec![
+            Bytes::copy_from_slice(&entity_type.0.to_string().as_bytes()),
+            Bytes::copy_from_slice(&field_type.0.to_string().as_bytes()),
+        ];
+        let response = self.send_command("GET_FIELD_SCHEMA", args)?;
+        crate::protocol::parse_field_schema_response(response)
     }
 
     /// Check if entity exists
     pub fn entity_exists(&self, entity_id: EntityId) -> bool {
-        let request = Request::EntityExists {
-            entity_id,
-            exists: None,
-        };
-        
-        let requests = sreq![request];
-        if let Ok(response) = self.perform(requests) {
-            if let Some(req) = response.first() {
-                match req {
-                    Request::EntityExists { exists, .. } => exists.unwrap_or(false),
-                    _ => false,
-                }
-            } else {
-                false
-            }
-        } else {
-            false
+        let args = vec![Bytes::copy_from_slice(&entity_id.0.to_string().as_bytes())];
+        match self.send_command("ENTITY_EXISTS", args) {
+            Ok(response) => crate::protocol::parse_bool_response(response).unwrap_or(false),
+            Err(_) => false,
         }
     }
 
@@ -495,28 +371,17 @@ impl StoreProxy {
         entity_type: EntityType,
         field_type: FieldType,
     ) -> bool {
-        let request = Request::FieldExists {
-            entity_type,
-            field_type,
-            exists: None,
-        };
-        
-        let requests = sreq![request];
-        if let Ok(response) = self.perform(requests) {
-            if let Some(req) = response.first() {
-                match req {
-                    Request::FieldExists { exists, .. } => exists.unwrap_or(false),
-                    _ => false,
-                }
-            } else {
-                false
-            }
-        } else {
-            false
+        let args = vec![
+            Bytes::copy_from_slice(&entity_type.0.to_string().as_bytes()),
+            Bytes::copy_from_slice(&field_type.0.to_string().as_bytes()),
+        ];
+        match self.send_command("FIELD_EXISTS", args) {
+            Ok(response) => crate::protocol::parse_bool_response(response).unwrap_or(false),
+            Err(_) => false,
         }
     }
 
-    /// Perform requests
+    /// Perform requests (deprecated - use specific QUSP commands instead)
     pub fn perform(&self, requests: Requests) -> Result<Requests> {
         let id = self.next_id();
         let payload = serialize_requests(&requests)?;
