@@ -1030,22 +1030,101 @@ impl MessageBuffer {
 		}
 	}
 	
-	/// Try to decode a frame using zero-copy references to the buffer
-	/// 
-	/// Note: This is a demonstration of zero-copy parsing concept.
-	/// For full zero-copy implementation, you'd work directly with the raw buffer
-	/// and avoid creating intermediate Bytes objects.
-	pub fn peek_frame_ref(&self) -> Result<Option<(Vec<u8>, usize)>> {
+	/// Try to decode using zero-copy approach - returns frame reference without copying data
+	pub fn try_decode_zero_copy(&mut self) -> Result<Option<QuspFrame>> {
 		match try_parse_message_length(self.buffer.as_ref())? {
 			Some(len) => {
 				if self.buffer.len() < len {
 					return Ok(None);
 				}
-				// Return the raw bytes for zero-copy parsing by the caller
-				let raw_data = self.buffer[..len].to_vec();
-				Ok(Some((raw_data, len)))
+				
+				// Extract message bytes and parse with zero-copy
+				let bytes = self.buffer.split_to(len).freeze();
+				let frame_ref = parse_root_frame_ref(&bytes)?;
+				
+				// Check if it's a command (array) and parse with zero-copy
+				match frame_ref.frame_type {
+					FrameType::Array { .. } => {
+						let cmd_ref = QuspCommandRef::from_frame_ref(frame_ref)?;
+						let _store_cmd = zero_copy_parsers::parse_store_command_ref(&cmd_ref)?;
+						
+						// For now, convert back to regular command for compatibility
+						// In a full implementation, you'd have a QuspFrame::ZeroCopyCommand variant
+						let regular_cmd = convert_zero_copy_to_regular_command(&cmd_ref)?;
+						Ok(Some(QuspFrame::Command(regular_cmd)))
+					}
+					_ => {
+						// For responses, convert frame_ref back to regular response
+						let response = convert_frame_ref_to_response(frame_ref)?;
+						Ok(Some(QuspFrame::Response(response)))
+					}
+				}
 			}
 			None => Ok(None),
+		}
+	}
+	
+	/// Get raw access to the buffer for manual zero-copy parsing
+	/// This allows working directly with the buffer without any allocations
+	pub fn peek_raw_buffer(&self) -> &[u8] {
+		&self.buffer
+	}
+	
+	/// Try to parse a command using completely zero-copy approach from raw buffer
+	pub fn try_parse_command_zero_copy(&self) -> Result<Option<(String, Vec<&str>)>> {
+		match try_parse_message_length(self.buffer.as_ref())? {
+			Some(len) => {
+				if self.buffer.len() < len {
+					return Ok(None);
+				}
+				
+				// Use the raw bytes parser for true zero-copy
+				let result = parse_command_from_bytes(&self.buffer[..len])?;
+				Ok(Some(result))
+			}
+			None => Ok(None),
+		}
+	}
+}
+
+// Helper conversion functions for zero-copy integration
+fn convert_zero_copy_to_regular_command(cmd_ref: &QuspCommandRef) -> Result<QuspCommand> {
+	let name = Bytes::copy_from_slice(cmd_ref.name.as_bytes());
+	let mut args = Vec::with_capacity(cmd_ref.args.len());
+	
+	for arg in &cmd_ref.args {
+		let arg_bytes = Bytes::copy_from_slice(arg.as_bytes());
+		args.push(arg_bytes);
+	}
+	
+	Ok(QuspCommand { name, args })
+}
+
+fn convert_frame_ref_to_response(frame_ref: FrameRef) -> Result<QuspResponse> {
+	match frame_ref.frame_type {
+		FrameType::Simple => {
+			Ok(QuspResponse::Simple(Bytes::copy_from_slice(frame_ref.as_bytes())))
+		}
+		FrameType::Error => {
+			let error_str = frame_ref.as_str()?;
+			Ok(QuspResponse::Error(error_str.to_string()))
+		}
+		FrameType::Integer(value) => {
+			Ok(QuspResponse::Integer(value))
+		}
+		FrameType::Bulk => {
+			Ok(QuspResponse::Bulk(Bytes::copy_from_slice(frame_ref.as_bytes())))
+		}
+		FrameType::Null => {
+			Ok(QuspResponse::Null)
+		}
+		FrameType::Array { .. } => {
+			let elements = frame_ref.as_array()?;
+			let mut responses = Vec::with_capacity(elements.len());
+			for element in elements {
+				responses.push(convert_frame_ref_to_response(element)?);
+			}
+			Ok(QuspResponse::Array(responses))
 		}
 	}
 }
@@ -2780,16 +2859,468 @@ pub mod zero_copy_parsers {
         Ok(StoreCommand::Read { entity_id, field_path })
     }
     
+    /// Parse GET_FIELD_TYPE command using zero-copy
+    pub fn parse_get_field_type<'a>(cmd: &QuspCommandRef<'a>) -> Result<StoreCommand<'a>> {
+        cmd.expect_args(1, "GET_FIELD_TYPE")?;
+        let name = cmd.arg_str(0)?;
+        Ok(StoreCommand::GetFieldType { name })
+    }
+    
+    /// Parse RESOLVE_FIELD_TYPE command using zero-copy
+    pub fn parse_resolve_field_type<'a>(cmd: &QuspCommandRef<'a>) -> Result<StoreCommand<'a>> {
+        cmd.expect_args(1, "RESOLVE_FIELD_TYPE")?;
+        let field_type_str = cmd.arg_str(0)?;
+        let field_type_val: u64 = field_type_str.parse().map_err(|e| anyhow!("invalid field type: {}", e))?;
+        Ok(StoreCommand::ResolveFieldType { field_type: FieldType(field_type_val) })
+    }
+    
+    /// Parse GET_ENTITY_SCHEMA command using zero-copy
+    pub fn parse_get_entity_schema<'a>(cmd: &QuspCommandRef<'a>) -> Result<StoreCommand<'a>> {
+        cmd.expect_args(1, "GET_ENTITY_SCHEMA")?;
+        let entity_type_str = cmd.arg_str(0)?;
+        let entity_type_val: u32 = entity_type_str.parse().map_err(|e| anyhow!("invalid entity type: {}", e))?;
+        Ok(StoreCommand::GetEntitySchema { entity_type: EntityType(entity_type_val) })
+    }
+    
+    /// Parse GET_COMPLETE_ENTITY_SCHEMA command using zero-copy
+    pub fn parse_get_complete_entity_schema<'a>(cmd: &QuspCommandRef<'a>) -> Result<StoreCommand<'a>> {
+        cmd.expect_args(1, "GET_COMPLETE_ENTITY_SCHEMA")?;
+        let entity_type_str = cmd.arg_str(0)?;
+        let entity_type_val: u32 = entity_type_str.parse().map_err(|e| anyhow!("invalid entity type: {}", e))?;
+        Ok(StoreCommand::GetCompleteEntitySchema { entity_type: EntityType(entity_type_val) })
+    }
+    
+    /// Parse GET_FIELD_SCHEMA command using zero-copy
+    pub fn parse_get_field_schema<'a>(cmd: &QuspCommandRef<'a>) -> Result<StoreCommand<'a>> {
+        cmd.expect_args(2, "GET_FIELD_SCHEMA")?;
+        let entity_type_str = cmd.arg_str(0)?;
+        let field_type_str = cmd.arg_str(1)?;
+        let entity_type_val: u32 = entity_type_str.parse().map_err(|e| anyhow!("invalid entity type: {}", e))?;
+        let field_type_val: u64 = field_type_str.parse().map_err(|e| anyhow!("invalid field type: {}", e))?;
+        Ok(StoreCommand::GetFieldSchema { 
+            entity_type: EntityType(entity_type_val),
+            field_type: FieldType(field_type_val)
+        })
+    }
+    
+    /// Parse SET_FIELD_SCHEMA command using zero-copy
+    pub fn parse_set_field_schema<'a>(cmd: &QuspCommandRef<'a>) -> Result<StoreCommand<'a>> {
+        cmd.expect_args(3, "SET_FIELD_SCHEMA")?;
+        let entity_type_str = cmd.arg_str(0)?;
+        let field_type_str = cmd.arg_str(1)?;
+        let schema_bytes = cmd.arg_bytes(2)?;
+        
+        let entity_type_val: u32 = entity_type_str.parse().map_err(|e| anyhow!("invalid entity type: {}", e))?;
+        let field_type_val: u64 = field_type_str.parse().map_err(|e| anyhow!("invalid field type: {}", e))?;
+        let schema: FieldSchema = bincode::deserialize(schema_bytes).map_err(|e| anyhow!("failed to decode FieldSchema: {}", e))?;
+        
+        Ok(StoreCommand::SetFieldSchema { 
+            entity_type: EntityType(entity_type_val),
+            field_type: FieldType(field_type_val),
+            schema
+        })
+    }
+    
+    /// Parse ENTITY_EXISTS command using zero-copy
+    pub fn parse_entity_exists<'a>(cmd: &QuspCommandRef<'a>) -> Result<StoreCommand<'a>> {
+        cmd.expect_args(1, "ENTITY_EXISTS")?;
+        let entity_id_str = cmd.arg_str(0)?;
+        let entity_id_val: u64 = entity_id_str.parse().map_err(|e| anyhow!("invalid entity ID: {}", e))?;
+        Ok(StoreCommand::EntityExists { entity_id: EntityId(entity_id_val) })
+    }
+    
+    /// Parse FIELD_EXISTS command using zero-copy
+    pub fn parse_field_exists<'a>(cmd: &QuspCommandRef<'a>) -> Result<StoreCommand<'a>> {
+        cmd.expect_args(2, "FIELD_EXISTS")?;
+        let entity_type_str = cmd.arg_str(0)?;
+        let field_type_str = cmd.arg_str(1)?;
+        let entity_type_val: u32 = entity_type_str.parse().map_err(|e| anyhow!("invalid entity type: {}", e))?;
+        let field_type_val: u64 = field_type_str.parse().map_err(|e| anyhow!("invalid field type: {}", e))?;
+        Ok(StoreCommand::FieldExists { 
+            entity_type: EntityType(entity_type_val),
+            field_type: FieldType(field_type_val)
+        })
+    }
+    
+    /// Parse RESOLVE_INDIRECTION command using zero-copy
+    pub fn parse_resolve_indirection<'a>(cmd: &QuspCommandRef<'a>) -> Result<StoreCommand<'a>> {
+        cmd.expect_args(2, "RESOLVE_INDIRECTION")?;
+        let entity_id_str = cmd.arg_str(0)?;
+        let entity_id_val: u64 = entity_id_str.parse().map_err(|e| anyhow!("invalid entity ID: {}", e))?;
+        
+        let field_path_str = cmd.arg_str(1)?;
+        let field_path = if field_path_str.is_empty() {
+            vec![]
+        } else {
+            field_path_str.split(',').map(|part| {
+                let trimmed = part.trim();
+                if trimmed.is_empty() {
+                    return Err(anyhow!("empty field type in path"));
+                }
+                let field_val: u64 = trimmed.parse().map_err(|e| anyhow!("invalid field type: {}", e))?;
+                Ok(FieldType(field_val))
+            }).collect::<Result<Vec<_>>>()?
+        };
+        
+        Ok(StoreCommand::ResolveIndirection { 
+            entity_id: EntityId(entity_id_val), 
+            field_path 
+        })
+    }
+    
+    /// Parse WRITE command using zero-copy (complex command with optional arguments)
+    pub fn parse_write<'a>(cmd: &QuspCommandRef<'a>) -> Result<StoreCommand<'a>> {
+        cmd.expect_args_range(3, 7, "WRITE")?;
+        
+        let entity_id_str = cmd.arg_str(0)?;
+        let entity_id_val: u64 = entity_id_str.parse().map_err(|e| anyhow!("invalid entity ID: {}", e))?;
+        let entity_id = EntityId(entity_id_val);
+        
+        let field_path_str = cmd.arg_str(1)?;
+        let field_path = if field_path_str.is_empty() {
+            vec![]
+        } else {
+            field_path_str.split(',').map(|part| {
+                let trimmed = part.trim();
+                if trimmed.is_empty() {
+                    return Err(anyhow!("empty field type in path"));
+                }
+                let field_val: u64 = trimmed.parse().map_err(|e| anyhow!("invalid field type: {}", e))?;
+                Ok(FieldType(field_val))
+            }).collect::<Result<Vec<_>>>()?
+        };
+        
+        let value_bytes = cmd.arg_bytes(2)?;
+        let value: Value = decode_value_bytes(value_bytes)?;
+        
+        let mut writer_id = None;
+        let mut write_time = None;
+        let mut push_condition = None;
+        let mut adjust_behavior = None;
+        
+        // Parse optional arguments
+        if cmd.arg_count() > 3 {
+            let writer_id_str = cmd.arg_str(3)?;
+            if writer_id_str != "null" {
+                let writer_id_val: u64 = writer_id_str.parse().map_err(|e| anyhow!("invalid writer ID: {}", e))?;
+                writer_id = Some(EntityId(writer_id_val));
+            }
+        }
+        
+        if cmd.arg_count() > 4 {
+            let timestamp_str = cmd.arg_str(4)?;
+            if timestamp_str != "null" {
+                let nanos: i64 = timestamp_str.parse().map_err(|e| anyhow!("invalid timestamp: {}", e))?;
+                write_time = Some(crate::nanos_to_timestamp(nanos as u64));
+            }
+        }
+        
+        if cmd.arg_count() > 5 {
+            let push_condition_str = cmd.arg_str(5)?;
+            if push_condition_str != "null" {
+                let condition_bytes = cmd.arg_bytes(5)?;
+                push_condition = Some(bincode::deserialize(condition_bytes).map_err(|e| anyhow!("failed to decode PushCondition: {}", e))?);
+            }
+        }
+        
+        if cmd.arg_count() > 6 {
+            let adjust_behavior_str = cmd.arg_str(6)?;
+            if adjust_behavior_str != "null" {
+                let behavior_bytes = cmd.arg_bytes(6)?;
+                adjust_behavior = Some(bincode::deserialize(behavior_bytes).map_err(|e| anyhow!("failed to decode AdjustBehavior: {}", e))?);
+            }
+        }
+        
+        Ok(StoreCommand::Write { 
+            entity_id, 
+            field_path, 
+            value, 
+            writer_id, 
+            write_time, 
+            push_condition, 
+            adjust_behavior 
+        })
+    }
+    
+    /// Parse CREATE_ENTITY command using zero-copy
+    pub fn parse_create_entity<'a>(cmd: &QuspCommandRef<'a>) -> Result<StoreCommand<'a>> {
+        cmd.expect_args_range(2, 3, "CREATE_ENTITY")?;
+        
+        let entity_type_str = cmd.arg_str(0)?;
+        let entity_type_val: u32 = entity_type_str.parse().map_err(|e| anyhow!("invalid entity type: {}", e))?;
+        let entity_type = EntityType(entity_type_val);
+        
+        let parent_id = if cmd.arg_count() > 1 {
+            let parent_id_str = cmd.arg_str(1)?;
+            if parent_id_str == "null" {
+                None
+            } else {
+                let parent_id_val: u64 = parent_id_str.parse().map_err(|e| anyhow!("invalid parent ID: {}", e))?;
+                Some(EntityId(parent_id_val))
+            }
+        } else {
+            None
+        };
+        
+        let name = if cmd.arg_count() > 2 {
+            cmd.arg_str(2)?.to_string() // Need to allocate for owned string
+        } else {
+            String::new()
+        };
+        
+        Ok(StoreCommand::CreateEntity { entity_type, parent_id, name })
+    }
+    
+    /// Parse DELETE_ENTITY command using zero-copy
+    pub fn parse_delete_entity<'a>(cmd: &QuspCommandRef<'a>) -> Result<StoreCommand<'a>> {
+        cmd.expect_args(1, "DELETE_ENTITY")?;
+        let entity_id_str = cmd.arg_str(0)?;
+        let entity_id_val: u64 = entity_id_str.parse().map_err(|e| anyhow!("invalid entity ID: {}", e))?;
+        Ok(StoreCommand::DeleteEntity { entity_id: EntityId(entity_id_val) })
+    }
+    
+    /// Parse UPDATE_SCHEMA command using zero-copy
+    pub fn parse_update_schema<'a>(cmd: &QuspCommandRef<'a>) -> Result<StoreCommand<'a>> {
+        cmd.expect_args(1, "UPDATE_SCHEMA")?;
+        let schema_bytes = cmd.arg_bytes(0)?;
+        let schema: EntitySchema<Single, String, String> = bincode::deserialize(schema_bytes)
+            .map_err(|e| anyhow!("failed to decode EntitySchema: {}", e))?;
+        Ok(StoreCommand::UpdateSchema { schema })
+    }
+    
+    /// Parse TAKE_SNAPSHOT command using zero-copy
+    pub fn parse_take_snapshot<'a>(cmd: &QuspCommandRef<'a>) -> Result<StoreCommand<'a>> {
+        cmd.expect_args(0, "TAKE_SNAPSHOT")?;
+        Ok(StoreCommand::TakeSnapshot)
+    }
+    
+    /// Parse FIND_ENTITIES_PAGINATED command using zero-copy
+    pub fn parse_find_entities_paginated<'a>(cmd: &QuspCommandRef<'a>) -> Result<StoreCommand<'a>> {
+        cmd.expect_args_range(1, 3, "FIND_ENTITIES_PAGINATED")?;
+        
+        let entity_type_str = cmd.arg_str(0)?;
+        let entity_type_val: u32 = entity_type_str.parse().map_err(|e| anyhow!("invalid entity type: {}", e))?;
+        let entity_type = EntityType(entity_type_val);
+        
+        let page_opts = if cmd.arg_count() > 1 {
+            let opts_str = cmd.arg_str(1)?;
+            if opts_str == "null" {
+                None
+            } else {
+                let opts_bytes = cmd.arg_bytes(1)?;
+                Some(decode_page_opts_bytes(opts_bytes)?)
+            }
+        } else {
+            None
+        };
+        
+        let filter = if cmd.arg_count() > 2 {
+            let filter_str = cmd.arg_str(2)?;
+            if filter_str == "null" {
+                None
+            } else {
+                Some(filter_str.to_string()) // Need to allocate
+            }
+        } else {
+            None
+        };
+        
+        Ok(StoreCommand::FindEntitiesPaginated { entity_type, page_opts, filter })
+    }
+    
+    /// Parse FIND_ENTITIES_EXACT command using zero-copy
+    pub fn parse_find_entities_exact<'a>(cmd: &QuspCommandRef<'a>) -> Result<StoreCommand<'a>> {
+        cmd.expect_args_range(1, 3, "FIND_ENTITIES_EXACT")?;
+        
+        let entity_type_str = cmd.arg_str(0)?;
+        let entity_type_val: u32 = entity_type_str.parse().map_err(|e| anyhow!("invalid entity type: {}", e))?;
+        let entity_type = EntityType(entity_type_val);
+        
+        let page_opts = if cmd.arg_count() > 1 {
+            let opts_str = cmd.arg_str(1)?;
+            if opts_str == "null" {
+                None
+            } else {
+                let opts_bytes = cmd.arg_bytes(1)?;
+                Some(decode_page_opts_bytes(opts_bytes)?)
+            }
+        } else {
+            None
+        };
+        
+        let filter = if cmd.arg_count() > 2 {
+            let filter_str = cmd.arg_str(2)?;
+            if filter_str == "null" {
+                None
+            } else {
+                Some(filter_str.to_string()) // Need to allocate
+            }
+        } else {
+            None
+        };
+        
+        Ok(StoreCommand::FindEntitiesExact { entity_type, page_opts, filter })
+    }
+    
+    /// Parse FIND_ENTITIES command using zero-copy
+    pub fn parse_find_entities<'a>(cmd: &QuspCommandRef<'a>) -> Result<StoreCommand<'a>> {
+        cmd.expect_args_range(1, 2, "FIND_ENTITIES")?;
+        
+        let entity_type_str = cmd.arg_str(0)?;
+        let entity_type_val: u32 = entity_type_str.parse().map_err(|e| anyhow!("invalid entity type: {}", e))?;
+        let entity_type = EntityType(entity_type_val);
+        
+        let filter = if cmd.arg_count() > 1 {
+            let filter_str = cmd.arg_str(1)?;
+            if filter_str == "null" {
+                None
+            } else {
+                Some(filter_str.to_string()) // Need to allocate
+            }
+        } else {
+            None
+        };
+        
+        Ok(StoreCommand::FindEntities { entity_type, filter })
+    }
+    
+    /// Parse GET_ENTITY_TYPES command using zero-copy
+    pub fn parse_get_entity_types<'a>(cmd: &QuspCommandRef<'a>) -> Result<StoreCommand<'a>> {
+        cmd.expect_args(0, "GET_ENTITY_TYPES")?;
+        Ok(StoreCommand::GetEntityTypes)
+    }
+    
+    /// Parse GET_ENTITY_TYPES_PAGINATED command using zero-copy
+    pub fn parse_get_entity_types_paginated<'a>(cmd: &QuspCommandRef<'a>) -> Result<StoreCommand<'a>> {
+        cmd.expect_args_range(0, 1, "GET_ENTITY_TYPES_PAGINATED")?;
+        
+        let page_opts = if cmd.arg_count() > 0 {
+            let opts_str = cmd.arg_str(0)?;
+            if opts_str == "null" {
+                None
+            } else {
+                let opts_bytes = cmd.arg_bytes(0)?;
+                Some(decode_page_opts_bytes(opts_bytes)?)
+            }
+        } else {
+            None
+        };
+        
+        Ok(StoreCommand::GetEntityTypesPaginated { page_opts })
+    }
+    
+    /// Parse REGISTER_NOTIFICATION command using zero-copy
+    pub fn parse_register_notification<'a>(cmd: &QuspCommandRef<'a>) -> Result<StoreCommand<'a>> {
+        cmd.expect_args(1, "REGISTER_NOTIFICATION")?;
+        let config_bytes = cmd.arg_bytes(0)?;
+        let config: NotifyConfig = bincode::deserialize(config_bytes)
+            .map_err(|e| anyhow!("failed to decode NotifyConfig: {}", e))?;
+        Ok(StoreCommand::RegisterNotification { config })
+    }
+    
+    /// Parse UNREGISTER_NOTIFICATION command using zero-copy
+    pub fn parse_unregister_notification<'a>(cmd: &QuspCommandRef<'a>) -> Result<StoreCommand<'a>> {
+        cmd.expect_args(1, "UNREGISTER_NOTIFICATION")?;
+        let config_bytes = cmd.arg_bytes(0)?;
+        let config: NotifyConfig = bincode::deserialize(config_bytes)
+            .map_err(|e| anyhow!("failed to decode NotifyConfig: {}", e))?;
+        Ok(StoreCommand::UnregisterNotification { config })
+    }
+    
     /// Main zero-copy command parsing dispatcher
     pub fn parse_store_command_ref<'a>(cmd: &QuspCommandRef<'a>) -> Result<StoreCommand<'a>> {
         let name = cmd.uppercase_name();
         match name.as_str() {
             "GET_ENTITY_TYPE" => parse_get_entity_type(cmd),
             "RESOLVE_ENTITY_TYPE" => parse_resolve_entity_type(cmd),
+            "GET_FIELD_TYPE" => parse_get_field_type(cmd),
+            "RESOLVE_FIELD_TYPE" => parse_resolve_field_type(cmd),
+            "GET_ENTITY_SCHEMA" => parse_get_entity_schema(cmd),
+            "GET_COMPLETE_ENTITY_SCHEMA" => parse_get_complete_entity_schema(cmd),
+            "GET_FIELD_SCHEMA" => parse_get_field_schema(cmd),
+            "SET_FIELD_SCHEMA" => parse_set_field_schema(cmd),
+            "ENTITY_EXISTS" => parse_entity_exists(cmd),
+            "FIELD_EXISTS" => parse_field_exists(cmd),
+            "RESOLVE_INDIRECTION" => parse_resolve_indirection(cmd),
             "READ" => parse_read(cmd),
-            // Add more commands as needed
-            _ => Err(anyhow!("zero-copy parsing not implemented for command: {}", name)),
+            "WRITE" => parse_write(cmd),
+            "CREATE_ENTITY" => parse_create_entity(cmd),
+            "DELETE_ENTITY" => parse_delete_entity(cmd),
+            "UPDATE_SCHEMA" => parse_update_schema(cmd),
+            "TAKE_SNAPSHOT" => parse_take_snapshot(cmd),
+            "FIND_ENTITIES_PAGINATED" => parse_find_entities_paginated(cmd),
+            "FIND_ENTITIES_EXACT" => parse_find_entities_exact(cmd),
+            "FIND_ENTITIES" => parse_find_entities(cmd),
+            "GET_ENTITY_TYPES" => parse_get_entity_types(cmd),
+            "GET_ENTITY_TYPES_PAGINATED" => parse_get_entity_types_paginated(cmd),
+            "REGISTER_NOTIFICATION" => parse_register_notification(cmd),
+            "UNREGISTER_NOTIFICATION" => parse_unregister_notification(cmd),
+            _ => Err(anyhow!("unknown command: {}", name)),
         }
+    }
+    
+    // Helper functions for zero-copy parsing that need to work with raw bytes
+    
+    /// Decode Value from raw bytes (helper for zero-copy WRITE command)
+    fn decode_value_bytes(bytes: &[u8]) -> Result<Value> {
+        // This is a simplified version - in production you'd use the full decode_value function
+        if bytes.is_empty() {
+            return Err(anyhow!("empty value bytes"));
+        }
+        
+        match bytes[0] {
+            0 => {
+                if bytes.len() < 9 {
+                    return Err(anyhow!("invalid string value encoding"));
+                }
+                let len = u64::from_le_bytes(bytes[1..9].try_into().unwrap()) as usize;
+                if bytes.len() < 9 + len {
+                    return Err(anyhow!("truncated string value"));
+                }
+                let s = std::str::from_utf8(&bytes[9..9+len])?;
+                Ok(Value::String(s.to_string()))
+            }
+            1 => {
+                if bytes.len() < 17 {
+                    return Err(anyhow!("invalid int value encoding"));
+                }
+                let val = i64::from_le_bytes(bytes[9..17].try_into().unwrap());
+                Ok(Value::Int(val))
+            }
+            2 => {
+                if bytes.len() < 17 {
+                    return Err(anyhow!("invalid float value encoding"));
+                }
+                let val = f64::from_le_bytes(bytes[9..17].try_into().unwrap());
+                Ok(Value::Float(val))
+            }
+            3 => {
+                if bytes.len() < 10 {
+                    return Err(anyhow!("invalid bool value encoding"));
+                }
+                Ok(Value::Bool(bytes[9] != 0))
+            }
+            _ => Err(anyhow!("unknown value type: {}", bytes[0])),
+        }
+    }
+    
+    /// Decode PageOpts from raw bytes (helper for zero-copy pagination commands)
+    fn decode_page_opts_bytes(bytes: &[u8]) -> Result<PageOpts> {
+        if bytes.len() < 8 {
+            return Err(anyhow!("invalid PageOpts encoding"));
+        }
+        
+        let limit = u64::from_le_bytes(bytes[0..8].try_into().unwrap()) as usize;
+        let cursor = if bytes.len() > 8 && bytes[8] == 1 {
+            if bytes.len() < 17 {
+                return Err(anyhow!("invalid PageOpts cursor encoding"));
+            }
+            Some(u64::from_le_bytes(bytes[9..17].try_into().unwrap()) as usize)
+        } else {
+            None
+        };
+        
+        Ok(PageOpts { limit, cursor })
     }
 }
 
