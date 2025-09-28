@@ -852,7 +852,7 @@ impl RespEncode for Timestamp {
 Example
 ```
 
-#[resp_command(name = "READ")]
+#[respc(name = "READ")]
 #[derive(Debug, Clone, RespEncode, RespDecode)]
 pub struct ReadCommand<'a> {
     pub entity_id: EntityId,
