@@ -392,6 +392,9 @@ impl StoreProxy {
             field_path: field_path.to_vec(),
             value,
             writer_id,
+            write_time,
+            push_condition,
+            adjust_behavior,
             _marker: std::marker::PhantomData,
         };
         self.send_command_ok(&command)

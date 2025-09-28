@@ -34,43 +34,43 @@
 //! }
 //! ```
 //! 
-//! ## Command Definition Macro
+//! ## Command Definition Attribute
 //! 
-//! The `resp_command!` macro makes it easy to define new RESP commands with automatic
-//! encoding/decoding and execution boilerplate:
+//! The `respc` attribute macro makes it easy to define new RESP commands with automatic
+//! RESP command trait implementation:
 //! 
 //! ```rust,ignore
-//! use qlib_rs::resp_command;
+//! use qlib_rs::data::resp::{respc, RespEncode, RespDecode};
 //! 
-//! resp_command! {
-//!     "CUSTOM_READ" => CustomReadCommand {
-//!         entity_id: EntityId,
-//!         field_path: Vec<FieldType>,
-//!         ?options: String,  // Optional field (prefix with ?)
-//!         {
-//!             // Execution logic
-//!             let (value, timestamp, writer_id) = store.read(self.entity_id, &self.field_path)?;
-//!             Ok(RespResponse::Array(vec![
-//!                 RespResponse::Bulk(value.encode()),
-//!                 RespResponse::Bulk(timestamp.to_string().into_bytes()),
-//!                 match writer_id {
-//!                     Some(id) => RespResponse::Integer(id.0 as i64),
-//!                     None => RespResponse::Null,
-//!                 },
-//!             ]))
-//!         }
+//! #[respc(name = "CUSTOM_READ")]
+//! #[derive(Debug, Clone, RespEncode, RespDecode)]
+//! pub struct CustomReadCommand<'a> {
+//!     pub entity_id: EntityId,
+//!     pub field_path: Vec<FieldType>,
+//!     pub options: Option<String>,
+//!     _marker: std::marker::PhantomData<&'a ()>,
+//! }
+//! 
+//! impl<'a> RespCommand<'a> for CustomReadCommand<'a> {
+//!     fn execute(&self, store: &mut dyn crate::data::StoreTrait) -> crate::Result<RespResponse> {
+//!         // Execution logic
+//!         let (value, timestamp, writer_id) = store.read(self.entity_id, &self.field_path)?;
+//!         Ok(RespResponse::Array(vec![
+//!             RespResponse::Bulk(value.encode()),
+//!             RespResponse::Bulk(timestamp.to_string().into_bytes()),
+//!             match writer_id {
+//!                 Some(id) => RespResponse::Integer(id.0 as i64),
+//!                 None => RespResponse::Null,
+//!             },
+//!         ]))
 //!     }
 //! }
 //! ```
 //! 
 //! This generates:
-//! - A struct with the specified fields plus a lifetime marker
-//! - `RespDecode` implementation with proper command name validation
-//! - `RespEncode` implementation 
-//! - `RespCommand` implementation with the execute logic
-//! 
-//! Optional fields (prefixed with `?`) are wrapped in `Option<T>` and encoded as 
-//! `Null` when `None`.
+//! - The original struct definition
+//! - A default `RespCommand` implementation with the specified command name
+//! - You can then override the `execute` method with custom logic
 //! 
 //! ## CLI Compatibility
 //! 
@@ -107,7 +107,7 @@ use crate::{
 
 // Re-export derive macros when derive feature is enabled
 #[cfg(feature = "derive")]
-pub use qlib_rs_derive::{RespEncode, RespDecode, resp_command};
+pub use qlib_rs_derive::{RespEncode, RespDecode, respc};
 
 /// Redis RESP data types with zero-copy deserialization support
 ///
@@ -804,35 +804,123 @@ impl RespEncode for Vec<FieldType> {
     }
 }
 
+// Implementations for PushCondition and AdjustBehavior
+impl RespEncode for crate::PushCondition {
+    fn encode(&self) -> Vec<u8> {
+        let value = match self {
+            crate::PushCondition::Always => 0,
+            crate::PushCondition::Changes => 1,
+        };
+        RespValue::Integer(value).encode()
+    }
+}
+
+impl<'a> RespDecode<'a> for crate::PushCondition {
+    fn decode(input: &'a [u8]) -> Result<(Self, &'a [u8])> {
+        let (value, remaining) = RespValue::decode(input)?;
+        match value {
+            RespValue::Integer(0) => Ok((crate::PushCondition::Always, remaining)),
+            RespValue::Integer(1) => Ok((crate::PushCondition::Changes, remaining)),
+            RespValue::BulkString(data) => {
+                let s = std::str::from_utf8(data)
+                    .map_err(|_| crate::Error::InvalidRequest("Invalid UTF-8 in PushCondition".to_string()))?;
+                match s.to_lowercase().as_str() {
+                    "always" => Ok((crate::PushCondition::Always, remaining)),
+                    "changes" => Ok((crate::PushCondition::Changes, remaining)),
+                    _ => Err(crate::Error::InvalidRequest("Invalid PushCondition value".to_string())),
+                }
+            },
+            RespValue::SimpleString(s) => {
+                match s.to_lowercase().as_str() {
+                    "always" => Ok((crate::PushCondition::Always, remaining)),
+                    "changes" => Ok((crate::PushCondition::Changes, remaining)),
+                    _ => Err(crate::Error::InvalidRequest("Invalid PushCondition value".to_string())),
+                }
+            },
+            _ => Err(crate::Error::InvalidRequest("Invalid PushCondition type".to_string())),
+        }
+    }
+}
+
+impl RespEncode for crate::AdjustBehavior {
+    fn encode(&self) -> Vec<u8> {
+        let value = match self {
+            crate::AdjustBehavior::Set => 0,
+            crate::AdjustBehavior::Add => 1,
+            crate::AdjustBehavior::Subtract => 2,
+        };
+        RespValue::Integer(value).encode()
+    }
+}
+
+impl<'a> RespDecode<'a> for crate::AdjustBehavior {
+    fn decode(input: &'a [u8]) -> Result<(Self, &'a [u8])> {
+        let (value, remaining) = RespValue::decode(input)?;
+        match value {
+            RespValue::Integer(0) => Ok((crate::AdjustBehavior::Set, remaining)),
+            RespValue::Integer(1) => Ok((crate::AdjustBehavior::Add, remaining)),
+            RespValue::Integer(2) => Ok((crate::AdjustBehavior::Subtract, remaining)),
+            RespValue::BulkString(data) => {
+                let s = std::str::from_utf8(data)
+                    .map_err(|_| crate::Error::InvalidRequest("Invalid UTF-8 in AdjustBehavior".to_string()))?;
+                match s.to_lowercase().as_str() {
+                    "set" => Ok((crate::AdjustBehavior::Set, remaining)),
+                    "add" => Ok((crate::AdjustBehavior::Add, remaining)),
+                    "subtract" => Ok((crate::AdjustBehavior::Subtract, remaining)),
+                    _ => Err(crate::Error::InvalidRequest("Invalid AdjustBehavior value".to_string())),
+                }
+            },
+            RespValue::SimpleString(s) => {
+                match s.to_lowercase().as_str() {
+                    "set" => Ok((crate::AdjustBehavior::Set, remaining)),
+                    "add" => Ok((crate::AdjustBehavior::Add, remaining)),
+                    "subtract" => Ok((crate::AdjustBehavior::Subtract, remaining)),
+                    _ => Err(crate::Error::InvalidRequest("Invalid AdjustBehavior value".to_string())),
+                }
+            },
+            _ => Err(crate::Error::InvalidRequest("Invalid AdjustBehavior type".to_string())),
+        }
+    }
+}
+
 impl<'a> RespDecode<'a> for Timestamp {
     fn decode(input: &'a [u8]) -> Result<(Self, &'a [u8])> {
         let (value, remaining) = RespValue::decode(input)?;
         match value {
             RespValue::BulkString(data) => {
                 let timestamp_str = std::str::from_utf8(data)
-                    .map_err(|_| crate::Error::InvalidRequest("Invalid UTF-8 in timestamp".to_string()))?;
-                // Try to parse as seconds since epoch first
-                if let Ok(secs) = timestamp_str.parse::<i64>() {
-                    let timestamp = crate::data::secs_to_timestamp(secs as u64);
-                    Ok((timestamp, remaining))
-                } else {
-                    // TODO: Add proper timestamp string parsing when needed
-                    Err(crate::Error::InvalidRequest("Timestamp parsing not implemented for string format".to_string()))
-                }
+                    .map_err(|_| crate::Error::InvalidRequest("Invalid UTF-8 in Timestamp".to_string()))?;
+                // Try parsing as RFC3339 format first
+                let timestamp = time::OffsetDateTime::parse(timestamp_str, &time::format_description::well_known::Rfc3339)
+                    .or_else(|_| {
+                        // Try parsing as unix timestamp string
+                        timestamp_str.parse::<i64>()
+                            .map_err(|_| crate::Error::InvalidRequest("Invalid Timestamp format".to_string()))
+                            .and_then(|ts| time::OffsetDateTime::from_unix_timestamp(ts)
+                                .map_err(|_| crate::Error::InvalidRequest("Invalid unix timestamp".to_string())))
+                    })
+                    .map_err(|_| crate::Error::InvalidRequest("Invalid Timestamp format".to_string()))?;
+                Ok((timestamp, remaining))
             },
             RespValue::SimpleString(s) => {
-                // Try to parse as seconds since epoch
-                let secs = s.parse::<i64>()
-                    .map_err(|_| crate::Error::InvalidRequest("Invalid timestamp format".to_string()))?;
-                let timestamp = crate::data::secs_to_timestamp(secs as u64);
+                // Try parsing as RFC3339 format first
+                let timestamp = time::OffsetDateTime::parse(s, &time::format_description::well_known::Rfc3339)
+                    .or_else(|_| {
+                        // Try parsing as unix timestamp string
+                        s.parse::<i64>()
+                            .map_err(|_| crate::Error::InvalidRequest("Invalid Timestamp format".to_string()))
+                            .and_then(|ts| time::OffsetDateTime::from_unix_timestamp(ts)
+                                .map_err(|_| crate::Error::InvalidRequest("Invalid unix timestamp".to_string())))
+                    })
+                    .map_err(|_| crate::Error::InvalidRequest("Invalid Timestamp format".to_string()))?;
                 Ok((timestamp, remaining))
             },
             RespValue::Integer(i) => {
-                // Treat as seconds since epoch
-                let timestamp = crate::data::secs_to_timestamp(i as u64);
+                let timestamp = time::OffsetDateTime::from_unix_timestamp(i)
+                    .map_err(|_| crate::Error::InvalidRequest("Invalid Timestamp value".to_string()))?;
                 Ok((timestamp, remaining))
             },
-            _ => Err(crate::Error::InvalidRequest("Expected timestamp type".to_string())),
+            _ => Err(crate::Error::InvalidRequest("Invalid Timestamp type".to_string())),
         }
     }
 }
@@ -843,24 +931,83 @@ impl RespEncode for Timestamp {
     }
 }
 
+// Implementation for PhantomData
+impl<T> RespEncode for std::marker::PhantomData<T> {
+    fn encode(&self) -> Vec<u8> {
+        RespValue::Null.encode()
+    }
+}
+
+impl<'a, T> RespDecode<'a> for std::marker::PhantomData<T> {
+    fn decode(input: &'a [u8]) -> Result<(Self, &'a [u8])> {
+        let (_, remaining) = RespValue::decode(input)?;
+        // PhantomData doesn't consume actual data, just advance the parser
+        Ok((std::marker::PhantomData, remaining))
+    }
+}
+
+// Implementation for Option<T> where T implements the traits
+impl<T: RespEncode> RespEncode for Option<T> {
+    fn encode(&self) -> Vec<u8> {
+        match self {
+            Some(value) => value.encode(),
+            None => RespValue::Null.encode(),
+        }
+    }
+}
+
+impl<'a, T: RespDecode<'a>> RespDecode<'a> for Option<T> {
+    fn decode(input: &'a [u8]) -> Result<(Self, &'a [u8])> {
+        let (value, remaining) = RespValue::decode(input)?;
+        match value {
+            RespValue::Null => Ok((None, remaining)),
+            _ => {
+                // For Option<T>, we need to decode T from the same input since we can't extend lifetimes
+                match T::decode(input) {
+                    Ok((decoded_value, new_remaining)) => Ok((Some(decoded_value), new_remaining)),
+                    Err(_) => Ok((None, remaining)), // If T can't be decoded, treat as None
+                }
+            }
+        }
+    }
+}
+
 // ============================================================================
 // RESP Commands for all StoreTrait methods
 // ============================================================================
 
-/*
-
-Example
-```
-
+/// Read command for reading field values
+#[cfg(feature = "derive")]
 #[respc(name = "READ")]
 #[derive(Debug, Clone, RespEncode, RespDecode)]
 pub struct ReadCommand<'a> {
     pub entity_id: EntityId,
     pub field_path: Vec<FieldType>,
-    pub options: Option<String>, // Optional field
-    _marker: std::marker::PhantomData<&'a ()>,
+    pub _marker: std::marker::PhantomData<&'a ()>,
 }
 
-```
+/// Write command for writing field values
+#[cfg(feature = "derive")]
+#[respc(name = "WRITE")]
+#[derive(Debug, Clone, RespEncode, RespDecode)]
+pub struct WriteCommand<'a> {
+    pub entity_id: EntityId,
+    pub field_path: Vec<FieldType>,
+    pub value: Value,
+    pub writer_id: Option<EntityId>,
+    pub write_time: Option<Timestamp>,
+    pub push_condition: Option<crate::PushCondition>,
+    pub adjust_behavior: Option<crate::AdjustBehavior>,
+    pub _marker: std::marker::PhantomData<&'a ()>,
+}
 
-*/
+/// Create entity command
+#[cfg(feature = "derive")]
+#[respc(name = "CREATE_ENTITY")]
+#[derive(Debug, Clone, RespEncode, RespDecode)]
+pub struct CreateEntityCommand<'a> {
+    pub entity_type: EntityType,
+    pub parent_id: Option<EntityId>,
+    pub name: String,
+    pub _marker: std::marker::PhantomData<&'a ()>,
+}

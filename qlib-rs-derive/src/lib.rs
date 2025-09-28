@@ -1,6 +1,16 @@
 use proc_macro::TokenStream;
 use quote::{quote, format_ident};
-use syn::{parse_macro_input, Data, DeriveInput, Fields, Index, parse::Parse, Token, Ident, Type, punctuated::Punctuated, LitStr, braced};
+use syn::{parse_macro_input, Data, DeriveInput, Fields, Index, parse::Parse, Token, Ident, LitStr, Type, Path};
+
+/// Helper function to check if a type is PhantomData
+fn is_phantom_data(ty: &Type) -> bool {
+    if let Type::Path(type_path) = ty {
+        if let Some(segment) = type_path.path.segments.last() {
+            return segment.ident == "PhantomData";
+        }
+    }
+    false
+}
 
 /// Derive macro for `RespEncode` trait
 #[proc_macro_derive(RespEncode)]
@@ -14,18 +24,22 @@ pub fn derive_resp_encode(input: TokenStream) -> TokenStream {
         Data::Struct(data) => {
             match &data.fields {
                 Fields::Named(fields) => {
-                    let field_encodes: Vec<_> = fields.named.iter().map(|field| {
+                    let non_phantom_fields: Vec<_> = fields.named.iter()
+                        .filter(|field| !is_phantom_data(&field.ty))
+                        .collect();
+                    
+                    let field_encodes: Vec<_> = non_phantom_fields.iter().map(|field| {
                         let field_name = &field.ident;
                         quote! {
-                            // Encode field name as a string identifier
                             elements.push(crate::data::resp::RespValue::BulkString(
                                 stringify!(#field_name).as_bytes()
                             ));
-                            // Encode field value
                             let field_encoded = crate::data::resp::RespEncode::encode(&self.#field_name);
-                            let (field_value, _) = crate::data::resp::RespValue::decode(&field_encoded)
-                                .map_err(|_| "Failed to re-decode field")?;
-                            elements.push(field_value);
+                            if let Ok((field_value, _)) = crate::data::resp::RespValue::decode(&field_encoded) {
+                                elements.push(field_value);
+                            } else {
+                                elements.push(crate::data::resp::RespValue::Null);
+                            }
                         }
                     }).collect();
                     
@@ -36,13 +50,20 @@ pub fn derive_resp_encode(input: TokenStream) -> TokenStream {
                     }
                 }
                 Fields::Unnamed(fields) => {
-                    let field_encodes: Vec<_> = fields.unnamed.iter().enumerate().map(|(i, _)| {
-                        let index = Index::from(i);
+                    let non_phantom_fields: Vec<_> = fields.unnamed.iter()
+                        .enumerate()
+                        .filter(|(_, field)| !is_phantom_data(&field.ty))
+                        .collect();
+                    
+                    let field_encodes: Vec<_> = non_phantom_fields.iter().map(|(i, _)| {
+                        let index = Index::from(*i);
                         quote! {
                             let field_encoded = crate::data::resp::RespEncode::encode(&self.#index);
-                            let (field_value, _) = crate::data::resp::RespValue::decode(&field_encoded)
-                                .map_err(|_| "Failed to re-decode field")?;
-                            elements.push(field_value);
+                            if let Ok((field_value, _)) = crate::data::resp::RespValue::decode(&field_encoded) {
+                                elements.push(field_value);
+                            } else {
+                                elements.push(crate::data::resp::RespValue::Null);
+                            }
                         }
                     }).collect();
                     
@@ -71,9 +92,11 @@ pub fn derive_resp_encode(input: TokenStream) -> TokenStream {
                             let field_name = &field.ident;
                             quote! {
                                 let field_encoded = crate::data::resp::RespEncode::encode(#field_name);
-                                let (field_value, _) = crate::data::resp::RespValue::decode(&field_encoded)
-                                    .map_err(|_| "Failed to re-decode field")?;
-                                elements.push(field_value);
+                                if let Ok((field_value, _)) = crate::data::resp::RespValue::decode(&field_encoded) {
+                                    elements.push(field_value);
+                                } else {
+                                    elements.push(crate::data::resp::RespValue::Null);
+                                }
                             }
                         }).collect();
                         
@@ -94,9 +117,11 @@ pub fn derive_resp_encode(input: TokenStream) -> TokenStream {
                         let field_encodes: Vec<_> = field_names.iter().map(|field_name| {
                             quote! {
                                 let field_encoded = crate::data::resp::RespEncode::encode(#field_name);
-                                let (field_value, _) = crate::data::resp::RespValue::decode(&field_encoded)
-                                    .map_err(|_| "Failed to re-decode field")?;
-                                elements.push(field_value);
+                                if let Ok((field_value, _)) = crate::data::resp::RespValue::decode(&field_encoded) {
+                                    elements.push(field_value);
+                                } else {
+                                    elements.push(crate::data::resp::RespValue::Null);
+                                }
                             }
                         }).collect();
                         
@@ -138,14 +163,7 @@ pub fn derive_resp_encode(input: TokenStream) -> TokenStream {
     let expanded = quote! {
         impl #impl_generics crate::data::resp::RespEncode for #name #ty_generics #where_clause {
             fn encode(&self) -> Vec<u8> {
-                // Fallback wrapper to handle any potential errors during encoding
-                let result: std::result::Result<Vec<u8>, &'static str> = (|| -> std::result::Result<Vec<u8>, &'static str> {
-                    Ok(#encode_impl)
-                })();
-                result.unwrap_or_else(|_| {
-                    // Fallback encoding in case of error
-                    crate::data::resp::RespValue::Error("Encoding failed").encode()
-                })
+                #encode_impl
             }
         }
     };
@@ -165,7 +183,11 @@ pub fn derive_resp_decode(input: TokenStream) -> TokenStream {
         Data::Struct(data) => {
             match &data.fields {
                 Fields::Named(fields) => {
-                    let field_decodes: Vec<_> = fields.named.iter().enumerate().map(|(i, field)| {
+                    let non_phantom_fields: Vec<_> = fields.named.iter()
+                        .filter(|field| !is_phantom_data(&field.ty))
+                        .collect();
+                    
+                    let field_decodes: Vec<_> = non_phantom_fields.iter().enumerate().map(|(i, field)| {
                         let field_name = &field.ident;
                         let field_index = i * 2 + 1; // Skip field name, get value
                         quote! {
@@ -179,14 +201,22 @@ pub fn derive_resp_decode(input: TokenStream) -> TokenStream {
                         }
                     }).collect();
                     
-                    let field_names: Vec<_> = fields.named.iter().map(|f| &f.ident).collect();
+                    // Generate phantom data assignments
+                    let phantom_assignments: Vec<_> = fields.named.iter().filter_map(|field| {
+                        let field_name = &field.ident;
+                        if is_phantom_data(&field.ty) {
+                            Some(quote! { #field_name: std::marker::PhantomData })
+                        } else {
+                            Some(quote! { #field_name })
+                        }
+                    }).collect();
                     
                     quote! {
                         let (value, remaining) = crate::data::resp::RespValue::decode(input)?;
                         match value {
                             crate::data::resp::RespValue::Array(elements) => {
                                 #(#field_decodes)*
-                                Ok((Self { #(#field_names),* }, remaining))
+                                Ok((Self { #(#phantom_assignments),* }, remaining))
                             }
                             _ => Err(crate::Error::InvalidRequest("Expected array for struct".to_string())),
                         }
@@ -342,4 +372,69 @@ pub fn derive_resp_decode(input: TokenStream) -> TokenStream {
     };
 
     TokenStream::from(expanded)
+}
+
+/// Attribute macro to generate RESP command implementations
+/// 
+/// Usage:
+/// ```rust,ignore
+/// #[respc(name = "READ")]
+/// #[derive(Debug, Clone, RespEncode, RespDecode)]
+/// pub struct ReadCommand<'a> {
+///     pub entity_id: EntityId,
+///     pub field_path: Vec<FieldType>,
+///     _marker: std::marker::PhantomData<&'a ()>,
+/// }
+/// ```
+#[proc_macro_attribute]
+pub fn respc(args: TokenStream, input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as DeriveInput);
+    let args = parse_macro_input!(args as RespCommandArgs);
+    
+    let name = &input.ident;
+    let generics = &input.generics;
+    let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
+    let command_name = args.name;
+
+    // Generate the RespCommand trait implementation
+    let resp_command_impl = quote! {
+        impl #impl_generics crate::data::resp::RespCommand<'_> for #name #ty_generics #where_clause {
+            const COMMAND_NAME: &'static str = #command_name;
+            
+            fn execute(&self, store: &mut dyn crate::data::StoreTrait) -> crate::Result<crate::data::resp::RespResponse> {
+                // Default implementation returns an error - commands should override this
+                Err(crate::Error::InvalidRequest(format!("Command {} not implemented", #command_name)))
+            }
+        }
+    };
+
+    // Return the original struct plus the trait implementation
+    let expanded = quote! {
+        #input
+        
+        #resp_command_impl
+    };
+
+    TokenStream::from(expanded)
+}
+
+/// Parser for the respc attribute arguments
+struct RespCommandArgs {
+    name: String,
+}
+
+impl Parse for RespCommandArgs {
+    fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
+        let name_ident: Ident = input.parse()?;
+        if name_ident != "name" {
+            return Err(syn::Error::new_spanned(name_ident, "Expected 'name'"));
+        }
+        
+        let _: Token![=] = input.parse()?;
+        let name_lit: LitStr = input.parse()?;
+        
+        Ok(RespCommandArgs {
+            name: name_lit.value(),
+        })
+    }
 }
