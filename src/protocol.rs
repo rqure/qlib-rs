@@ -10,7 +10,6 @@ const CRLF: &[u8] = b"\r\n";
 
 /// Trait for types that can encode themselves to RESP format
 pub trait RespEncode {
-    #[inline]
     fn encode_to(&self, out: &mut Vec<u8>);
     
     #[inline]
@@ -23,7 +22,6 @@ pub trait RespEncode {
 
 /// Trait for types that can decode themselves from RESP frames
 pub trait RespDecode: Sized {
-    #[inline]
     fn decode_from(bytes: &Bytes) -> Result<Self>;
 }
 

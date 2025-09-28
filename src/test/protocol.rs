@@ -1,7 +1,10 @@
 //! Tests for the refactored QUSP protocol code
 //! Tests trait-based encoding/decoding and command parsing improvements
 
+#[allow(unused_imports)]
 use crate::protocol::*;
+
+#[allow(unused_imports)]
 use bytes::Bytes;
 
 #[cfg(test)]
@@ -194,7 +197,7 @@ mod tests {
     #[test]
     fn test_optional_argument_helpers() {
         // Test helper functions for optional arguments
-        let cmd = QuspCommand::new("TEST", vec![
+        let _cmd = QuspCommand::new("TEST", vec![
             Bytes::from_static(b"required"),
             Bytes::from_static(b"null"),
             Bytes::from_static(b"optional_value"),

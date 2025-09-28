@@ -346,7 +346,7 @@ fn bench_protocol_operations(c: &mut Criterion) {
         Bytes::from_static(b"test_filter"),
     ]);
     
-    let write_cmd = QuspCommand::new("WRITE", vec![
+    let _write_cmd = QuspCommand::new("WRITE", vec![
         Bytes::from_static(b"123"),
         Bytes::from_static(b"1,2,3"),
         Bytes::from_static(b"test_value"),
