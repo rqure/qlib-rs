@@ -52,25 +52,14 @@
 //! }
 //! 
 //! impl<'a> RespCommand<'a> for CustomReadCommand<'a> {
-//!     fn execute(&self, store: &mut dyn crate::data::StoreTrait) -> crate::Result<RespResponse> {
-//!         // Execution logic
-//!         let (value, timestamp, writer_id) = store.read(self.entity_id, &self.field_path)?;
-//!         Ok(RespResponse::Array(vec![
-//!             RespResponse::Bulk(value.encode()),
-//!             RespResponse::Bulk(timestamp.to_string().into_bytes()),
-//!             match writer_id {
-//!                 Some(id) => RespResponse::Integer(id.0 as i64),
-//!                 None => RespResponse::Null,
-//!             },
-//!         ]))
-//!     }
+//!     // Command processing is handled separately - no execute method needed
 //! }
 //! ```
 //! 
 //! This generates:
 //! - The original struct definition
-//! - A default `RespCommand` implementation with the specified command name
-//! - You can then override the `execute` method with custom logic
+//! - Automatic `RespCommand` implementation with the specified command name
+//! - Built-in RESP encoding/decoding support for all struct fields
 //! 
 //! ## CLI Compatibility
 //! 
@@ -172,25 +161,6 @@ pub trait RespDecode<'a>: Sized {
 pub trait RespCommand<'a>: RespDecode<'a> + RespEncode {
     /// The command name (e.g., "READ", "WRITE", "CREATE_ENTITY")
     const COMMAND_NAME: &'static str;
-}
-
-/// Response types for RESP commands
-#[derive(Debug, Clone)]
-pub enum RespResponse {
-    /// Simple success response
-    Ok,
-    /// String response
-    String(String),
-    /// Integer response  
-    Integer(i64),
-    /// Binary data response
-    Bulk(Vec<u8>),
-    /// Array of responses
-    Array(Vec<RespResponse>),
-    /// Error response
-    Error(String),
-    /// Null response
-    Null,
 }
 
 /// Custom command example - users can define their own commands this way
@@ -453,64 +423,6 @@ impl RespEncode for RespValue<'_> {
                 result
             },
             RespValue::Null => {
-                b"$-1\r\n".to_vec()
-            },
-        }
-    }
-}
-
-impl RespEncode for RespResponse {
-    fn encode(&self) -> Vec<u8> {
-        match self {
-            RespResponse::Ok => b"+OK\r\n".to_vec(),
-            RespResponse::String(s) => {
-                let len_str = s.len().to_string();
-                let mut result = Vec::with_capacity(s.len() + len_str.len() + 5);
-                result.push(b'$');
-                result.extend_from_slice(len_str.as_bytes());
-                result.extend_from_slice(b"\r\n");
-                result.extend_from_slice(s.as_bytes());
-                result.extend_from_slice(b"\r\n");
-                result
-            },
-            RespResponse::Integer(i) => {
-                let num_str = i.to_string();
-                let mut result = Vec::with_capacity(num_str.len() + 3);
-                result.push(b':');
-                result.extend_from_slice(num_str.as_bytes());
-                result.extend_from_slice(b"\r\n");
-                result
-            },
-            RespResponse::Bulk(data) => {
-                let len_str = data.len().to_string();
-                let mut result = Vec::with_capacity(data.len() + len_str.len() + 5);
-                result.push(b'$');
-                result.extend_from_slice(len_str.as_bytes());
-                result.extend_from_slice(b"\r\n");
-                result.extend_from_slice(data);
-                result.extend_from_slice(b"\r\n");
-                result
-            },
-            RespResponse::Array(elements) => {
-                let count_str = elements.len().to_string();
-                let mut result = Vec::new();
-                result.push(b'*');
-                result.extend_from_slice(count_str.as_bytes());
-                result.extend_from_slice(b"\r\n");
-                
-                for element in elements {
-                    result.extend_from_slice(&element.encode());
-                }
-                result
-            },
-            RespResponse::Error(e) => {
-                let mut result = Vec::with_capacity(e.len() + 3);
-                result.push(b'-');
-                result.extend_from_slice(e.as_bytes());
-                result.extend_from_slice(b"\r\n");
-                result
-            },
-            RespResponse::Null => {
                 b"$-1\r\n".to_vec()
             },
         }

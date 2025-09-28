@@ -9,22 +9,9 @@ use crate::{
     Complete, EntityId, EntitySchema, EntityType, Error, FieldSchema, FieldType, PageOpts, PageResult, Result, Single, Value, Timestamp, PushCondition, AdjustBehavior
 };
 use crate::data::StoreTrait;
-use crate::data::resp::{RespResponse, RespCommand, RespDecode, ReadCommand, WriteCommand, CreateEntityCommand, RespValue};
+use crate::data::resp::{RespCommand, RespDecode, ReadCommand, WriteCommand, CreateEntityCommand, RespValue};
 
 const READ_POLL_INTERVAL: Duration = Duration::from_millis(10);
-
-fn expect_ok(response: RespResponse) -> Result<()> {
-    match response {
-        RespResponse::Ok => Ok(()),
-        RespResponse::Null => Ok(()),
-        RespResponse::Error(msg) => Err(Error::StoreProxyError(msg)),
-        _ => Err(Error::StoreProxyError(format!(
-            "Unexpected response (expected OK): {:?}",
-            response
-        ))),
-    }
-}
-
 
 /// TCP connection for RESP protocol
 #[derive(Debug)]
