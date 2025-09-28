@@ -23,7 +23,7 @@ pub use auth::{
 };
 
 pub use protocol::{
-    QuspMessage, MessageBuffer, encode_qusp_message, extract_message_id,
+    QuspFrame, QuspCommand, QuspResponse, MessageBuffer, encode_command, encode_response, StoreCommand, parse_store_command,
 };
 
 pub use expr::CelExecutor;
