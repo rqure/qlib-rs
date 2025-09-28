@@ -338,16 +338,48 @@ impl StoreProxy {
         
         match response {
             RespResponse::Array(elements) if elements.len() >= 3 => {
-                match (&elements[0], &elements[1], &elements[2]) {
-                    (RespResponse::Value(value), RespResponse::Timestamp(timestamp), RespResponse::EntityId(writer_id)) => {
-                        Ok((value.clone(), *timestamp, Some(*writer_id)))
-                    }
-                    (RespResponse::Value(value), RespResponse::Timestamp(timestamp), RespResponse::Null) => {
-                        Ok((value.clone(), *timestamp, None))
-                    }
-                    _ => Err(Error::StoreProxyError("Invalid read response format".into())),
-                }
+                // Parse value from first element
+                let value = match &elements[0] {
+                    RespResponse::Bulk(data) => {
+                        // Try to decode a Value from the bulk data
+                        match Value::decode(data) {
+                            Ok((value, _)) => value,
+                            Err(_) => Value::Blob(data.clone()),
+                        }
+                    },
+                    RespResponse::String(s) => Value::String(s.clone()),
+                    RespResponse::Integer(i) => Value::Int(*i),
+                    RespResponse::Null => Value::EntityReference(None),
+                    _ => return Err(Error::StoreProxyError("Invalid value type in read response".into())),
+                };
+                
+                // Parse timestamp from second element
+                let timestamp = match &elements[1] {
+                    RespResponse::Bulk(data) => {
+                        let timestamp_str = std::str::from_utf8(data)
+                            .map_err(|_| Error::StoreProxyError("Invalid UTF-8 in timestamp".into()))?;
+                        // Parse as RFC3339 timestamp
+                        time::OffsetDateTime::parse(timestamp_str, &time::format_description::well_known::Rfc3339)
+                            .map_err(|_| Error::StoreProxyError("Invalid timestamp format".into()))?
+                    },
+                    RespResponse::String(s) => {
+                        // Parse as RFC3339 timestamp
+                        time::OffsetDateTime::parse(s, &time::format_description::well_known::Rfc3339)
+                            .map_err(|_| Error::StoreProxyError("Invalid timestamp format".into()))?
+                    },
+                    _ => return Err(Error::StoreProxyError("Invalid timestamp type in read response".into())),
+                };
+                
+                // Parse writer_id from third element
+                let writer_id = match &elements[2] {
+                    RespResponse::Integer(i) if *i >= 0 => Some(EntityId(*i as u64)),
+                    RespResponse::Null => None,
+                    _ => return Err(Error::StoreProxyError("Invalid writer_id type in read response".into())),
+                };
+                
+                Ok((value, timestamp, writer_id))
             }
+            RespResponse::Error(msg) => Err(Error::StoreProxyError(msg)),
             _ => Err(Error::StoreProxyError("Expected array response for read".into())),
         }
     }
@@ -378,8 +410,9 @@ impl StoreProxy {
         let response = self.send_resp_command(&command)?;
         
         match response {
-            RespResponse::EntityId(entity_id) => Ok(entity_id),
-            _ => Err(Error::StoreProxyError("Expected EntityId response for create_entity".into())),
+            RespResponse::Integer(i) if i >= 0 => Ok(EntityId(i as u64)),
+            RespResponse::Error(msg) => Err(Error::StoreProxyError(msg)),
+            _ => Err(Error::StoreProxyError("Expected Integer response for create_entity".into())),
         }
     }
 

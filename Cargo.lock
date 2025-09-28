@@ -1058,6 +1058,7 @@ dependencies = [
  "log",
  "lru",
  "mio",
+ "qlib-rs-derive",
  "rand",
  "rustc-hash",
  "serde",
@@ -1068,6 +1069,15 @@ dependencies = [
  "tokio",
  "url",
  "uuid",
+]
+
+[[package]]
+name = "qlib-rs-derive"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
 ]
 
 [[package]]

@@ -1,9 +1,106 @@
+//! # RESP (REdis Serialization Protocol) Implementation
+//! 
+//! This module provides zero-copy RESP parsing and encoding with support for custom commands.
+//! 
+//! ## Core Features
+//! 
+//! - Zero-copy parsing for maximum performance
+//! - Custom command support via traits
+//! - CLI-friendly string-based numeric parsing
+//! - Derive macro support for automatic encoding/decoding
+//! 
+//! ## Derive Macros
+//! 
+//! When the `derive` feature is enabled, you can automatically implement `RespEncode` and 
+//! `RespDecode` for your custom types:
+//! 
+//! ```rust,ignore
+//! #[cfg(feature = "derive")]
+//! use qlib_rs::{RespEncode, RespDecode};
+//! 
+//! #[derive(RespEncode, RespDecode)]
+//! struct MyCommand {
+//!     entity_id: u64,
+//!     name: String,
+//!     active: bool,
+//! }
+//! 
+//! #[derive(RespEncode, RespDecode)]
+//! enum MyEnum {
+//!     Variant1,
+//!     Variant2(String),
+//!     Variant3 { field: u32 },
+//! }
+//! ```
+//! 
+//! ## CLI Compatibility
+//! 
+//! The RESP decoder automatically parses string representations of numbers and booleans,
+//! making it easy to create CLI tools that send commands:
+//! 
+//! - `"42"` → `42i64`
+//! - `"3.14"` → `3.14f64`  
+//! - `"true"` → `true`
+//! - `"false"` → `false`
+//! 
+//! ## Usage Example
+//! 
+//! ```rust,ignore
+//! use qlib_rs::data::resp::{RespEncode, RespDecode, RespValue};
+//! 
+//! let data = MyCommand {
+//!     entity_id: 42,
+//!     name: "test".to_string(),
+//!     active: true,
+//! };
+//! 
+//! // Encode to RESP bytes
+//! let encoded = data.encode();
+//! 
+//! // Decode from RESP bytes
+//! let (decoded, _) = MyCommand::decode(&encoded)?;
+//! ```
+
 use crate::{
     data::{EntityId, EntityType, FieldType, PushCondition, AdjustBehavior, Timestamp, Value},
     Result,
 };
 
+// Re-export derive macros when derive feature is enabled
+#[cfg(feature = "derive")]
+pub use qlib_rs_derive::{RespEncode, RespDecode};
+
 /// Redis RESP data types with zero-copy deserialization support
+///
+/// # Examples
+/// 
+/// ## Using derive macros (requires `derive` feature)
+/// 
+/// ```rust,ignore
+/// use qlib_rs::data::resp::{RespEncode, RespDecode};
+/// 
+/// #[derive(Debug, RespEncode, RespDecode)]
+/// struct MyCommand {
+///     name: String,
+///     value: i64,
+/// }
+/// 
+/// #[derive(Debug, RespEncode, RespDecode)]
+/// enum MyEnum {
+///     Simple,
+///     WithValue(String),
+///     WithFields { x: i32, y: i32 },
+/// }
+/// ```
+/// 
+/// The derive macros automatically implement RESP encoding/decoding for:
+/// - Structs with named fields (encoded as arrays with field names and values)
+/// - Structs with unnamed fields (encoded as arrays with values only)
+/// - Unit structs (encoded as empty arrays)
+/// - Enums with discriminant + variant data
+/// 
+/// For CLI compatibility, integers and other numeric types can be provided as strings
+/// and will be automatically parsed during decoding.
 #[derive(Debug, Clone, PartialEq)]
 pub enum RespValue<'a> {
     /// Simple strings are encoded as +<string>\r\n
@@ -438,6 +535,11 @@ impl<'a> RespDecode<'a> for EntityType {
                     .map_err(|_| crate::Error::InvalidRequest("Invalid EntityType format".to_string()))?;
                 Ok((EntityType(type_val), remaining))
             },
+            RespValue::SimpleString(s) => {
+                let type_val = s.parse::<u32>()
+                    .map_err(|_| crate::Error::InvalidRequest("Invalid EntityType format".to_string()))?;
+                Ok((EntityType(type_val), remaining))
+            },
             _ => Err(crate::Error::InvalidRequest("Invalid EntityType".to_string())),
         }
     }
@@ -461,6 +563,11 @@ impl<'a> RespDecode<'a> for FieldType {
                     .map_err(|_| crate::Error::InvalidRequest("Invalid FieldType format".to_string()))?;
                 Ok((FieldType(type_val), remaining))
             },
+            RespValue::SimpleString(s) => {
+                let type_val = s.parse::<u64>()
+                    .map_err(|_| crate::Error::InvalidRequest("Invalid FieldType format".to_string()))?;
+                Ok((FieldType(type_val), remaining))
+            },
             _ => Err(crate::Error::InvalidRequest("Invalid FieldType".to_string())),
         }
     }
@@ -476,11 +583,37 @@ impl<'a> RespDecode<'a> for Value {
     fn decode(input: &'a [u8]) -> Result<(Self, &'a [u8])> {
         let (value, remaining) = RespValue::decode(input)?;
         let decoded_value = match value {
-            RespValue::SimpleString(s) => Value::String(s.to_string()),
+            RespValue::SimpleString(s) => {
+                // Try to parse various numeric types from strings for CLI compatibility
+                if let Ok(i) = s.parse::<i64>() {
+                    Value::Int(i)
+                } else if let Ok(f) = s.parse::<f64>() {
+                    Value::Float(f)
+                } else if s.eq_ignore_ascii_case("true") {
+                    Value::Bool(true)
+                } else if s.eq_ignore_ascii_case("false") {
+                    Value::Bool(false)
+                } else {
+                    Value::String(s.to_string())
+                }
+            },
             RespValue::BulkString(data) => {
-                // Try to parse as UTF-8 string first, fallback to blob
+                // Try to parse as UTF-8 string first
                 match std::str::from_utf8(data) {
-                    Ok(s) => Value::String(s.to_string()),
+                    Ok(s) => {
+                        // Try to parse various numeric types from strings for CLI compatibility
+                        if let Ok(i) = s.parse::<i64>() {
+                            Value::Int(i)
+                        } else if let Ok(f) = s.parse::<f64>() {
+                            Value::Float(f)
+                        } else if s.eq_ignore_ascii_case("true") {
+                            Value::Bool(true)
+                        } else if s.eq_ignore_ascii_case("false") {
+                            Value::Bool(false)
+                        } else {
+                            Value::String(s.to_string())
+                        }
+                    },
                     Err(_) => Value::Blob(data.to_vec()),
                 }
             },
@@ -493,6 +626,14 @@ impl<'a> RespDecode<'a> for Value {
                 for element in &elements {
                     match element {
                         RespValue::Integer(i) if *i >= 0 => entity_ids.push(EntityId(*i as u64)),
+                        RespValue::SimpleString(s) => {
+                            if let Ok(id) = s.parse::<u64>() {
+                                entity_ids.push(EntityId(id));
+                            } else {
+                                all_valid = false;
+                                break;
+                            }
+                        },
                         RespValue::BulkString(data) => {
                             if let Ok(s) = std::str::from_utf8(data) {
                                 if let Ok(id) = s.parse::<u64>() {
@@ -664,7 +805,12 @@ impl<'a> RespCommand<'a> for ReadCommand<'a> {
         let (value, timestamp, writer_id) = store.read(self.entity_id, &self.field_path)?;
         // Return a structured response with value, timestamp, and writer_id
         let response_array = vec![
-
+            RespResponse::Bulk(value.encode()),
+            RespResponse::Bulk(timestamp.to_string().into_bytes()),
+            match writer_id {
+                Some(id) => RespResponse::Integer(id.0 as i64),
+                None => RespResponse::Null,
+            },
         ];
         Ok(RespResponse::Array(response_array))
     }
@@ -846,7 +992,7 @@ impl<'a> RespCommand<'a> for CreateEntityCommand<'a> {
     
     fn execute(&self, store: &mut dyn crate::data::StoreTrait) -> Result<RespResponse> {
         let entity_id = store.create_entity(self.entity_type, self.parent_id, &self.name)?;
-        Ok(entity_id.encode())
+        Ok(RespResponse::Integer(entity_id.0 as i64))
     }
 }
 
