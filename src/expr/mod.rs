@@ -81,11 +81,7 @@ impl CelExecutor {
                 .collect();
             let field_types = field_types?;
             
-            let reqs = sreq![
-                sread!(relative_id, field_types)
-            ];
-            let reqs = store.perform(reqs)?;
-            let value = reqs.first().unwrap().value().unwrap().clone();
+            let (value, _, _) = store.read(relative_id, &field_types)?;
             // Use the original field name for CEL context (keep underscores)
             let cel_field = field.to_string();
 

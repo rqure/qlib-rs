@@ -166,28 +166,17 @@ pub fn get_user_auth_method(store: &mut Store, user_id: EntityId) -> Result<Auth
         Some(field) => field,
         None => return Err(Error::InvalidRequest("Auth method field type not initialized".to_string())),
     };
-    let result = store.perform_mut(sreq![sread!(user_id, crate::sfield![auth_method_ft])]);
+    let result = store.read(user_id, &[auth_method_ft]);
     
     // If the store operation failed, default to Native
-    let requests = match result {
-        Ok(requests) => requests,
+    let (value, _, _) = match result {
+        Ok(value) => value,
         Err(_) => return Ok(AuthMethod::Native),
     };
 
-    if let Some(request) = requests.clone().read().first() {
-        if let Request::Read {
-            value: Some(Value::Choice(method)),
-            ..
-        } = request
-        {
-            Ok(AuthMethod::from(*method))
-        } else {
-            // Default to Native if AuthMethod is not set
-            Ok(AuthMethod::Native)
-        }
-    } else {
-        // Default to Native if field doesn't exist
-        Ok(AuthMethod::Native)
+    match value {
+        Value::Choice(method) => Ok(AuthMethod::from(method)),
+        _ => Ok(AuthMethod::Native), // Default to Native if AuthMethod is not set
     }
 }
 
@@ -201,22 +190,11 @@ pub fn get_user_secret(store: &mut Store, user_id: EntityId) -> Result<String> {
         Some(field) => field,
         None => return Err(Error::InvalidRequest("Secret field type not initialized".to_string())),
     };
-    let requests = sreq![sread!(user_id, crate::sfield![secret_ft])];
+    let (value, _, _) = store.read(user_id, &[secret_ft])?;
 
-    let requests = store.perform_mut(requests)?;
-
-    if let Some(request) = requests.first() {
-        if let Request::Read {
-            value: Some(Value::String(secret)),
-            ..
-        } = request
-        {
-            Ok(secret.to_string())
-        } else {
-            Err(Error::SubjectNotFound)
-        }
-    } else {
-        Err(Error::SubjectNotFound)
+    match value {
+        Value::String(secret) => Ok(secret.to_string()),
+        _ => Err(Error::SubjectNotFound),
     }
 }
 
@@ -280,19 +258,11 @@ pub fn find_user_by_name(store: &Store, name: &str) -> Result<Option<EntityId>> 
         None => return Err(Error::InvalidRequest("Name field type not initialized".to_string())),
     };
     for entity_id in entities {
-        let requests = sreq![sread!(entity_id, crate::sfield![name_ft])];
+        let (value, _, _) = store.read(entity_id, &[name_ft])?;
 
-        let requests = store.perform(requests)?;
-
-        if let Some(request) = requests.first() {
-            if let Request::Read {
-                value: Some(Value::String(stored_name)),
-                ..
-            } = request
-            {
-                if stored_name.eq_ignore_ascii_case(name) {
-                    return Ok(Some(entity_id));
-                }
+        if let Value::String(stored_name) = value {
+            if stored_name.eq_ignore_ascii_case(name) {
+                return Ok(Some(entity_id));
             }
         }
     }
@@ -312,18 +282,11 @@ pub fn is_user_active(store: &mut Store, user_id: EntityId) -> Result<bool> {
         None => return Err(Error::InvalidRequest("Active field type not initialized".to_string())),
     };
     
-    let requests = store.perform_mut(sreq![sread!(user_id, crate::sfield![active_ft])])?;    if let Some(request) = requests.clone().read().first() {
-        if let Request::Read {
-            value: Some(Value::Bool(active)),
-            ..
-        } = request
-        {
-            Ok(*active)
-        } else {
-            Ok(false) // Default to inactive if field not found
-        }
-    } else {
-        Ok(false)
+    let (value, _, _) = store.read(user_id, &[active_ft])?;
+
+    match value {
+        Value::Bool(active) => Ok(active),
+        _ => Ok(false), // Default to inactive if field not found
     }
 }
 
@@ -337,26 +300,14 @@ pub fn is_user_locked(store: &mut Store, user_id: EntityId) -> Result<bool> {
         Some(field) => field,
         None => return Err(Error::InvalidRequest("Locked until field type not initialized".to_string())),
     };
-    let result = store.perform_mut(sreq![sread!(user_id, crate::sfield![locked_until_ft])]);
-    
-    // If the store operation failed, it might be because the field doesn't exist
-    let requests = match result {
-        Ok(requests) => requests,
-        Err(_) => return Ok(false),
+    let (value, _, _) = match store.read(user_id, &[locked_until_ft]) {
+        Ok(value) => value,
+        Err(_) => return Ok(false), // If read fails, assume not locked
     };
 
-    if let Some(request) = requests.clone().read().first() {
-        if let Request::Read {
-            value: Some(Value::Timestamp(locked_until)),
-            ..
-        } = request
-        {
-            Ok(now() < *locked_until)
-        } else {
-            Ok(false)
-        }
-    } else {
-        Ok(false)
+    match value {
+        Value::Timestamp(locked_until) => Ok(now() < locked_until),
+        _ => Ok(false),
     }
 }
 
@@ -473,9 +424,7 @@ pub fn reset_failed_attempts(store: &mut Store, user_id: EntityId) -> Result<()>
         Some(field) => field,
         None => return Err(Error::InvalidRequest("Failed attempts field type not initialized".to_string())),
     };
-    let requests = sreq![swrite!(user_id, crate::sfield![failed_attempts_ft], Some(Value::Int(0)))];
-
-    store.perform_mut(requests)?;
+    store.write(user_id, &[failed_attempts_ft], Value::Int(0), None, None, None, None)?;
 
     Ok(())
 }
@@ -490,13 +439,7 @@ pub fn update_last_login(store: &mut Store, user_id: EntityId) -> Result<()> {
         Some(field) => field,
         None => return Err(Error::InvalidRequest("Last login field type not initialized".to_string())),
     };
-    let requests = sreq![swrite!(
-        user_id,
-        crate::sfield![last_login_ft],
-        Some(Value::Timestamp(now()))
-    )];
-
-    store.perform_mut(requests)?;
+    store.write(user_id, &[last_login_ft], Value::Timestamp(now()), None, None, None, None)?;
 
     Ok(())
 }
@@ -522,29 +465,7 @@ pub fn create_user(
         Some(user_et) => user_et,
         None => return Err(Error::InvalidRequest("User entity type not initialized".to_string())),
     };
-    let requests = sreq![Request::Create {
-        entity_type,
-        parent_id: Some(parent_id),
-        name: name.to_string(),
-        created_entity_id: None,
-        timestamp: None,
-    }];
-    let requests = store.perform_mut(requests)?;
-
-    // Get the created user ID
-    let user_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = requests.clone().read().first() {
-        *id
-    } else {
-        let et = match store.et.as_ref() {
-            Some(et) => et,
-            None => return Err(Error::InvalidRequest("Entity types not initialized".to_string())),
-        };
-        let user_et = match et.user {
-            Some(user_et) => user_et,
-            None => return Err(Error::InvalidRequest("User entity type not initialized".to_string())),
-        };
-        return Err(Error::EntityNotFound(EntityId::new(user_et, 0)));
-    };
+    let user_id = store.create_entity(entity_type, Some(parent_id), name)?;
 
     // Set authentication method and default values
     let ft = match store.ft.as_ref() {
@@ -563,13 +484,9 @@ pub fn create_user(
         Some(field) => field,
         None => return Err(Error::InvalidRequest("Failed attempts field type not initialized".to_string())),
     };
-    let requests = sreq![
-        swrite!(user_id, crate::sfield![auth_method_ft], Some(Value::Choice(i64::from(auth_method)))),
-        swrite!(user_id, crate::sfield![active_ft], Some(Value::Bool(true))),
-        swrite!(user_id, crate::sfield![failed_attempts_ft], Some(Value::Int(0))),
-    ];
-
-    store.perform_mut(requests)?;
+    store.write(user_id, &[auth_method_ft], Value::Choice(i64::from(auth_method)), None, None, None, None)?;
+    store.write(user_id, &[active_ft], Value::Bool(true), None, None, None, None)?;
+    store.write(user_id, &[failed_attempts_ft], Value::Int(0), None, None, None, None)?;
 
     Ok(user_id)
 }

@@ -51,10 +51,8 @@ pub fn resolve_indirection_via_trait<T: StoreTrait>(
 
     for (i, field) in fields.iter().enumerate() {
         // Normal field resolution
-        let reqs = crate::sreq![crate::sread!(current_entity_id, crate::sfield![field.clone()])];
-
-        let reqs = match store.perform(reqs) {
-            Ok(reqs) => reqs,
+        let result = match store.read(current_entity_id, &[field.clone()]) {
+            Ok((value, _, _)) => value,
             Err(e) => {
                 return Err(crate::Error::BadIndirection(
                     current_entity_id,
@@ -64,48 +62,46 @@ pub fn resolve_indirection_via_trait<T: StoreTrait>(
             }
         };
 
-        if let crate::Request::Read { value, .. } = &reqs.clone().read()[0] {
-            // If this is the last field in the path, we're done - return the current entity and field
-            if i == fields.len() - 1 {
-                break;
-            }
+        // If this is the last field in the path, we're done - return the current entity and field
+        if i == fields.len() - 1 {
+            break;
+        }
 
-            // For intermediate fields, they must be EntityReferences
-            if let Some(crate::Value::EntityReference(reference)) = value {
-                match reference {
-                    Some(ref_id) => {
-                        // Check if the reference is valid
-                        if !store.entity_exists(ref_id.clone()) {
-                            return Err(crate::Error::BadIndirection(
-                                current_entity_id,
-                                fields.to_vec(),
-                                crate::BadIndirectionReason::InvalidEntityId(ref_id.clone()),
-                            ));
-                        }
-                        current_entity_id = ref_id.clone();
-                    }
-                    None => {
-                        // If the reference is None, this is an error
+        // For intermediate fields, they must be EntityReferences
+        if let crate::Value::EntityReference(reference) = result {
+            match reference {
+                Some(ref_id) => {
+                    // Check if the reference is valid
+                    if !store.entity_exists(ref_id.clone()) {
                         return Err(crate::Error::BadIndirection(
                             current_entity_id,
                             fields.to_vec(),
-                            crate::BadIndirectionReason::EmptyEntityReference,
+                            crate::BadIndirectionReason::InvalidEntityId(ref_id.clone()),
                         ));
                     }
+                    current_entity_id = ref_id.clone();
                 }
-
-                continue;
+                None => {
+                    // If the reference is None, this is an error
+                    return Err(crate::Error::BadIndirection(
+                        current_entity_id,
+                        fields.to_vec(),
+                        crate::BadIndirectionReason::EmptyEntityReference,
+                    ));
+                }
             }
 
-            return Err(crate::Error::BadIndirection(
-                current_entity_id,
-                fields.to_vec(),
-                crate::BadIndirectionReason::UnexpectedValueType(
-                    field.clone(),
-                    format!("{:?}", value),
-                ),
-            ));
+            continue;
         }
+
+        return Err(crate::Error::BadIndirection(
+            current_entity_id,
+            fields.to_vec(),
+            crate::BadIndirectionReason::UnexpectedValueType(
+                field.clone(),
+                format!("{:?}", result),
+            ),
+        ));
     }
 
     Ok((
@@ -147,48 +143,27 @@ pub fn path<T: StoreTrait>(store: &T, entity_id: EntityId) -> Result<String> {
         visited.insert(current_id.clone());
 
         // Read the name of the current entity
-        let name_requests = crate::sreq![crate::sread!(
-            current_id.clone(),
-            crate::sfield![name_ft.clone()]
-        )];
-
-        let entity_name = if let Ok(reqs) = store.perform(name_requests) {
-            if let crate::Request::Read {
-                value: Some(crate::Value::String(name)),
-                ..
-            } = &reqs.clone().read()[0]
-            {
-                name.as_str().to_string()
-            } else {
+        let entity_name = match store.read(current_id.clone(), &[name_ft.clone()]) {
+            Ok((crate::Value::String(name), _, _)) => name.as_str().to_string(),
+            _ => {
                 // Fallback to entity ID if no name field
                 current_id.0.to_string()
             }
-        } else {
-            // Fallback to entity ID if name read fails
-            current_id.0.to_string()
         };
 
         path_parts.push(entity_name);
 
         // Read the parent of the current entity
-        let parent_requests = crate::sreq![crate::sread!(
-            current_id.clone(),
-            crate::sfield![parent_ft.clone()]
-        )];
-
-        if let Ok(reqs) = store.perform(parent_requests) {
-            if let crate::Request::Read {
-                value: Some(crate::Value::EntityReference(Some(parent_id))),
-                ..
-            } = &reqs.clone().read()[0]
-            {
+        let has_parent = match store.read(current_id.clone(), &[parent_ft.clone()]) {
+            Ok((crate::Value::EntityReference(Some(parent_id)), _, _)) => {
                 current_id = parent_id.clone();
-            } else {
-                // No parent, we've reached the root
-                break;
+                true
             }
-        } else {
-            // Parent read failed, we've reached the root
+            _ => false,
+        };
+
+        if !has_parent {
+            // No parent, we've reached the root
             break;
         }
     }
@@ -216,23 +191,15 @@ pub fn path_to_entity_id<T: StoreTrait>(store: &T, path: &str) -> Result<EntityI
     
     // Find the root entity that matches the first path part
     for root_id in root_entities {
-        let name_requests = crate::sreq![crate::sread!(
-            root_id.clone(),
-            crate::sfield![name_ft.clone()]
-        )];
-        
-        if let Ok(reqs) = store.perform(name_requests) {
-            if let crate::Request::Read {
-                value: Some(crate::Value::String(name)),
-                ..
-            } = &reqs.clone().read()[0]
-            {
+        let entity_name = match store.read(root_id.clone(), &[name_ft.clone()]) {
+            Ok((crate::Value::String(name), _, _)) => {
                 if name.as_str() == path_parts[0] {
                     current_entity_id = Some(root_id);
                     break;
                 }
             }
-        }
+            _ => {}
+        };
     }
     
     let mut current_id = current_entity_id.ok_or_else(|| {
@@ -241,46 +208,26 @@ pub fn path_to_entity_id<T: StoreTrait>(store: &T, path: &str) -> Result<EntityI
     
     // Traverse down the path by following Children relationships
     for part in &path_parts[1..] {
-        let children_requests = crate::sreq![crate::sread!(
-            current_id.clone(),
-            crate::sfield![children_ft.clone()]
-        )];
-        
-        if let Ok(reqs) = store.perform(children_requests) {
-            if let crate::Request::Read {
-                value: Some(crate::Value::EntityList(children)),
-                ..
-            } = &reqs.clone().read()[0]
-            {
-                let mut found = false;
-                for child_id in children {
-                    let child_name_requests = crate::sreq![crate::sread!(
-                        child_id.clone(),
-                        crate::sfield![name_ft.clone()]
-                    )];
-                    
-                    if let Ok(reqs) = store.perform(child_name_requests) {
-                        if let crate::Request::Read {
-                            value: Some(crate::Value::String(child_name)),
-                            ..
-                        } = &reqs.clone().read()[0]
-                        {
-                            if child_name.as_str() == *part {
-                                current_id = child_id.clone();
-                                found = true;
-                                break;
-                            }
-                        }
+        let children = match store.read(current_id.clone(), &[children_ft.clone()]) {
+            Ok((crate::Value::EntityList(children), _, _)) => children,
+            _ => return Err(crate::Error::EntityNameNotFound(part.to_string())),
+        };
+
+        let mut found = false;
+        for child_id in children {
+            let child_name = match store.read(child_id.clone(), &[name_ft.clone()]) {
+                Ok((crate::Value::String(child_name), _, _)) => {
+                    if child_name.as_str() == *part {
+                        current_id = child_id.clone();
+                        found = true;
+                        break;
                     }
                 }
-                
-                if !found {
-                    return Err(crate::Error::EntityNameNotFound(part.to_string()));
-                }
-            } else {
-                return Err(crate::Error::EntityNameNotFound(part.to_string()));
-            }
-        } else {
+                _ => {}
+            };
+        }
+        
+        if !found {
             return Err(crate::Error::EntityNameNotFound(part.to_string()));
         }
     }

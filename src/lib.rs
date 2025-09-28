@@ -126,3 +126,77 @@ macro_rules! sfield {
         }
     };
 }
+
+/// Creates a read request for a field path
+///
+/// This macro creates a read operation that can be executed directly
+/// on a StoreTrait implementation.
+///
+/// # Arguments
+///
+/// * `store` - The store to read from
+/// * `entity_id` - The entity ID to read from
+/// * `field_path` - The field path as an IndirectFieldType (created with sfield!)
+///
+/// # Returns
+///
+/// * Result containing (Value, Timestamp, Option<EntityId>)
+#[macro_export]
+macro_rules! sread {
+    ($store:expr, $entity_id:expr, $field_path:expr) => {
+        $store.read($entity_id, $field_path)
+    };
+}
+
+/// Creates a write request for a field path
+///
+/// This macro creates a write operation that can be executed directly
+/// on a StoreTrait implementation.
+///
+/// # Arguments
+///
+/// * `store` - The store to write to
+/// * `entity_id` - The entity ID to write to
+/// * `field_path` - The field path as an IndirectFieldType (created with sfield!)
+/// * `value` - The value to write
+/// * Optional additional parameters for write operation
+///
+/// # Returns
+///
+/// * Result<()>
+#[macro_export]
+macro_rules! swrite {
+    ($store:expr, $entity_id:expr, $field_path:expr, $value:expr) => {
+        $store.write($entity_id, $field_path, $value, None, None, None, None)
+    };
+    ($store:expr, $entity_id:expr, $field_path:expr, $value:expr, $($args:expr),*) => {
+        $store.write($entity_id, $field_path, $value, $($args),*)
+    };
+}
+
+/// Creates a collection of requests
+///
+/// This macro creates a Requests object containing multiple operations.
+/// Since perform/perform_mut are being replaced with direct calls,
+/// this macro now executes the requests directly.
+///
+/// # Arguments
+///
+/// * `store` - The store to execute operations on
+/// * Operations to execute
+///
+/// # Returns
+///
+/// * Result of executing the operations
+#[macro_export]
+macro_rules! sreq {
+    ($store:expr, $($req:expr),* $(,)?) => {
+        {
+            // Execute each request directly
+            $(
+                $req?;
+            )*
+            Ok(())
+        }
+    };
+}
