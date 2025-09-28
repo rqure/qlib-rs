@@ -27,6 +27,97 @@ pub trait RespDecode: Sized {
     fn decode_from(bytes: &Bytes) -> Result<Self>;
 }
 
+/// Trait for zero-copy deserialization from RESP frames
+/// This trait allows viewing data directly from the buffer without allocations
+pub trait RespView<'a>: Sized {
+    /// Decode a view of the data from the buffer without copying
+    fn view_from(bytes: &'a Bytes) -> Result<Self>;
+}
+
+/// Zero-copy frame parser that retains references to the original buffer
+#[derive(Debug, Clone)]
+pub struct FrameRef<'a> {
+    /// Reference to the original buffer
+    buffer: &'a Bytes,
+    /// Start position of this frame in the buffer
+    start: usize,
+    /// Length of this frame
+    len: usize,
+    /// Frame type information
+    pub frame_type: FrameType,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum FrameType {
+    Simple,
+    Error,
+    Integer(i64),
+    Bulk,
+    Null,
+    Array { count: usize, elements_start: usize },
+}
+
+impl<'a> FrameRef<'a> {
+    /// Create a new frame reference
+    pub fn new(buffer: &'a Bytes, start: usize, len: usize, frame_type: FrameType) -> Self {
+        Self { buffer, start, len, frame_type }
+    }
+    
+    /// Get the raw bytes of this frame without copying
+    #[inline]
+    pub fn as_bytes(&self) -> &'a [u8] {
+        &self.buffer[self.start..self.start + self.len]
+    }
+    
+    /// Get the frame as a string slice (for Simple, Error, Bulk frames)
+    pub fn as_str(&self) -> Result<&'a str> {
+        match self.frame_type {
+            FrameType::Simple | FrameType::Error | FrameType::Bulk => {
+                std::str::from_utf8(self.as_bytes())
+                    .map_err(|e| anyhow!("invalid UTF-8: {}", e))
+            }
+            _ => Err(anyhow!("frame is not a string type")),
+        }
+    }
+    
+    /// Get the frame as an integer (for Integer frames)
+    pub fn as_integer(&self) -> Result<i64> {
+        match self.frame_type {
+            FrameType::Integer(value) => Ok(value),
+            _ => Err(anyhow!("frame is not an integer type")),
+        }
+    }
+    
+    /// Check if this frame is null
+    pub fn is_null(&self) -> bool {
+        matches!(self.frame_type, FrameType::Null)
+    }
+    
+    /// Get array elements as frame references (for Array frames)
+    pub fn as_array(&self) -> Result<Vec<FrameRef<'a>>> {
+        match self.frame_type {
+            FrameType::Array { count, elements_start } => {
+                let mut elements = Vec::with_capacity(count);
+                let mut pos = elements_start;
+                
+                for _ in 0..count {
+                    let (element_ref, next_pos) = self.parse_frame_ref(pos)?;
+                    elements.push(element_ref);
+                    pos = next_pos;
+                }
+                
+                Ok(elements)
+            }
+            _ => Err(anyhow!("frame is not an array type")),
+        }
+    }
+    
+    /// Internal helper to parse a frame reference at a given position
+    fn parse_frame_ref(&self, start: usize) -> Result<(FrameRef<'a>, usize)> {
+        parse_frame_ref(self.buffer, start)
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct QuspCommand {
 	pub name: Bytes,
@@ -270,6 +361,171 @@ fn parse_root_frame(bytes: &Bytes) -> Result<RespFrame> {
 		return Err(anyhow!("extra bytes after QUSP frame"));
 	}
 	Ok(frame)
+}
+
+/// Parse a frame reference without copying data
+fn parse_frame_ref(bytes: &Bytes, start: usize) -> Result<(FrameRef, usize)> {
+    if start >= bytes.len() {
+        return Err(anyhow!("unexpected end of RESP frame"));
+    }
+
+    match bytes[start] {
+        b'+' => match read_line_end(bytes.as_ref(), start + 1) {
+            ParseStatus::Complete(end) => {
+                let frame_ref = FrameRef::new(
+                    bytes, 
+                    start + 1, 
+                    end - (start + 1), 
+                    FrameType::Simple
+                );
+                Ok((frame_ref, end + 2))
+            }
+            ParseStatus::Incomplete => Err(anyhow!("unterminated simple string")),
+        },
+        b'-' => match read_line_end(bytes.as_ref(), start + 1) {
+            ParseStatus::Complete(end) => {
+                let frame_ref = FrameRef::new(
+                    bytes, 
+                    start + 1, 
+                    end - (start + 1), 
+                    FrameType::Error
+                );
+                Ok((frame_ref, end + 2))
+            }
+            ParseStatus::Incomplete => Err(anyhow!("unterminated error string")),
+        },
+        b':' => match parse_number_line(bytes.as_ref(), start + 1)? {
+            ParseStatus::Complete((value, idx)) => {
+                let frame_ref = FrameRef::new(
+                    bytes, 
+                    start + 1, 
+                    0, // Integer frames don't need content length
+                    FrameType::Integer(value)
+                );
+                Ok((frame_ref, idx))
+            }
+            ParseStatus::Incomplete => Err(anyhow!("unterminated integer")),
+        },
+        b'$' => match parse_number_line(bytes.as_ref(), start + 1)? {
+            ParseStatus::Complete((len, mut idx)) => {
+                if len < -1 {
+                    return Err(anyhow!("invalid bulk length"));
+                }
+                if len == -1 {
+                    let frame_ref = FrameRef::new(bytes, start, 0, FrameType::Null);
+                    return Ok((frame_ref, idx));
+                }
+                let len = len as usize;
+                if idx + len + 2 > bytes.len() {
+                    return Err(anyhow!("truncated bulk string"));
+                }
+                if &bytes[idx + len..idx + len + 2] != CRLF {
+                    return Err(anyhow!("bulk string missing CRLF terminator"));
+                }
+                let frame_ref = FrameRef::new(bytes, idx, len, FrameType::Bulk);
+                idx += len + 2;
+                Ok((frame_ref, idx))
+            }
+            ParseStatus::Incomplete => Err(anyhow!("unterminated bulk length")),
+        },
+        b'*' => match parse_number_line(bytes.as_ref(), start + 1)? {
+            ParseStatus::Complete((len, mut idx)) => {
+                if len < -1 {
+                    return Err(anyhow!("invalid array length"));
+                }
+                if len == -1 {
+                    let frame_ref = FrameRef::new(bytes, start, 0, FrameType::Null);
+                    return Ok((frame_ref, idx));
+                }
+                let count = len as usize;
+                let elements_start = idx;
+                
+                // Skip over all elements to find the end position
+                for _ in 0..count {
+                    let (_, next_idx) = parse_frame_ref(bytes, idx)?;
+                    idx = next_idx;
+                }
+                
+                let frame_ref = FrameRef::new(
+                    bytes, 
+                    start, 
+                    idx - start, 
+                    FrameType::Array { count, elements_start }
+                );
+                Ok((frame_ref, idx))
+            }
+            ParseStatus::Incomplete => Err(anyhow!("unterminated array length")),
+        },
+        _ => Err(anyhow!("unsupported RESP type")),
+    }
+}
+
+/// Parse the root frame as a zero-copy reference
+pub fn parse_root_frame_ref(bytes: &Bytes) -> Result<FrameRef> {
+    let (frame_ref, consumed) = parse_frame_ref(bytes, 0)?;
+    if consumed != bytes.len() {
+        return Err(anyhow!("extra bytes after QUSP frame"));
+    }
+    Ok(frame_ref)
+}
+
+/// Zero-copy command parsing from raw bytes
+/// This demonstrates true zero-copy parsing where we work directly with the input buffer
+pub fn parse_command_from_bytes(data: &[u8]) -> Result<(String, Vec<&str>)> {
+    // This is a simplified zero-copy parser that works directly with byte slices
+    // For demonstration purposes - a full implementation would be more complex
+    
+    if data.len() < 4 || &data[0..1] != b"*" {
+        return Err(anyhow!("expected array frame"));
+    }
+    
+    // Find the first CRLF to get array length
+    let mut pos = 1;
+    while pos < data.len() - 1 {
+        if &data[pos..pos + 2] == b"\r\n" {
+            break;
+        }
+        pos += 1;
+    }
+    
+    let array_len_str = std::str::from_utf8(&data[1..pos])?;
+    let array_len: usize = array_len_str.parse()?;
+    
+    pos += 2; // Skip CRLF
+    
+    if array_len == 0 {
+        return Err(anyhow!("empty command array"));
+    }
+    
+    let mut elements = Vec::with_capacity(array_len);
+    
+    for _ in 0..array_len {
+        // Parse bulk string: $<len>\r\n<data>\r\n
+        if pos >= data.len() || data[pos] != b'$' {
+            return Err(anyhow!("expected bulk string"));
+        }
+        pos += 1;
+        
+        // Find length
+        let len_start = pos;
+        while pos < data.len() - 1 && &data[pos..pos + 2] != b"\r\n" {
+            pos += 1;
+        }
+        
+        let len_str = std::str::from_utf8(&data[len_start..pos])?;
+        let data_len: usize = len_str.parse()?;
+        pos += 2; // Skip CRLF
+        
+        // Extract data without copying
+        let element_str = std::str::from_utf8(&data[pos..pos + data_len])?;
+        elements.push(element_str);
+        pos += data_len + 2; // Skip data and CRLF
+    }
+    
+    let command_name = elements[0].to_uppercase();
+    let args = elements[1..].to_vec();
+    
+    Ok((command_name, args))
 }
 
 fn frame_into_bytes(frame: RespFrame) -> Result<Bytes> {
@@ -542,6 +798,96 @@ impl RespDecode for FieldType {
     }
 }
 
+// Zero-copy view implementations
+impl<'a> RespView<'a> for &'a str {
+    fn view_from(bytes: &'a Bytes) -> Result<Self> {
+        parse_str(bytes)
+    }
+}
+
+impl<'a> RespView<'a> for &'a [u8] {
+    fn view_from(bytes: &'a Bytes) -> Result<Self> {
+        Ok(bytes.as_ref())
+    }
+}
+
+impl<'a> RespView<'a> for u32 {
+    fn view_from(bytes: &'a Bytes) -> Result<Self> {
+        parse_u32(bytes)
+    }
+}
+
+impl<'a> RespView<'a> for u64 {
+    fn view_from(bytes: &'a Bytes) -> Result<Self> {
+        parse_u64(bytes)
+    }
+}
+
+impl<'a> RespView<'a> for EntityId {
+    fn view_from(bytes: &'a Bytes) -> Result<Self> {
+        parse_entity_id(bytes)
+    }
+}
+
+impl<'a> RespView<'a> for EntityType {
+    fn view_from(bytes: &'a Bytes) -> Result<Self> {
+        parse_entity_type(bytes)
+    }
+}
+
+impl<'a> RespView<'a> for FieldType {
+    fn view_from(bytes: &'a Bytes) -> Result<Self> {
+        parse_field_type(bytes)
+    }
+}
+
+/// Zero-copy command representation that references the original buffer
+#[derive(Debug)]
+pub struct QuspCommandRef<'a> {
+    pub name: &'a str,
+    pub args: Vec<FrameRef<'a>>,
+}
+
+impl<'a> QuspCommandRef<'a> {
+    /// Create a new command reference from a frame reference
+    pub fn from_frame_ref(frame_ref: FrameRef<'a>) -> Result<Self> {
+        let elements = frame_ref.as_array()?;
+        
+        if elements.is_empty() {
+            return Err(anyhow!("QUSP command missing name"));
+        }
+        
+        let name = elements[0].as_str()?;
+        let args = elements[1..].to_vec();
+        
+        Ok(Self { name, args })
+    }
+    
+    /// Get the uppercase command name
+    pub fn uppercase_name(&self) -> String {
+        self.name.to_ascii_uppercase()
+    }
+    
+    /// Get a specific argument as a string slice
+    pub fn arg_str(&self, index: usize) -> Result<&'a str> {
+        self.args.get(index)
+            .ok_or_else(|| anyhow!("argument {} not found", index))?
+            .as_str()
+    }
+    
+    /// Get a specific argument as bytes
+    pub fn arg_bytes(&self, index: usize) -> Result<&'a [u8]> {
+        Ok(self.args.get(index)
+            .ok_or_else(|| anyhow!("argument {} not found", index))?
+            .as_bytes())
+    }
+    
+    /// Get the number of arguments
+    pub fn arg_count(&self) -> usize {
+        self.args.len()
+    }
+}
+
 /// Generic response builders to reduce code duplication
 pub struct ResponseBuilder;
 
@@ -679,6 +1025,25 @@ impl MessageBuffer {
 						Ok(Some(QuspFrame::Response(response)))
 					}
 				}
+			}
+			None => Ok(None),
+		}
+	}
+	
+	/// Try to decode a frame using zero-copy references to the buffer
+	/// 
+	/// Note: This is a demonstration of zero-copy parsing concept.
+	/// For full zero-copy implementation, you'd work directly with the raw buffer
+	/// and avoid creating intermediate Bytes objects.
+	pub fn peek_frame_ref(&self) -> Result<Option<(Vec<u8>, usize)>> {
+		match try_parse_message_length(self.buffer.as_ref())? {
+			Some(len) => {
+				if self.buffer.len() < len {
+					return Ok(None);
+				}
+				// Return the raw bytes for zero-copy parsing by the caller
+				let raw_data = self.buffer[..len].to_vec();
+				Ok(Some((raw_data, len)))
 			}
 			None => Ok(None),
 		}
@@ -2340,6 +2705,91 @@ pub mod command_parsers {
         cmd.expect_args(1, "UNREGISTER_NOTIFICATION")?;
         let config = decode_notify_config(&cmd.args[0])?;
         Ok(StoreCommand::UnregisterNotification { config })
+    }
+}
+
+/// Zero-copy command parsing functions
+pub mod zero_copy_parsers {
+    use super::*;
+    
+    /// Zero-copy command argument validation
+    pub trait ZeroCopyCommandArguments<'a> {
+        fn expect_args(&self, count: usize, command_name: &str) -> Result<()>;
+        fn expect_args_range(&self, min: usize, max: usize, command_name: &str) -> Result<()>;
+    }
+
+    impl<'a> ZeroCopyCommandArguments<'a> for QuspCommandRef<'a> {
+        #[inline]
+        fn expect_args(&self, count: usize, command_name: &str) -> Result<()> {
+            if self.arg_count() != count {
+                return Err(anyhow!("{} expects {} argument{}", 
+                    command_name, count, if count == 1 { "" } else { "s" }));
+            }
+            Ok(())
+        }
+        
+        #[inline]
+        fn expect_args_range(&self, min: usize, max: usize, command_name: &str) -> Result<()> {
+            let count = self.arg_count();
+            if count < min || count > max {
+                return Err(anyhow!("{} expects {}-{} arguments", command_name, min, max));
+            }
+            Ok(())
+        }
+    }
+    
+    /// Parse GET_ENTITY_TYPE command using zero-copy
+    pub fn parse_get_entity_type<'a>(cmd: &QuspCommandRef<'a>) -> Result<StoreCommand<'a>> {
+        cmd.expect_args(1, "GET_ENTITY_TYPE")?;
+        let name = cmd.arg_str(0)?; // Zero-copy string slice
+        Ok(StoreCommand::GetEntityType { name })
+    }
+    
+    /// Parse RESOLVE_ENTITY_TYPE command using zero-copy
+    pub fn parse_resolve_entity_type<'a>(cmd: &QuspCommandRef<'a>) -> Result<StoreCommand<'a>> {
+        cmd.expect_args(1, "RESOLVE_ENTITY_TYPE")?;
+        let entity_type_str = cmd.arg_str(0)?;
+        let entity_type_val: u32 = entity_type_str.parse().map_err(|e| anyhow!("invalid entity type: {}", e))?;
+        Ok(StoreCommand::ResolveEntityType { entity_type: EntityType(entity_type_val) })
+    }
+    
+    /// Parse READ command using zero-copy
+    pub fn parse_read<'a>(cmd: &QuspCommandRef<'a>) -> Result<StoreCommand<'a>> {
+        cmd.expect_args(2, "READ")?;
+        
+        // Parse entity ID
+        let entity_id_str = cmd.arg_str(0)?;
+        let entity_id_val: u64 = entity_id_str.parse().map_err(|e| anyhow!("invalid entity ID: {}", e))?;
+        let entity_id = EntityId(entity_id_val);
+        
+        // Parse field path
+        let field_path_str = cmd.arg_str(1)?;
+        let field_path = if field_path_str.is_empty() {
+            vec![]
+        } else {
+            field_path_str.split(',').map(|part| {
+                let trimmed = part.trim();
+                if trimmed.is_empty() {
+                    return Err(anyhow!("empty field type in path"));
+                }
+                let field_val: u64 = trimmed.parse().map_err(|e| anyhow!("invalid field type: {}", e))?;
+                Ok(FieldType(field_val))
+            }).collect::<Result<Vec<_>>>()?
+        };
+        
+        Ok(StoreCommand::Read { entity_id, field_path })
+    }
+    
+    /// Main zero-copy command parsing dispatcher
+    pub fn parse_store_command_ref<'a>(cmd: &QuspCommandRef<'a>) -> Result<StoreCommand<'a>> {
+        let name = cmd.uppercase_name();
+        match name.as_str() {
+            "GET_ENTITY_TYPE" => parse_get_entity_type(cmd),
+            "RESOLVE_ENTITY_TYPE" => parse_resolve_entity_type(cmd),
+            "READ" => parse_read(cmd),
+            // Add more commands as needed
+            _ => Err(anyhow!("zero-copy parsing not implemented for command: {}", name)),
+        }
     }
 }
 

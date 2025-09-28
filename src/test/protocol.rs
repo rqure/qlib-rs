@@ -222,4 +222,107 @@ mod tests {
             _ => panic!("Expected FindEntitiesPaginated command"),
         }
     }
+    
+    #[test]
+    fn test_zero_copy_frame_parsing() {
+        // Test zero-copy frame reference parsing
+        let data = b"*3\r\n$4\r\nREAD\r\n$3\r\n123\r\n$3\r\n1,2\r\n";
+        let bytes = Bytes::from_static(data);
+        
+        let frame_ref = parse_root_frame_ref(&bytes).expect("Failed to parse frame reference");
+        
+        // Test that it's an array
+        match frame_ref.frame_type {
+            FrameType::Array { count, .. } => {
+                assert_eq!(count, 3);
+            }
+            _ => panic!("Expected array frame"),
+        }
+        
+        // Test accessing array elements
+        let elements = frame_ref.as_array().expect("Failed to get array elements");
+        assert_eq!(elements.len(), 3);
+        
+        // Test command name
+        assert_eq!(elements[0].as_str().unwrap(), "READ");
+        
+        // Test arguments
+        assert_eq!(elements[1].as_str().unwrap(), "123");
+        assert_eq!(elements[2].as_str().unwrap(), "1,2");
+    }
+    
+    #[test]
+    fn test_zero_copy_command_parsing() {
+        // Test zero-copy command parsing
+        let data = b"*2\r\n$15\r\nGET_ENTITY_TYPE\r\n$10\r\nTestEntity\r\n";
+        let bytes = Bytes::from_static(data);
+        
+        let frame_ref = parse_root_frame_ref(&bytes).expect("Failed to parse frame reference");
+        let cmd_ref = QuspCommandRef::from_frame_ref(frame_ref).expect("Failed to create command reference");
+        
+        // Test command name
+        assert_eq!(cmd_ref.name, "GET_ENTITY_TYPE");
+        assert_eq!(cmd_ref.uppercase_name(), "GET_ENTITY_TYPE");
+        
+        // Test arguments
+        assert_eq!(cmd_ref.arg_count(), 1);
+        assert_eq!(cmd_ref.arg_str(0).unwrap(), "TestEntity");
+        
+        // Test zero-copy command parsing
+        let parsed = zero_copy_parsers::parse_get_entity_type(&cmd_ref)
+            .expect("Failed to parse GET_ENTITY_TYPE with zero-copy");
+        
+        match parsed {
+            StoreCommand::GetEntityType { name } => {
+                assert_eq!(name, "TestEntity");
+            }
+            _ => panic!("Expected GetEntityType command"),
+        }
+    }
+    
+    #[test]
+    fn test_zero_copy_read_command() {
+        // Test zero-copy READ command parsing
+        let data = b"*3\r\n$4\r\nREAD\r\n$3\r\n123\r\n$3\r\n1,2\r\n";
+        let bytes = Bytes::from_static(data);
+        
+        let frame_ref = parse_root_frame_ref(&bytes).expect("Failed to parse frame reference");
+        let cmd_ref = QuspCommandRef::from_frame_ref(frame_ref).expect("Failed to create command reference");
+        
+        let parsed = zero_copy_parsers::parse_read(&cmd_ref)
+            .expect("Failed to parse READ with zero-copy");
+        
+        match parsed {
+            StoreCommand::Read { entity_id, field_path } => {
+                assert_eq!(entity_id.0, 123);
+                assert_eq!(field_path.len(), 2);
+                assert_eq!(field_path[0].0, 1);
+                assert_eq!(field_path[1].0, 2);
+            }
+            _ => panic!("Expected Read command"),
+        }
+    }
+    
+    #[test]
+    fn test_raw_bytes_zero_copy_parsing() {
+        // Test the truly zero-copy parsing function
+        let data = b"*2\r\n$15\r\nGET_ENTITY_TYPE\r\n$10\r\nTestEntity\r\n";
+        
+        let (command_name, args) = parse_command_from_bytes(data)
+            .expect("Failed to parse command from bytes");
+        
+        assert_eq!(command_name, "GET_ENTITY_TYPE");
+        assert_eq!(args.len(), 1);
+        assert_eq!(args[0], "TestEntity");
+        
+        // Verify that the string slices point to the original buffer
+        // Let's find the actual position in the data where "TestEntity" starts
+        let data_str = std::str::from_utf8(data).unwrap();
+        let entity_pos = data_str.find("TestEntity").unwrap();
+        let original_arg = std::str::from_utf8(&data[entity_pos..entity_pos + 10]).unwrap();
+        
+        assert_eq!(args[0], original_arg);
+        // Note: The string slices reference the original buffer data
+        assert_eq!(args[0].as_ptr(), original_arg.as_ptr());
+    }
 }
