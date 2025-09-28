@@ -400,18 +400,12 @@ pub fn respc(args: TokenStream, input: TokenStream) -> TokenStream {
     let resp_command_impl = quote! {
         impl #impl_generics crate::data::resp::RespCommand<'_> for #name #ty_generics #where_clause {
             const COMMAND_NAME: &'static str = #command_name;
-            
-            fn execute(&self, store: &mut dyn crate::data::StoreTrait) -> crate::Result<crate::data::resp::RespResponse> {
-                // Default implementation returns an error - commands should override this
-                Err(crate::Error::InvalidRequest(format!("Command {} not implemented", #command_name)))
-            }
         }
     };
 
     // Return the original struct plus the trait implementation
     let expanded = quote! {
         #input
-        
         #resp_command_impl
     };
 

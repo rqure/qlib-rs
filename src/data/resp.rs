@@ -172,9 +172,6 @@ pub trait RespDecode<'a>: Sized {
 pub trait RespCommand<'a>: RespDecode<'a> + RespEncode {
     /// The command name (e.g., "READ", "WRITE", "CREATE_ENTITY")
     const COMMAND_NAME: &'static str;
-    
-    /// Execute the command against a StoreTrait implementation
-    fn execute(&self, store: &mut dyn crate::data::StoreTrait) -> Result<RespResponse>;
 }
 
 /// Response types for RESP commands
