@@ -3,6 +3,7 @@ use bytes::{Bytes, BytesMut};
 use std::str;
 
 use crate::{EntityId, EntityType, FieldType, Value, Timestamp, FieldSchema, AdjustBehavior, PageOpts, NotifyConfig, PushCondition, EntitySchema, Single, Complete, PageResult, Snapshot};
+use crate::data::StorageScope;
 
 const MAX_MESSAGE_SIZE: usize = 16 * 1024 * 1024;
 const CRLF: &[u8] = b"\r\n";
@@ -655,13 +656,320 @@ fn decode_value(bytes: &Bytes) -> Result<Value> {
     }
 }
 
-// Binary encoding for FieldSchema using bincode for simplicity but efficient binary format
+// RESP encoding for FieldSchema - format: [type_name, field_type_id, default_value_encoded, rank, storage_scope]
 fn encode_field_schema(schema: &FieldSchema) -> Result<Vec<u8>> {
-    bincode::serialize(schema).map_err(|e| anyhow!("failed to encode FieldSchema: {}", e))
+    let mut out = Vec::new();
+    
+    match schema {
+        FieldSchema::String { field_type, default_value, rank, storage_scope } => {
+            write_array_header(&mut out, 5);
+            write_bulk(&mut out, b"String");
+            write_bulk(&mut out, &field_type.0.to_le_bytes());
+            write_bulk(&mut out, default_value.as_bytes());
+            write_integer(&mut out, *rank);
+            write_bulk(&mut out, match storage_scope {
+                StorageScope::Runtime => b"Runtime",
+                StorageScope::Configuration => b"Configuration",
+            });
+        }
+        FieldSchema::Int { field_type, default_value, rank, storage_scope } => {
+            write_array_header(&mut out, 5);
+            write_bulk(&mut out, b"Int");
+            write_bulk(&mut out, &field_type.0.to_le_bytes());
+            write_bulk(&mut out, &default_value.to_le_bytes());
+            write_integer(&mut out, *rank);
+            write_bulk(&mut out, match storage_scope {
+                StorageScope::Runtime => b"Runtime",
+                StorageScope::Configuration => b"Configuration",
+            });
+        }
+        FieldSchema::Float { field_type, default_value, rank, storage_scope } => {
+            write_array_header(&mut out, 5);
+            write_bulk(&mut out, b"Float");
+            write_bulk(&mut out, &field_type.0.to_le_bytes());
+            write_bulk(&mut out, &default_value.to_le_bytes());
+            write_integer(&mut out, *rank);
+            write_bulk(&mut out, match storage_scope {
+                StorageScope::Runtime => b"Runtime",
+                StorageScope::Configuration => b"Configuration",
+            });
+        }
+        FieldSchema::Bool { field_type, default_value, rank, storage_scope } => {
+            write_array_header(&mut out, 5);
+            write_bulk(&mut out, b"Bool");
+            write_bulk(&mut out, &field_type.0.to_le_bytes());
+            write_bulk(&mut out, &[if *default_value { 1 } else { 0 }]);
+            write_integer(&mut out, *rank);
+            write_bulk(&mut out, match storage_scope {
+                StorageScope::Runtime => b"Runtime",
+                StorageScope::Configuration => b"Configuration",
+            });
+        }
+        FieldSchema::Blob { field_type, default_value, rank, storage_scope } => {
+            write_array_header(&mut out, 5);
+            write_bulk(&mut out, b"Blob");
+            write_bulk(&mut out, &field_type.0.to_le_bytes());
+            write_bulk(&mut out, default_value);
+            write_integer(&mut out, *rank);
+            write_bulk(&mut out, match storage_scope {
+                StorageScope::Runtime => b"Runtime",
+                StorageScope::Configuration => b"Configuration",
+            });
+        }
+        FieldSchema::EntityReference { field_type, default_value, rank, storage_scope } => {
+            write_array_header(&mut out, 5);
+            write_bulk(&mut out, b"EntityReference");
+            write_bulk(&mut out, &field_type.0.to_le_bytes());
+            if let Some(entity_id) = default_value {
+                write_bulk(&mut out, &entity_id.0.to_le_bytes());
+            } else {
+                write_null(&mut out);
+            }
+            write_integer(&mut out, *rank);
+            write_bulk(&mut out, match storage_scope {
+                StorageScope::Runtime => b"Runtime",
+                StorageScope::Configuration => b"Configuration",
+            });
+        }
+        FieldSchema::EntityList { field_type, default_value, rank, storage_scope } => {
+            write_array_header(&mut out, 5);
+            write_bulk(&mut out, b"EntityList");
+            write_bulk(&mut out, &field_type.0.to_le_bytes());
+            // Encode entity list as array of entity IDs
+            let mut list_data = Vec::new();
+            write_array_header(&mut list_data, default_value.len());
+            for entity_id in default_value {
+                write_bulk(&mut list_data, &entity_id.0.to_le_bytes());
+            }
+            write_bulk(&mut out, &list_data);
+            write_integer(&mut out, *rank);
+            write_bulk(&mut out, match storage_scope {
+                StorageScope::Runtime => b"Runtime",
+                StorageScope::Configuration => b"Configuration",
+            });
+        }
+        FieldSchema::Choice { field_type, default_value, rank, choices, storage_scope } => {
+            write_array_header(&mut out, 6); // 6 elements for Choice (includes choices)
+            write_bulk(&mut out, b"Choice");
+            write_bulk(&mut out, &field_type.0.to_le_bytes());
+            write_bulk(&mut out, &default_value.to_le_bytes());
+            write_integer(&mut out, *rank);
+            // Encode choices as array of strings
+            let mut choices_data = Vec::new();
+            write_array_header(&mut choices_data, choices.len());
+            for choice in choices {
+                write_bulk(&mut choices_data, choice.as_bytes());
+            }
+            write_bulk(&mut out, &choices_data);
+            write_bulk(&mut out, match storage_scope {
+                StorageScope::Runtime => b"Runtime",
+                StorageScope::Configuration => b"Configuration",
+            });
+        }
+        FieldSchema::Timestamp { field_type, default_value, rank, storage_scope } => {
+            write_array_header(&mut out, 5);
+            write_bulk(&mut out, b"Timestamp");
+            write_bulk(&mut out, &field_type.0.to_le_bytes());
+            let unix_nanos = default_value.unix_timestamp_nanos() as u128;
+            write_bulk(&mut out, &unix_nanos.to_le_bytes());
+            write_integer(&mut out, *rank);
+            write_bulk(&mut out, match storage_scope {
+                StorageScope::Runtime => b"Runtime",
+                StorageScope::Configuration => b"Configuration",
+            });
+        }
+    }
+    
+    Ok(out)
 }
 
 fn decode_field_schema(bytes: &Bytes) -> Result<FieldSchema> {
-    bincode::deserialize(bytes.as_ref()).map_err(|e| anyhow!("failed to decode FieldSchema: {}", e))
+    // Parse the RESP array
+    let frame = parse_root_frame(bytes)?;
+    let items = match frame {
+        RespFrame::Array(items) => items,
+        _ => return Err(anyhow!("Expected array for FieldSchema")),
+    };
+    
+    if items.len() < 5 {
+        return Err(anyhow!("FieldSchema array too short"));
+    }
+    
+    let type_name = match &items[0] {
+        RespFrame::Bulk(bytes) => std::str::from_utf8(bytes)?,
+        _ => return Err(anyhow!("Expected string for FieldSchema type name")),
+    };
+    
+    let field_type = match &items[1] {
+        RespFrame::Bulk(bytes) => {
+            if bytes.len() != 8 {
+                return Err(anyhow!("Invalid field type bytes"));
+            }
+            FieldType(u64::from_le_bytes(bytes.as_ref().try_into().unwrap()))
+        }
+        _ => return Err(anyhow!("Expected bytes for field type")),
+    };
+    
+    let rank = match &items[3] {
+        RespFrame::Integer(i) => *i,
+        _ => return Err(anyhow!("Expected integer for rank")),
+    };
+    
+    let storage_scope = match &items[4] {
+        RespFrame::Bulk(bytes) => {
+            match std::str::from_utf8(bytes)? {
+                "Runtime" => StorageScope::Runtime,
+                "Configuration" => StorageScope::Configuration,
+                s => return Err(anyhow!("Unknown storage scope: {}", s)),
+            }
+        }
+        _ => return Err(anyhow!("Expected string for storage scope")),
+    };
+    
+    match type_name {
+        "String" => {
+            let default_value = match &items[2] {
+                RespFrame::Bulk(bytes) => String::from_utf8(bytes.to_vec())?,
+                _ => return Err(anyhow!("Expected string for default value")),
+            };
+            Ok(FieldSchema::String { field_type, default_value, rank, storage_scope })
+        }
+        "Int" => {
+            let default_value = match &items[2] {
+                RespFrame::Bulk(bytes) => {
+                    if bytes.len() != 8 {
+                        return Err(anyhow!("Invalid int bytes"));
+                    }
+                    i64::from_le_bytes(bytes.as_ref().try_into().unwrap())
+                }
+                _ => return Err(anyhow!("Expected bytes for int default value")),
+            };
+            Ok(FieldSchema::Int { field_type, default_value, rank, storage_scope })
+        }
+        "Float" => {
+            let default_value = match &items[2] {
+                RespFrame::Bulk(bytes) => {
+                    if bytes.len() != 8 {
+                        return Err(anyhow!("Invalid float bytes"));
+                    }
+                    f64::from_le_bytes(bytes.as_ref().try_into().unwrap())
+                }
+                _ => return Err(anyhow!("Expected bytes for float default value")),
+            };
+            Ok(FieldSchema::Float { field_type, default_value, rank, storage_scope })
+        }
+        "Bool" => {
+            let default_value = match &items[2] {
+                RespFrame::Bulk(bytes) => {
+                    if bytes.len() != 1 {
+                        return Err(anyhow!("Invalid bool bytes"));
+                    }
+                    bytes[0] != 0
+                }
+                _ => return Err(anyhow!("Expected bytes for bool default value")),
+            };
+            Ok(FieldSchema::Bool { field_type, default_value, rank, storage_scope })
+        }
+        "Blob" => {
+            let default_value = match &items[2] {
+                RespFrame::Bulk(bytes) => bytes.to_vec(),
+                _ => return Err(anyhow!("Expected bytes for blob default value")),
+            };
+            Ok(FieldSchema::Blob { field_type, default_value, rank, storage_scope })
+        }
+        "EntityReference" => {
+            let default_value = match &items[2] {
+                RespFrame::Bulk(bytes) => {
+                    if bytes.len() != 8 {
+                        return Err(anyhow!("Invalid entity reference bytes"));
+                    }
+                    Some(EntityId(u64::from_le_bytes(bytes.as_ref().try_into().unwrap())))
+                }
+                RespFrame::Null => None,
+                _ => return Err(anyhow!("Expected bytes or null for entity reference default value")),
+            };
+            Ok(FieldSchema::EntityReference { field_type, default_value, rank, storage_scope })
+        }
+        "EntityList" => {
+            let default_value = match &items[2] {
+                RespFrame::Bulk(list_bytes) => {
+                    // Parse the nested RESP array
+                    let list_frame = parse_root_frame(&Bytes::copy_from_slice(list_bytes))?;
+                    match list_frame {
+                        RespFrame::Array(list_items) => {
+                            let mut entity_ids = Vec::new();
+                            for item in list_items {
+                                match item {
+                                    RespFrame::Bulk(bytes) => {
+                                        if bytes.len() != 8 {
+                                            return Err(anyhow!("Invalid entity ID bytes"));
+                                        }
+                                        entity_ids.push(EntityId(u64::from_le_bytes(bytes.as_ref().try_into().unwrap())));
+                                    }
+                                    _ => return Err(anyhow!("Expected bytes for entity ID")),
+                                }
+                            }
+                            entity_ids
+                        }
+                        _ => return Err(anyhow!("Expected array for entity list")),
+                    }
+                }
+                _ => return Err(anyhow!("Expected bytes for entity list default value")),
+            };
+            Ok(FieldSchema::EntityList { field_type, default_value, rank, storage_scope })
+        }
+        "Choice" => {
+            if items.len() != 6 {
+                return Err(anyhow!("Choice FieldSchema expects 6 elements"));
+            }
+            let default_value = match &items[2] {
+                RespFrame::Bulk(bytes) => {
+                    if bytes.len() != 8 {
+                        return Err(anyhow!("Invalid choice bytes"));
+                    }
+                    i64::from_le_bytes(bytes.as_ref().try_into().unwrap())
+                }
+                _ => return Err(anyhow!("Expected bytes for choice default value")),
+            };
+            let choices = match &items[4] {
+                RespFrame::Bulk(choices_bytes) => {
+                    // Parse the nested RESP array
+                    let choices_frame = parse_root_frame(&Bytes::copy_from_slice(choices_bytes))?;
+                    match choices_frame {
+                        RespFrame::Array(choice_items) => {
+                            let mut choice_strings = Vec::new();
+                            for item in choice_items {
+                                match item {
+                                    RespFrame::Bulk(bytes) => {
+                                        choice_strings.push(String::from_utf8(bytes.to_vec())?);
+                                    }
+                                    _ => return Err(anyhow!("Expected bytes for choice string")),
+                                }
+                            }
+                            choice_strings
+                        }
+                        _ => return Err(anyhow!("Expected array for choices")),
+                    }
+                }
+                _ => return Err(anyhow!("Expected bytes for choices")),
+            };
+            Ok(FieldSchema::Choice { field_type, default_value, rank, choices, storage_scope })
+        }
+        "Timestamp" => {
+            let default_value = match &items[2] {
+                RespFrame::Bulk(bytes) => {
+                    if bytes.len() != 16 {
+                        return Err(anyhow!("Invalid timestamp bytes"));
+                    }
+                    let unix_nanos = u128::from_le_bytes(bytes.as_ref().try_into().unwrap());
+                    crate::nanos_to_timestamp(unix_nanos as u64)
+                }
+                _ => return Err(anyhow!("Expected bytes for timestamp default value")),
+            };
+            Ok(FieldSchema::Timestamp { field_type, default_value, rank, storage_scope })
+        }
+        _ => Err(anyhow!("Unknown FieldSchema type: {}", type_name)),
+    }
 }
 
 // Binary encoding for PageOpts
@@ -694,22 +1002,580 @@ fn decode_page_opts(bytes: &Bytes) -> Result<PageOpts> {
     Ok(PageOpts::new(limit, cursor))
 }
 
-// Binary encoding for NotifyConfig
+// RESP encoding for NotifyConfig - format depends on variant
 fn encode_notify_config(config: &NotifyConfig) -> Result<Vec<u8>> {
-    bincode::serialize(config).map_err(|e| anyhow!("failed to encode NotifyConfig: {}", e))
+    let mut out = Vec::new();
+    
+    match config {
+        NotifyConfig::EntityId { entity_id, field_type, trigger_on_change, context } => {
+            write_array_header(&mut out, 5);
+            write_bulk(&mut out, b"EntityId");
+            write_bulk(&mut out, &entity_id.0.to_le_bytes());
+            write_bulk(&mut out, &field_type.0.to_le_bytes());
+            write_bulk(&mut out, &[if *trigger_on_change { 1 } else { 0 }]);
+            
+            // Encode context as nested array
+            let mut context_data = Vec::new();
+            write_array_header(&mut context_data, context.len());
+            for field_path in context {
+                let mut path_data = Vec::new();
+                write_array_header(&mut path_data, field_path.len());
+                for field_type in field_path {
+                    write_bulk(&mut path_data, &field_type.0.to_le_bytes());
+                }
+                context_data.extend_from_slice(&path_data);
+            }
+            write_bulk(&mut out, &context_data);
+        }
+        NotifyConfig::EntityType { entity_type, field_type, trigger_on_change, context } => {
+            write_array_header(&mut out, 5);
+            write_bulk(&mut out, b"EntityType");
+            write_bulk(&mut out, &entity_type.0.to_le_bytes());
+            write_bulk(&mut out, &field_type.0.to_le_bytes());
+            write_bulk(&mut out, &[if *trigger_on_change { 1 } else { 0 }]);
+            
+            // Encode context as nested array
+            let mut context_data = Vec::new();
+            write_array_header(&mut context_data, context.len());
+            for field_path in context {
+                let mut path_data = Vec::new();
+                write_array_header(&mut path_data, field_path.len());
+                for field_type in field_path {
+                    write_bulk(&mut path_data, &field_type.0.to_le_bytes());
+                }
+                context_data.extend_from_slice(&path_data);
+            }
+            write_bulk(&mut out, &context_data);
+        }
+    }
+    
+    Ok(out)
 }
 
 fn decode_notify_config(bytes: &Bytes) -> Result<NotifyConfig> {
-    bincode::deserialize(bytes.as_ref()).map_err(|e| anyhow!("failed to decode NotifyConfig: {}", e))
+    let frame = parse_root_frame(bytes)?;
+    let items = match frame {
+        RespFrame::Array(items) => items,
+        _ => return Err(anyhow!("Expected array for NotifyConfig")),
+    };
+    
+    if items.len() != 5 {
+        return Err(anyhow!("NotifyConfig array expects 5 elements"));
+    }
+    
+    let variant_name = match &items[0] {
+        RespFrame::Bulk(bytes) => std::str::from_utf8(bytes)?,
+        _ => return Err(anyhow!("Expected string for NotifyConfig variant")),
+    };
+    
+    let trigger_on_change = match &items[3] {
+        RespFrame::Bulk(bytes) => {
+            if bytes.len() != 1 {
+                return Err(anyhow!("Invalid trigger_on_change bytes"));
+            }
+            bytes[0] != 0
+        }
+        _ => return Err(anyhow!("Expected bytes for trigger_on_change")),
+    };
+    
+    let context = match &items[4] {
+        RespFrame::Bulk(context_bytes) => {
+            let context_frame = parse_root_frame(&Bytes::copy_from_slice(context_bytes))?;
+            match context_frame {
+                RespFrame::Array(context_items) => {
+                    let mut context_vec = Vec::new();
+                    for item in context_items {
+                        match item {
+                            RespFrame::Array(path_items) => {
+                                let mut field_path = Vec::new();
+                                for path_item in path_items {
+                                    match path_item {
+                                        RespFrame::Bulk(bytes) => {
+                                            if bytes.len() != 8 {
+                                                return Err(anyhow!("Invalid field type bytes"));
+                                            }
+                                            field_path.push(FieldType(u64::from_le_bytes(bytes.as_ref().try_into().unwrap())));
+                                        }
+                                        _ => return Err(anyhow!("Expected bytes for field type")),
+                                    }
+                                }
+                                context_vec.push(field_path);
+                            }
+                            _ => return Err(anyhow!("Expected array for field path")),
+                        }
+                    }
+                    context_vec
+                }
+                _ => return Err(anyhow!("Expected array for context")),
+            }
+        }
+        _ => return Err(anyhow!("Expected bytes for context")),
+    };
+    
+    match variant_name {
+        "EntityId" => {
+            let entity_id = match &items[1] {
+                RespFrame::Bulk(bytes) => {
+                    if bytes.len() != 8 {
+                        return Err(anyhow!("Invalid entity ID bytes"));
+                    }
+                    EntityId(u64::from_le_bytes(bytes.as_ref().try_into().unwrap()))
+                }
+                _ => return Err(anyhow!("Expected bytes for entity ID")),
+            };
+            let field_type = match &items[2] {
+                RespFrame::Bulk(bytes) => {
+                    if bytes.len() != 8 {
+                        return Err(anyhow!("Invalid field type bytes"));
+                    }
+                    FieldType(u64::from_le_bytes(bytes.as_ref().try_into().unwrap()))
+                }
+                _ => return Err(anyhow!("Expected bytes for field type")),
+            };
+            Ok(NotifyConfig::EntityId { entity_id, field_type, trigger_on_change, context })
+        }
+        "EntityType" => {
+            let entity_type = match &items[1] {
+                RespFrame::Bulk(bytes) => {
+                    if bytes.len() != 4 {
+                        return Err(anyhow!("Invalid entity type bytes"));
+                    }
+                    EntityType(u32::from_le_bytes(bytes.as_ref().try_into().unwrap()))
+                }
+                _ => return Err(anyhow!("Expected bytes for entity type")),
+            };
+            let field_type = match &items[2] {
+                RespFrame::Bulk(bytes) => {
+                    if bytes.len() != 8 {
+                        return Err(anyhow!("Invalid field type bytes"));
+                    }
+                    FieldType(u64::from_le_bytes(bytes.as_ref().try_into().unwrap()))
+                }
+                _ => return Err(anyhow!("Expected bytes for field type")),
+            };
+            Ok(NotifyConfig::EntityType { entity_type, field_type, trigger_on_change, context })
+        }
+        _ => Err(anyhow!("Unknown NotifyConfig variant: {}", variant_name)),
+    }
 }
 
-// Binary encoding for EntitySchema<Single, String, String>
+// RESP encoding for EntitySchema<Single, String, String> - format: [entity_type_name, inherit_array, fields_map]
 fn encode_entity_schema_string(schema: &EntitySchema<Single, String, String>) -> Result<Vec<u8>> {
-    bincode::serialize(schema).map_err(|e| anyhow!("failed to encode EntitySchema: {}", e))
+    let mut out = Vec::new();
+    write_array_header(&mut out, 3);
+    
+    // Encode entity type name
+    write_bulk(&mut out, schema.entity_type.as_bytes());
+    
+    // Encode inherit array
+    let mut inherit_data = Vec::new();
+    write_array_header(&mut inherit_data, schema.inherit.len());
+    for parent_type in &schema.inherit {
+        write_bulk(&mut inherit_data, parent_type.as_bytes());
+    }
+    write_bulk(&mut out, &inherit_data);
+    
+    // Encode fields map - as array of [field_name, field_schema] pairs
+    let mut fields_data = Vec::new();
+    write_array_header(&mut fields_data, schema.fields.len());
+    for (field_name, field_schema) in &schema.fields {
+        let mut field_pair = Vec::new();
+        write_array_header(&mut field_pair, 2);
+        write_bulk(&mut field_pair, field_name.as_bytes());
+        
+        // Convert FieldSchema<String> to bytes by encoding it
+        let field_schema_bytes = encode_field_schema_string(field_schema)?;
+        write_bulk(&mut field_pair, &field_schema_bytes);
+        
+        fields_data.extend_from_slice(&field_pair);
+    }
+    write_bulk(&mut out, &fields_data);
+    
+    Ok(out)
 }
 
 fn decode_entity_schema_string(bytes: &Bytes) -> Result<EntitySchema<Single, String, String>> {
-    bincode::deserialize(bytes.as_ref()).map_err(|e| anyhow!("failed to decode EntitySchema: {}", e))
+    let frame = parse_root_frame(bytes)?;
+    let items = match frame {
+        RespFrame::Array(items) => items,
+        _ => return Err(anyhow!("Expected array for EntitySchema")),
+    };
+    
+    if items.len() != 3 {
+        return Err(anyhow!("EntitySchema array expects 3 elements"));
+    }
+    
+    let entity_type = match &items[0] {
+        RespFrame::Bulk(bytes) => String::from_utf8(bytes.to_vec())?,
+        _ => return Err(anyhow!("Expected string for entity type")),
+    };
+    
+    let inherit = match &items[1] {
+        RespFrame::Bulk(inherit_bytes) => {
+            let inherit_frame = parse_root_frame(&Bytes::copy_from_slice(inherit_bytes))?;
+            match inherit_frame {
+                RespFrame::Array(inherit_items) => {
+                    let mut inherit_vec = Vec::new();
+                    for item in inherit_items {
+                        match item {
+                            RespFrame::Bulk(bytes) => {
+                                inherit_vec.push(String::from_utf8(bytes.to_vec())?);
+                            }
+                            _ => return Err(anyhow!("Expected string for inherit type")),
+                        }
+                    }
+                    inherit_vec
+                }
+                _ => return Err(anyhow!("Expected array for inherit list")),
+            }
+        }
+        _ => return Err(anyhow!("Expected bytes for inherit array")),
+    };
+    
+    let fields = match &items[2] {
+        RespFrame::Bulk(fields_bytes) => {
+            let fields_frame = parse_root_frame(&Bytes::copy_from_slice(fields_bytes))?;
+            match fields_frame {
+                RespFrame::Array(field_items) => {
+                    let mut fields_map = rustc_hash::FxHashMap::default();
+                    for item in field_items {
+                        match item {
+                            RespFrame::Array(pair_items) => {
+                                if pair_items.len() != 2 {
+                                    return Err(anyhow!("Field pair expects 2 elements"));
+                                }
+                                let field_name = match &pair_items[0] {
+                                    RespFrame::Bulk(bytes) => String::from_utf8(bytes.to_vec())?,
+                                    _ => return Err(anyhow!("Expected string for field name")),
+                                };
+                                let field_schema = match &pair_items[1] {
+                                    RespFrame::Bulk(schema_bytes) => {
+                                        decode_field_schema_string(&Bytes::copy_from_slice(schema_bytes))?
+                                    }
+                                    _ => return Err(anyhow!("Expected bytes for field schema")),
+                                };
+                                fields_map.insert(field_name, field_schema);
+                            }
+                            _ => return Err(anyhow!("Expected array for field pair")),
+                        }
+                    }
+                    fields_map
+                }
+                _ => return Err(anyhow!("Expected array for fields")),
+            }
+        }
+        _ => return Err(anyhow!("Expected bytes for fields map")),
+    };
+    
+    let mut schema: EntitySchema<Single, String, String> = EntitySchema::new(entity_type, inherit);
+    schema.fields = fields;
+    Ok(schema)
+}
+
+// Helper function to encode FieldSchema<String> (string-based field schema)
+fn encode_field_schema_string(schema: &crate::FieldSchema<String>) -> Result<Vec<u8>> {
+    let mut out = Vec::new();
+    
+    match schema {
+        crate::FieldSchema::String { field_type, default_value, rank, storage_scope } => {
+            write_array_header(&mut out, 5);
+            write_bulk(&mut out, b"String");
+            write_bulk(&mut out, field_type.as_bytes());
+            write_bulk(&mut out, default_value.as_bytes());
+            write_integer(&mut out, *rank);
+            write_bulk(&mut out, match storage_scope {
+                StorageScope::Runtime => b"Runtime",
+                StorageScope::Configuration => b"Configuration",
+            });
+        }
+        crate::FieldSchema::Int { field_type, default_value, rank, storage_scope } => {
+            write_array_header(&mut out, 5);
+            write_bulk(&mut out, b"Int");
+            write_bulk(&mut out, field_type.as_bytes());
+            write_bulk(&mut out, &default_value.to_le_bytes());
+            write_integer(&mut out, *rank);
+            write_bulk(&mut out, match storage_scope {
+                StorageScope::Runtime => b"Runtime",
+                StorageScope::Configuration => b"Configuration",
+            });
+        }
+        crate::FieldSchema::Float { field_type, default_value, rank, storage_scope } => {
+            write_array_header(&mut out, 5);
+            write_bulk(&mut out, b"Float");
+            write_bulk(&mut out, field_type.as_bytes());
+            write_bulk(&mut out, &default_value.to_le_bytes());
+            write_integer(&mut out, *rank);
+            write_bulk(&mut out, match storage_scope {
+                StorageScope::Runtime => b"Runtime",
+                StorageScope::Configuration => b"Configuration",
+            });
+        }
+        crate::FieldSchema::Bool { field_type, default_value, rank, storage_scope } => {
+            write_array_header(&mut out, 5);
+            write_bulk(&mut out, b"Bool");
+            write_bulk(&mut out, field_type.as_bytes());
+            write_bulk(&mut out, &[if *default_value { 1 } else { 0 }]);
+            write_integer(&mut out, *rank);
+            write_bulk(&mut out, match storage_scope {
+                StorageScope::Runtime => b"Runtime",
+                StorageScope::Configuration => b"Configuration",
+            });
+        }
+        crate::FieldSchema::Blob { field_type, default_value, rank, storage_scope } => {
+            write_array_header(&mut out, 5);
+            write_bulk(&mut out, b"Blob");
+            write_bulk(&mut out, field_type.as_bytes());
+            write_bulk(&mut out, default_value);
+            write_integer(&mut out, *rank);
+            write_bulk(&mut out, match storage_scope {
+                StorageScope::Runtime => b"Runtime",
+                StorageScope::Configuration => b"Configuration",
+            });
+        }
+        crate::FieldSchema::EntityReference { field_type, default_value, rank, storage_scope } => {
+            write_array_header(&mut out, 5);
+            write_bulk(&mut out, b"EntityReference");
+            write_bulk(&mut out, field_type.as_bytes());
+            if let Some(entity_id) = default_value {
+                write_bulk(&mut out, &entity_id.0.to_le_bytes());
+            } else {
+                write_null(&mut out);
+            }
+            write_integer(&mut out, *rank);
+            write_bulk(&mut out, match storage_scope {
+                StorageScope::Runtime => b"Runtime",
+                StorageScope::Configuration => b"Configuration",
+            });
+        }
+        crate::FieldSchema::EntityList { field_type, default_value, rank, storage_scope } => {
+            write_array_header(&mut out, 5);
+            write_bulk(&mut out, b"EntityList");
+            write_bulk(&mut out, field_type.as_bytes());
+            let mut list_data = Vec::new();
+            write_array_header(&mut list_data, default_value.len());
+            for entity_id in default_value {
+                write_bulk(&mut list_data, &entity_id.0.to_le_bytes());
+            }
+            write_bulk(&mut out, &list_data);
+            write_integer(&mut out, *rank);
+            write_bulk(&mut out, match storage_scope {
+                StorageScope::Runtime => b"Runtime",
+                StorageScope::Configuration => b"Configuration",
+            });
+        }
+        crate::FieldSchema::Choice { field_type, default_value, rank, choices, storage_scope } => {
+            write_array_header(&mut out, 6);
+            write_bulk(&mut out, b"Choice");
+            write_bulk(&mut out, field_type.as_bytes());
+            write_bulk(&mut out, &default_value.to_le_bytes());
+            write_integer(&mut out, *rank);
+            let mut choices_data = Vec::new();
+            write_array_header(&mut choices_data, choices.len());
+            for choice in choices {
+                write_bulk(&mut choices_data, choice.as_bytes());
+            }
+            write_bulk(&mut out, &choices_data);
+            write_bulk(&mut out, match storage_scope {
+                StorageScope::Runtime => b"Runtime",
+                StorageScope::Configuration => b"Configuration",
+            });
+        }
+        crate::FieldSchema::Timestamp { field_type, default_value, rank, storage_scope } => {
+            write_array_header(&mut out, 5);
+            write_bulk(&mut out, b"Timestamp");
+            write_bulk(&mut out, field_type.as_bytes());
+            let unix_nanos = default_value.unix_timestamp_nanos() as u128;
+            write_bulk(&mut out, &unix_nanos.to_le_bytes());
+            write_integer(&mut out, *rank);
+            write_bulk(&mut out, match storage_scope {
+                StorageScope::Runtime => b"Runtime",
+                StorageScope::Configuration => b"Configuration",
+            });
+        }
+    }
+    
+    Ok(out)
+}
+
+fn decode_field_schema_string(bytes: &Bytes) -> Result<crate::FieldSchema<String>> {
+    let frame = parse_root_frame(bytes)?;
+    let items = match frame {
+        RespFrame::Array(items) => items,
+        _ => return Err(anyhow!("Expected array for FieldSchema")),
+    };
+    
+    if items.len() < 5 {
+        return Err(anyhow!("FieldSchema array too short"));
+    }
+    
+    let type_name = match &items[0] {
+        RespFrame::Bulk(bytes) => std::str::from_utf8(bytes)?,
+        _ => return Err(anyhow!("Expected string for FieldSchema type name")),
+    };
+    
+    let field_type = match &items[1] {
+        RespFrame::Bulk(bytes) => String::from_utf8(bytes.to_vec())?,
+        _ => return Err(anyhow!("Expected string for field type")),
+    };
+    
+    let rank = match &items[3] {
+        RespFrame::Integer(i) => *i,
+        _ => return Err(anyhow!("Expected integer for rank")),
+    };
+    
+    let storage_scope = match &items[4] {
+        RespFrame::Bulk(bytes) => {
+            match std::str::from_utf8(bytes)? {
+                "Runtime" => StorageScope::Runtime,
+                "Configuration" => StorageScope::Configuration,
+                s => return Err(anyhow!("Unknown storage scope: {}", s)),
+            }
+        }
+        _ => return Err(anyhow!("Expected string for storage scope")),
+    };
+    
+    match type_name {
+        "String" => {
+            let default_value = match &items[2] {
+                RespFrame::Bulk(bytes) => String::from_utf8(bytes.to_vec())?,
+                _ => return Err(anyhow!("Expected string for default value")),
+            };
+            Ok(crate::FieldSchema::String { field_type, default_value, rank, storage_scope })
+        }
+        "Int" => {
+            let default_value = match &items[2] {
+                RespFrame::Bulk(bytes) => {
+                    if bytes.len() != 8 {
+                        return Err(anyhow!("Invalid int bytes"));
+                    }
+                    i64::from_le_bytes(bytes.as_ref().try_into().unwrap())
+                }
+                _ => return Err(anyhow!("Expected bytes for int default value")),
+            };
+            Ok(crate::FieldSchema::Int { field_type, default_value, rank, storage_scope })
+        }
+        "Float" => {
+            let default_value = match &items[2] {
+                RespFrame::Bulk(bytes) => {
+                    if bytes.len() != 8 {
+                        return Err(anyhow!("Invalid float bytes"));
+                    }
+                    f64::from_le_bytes(bytes.as_ref().try_into().unwrap())
+                }
+                _ => return Err(anyhow!("Expected bytes for float default value")),
+            };
+            Ok(crate::FieldSchema::Float { field_type, default_value, rank, storage_scope })
+        }
+        "Bool" => {
+            let default_value = match &items[2] {
+                RespFrame::Bulk(bytes) => {
+                    if bytes.len() != 1 {
+                        return Err(anyhow!("Invalid bool bytes"));
+                    }
+                    bytes[0] != 0
+                }
+                _ => return Err(anyhow!("Expected bytes for bool default value")),
+            };
+            Ok(crate::FieldSchema::Bool { field_type, default_value, rank, storage_scope })
+        }
+        "Blob" => {
+            let default_value = match &items[2] {
+                RespFrame::Bulk(bytes) => bytes.to_vec(),
+                _ => return Err(anyhow!("Expected bytes for blob default value")),
+            };
+            Ok(crate::FieldSchema::Blob { field_type, default_value, rank, storage_scope })
+        }
+        "EntityReference" => {
+            let default_value = match &items[2] {
+                RespFrame::Bulk(bytes) => {
+                    if bytes.len() != 8 {
+                        return Err(anyhow!("Invalid entity reference bytes"));
+                    }
+                    Some(EntityId(u64::from_le_bytes(bytes.as_ref().try_into().unwrap())))
+                }
+                RespFrame::Null => None,
+                _ => return Err(anyhow!("Expected bytes or null for entity reference default value")),
+            };
+            Ok(crate::FieldSchema::EntityReference { field_type, default_value, rank, storage_scope })
+        }
+        "EntityList" => {
+            let default_value = match &items[2] {
+                RespFrame::Bulk(list_bytes) => {
+                    let list_frame = parse_root_frame(&Bytes::copy_from_slice(list_bytes))?;
+                    match list_frame {
+                        RespFrame::Array(list_items) => {
+                            let mut entity_ids = Vec::new();
+                            for item in list_items {
+                                match item {
+                                    RespFrame::Bulk(bytes) => {
+                                        if bytes.len() != 8 {
+                                            return Err(anyhow!("Invalid entity ID bytes"));
+                                        }
+                                        entity_ids.push(EntityId(u64::from_le_bytes(bytes.as_ref().try_into().unwrap())));
+                                    }
+                                    _ => return Err(anyhow!("Expected bytes for entity ID")),
+                                }
+                            }
+                            entity_ids
+                        }
+                        _ => return Err(anyhow!("Expected array for entity list")),
+                    }
+                }
+                _ => return Err(anyhow!("Expected bytes for entity list default value")),
+            };
+            Ok(crate::FieldSchema::EntityList { field_type, default_value, rank, storage_scope })
+        }
+        "Choice" => {
+            if items.len() != 6 {
+                return Err(anyhow!("Choice FieldSchema expects 6 elements"));
+            }
+            let default_value = match &items[2] {
+                RespFrame::Bulk(bytes) => {
+                    if bytes.len() != 8 {
+                        return Err(anyhow!("Invalid choice bytes"));
+                    }
+                    i64::from_le_bytes(bytes.as_ref().try_into().unwrap())
+                }
+                _ => return Err(anyhow!("Expected bytes for choice default value")),
+            };
+            let choices = match &items[4] {
+                RespFrame::Bulk(choices_bytes) => {
+                    let choices_frame = parse_root_frame(&Bytes::copy_from_slice(choices_bytes))?;
+                    match choices_frame {
+                        RespFrame::Array(choice_items) => {
+                            let mut choice_strings = Vec::new();
+                            for item in choice_items {
+                                match item {
+                                    RespFrame::Bulk(bytes) => {
+                                        choice_strings.push(String::from_utf8(bytes.to_vec())?);
+                                    }
+                                    _ => return Err(anyhow!("Expected bytes for choice string")),
+                                }
+                            }
+                            choice_strings
+                        }
+                        _ => return Err(anyhow!("Expected array for choices")),
+                    }
+                }
+                _ => return Err(anyhow!("Expected bytes for choices")),
+            };
+            Ok(crate::FieldSchema::Choice { field_type, default_value, rank, choices, storage_scope })
+        }
+        "Timestamp" => {
+            let default_value = match &items[2] {
+                RespFrame::Bulk(bytes) => {
+                    if bytes.len() != 16 {
+                        return Err(anyhow!("Invalid timestamp bytes"));
+                    }
+                    let unix_nanos = u128::from_le_bytes(bytes.as_ref().try_into().unwrap());
+                    crate::nanos_to_timestamp(unix_nanos as u64)
+                }
+                _ => return Err(anyhow!("Expected bytes for timestamp default value")),
+            };
+            Ok(crate::FieldSchema::Timestamp { field_type, default_value, rank, storage_scope })
+        }
+        _ => Err(anyhow!("Unknown FieldSchema type: {}", type_name)),
+    }
 }
 
 fn parse_adjust_behavior(bytes: &Bytes) -> Result<AdjustBehavior> {
@@ -1104,11 +1970,15 @@ pub fn encode_field_type_name_response(name: &str) -> QuspResponse {
 }
 
 pub fn encode_entity_schema_response(schema: &EntitySchema<Single>) -> Result<QuspResponse> {
+    // For now, still use bincode since we're encoding EntitySchema<Single, EntityType, FieldType>
+    // which is different from the string-based version
     let encoded = bincode::serialize(schema).map_err(|e| anyhow!("failed to encode EntitySchema: {}", e))?;
     Ok(QuspResponse::Bulk(Bytes::copy_from_slice(&encoded)))
 }
 
 pub fn encode_complete_entity_schema_response(schema: &EntitySchema<Complete>) -> Result<QuspResponse> {
+    // For now, still use bincode since we're encoding EntitySchema<Complete, EntityType, FieldType>
+    // which is different from the string-based version
     let encoded = bincode::serialize(schema).map_err(|e| anyhow!("failed to encode Complete EntitySchema: {}", e))?;
     Ok(QuspResponse::Bulk(Bytes::copy_from_slice(&encoded)))
 }
@@ -1149,6 +2019,8 @@ pub fn encode_entity_id_response(entity_id: EntityId) -> QuspResponse {
 }
 
 pub fn encode_snapshot_response(snapshot: &Snapshot) -> Result<QuspResponse> {
+    // TODO: Implement pure RESP encoding for Snapshot - this is complex due to nested structures
+    // For now, use bincode but this should be replaced with RESP encoding
     let encoded = bincode::serialize(snapshot).map_err(|e| anyhow!("failed to encode Snapshot: {}", e))?;
     Ok(QuspResponse::Bulk(Bytes::copy_from_slice(&encoded)))
 }
