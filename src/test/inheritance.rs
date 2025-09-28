@@ -1,5 +1,4 @@
 #![allow(unused_imports)]
-use crate::sreq;
 
 #[allow(unused_imports)]
 use crate::*;
@@ -52,9 +51,8 @@ fn test_inheritance_in_find_entities() -> Result<()> {
             storage_scope: StorageScope::Configuration,
         }
     );
-    let requests = sreq![sschemaupdate!(animal_schema)];
-    store.perform_mut(requests)?;
-
+    store.update_schema(animal_schema)?;
+    
     // Mammal schema (inherits from Animal)
     let mut mammal_schema = EntitySchema::<Single, String, String>::new("Mammal".to_string(), vec!["Animal".to_string()]);
     mammal_schema.fields.insert(
@@ -66,9 +64,8 @@ fn test_inheritance_in_find_entities() -> Result<()> {
             storage_scope: StorageScope::Runtime,
         }
     );
-    let requests = sreq![sschemaupdate!(mammal_schema)];
-    store.perform_mut(requests)?;
-
+    store.update_schema(mammal_schema)?;
+    
     // Dog schema (inherits from Mammal)
     let mut dog_schema = EntitySchema::<Single, String, String>::new("Dog".to_string(), vec!["Mammal".to_string()]);
     dog_schema.fields.insert(
@@ -80,13 +77,11 @@ fn test_inheritance_in_find_entities() -> Result<()> {
             storage_scope: StorageScope::Runtime,
         }
     );
-    let requests = sreq![sschemaupdate!(dog_schema)];
-    store.perform_mut(requests)?;
-
+    store.update_schema(dog_schema)?;
+    
     // Cat schema (inherits from Mammal)
     let cat_schema = EntitySchema::<Single, String, String>::new("Cat".to_string(), vec!["Mammal".to_string()]);
-    let requests = sreq![sschemaupdate!(cat_schema)];
-    store.perform_mut(requests)?;
+    store.update_schema(cat_schema)?;
 
     // Now we can get the interned entity types
     let et_animal = store.get_entity_type("Animal")?;
@@ -97,9 +92,7 @@ fn test_inheritance_in_find_entities() -> Result<()> {
     // Create some entities
     let dog1_id = store.create_entity(et_dog, None, "Buddy")?;
     let dog2_id = store.create_entity(et_dog, None, "Rex")?;
-    let cat1_id = store.create_entity(et_cat, None, "Whiskers")?;
-
-    // Test: Finding Dog entities should return only dogs
+    let cat1_id = store.create_entity(et_cat, None, "Whiskers")?;    // Test: Finding Dog entities should return only dogs
     let dogs = store.find_entities(et_dog, None)?;
     assert_eq!(dogs.len(), 2);
     assert!(dogs.contains(&dog1_id));
@@ -155,11 +148,11 @@ fn test_inheritance_with_direct_instances() -> Result<()> {
             storage_scope: StorageScope::Configuration,
         }
     );
-    store.perform_mut(sreq![sschemaupdate!(animal_schema)])?;
-
+    store.update_schema(animal_schema)?;
+    
     // Create Mammal schema that inherits from Animal
     let mammal_schema = EntitySchema::<Single, String, String>::new("Mammal".to_string(), vec!["Animal".to_string()]);
-    store.perform_mut(sreq![sschemaupdate!(mammal_schema)])?;
+    store.update_schema(mammal_schema)?;
 
     // Now get the interned entity types
     let et_animal = store.get_entity_type("Animal")?;
@@ -167,9 +160,7 @@ fn test_inheritance_with_direct_instances() -> Result<()> {
 
     // Create direct instances of both types
     let animal1_id = store.create_entity(et_animal, None, "Generic Animal")?;
-    let mammal1_id = store.create_entity(et_mammal, None, "Generic Mammal")?;
-
-    // Test: Finding Animal entities should return both (mammal inherits from animal)
+    let mammal1_id = store.create_entity(et_mammal, None, "Generic Mammal")?;    // Test: Finding Animal entities should return both (mammal inherits from animal)
     let animals = store.find_entities(et_animal, None)?;
     assert_eq!(animals.len(), 2);
     assert!(animals.contains(&animal1_id));
@@ -216,18 +207,17 @@ fn test_circular_inheritance_protection() -> Result<()> {
             storage_scope: StorageScope::Configuration,
         }
     );
-    store.perform_mut(sreq![sschemaupdate!(schema_a)])?;
-
+    store.update_schema(schema_a)?;
+    
     // Create TypeB that inherits from TypeA
     let schema_b = EntitySchema::<Single, String, String>::new("TypeB".to_string(), vec!["TypeA".to_string()]);
-    store.perform_mut(sreq![sschemaupdate!(schema_b)])?;
-
+    store.update_schema(schema_b)?;
+    
     // Try to make TypeA inherit from TypeB (should fail or be ignored)
     let circular_schema_a = EntitySchema::<Single, String, String>::new("TypeA".to_string(), vec!["TypeB".to_string()]);
     
     // This should either fail or the system should handle it gracefully
-    let requests = sreq![sschemaupdate!(circular_schema_a)];
-    let result = store.perform_mut(requests);
+    let result = store.update_schema(circular_schema_a);
     
     // The test passes if either:
     // 1. The operation fails (returns an error)
@@ -241,10 +231,7 @@ fn test_circular_inheritance_protection() -> Result<()> {
         Ok(_) => {
             // If it succeeded, verify that circular inheritance is handled properly
             // by checking that the inheritance map doesn't create infinite loops
-            store.perform_mut(sreq![screate!(
-                et_b,
-                "Test B".to_string()
-            )])?;
+            let b_id = store.create_entity(et_b, None, "Test B")?;
             let entities_a = store.find_entities(et_a, None)?;
             
             // Should not crash or loop infinitely
@@ -254,9 +241,7 @@ fn test_circular_inheritance_protection() -> Result<()> {
             // Expected: circular inheritance should be rejected
             // This is fine - the system properly rejected the circular dependency
         }
-    }
-
-    Ok(())
+    }    Ok(())
 }
 
 #[test]
@@ -310,8 +295,8 @@ fn test_multi_inheritance() -> Result<()> {
             storage_scope: StorageScope::Runtime,
         }
     );
-    store.perform_mut(sreq![sschemaupdate!(flyable_schema)])?;
-
+    store.update_schema(flyable_schema)?;
+    
     // Create Mammal schema
     let mut mammal_schema = EntitySchema::<Single, String, String>::new("Mammal".to_string(), vec![]);
     mammal_schema.fields.insert(
@@ -332,8 +317,8 @@ fn test_multi_inheritance() -> Result<()> {
             storage_scope: StorageScope::Runtime,
         }
     );
-    store.perform_mut(sreq![sschemaupdate!(mammal_schema)])?;
-
+    store.update_schema(mammal_schema)?;
+    
     // Create Bat schema that inherits from BOTH Flyable and Mammal
     let mut bat_schema = EntitySchema::<Single, String, String>::new("Bat".to_string(), vec!["Flyable".to_string(), "Mammal".to_string()]);
     bat_schema.fields.insert(
@@ -345,9 +330,7 @@ fn test_multi_inheritance() -> Result<()> {
             storage_scope: StorageScope::Runtime,
         }
     );
-    store.perform_mut(sreq![sschemaupdate!(bat_schema)])?;
-
-    // Now get the interned entity and field types
+    store.update_schema(bat_schema)?;    // Now get the interned entity and field types
     let et_flyable = store.get_entity_type("Flyable")?;
     let et_mammal = store.get_entity_type("Mammal")?;
     let et_bat = store.get_entity_type("Bat")?;

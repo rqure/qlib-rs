@@ -1,7 +1,4 @@
 #![allow(unused_imports)]
-use crate::sreq;
-
-#[allow(unused_imports)]
 use crate::*;
 
 #[test]
@@ -13,7 +10,7 @@ fn test_perform_read_requests() -> Result<()> {
     let field_type_name = "TestField";
     
     // Test GetEntityType with perform (immutable)
-    let get_entity_type_request = sreq![
+    let get_entity_type_request = vec![
         Request::GetEntityType {
             name: entity_type_name.to_string(),
             entity_type: None,
@@ -30,7 +27,7 @@ fn test_perform_read_requests() -> Result<()> {
     }
     
     // Test GetFieldType with perform (immutable)
-    let get_field_type_request = sreq![
+    let get_field_type_request = vec![
         Request::GetFieldType {
             name: field_type_name.to_string(),
             field_type: None,
@@ -47,7 +44,7 @@ fn test_perform_read_requests() -> Result<()> {
     }
     
     // Test ResolveEntityType with perform (immutable)
-    let resolve_entity_type_request = sreq![
+    let resolve_entity_type_request = vec![
         Request::ResolveEntityType {
             entity_type: EntityType(999), // Non-existent
             name: None,
@@ -63,7 +60,7 @@ fn test_perform_read_requests() -> Result<()> {
     }
     
     // Test ResolveFieldType with perform (immutable)
-    let resolve_field_type_request = sreq![
+    let resolve_field_type_request = vec![
         Request::ResolveFieldType {
             field_type: FieldType(999), // Non-existent
             name: None,
@@ -78,8 +75,14 @@ fn test_perform_read_requests() -> Result<()> {
         panic!("Expected ResolveFieldType request");
     }
     
-    // Test that Read requests still work
-    let read_request = sreq![sread!(EntityId(0), crate::sfield![FieldType(0)])];
+        // Test that Read requests still work
+    let read_request = vec![Request::Read {
+        entity_id: EntityId(0),
+        field_types: IndirectFieldType(vec![FieldType(0)]),
+        value: None,
+        write_time: None,
+        writer_id: None,
+    }];
     let _read_result = store.perform(read_request);
     
     // This might fail because the entity doesn't exist, but that's expected behavior
@@ -95,7 +98,16 @@ fn test_perform_invalid_request() {
     let store = Store::new();
     
     // Test that Write requests still return an error when using immutable perform
-    let write_request = sreq![swrite!(EntityId(0), crate::sfield![FieldType(0)], sstr!("test"))];
+    let write_request = vec![Request::Write {
+        entity_id: EntityId(0),
+        field_types: IndirectFieldType(vec![FieldType(0)]),
+        value: Some(Value::String("test".to_string())),
+        push_condition: PushCondition::Always,
+        adjust_behavior: AdjustBehavior::Set,
+        write_time: None,
+        writer_id: None,
+        write_processed: false,
+    }];
     let result = store.perform(write_request);
     
     assert!(result.is_err(), "Write requests should fail with immutable perform");

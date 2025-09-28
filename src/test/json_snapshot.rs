@@ -1,14 +1,8 @@
 #[allow(unused_imports)]
-use crate::sreq;
-
-#[allow(unused_imports)]
 use crate::data::StorageScope;
 
 #[allow(unused_imports)]
-use crate::{StoreTrait, sstr};
-
-#[allow(unused_imports)]
-use crate::{restore_json_snapshot, screate, sschemaupdate, swrite, take_json_snapshot, EntitySchema, EntityType, FieldSchema, FieldType, Request, Single, Store, Value, now};
+use crate::{restore_json_snapshot, take_json_snapshot, EntitySchema, EntityType, FieldSchema, FieldType, Request, Single, Store, StoreTrait, Value, now};
 
 
 #[test]
@@ -55,7 +49,7 @@ fn test_json_snapshot_functionality() -> Result<(), Box<dyn std::error::Error>> 
         },
     );
     
-    store.perform_mut(sreq![sschemaupdate!(object_schema)]).unwrap();
+    store.update_schema(object_schema).unwrap();
 
     // Now get the interned types
     let _object_et = store.get_entity_type("Object").unwrap();
@@ -92,7 +86,7 @@ fn test_json_snapshot_functionality() -> Result<(), Box<dyn std::error::Error>> 
         },
     );
     
-    store.perform_mut(sreq![sschemaupdate!(root_schema)]).unwrap();
+    store.update_schema(root_schema).unwrap();
 
     // Now get the interned types
     let root_et = store.get_entity_type("Root").unwrap();
@@ -111,7 +105,7 @@ fn test_json_snapshot_functionality() -> Result<(), Box<dyn std::error::Error>> 
         },
     );
     
-    store.perform_mut(sreq![sschemaupdate!(machine_schema)]).unwrap();
+    store.update_schema(machine_schema).unwrap();
 
     // Now get the interned types
     let machine_et = store.get_entity_type("Machine").unwrap();
@@ -146,7 +140,7 @@ fn test_json_snapshot_functionality() -> Result<(), Box<dyn std::error::Error>> 
         },
     );
     
-    store.perform_mut(sreq![sschemaupdate!(sensor_schema)]).unwrap();
+    store.update_schema(sensor_schema).unwrap();
 
     // Now get the interned types
     let _sensor_et = store.get_entity_type("Sensor").unwrap();
@@ -165,7 +159,7 @@ fn test_json_snapshot_functionality() -> Result<(), Box<dyn std::error::Error>> 
         },
     );
     
-    store.perform_mut(sreq![sschemaupdate!(temp_sensor_schema)]).unwrap();
+    store.update_schema(temp_sensor_schema).unwrap();
 
     // Now get the interned types
     let temp_sensor_et = store.get_entity_type("TemperatureSensor").unwrap();
@@ -183,18 +177,18 @@ fn test_json_snapshot_functionality() -> Result<(), Box<dyn std::error::Error>> 
     let sensor_id = store.create_entity(temp_sensor_et, Some(machine_id), "IntakeTemp")?;
 
     // Set field values
-    store.write(root_id, &[name_ft], Value::from_string("DataStore".to_string()), None)?;
-    store.write(root_id, &[description_ft], Value::from_string("Primary data store".to_string()), None)?;
-    store.write(root_id, &[children_ft], Value::EntityList(vec![machine_id]), None)?;
+    store.write(root_id, &[name_ft], Value::from_string("DataStore".to_string()), None, None, None, None)?;
+    store.write(root_id, &[description_ft], Value::from_string("Primary data store".to_string()), None, None, None, None)?;
+    store.write(root_id, &[children_ft], Value::EntityList(vec![machine_id]), None, None, None, None)?;
 
-    store.write(machine_id, &[name_ft], Value::from_string("Server1".to_string()), None)?;
-    store.write(machine_id, &[status_ft], Value::from_string("Online".to_string()), None)?;
-    store.write(machine_id, &[children_ft], Value::EntityList(vec![sensor_id]), None)?;
+    store.write(machine_id, &[name_ft], Value::from_string("Server1".to_string()), None, None, None, None)?;
+    store.write(machine_id, &[status_ft], Value::from_string("Online".to_string()), None, None, None, None)?;
+    store.write(machine_id, &[children_ft], Value::EntityList(vec![sensor_id]), None, None, None, None)?;
 
-    store.write(sensor_id, &[name_ft], Value::from_string("IntakeTemp".to_string()), None)?;
-    store.write(sensor_id, &[current_value_ft], Value::Float(72.5), None)?;
-    store.write(sensor_id, &[unit_ft], Value::from_string("C".to_string()), None)?;
-    store.write(sensor_id, &[calibration_offset_ft], Value::Float(0.5), None)?;
+    store.write(sensor_id, &[name_ft], Value::from_string("IntakeTemp".to_string()), None, None, None, None)?;
+    store.write(sensor_id, &[current_value_ft], Value::Float(72.5), None, None, None, None)?;
+    store.write(sensor_id, &[unit_ft], Value::from_string("C".to_string()), None, None, None, None)?;
+    store.write(sensor_id, &[calibration_offset_ft], Value::Float(0.5), None, None, None, None)?;
 
     // Take JSON snapshot
     let snapshot = take_json_snapshot(&mut store).unwrap();
@@ -282,7 +276,7 @@ fn test_json_snapshot_restore() -> Result<(), Box<dyn std::error::Error>> {
         },
     );
 
-    store1.perform_mut(sreq![sschemaupdate!(object_schema)]).unwrap();
+    store1.update_schema(object_schema).unwrap();
 
     // Now get the interned types
     let _object_et = store1.get_entity_type("Object").unwrap();
@@ -313,10 +307,8 @@ fn test_json_snapshot_restore() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     // Add schemas to store1
-    store1.perform_mut(sreq![
-        sschemaupdate!(root_schema),
-        sschemaupdate!(document_schema),
-    ]).unwrap();
+    store1.update_schema(root_schema).unwrap();
+    store1.update_schema(document_schema).unwrap();
 
     // Now get the interned types for these new schemas
     let root_et = store1.get_entity_type("Root").unwrap();
@@ -334,13 +326,13 @@ fn test_json_snapshot_restore() -> Result<(), Box<dyn std::error::Error>> {
     let doc_id = store1.create_entity(document_et, Some(root_id), "TestDoc")?;
 
     // Set field values in store1
-    store1.write(root_id, &[name_ft], Value::from_string("TestRoot".to_string()), None)?;
-    store1.write(root_id, &[description_ft], Value::from_string("Test root entity".to_string()), None)?;
-    store1.write(root_id, &[status_ft], Value::from_string("Active".to_string()), None)?;
-    store1.write(root_id, &[children_ft], Value::EntityList(vec![doc_id]), None)?;
-    store1.write(doc_id, &[name_ft], Value::from_string("TestDoc".to_string()), None)?;
-    store1.write(doc_id, &[description_ft], Value::from_string("Test document".to_string()), None)?;
-    store1.write(doc_id, &[content_ft], Value::from_string("Hello, World!".to_string()), None)?;
+    store1.write(root_id, &[name_ft], Value::from_string("TestRoot".to_string()), None, None, None, None)?;
+    store1.write(root_id, &[description_ft], Value::from_string("Test root entity".to_string()), None, None, None, None)?;
+    store1.write(root_id, &[status_ft], Value::from_string("Active".to_string()), None, None, None, None)?;
+    store1.write(root_id, &[children_ft], Value::EntityList(vec![doc_id]), None, None, None, None)?;
+    store1.write(doc_id, &[name_ft], Value::from_string("TestDoc".to_string()), None, None, None, None)?;
+    store1.write(doc_id, &[description_ft], Value::from_string("Test document".to_string()), None, None, None, None)?;
+    store1.write(doc_id, &[content_ft], Value::from_string("Hello, World!".to_string()), None, None, None, None)?;
 
     // Take JSON snapshot from store1
     let snapshot = take_json_snapshot(&mut store1).unwrap();
@@ -460,10 +452,10 @@ fn test_json_snapshot_path_resolution() -> Result<(), Box<dyn std::error::Error>
             storage_scope: StorageScope::Configuration,
         },
     );
-    store.perform_mut(sreq![sschemaupdate!(object_schema)]).unwrap();
+    store.update_schema(object_schema).unwrap();
 
     let root_schema = EntitySchema::<Single, String, String>::new("Root".to_string(), vec!["Object".to_string()]);
-    store.perform_mut(sreq![sschemaupdate!(root_schema)]).unwrap();
+    store.update_schema(root_schema).unwrap();
 
     let mut folder_schema = EntitySchema::<Single, String, String>::new("Folder".to_string(), vec!["Object".to_string()]);
     folder_schema.fields.insert(
@@ -475,7 +467,7 @@ fn test_json_snapshot_path_resolution() -> Result<(), Box<dyn std::error::Error>
             storage_scope: StorageScope::Configuration,
         },
     );
-    store.perform_mut(sreq![sschemaupdate!(folder_schema)]).unwrap();
+    store.update_schema(folder_schema).unwrap();
     let mut file_schema = EntitySchema::<Single, String, String>::new("File".to_string(), vec!["Object".to_string()]);
     file_schema.fields.insert(
         "ParentFolder".to_string(),
@@ -486,7 +478,7 @@ fn test_json_snapshot_path_resolution() -> Result<(), Box<dyn std::error::Error>
             storage_scope: StorageScope::Configuration,
         },
     );
-    store.perform_mut(sreq![sschemaupdate!(file_schema)]).unwrap();
+    store.update_schema(file_schema).unwrap();
 
     // Now we can get the interned types
     let root_et = store.get_entity_type("Root").unwrap();
@@ -504,17 +496,17 @@ fn test_json_snapshot_path_resolution() -> Result<(), Box<dyn std::error::Error>
     let file_id = store.create_entity(file_et, None, "test.txt")?;
 
     // Set up relationships
-    store.write(root_id, &[children_ft], Value::EntityList(vec![folder_id]), None).unwrap();
+    store.write(root_id, &[children_ft], Value::EntityList(vec![folder_id]), None, None, None, None).unwrap();
     
     // Set file as child of folder (Children relationship)  
-    store.write(folder_id, &[children_ft], Value::EntityList(vec![file_id]), None).unwrap();
+    store.write(folder_id, &[children_ft], Value::EntityList(vec![file_id]), None, None, None, None).unwrap();
     
     // Set folder as parent of file (ParentFolder reference)
-    store.write(file_id, &[parent_folder_ft], Value::EntityReference(Some(folder_id)), None).unwrap();
+    store.write(file_id, &[parent_folder_ft], Value::EntityReference(Some(folder_id)), None, None, None, None).unwrap();
     
     // Set up Parent chain for path resolution (used by spath! macro)
-    store.write(folder_id, &[parent_ft], Value::EntityReference(Some(root_id)), None).unwrap();
-    store.write(file_id, &[parent_ft], Value::EntityReference(Some(folder_id)), None).unwrap();
+    store.write(folder_id, &[parent_ft], Value::EntityReference(Some(root_id)), None, None, None, None).unwrap();
+    store.write(file_id, &[parent_ft], Value::EntityReference(Some(folder_id)), None, None, None, None).unwrap();
 
     // Take snapshot
     let snapshot = take_json_snapshot(&mut store).unwrap();
@@ -584,7 +576,7 @@ fn test_json_snapshot_storage_scope() {
             storage_scope: StorageScope::Configuration,
         },
     );
-    store.perform_mut(sreq![sschemaupdate!(object_schema)]).unwrap();
+    store.update_schema(object_schema).unwrap();
 
     let mut root_schema = EntitySchema::<Single, String, String>::new("Root".to_string(), vec!["Object".to_string()]);
     root_schema.fields.insert(
@@ -605,15 +597,13 @@ fn test_json_snapshot_storage_scope() {
             storage_scope: StorageScope::Runtime,
         },
     );
-    store.perform_mut(sreq![sschemaupdate!(root_schema)]).unwrap();
+    store.update_schema(root_schema).unwrap();
 
     // Now we can get the interned types
     let root_et = store.get_entity_type("Root").unwrap();
 
     // Create a root entity
-    store.perform_mut(sreq![
-        screate!(root_et, "TestRoot".to_string()),
-    ]).unwrap();
+    let root_id = store.create_entity(root_et, None, "TestRoot").unwrap();
 
     // Take JSON snapshot
     let snapshot = take_json_snapshot(&mut store).unwrap();
@@ -683,16 +673,16 @@ fn test_json_snapshot_entity_list_paths() {
             storage_scope: StorageScope::Configuration,
         },
     );
-    store.perform_mut(sreq![sschemaupdate!(object_schema)]).unwrap();
+    store.update_schema(object_schema).unwrap();
 
     let root_schema = EntitySchema::<Single, String, String>::new("Root".to_string(), vec!["Object".to_string()]);
-    store.perform_mut(sreq![sschemaupdate!(root_schema)]).unwrap();
+    store.update_schema(root_schema).unwrap();
 
     let machine_schema = EntitySchema::<Single, String, String>::new("Machine".to_string(), vec!["Object".to_string()]);
-    store.perform_mut(sreq![sschemaupdate!(machine_schema)]).unwrap();
+    store.update_schema(machine_schema).unwrap();
 
     let service_schema = EntitySchema::<Single, String, String>::new("Service".to_string(), vec!["Object".to_string()]);
-    store.perform_mut(sreq![sschemaupdate!(service_schema)]).unwrap();
+    store.update_schema(service_schema).unwrap();
     
     let mut fault_tolerance_schema = EntitySchema::<Single, String, String>::new("FaultTolerance".to_string(), vec!["Object".to_string()]);
     fault_tolerance_schema.fields.insert(
@@ -704,7 +694,7 @@ fn test_json_snapshot_entity_list_paths() {
             storage_scope: StorageScope::Configuration,
         },
     );
-    store.perform_mut(sreq![sschemaupdate!(fault_tolerance_schema)]).unwrap();
+    store.update_schema(fault_tolerance_schema).unwrap();
 
     // Now we can get the interned types
     let root_et = store.get_entity_type("Root").unwrap();
@@ -732,19 +722,19 @@ fn test_json_snapshot_entity_list_paths() {
     let parent_ft = store.get_field_type("Parent").unwrap();
 
     // Set up the entity relationships and Parent references for path resolution
-    store.write(machine_a_id, &[parent_ft], Value::EntityReference(Some(root_id)), None).unwrap();
-    store.write(machine_b_id, &[parent_ft], Value::EntityReference(Some(root_id)), None).unwrap();
-    store.write(service_a_id, &[parent_ft], Value::EntityReference(Some(machine_a_id)), None).unwrap();
-    store.write(service_b_id, &[parent_ft], Value::EntityReference(Some(machine_b_id)), None).unwrap();
-    store.write(ft_id, &[parent_ft], Value::EntityReference(Some(root_id)), None).unwrap();
+    store.write(machine_a_id, &[parent_ft], Value::EntityReference(Some(root_id)), None, None, None, None).unwrap();
+    store.write(machine_b_id, &[parent_ft], Value::EntityReference(Some(root_id)), None, None, None, None).unwrap();
+    store.write(service_a_id, &[parent_ft], Value::EntityReference(Some(machine_a_id)), None, None, None, None).unwrap();
+    store.write(service_b_id, &[parent_ft], Value::EntityReference(Some(machine_b_id)), None, None, None, None).unwrap();
+    store.write(ft_id, &[parent_ft], Value::EntityReference(Some(root_id)), None, None, None, None).unwrap();
     
     // Set up Children relationships
-    store.write(root_id, &[children_ft], Value::EntityList(vec![machine_a_id, machine_b_id, ft_id]), None).unwrap();
-    store.write(machine_a_id, &[children_ft], Value::EntityList(vec![service_a_id]), None).unwrap();
-    store.write(machine_b_id, &[children_ft], Value::EntityList(vec![service_b_id]), None).unwrap();
+    store.write(root_id, &[children_ft], Value::EntityList(vec![machine_a_id, machine_b_id, ft_id]), None, None, None, None).unwrap();
+    store.write(machine_a_id, &[children_ft], Value::EntityList(vec![service_a_id]), None, None, None, None).unwrap();
+    store.write(machine_b_id, &[children_ft], Value::EntityList(vec![service_b_id]), None, None, None, None).unwrap();
     
     // Set up CandidateList with entity references (not paths yet)
-    store.write(ft_id, &[candidate_list_ft], Value::EntityList(vec![service_a_id, service_b_id]), None).unwrap();
+    store.write(ft_id, &[candidate_list_ft], Value::EntityList(vec![service_a_id, service_b_id]), None, None, None, None).unwrap();
 
     // Take a snapshot
     let snapshot = take_json_snapshot(&mut store).unwrap();

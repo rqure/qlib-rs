@@ -1,7 +1,4 @@
 #[allow(unused_imports)]
-use crate::sreq;
-
-#[allow(unused_imports)]
 use crate::*;
 
 #[allow(unused_imports)]
@@ -44,8 +41,7 @@ fn test_create_and_authenticate_user() -> Result<()> {
             storage_scope: StorageScope::Configuration,
         }
     );
-    let requests = sreq![sschemaupdate!(object_schema)];
-    store.perform_mut(requests)?;
+    store.update_schema(object_schema)?;
     
     // Now we can get the interned types
     let object_entity_type = store.get_entity_type("Object")?;
@@ -108,13 +104,11 @@ fn test_create_and_authenticate_user() -> Result<()> {
             storage_scope: StorageScope::Runtime,
         }
     );
-    let requests = sreq![sschemaupdate!(subject_schema)];
-    store.perform_mut(requests)?;
+    store.update_schema(subject_schema)?;
     
     // Create the User entity schema (inheriting from Subject)
     let user_schema = EntitySchema::<Single, String, String>::new("User".to_string(), vec!["Subject".to_string()]);
-    let requests = sreq![sschemaupdate!(user_schema)];
-    store.perform_mut(requests)?;
+    store.update_schema(user_schema)?;
     
     // Create an object entity to serve as parent
     let parent_id = store.create_entity(object_entity_type, None, "TestParent")?;
@@ -182,8 +176,7 @@ fn test_authentication_with_factory_restore_format() -> Result<()> {
             storage_scope: StorageScope::Configuration,
         }
     );
-    let requests = sreq![sschemaupdate!(object_schema)];
-    store.perform_mut(requests)?;
+    store.update_schema(object_schema)?;
     
     // Now we can get the interned types
     let _object_entity_type = store.get_entity_type("Object")?;
@@ -245,13 +238,11 @@ fn test_authentication_with_factory_restore_format() -> Result<()> {
             storage_scope: StorageScope::Runtime,
         }
     );
-    let requests = sreq![sschemaupdate!(subject_schema)];
-    store.perform_mut(requests)?;
+    store.update_schema(subject_schema)?;
     
     // Create User schema
     let user_schema = EntitySchema::<Single, String, String>::new("User".to_string(), vec!["Subject".to_string()]);
-    let requests = sreq![sschemaupdate!(user_schema)];
-    store.perform_mut(requests)?;
+    store.update_schema(user_schema)?;
     
     // Now we can get the interned types
     let user_entity_type = store.get_entity_type("User")?;
@@ -276,9 +267,9 @@ fn test_authentication_with_factory_restore_format() -> Result<()> {
     let _locked_until_field_type = store.get_field_type("LockedUntil")?;
     let _last_login_field_type = store.get_field_type("LastLogin")?;
     
-    store.write(user_id, &[name_field_type], Value::from_string(username.to_string()), None)?;
-    store.write(user_id, &[secret_field_type], Value::from_string(password_hash), None)?;
-    store.write(user_id, &[active_field_type], Value::Bool(true), None)?;
+    store.write(user_id, &[name_field_type], Value::from_string(username.to_string()), None, None, None, None)?;
+    store.write(user_id, &[secret_field_type], Value::from_string(password_hash), None, None, None, None)?;
+    store.write(user_id, &[active_field_type], Value::Bool(true), None, None, None, None)?;
     
     // Test finding the user by name
     let found_user = find_user_by_name(&mut store, username)?;

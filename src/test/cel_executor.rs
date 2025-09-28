@@ -1,4 +1,3 @@
-use crate::sreq;
 #[allow(unused_imports)]
 use crate::*;
 use crate::data::StorageScope;
@@ -161,15 +160,15 @@ fn setup_test_store_with_entity() -> Result<(Store, EntityId)> {
     let tag2_id = EntityId::new(et_tag, 2);
     let test_data = vec![72, 101, 108, 108, 111]; // "Hello" in bytes
     
-    store.write(entity_id, &[ft_name], Value::from_string("John Doe".to_string()), None)?;
-    store.write(entity_id, &[ft_age], Value::Int(30), None)?;
-    store.write(entity_id, &[ft_score], Value::Float(95.5), None)?;
-    store.write(entity_id, &[ft_is_active], Value::Bool(true), None)?;
-    store.write(entity_id, &[ft_status], Value::Choice(1), None)?;
-    store.write(entity_id, &[ft_manager], Value::EntityReference(Some(manager_id)), None)?;
-    store.write(entity_id, &[ft_tags], Value::EntityList(vec![tag1_id, tag2_id]), None)?;
-    store.write(entity_id, &[ft_created_at], Value::Timestamp(now), None)?;
-    store.write(entity_id, &[ft_data], Value::Blob(test_data), None)?;
+    store.write(entity_id, &[ft_name], Value::from_string("John Doe".to_string()), None, None, None, None)?;
+    store.write(entity_id, &[ft_age], Value::Int(30), None, None, None, None)?;
+    store.write(entity_id, &[ft_score], Value::Float(95.5), None, None, None, None)?;
+    store.write(entity_id, &[ft_is_active], Value::Bool(true), None, None, None, None)?;
+    store.write(entity_id, &[ft_status], Value::Choice(1), None, None, None, None)?;
+    store.write(entity_id, &[ft_manager], Value::EntityReference(Some(manager_id)), None, None, None, None)?;
+    store.write(entity_id, &[ft_tags], Value::EntityList(vec![tag1_id, tag2_id]), None, None, None, None)?;
+    store.write(entity_id, &[ft_created_at], Value::Timestamp(now), None, None, None, None)?;
+    store.write(entity_id, &[ft_data], Value::Blob(test_data), None, None, None, None)?;
 
     Ok((store, entity_id))
 }
@@ -650,8 +649,7 @@ fn test_cel_executor_execute_with_deep_indirection() -> Result<()> {
             storage_scope: StorageScope::Runtime,
         }
     );
-    let requests = sreq![sschemaupdate!(company_schema)];
-    store.perform_mut(requests)?;
+    store.update_schema(company_schema)?;
     
     // Create Department schema with company reference and required fields
     let mut dept_schema = EntitySchema::<Single, String, String>::new("Department".to_string(), vec![]);
@@ -691,8 +689,7 @@ fn test_cel_executor_execute_with_deep_indirection() -> Result<()> {
             storage_scope: StorageScope::Runtime,
         }
     );
-    let requests = sreq![sschemaupdate!(dept_schema)];
-    store.perform_mut(requests)?;
+    store.update_schema(dept_schema)?;
     
     // Create Employee schema with department reference and required fields
     let mut employee_schema = EntitySchema::<Single, String, String>::new("Employee".to_string(), vec![]);
@@ -732,8 +729,7 @@ fn test_cel_executor_execute_with_deep_indirection() -> Result<()> {
             storage_scope: StorageScope::Runtime,
         }
     );
-    let requests = sreq![sschemaupdate!(employee_schema)];
-    store.perform_mut(requests)?;
+    store.update_schema(employee_schema)?;
 
     // Now we can get the interned types
     let et_company = store.get_entity_type("Company")?;
@@ -745,36 +741,19 @@ fn test_cel_executor_execute_with_deep_indirection() -> Result<()> {
     let ft_department = store.get_field_type("Department")?;
 
     // Create entities
-    let create_requests = store.perform_mut(sreq![screate!(et_company, "TechCorp".to_string())])?;
-    let company_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
-        id
-    } else {
-        panic!("Expected created company ID");
-    };
+    let company_id = store.create_entity(et_company, None, "TechCorp".to_string())?;
 
-    let create_requests = store.perform_mut(sreq![screate!(et_department, "Engineering".to_string())])?;
-    let dept_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
-        id
-    } else {
-        panic!("Expected created department ID");
-    };
+    let dept_id = store.create_entity(et_department, None, "Engineering".to_string())?;
 
-    let create_requests = store.perform_mut(sreq![screate!(et_employee, "Bob".to_string())])?;
-    let employee_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
-        id
-    } else {
-        panic!("Expected created employee ID");
-    };
+    let employee_id = store.create_entity(et_employee, None, "Bob".to_string())?;
 
     // Set up the entity relationships and data
-    store.perform_mut(sreq![
-        swrite!(company_id, crate::sfield![ft_name], sstr!("TechCorp")),
-        swrite!(company_id, crate::sfield![ft_founded], sint!(2010)),
-        swrite!(dept_id, crate::sfield![ft_name], sstr!("Engineering")),
-        swrite!(dept_id, crate::sfield![ft_company], sref!(Some(company_id))),
-        swrite!(employee_id, crate::sfield![ft_name], sstr!("Bob")),
-        swrite!(employee_id, crate::sfield![ft_department], sref!(Some(dept_id))),
-    ])?;
+    store.write(company_id, &[ft_name], Value::from_string("TechCorp".to_string()), None, None, None, None)?;
+    store.write(company_id, &[ft_founded], Value::Int(2010), None, None, None, None)?;
+    store.write(dept_id, &[ft_name], Value::from_string("Engineering".to_string()), None, None, None, None)?;
+    store.write(dept_id, &[ft_company], Value::EntityReference(Some(company_id)), None, None, None, None)?;
+    store.write(employee_id, &[ft_name], Value::from_string("Bob".to_string()), None, None, None, None)?;
+    store.write(employee_id, &[ft_department], Value::EntityReference(Some(dept_id)), None, None, None, None)?;
 
     // Test direct field access since indirection syntax needs CelExecutor updates
     let result = executor.execute(
@@ -836,8 +815,7 @@ fn test_cel_executor_execute_with_indirection_and_entity_lists() -> Result<()> {
             storage_scope: StorageScope::Runtime,
         }
     );
-    let requests = sreq![sschemaupdate!(project_schema)];
-    store.perform_mut(requests)?;
+    store.update_schema(project_schema)?;
     
     // Create Team schema with projects list and required fields
     let mut team_schema = EntitySchema::<Single, String, String>::new("Team".to_string(), vec![]);
@@ -877,8 +855,7 @@ fn test_cel_executor_execute_with_indirection_and_entity_lists() -> Result<()> {
             storage_scope: StorageScope::Runtime,
         }
     );
-    let requests = sreq![sschemaupdate!(team_schema)];
-    store.perform_mut(requests)?;
+    store.update_schema(team_schema)?;
 
     // Now we can get the interned types
     let et_team = store.get_entity_type("Team")?;
@@ -888,38 +865,19 @@ fn test_cel_executor_execute_with_indirection_and_entity_lists() -> Result<()> {
     let ft_projects = store.get_field_type("Projects")?;
 
     // Create project entities
-    let create_requests = store.perform_mut(sreq![screate!(et_project, "WebApp".to_string())])?;
-    let project1_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
-        id
-    } else {
-        panic!("Expected created project ID");
-    };
-
-    let create_requests = store.perform_mut(sreq![screate!(et_project, "MobileApp".to_string())])?;
-    let project2_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
-        id
-    } else {
-        panic!("Expected created project ID");
-    };
+    let project1_id = store.create_entity(et_project, None, "WebApp".to_string())?;
+    let project2_id = store.create_entity(et_project, None, "MobileApp".to_string())?;
 
     // Create team entity
-    let create_requests = store.perform_mut(sreq![screate!(et_team, "DevTeam".to_string())])?;
-    let team_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
-        id
-    } else {
-        panic!("Expected created team ID");
-    };
+    let team_id = store.create_entity(et_team, None, "DevTeam".to_string())?;
 
     // Set up the data
-    let field_requests = sreq![
-        swrite!(project1_id, crate::sfield![ft_name], sstr!("WebApp")),
-        swrite!(project1_id, crate::sfield![ft_priority], sint!(1)),
-        swrite!(project2_id, crate::sfield![ft_name], sstr!("MobileApp")),
-        swrite!(project2_id, crate::sfield![ft_priority], sint!(2)),
-        swrite!(team_id, crate::sfield![ft_name], sstr!("DevTeam")),
-        swrite!(team_id, crate::sfield![ft_projects], sreflist![project1_id, project2_id]),
-    ];
-    store.perform_mut(field_requests)?;
+    store.write(project1_id, &[ft_name], Value::from_string("WebApp".to_string()), None, None, None, None)?;
+    store.write(project1_id, &[ft_priority], Value::Int(1), None, None, None, None)?;
+    store.write(project2_id, &[ft_name], Value::from_string("MobileApp".to_string()), None, None, None, None)?;
+    store.write(project2_id, &[ft_priority], Value::Int(2), None, None, None, None)?;
+    store.write(team_id, &[ft_name], Value::from_string("DevTeam".to_string()), None, None, None, None)?;
+    store.write(team_id, &[ft_projects], Value::EntityList(vec![project1_id, project2_id]), None, None, None, None)?;
 
     // Test that we can access the entity list field
     let result = executor.execute("size(Projects) == 2", team_id, &mut store)?;
@@ -987,22 +945,12 @@ fn test_cel_executor_execute_with_null_entity_reference() -> Result<()> {
             storage_scope: StorageScope::Runtime,
         }
     );
-    let requests = sreq![sschemaupdate!(user_schema)];
-    store.perform_mut(requests)?;
+    store.update_schema(user_schema)?;
 
     // Now we can get the interned types
     let et_user = store.get_entity_type("User")?;
 
-    let create_requests = store.perform_mut(sreq![screate!(
-        et_user,
-        "User".to_string()
-    )])?;
-
-    let user_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
-        id
-    } else {
-        panic!("Expected created entity ID");
-    };
+    let user_id = store.create_entity(et_user, None, "User".to_string())?;
 
     // Manager field should be null/empty
     let result = executor.execute("Manager == ''", user_id, &mut store)?;
@@ -1115,8 +1063,7 @@ fn test_cel_executor_execute_with_mixed_field_access() -> Result<()> {
             storage_scope: StorageScope::Runtime,
         }
     );
-    let requests = sreq![sschemaupdate!(dept_schema)];
-    store.perform_mut(requests)?;
+    store.update_schema(dept_schema)?;
     
     // Create User schema with department reference and required fields
     let mut user_schema = EntitySchema::<Single, String, String>::new("User".to_string(), vec![]);
@@ -1165,8 +1112,7 @@ fn test_cel_executor_execute_with_mixed_field_access() -> Result<()> {
             storage_scope: StorageScope::Runtime,
         }
     );
-    let requests = sreq![sschemaupdate!(user_schema)];
-    store.perform_mut(requests)?;
+    store.update_schema(user_schema)?;
 
     // Now we can get the interned types
     let et_user = store.get_entity_type("User")?;
@@ -1176,35 +1122,16 @@ fn test_cel_executor_execute_with_mixed_field_access() -> Result<()> {
     let ft_department = store.get_field_type("Department")?;
 
     // Create department entity
-    let create_requests = store.perform_mut(sreq![screate!(
-        et_department,
-        "Sales".to_string()
-    )])?;
-    let dept_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
-        id
-    } else {
-        panic!("Expected created entity ID");
-    };
+    let dept_id = store.create_entity(et_department, None, "Sales".to_string())?;
 
     // Create user entity
-    let create_requests = store.perform_mut(sreq![screate!(
-        et_user,
-        "John".to_string()
-    )])?;
-    let user_id = if let Some(Request::Create { created_entity_id: Some(id), .. }) = create_requests.get(0) {
-        id
-    } else {
-        panic!("Expected created entity ID");
-    };
+    let user_id = store.create_entity(et_user, None, "John".to_string())?;
 
     // Set field values
-    let field_requests = sreq![
-        swrite!(dept_id, crate::sfield![ft_name], sstr!("Sales")),
-        swrite!(user_id, crate::sfield![ft_name], sstr!("John")),
-        swrite!(user_id, crate::sfield![ft_age], sint!(30)),
-        swrite!(user_id, crate::sfield![ft_department], sref!(Some(dept_id))),
-    ];
-    store.perform_mut(field_requests)?;
+    store.write(dept_id, &[ft_name], Value::from_string("Sales".to_string()), None, None, None, None)?;
+    store.write(user_id, &[ft_name], Value::from_string("John".to_string()), None, None, None, None)?;
+    store.write(user_id, &[ft_age], Value::Int(30), None, None, None, None)?;
+    store.write(user_id, &[ft_department], Value::EntityReference(Some(dept_id)), None, None, None, None)?;
 
     // Test direct field access (mixed indirection requires CelExecutor updates)
     let result = executor.execute(

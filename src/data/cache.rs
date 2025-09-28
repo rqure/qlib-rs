@@ -64,52 +64,26 @@ impl Cache {
 
         let entity_ids = store.find_entities(entity_type, None)?;
         for entity_id in entity_ids {
-            let reqs = crate::sreq![];
+            let mut index_values = Vec::new();
+            let mut other_values = Vec::new();
+
+            // Read index fields
             for field in index_fields.iter() {
-                reqs.push(crate::sread!(entity_id, crate::sfield![*field]));
+                let (value, _, _) = store.read(entity_id, &[*field])?;
+                index_values.push(value);
             }
             
+            // Read other fields
             for field in other_fields.iter() {
-                reqs.push(crate::sread!(entity_id, crate::sfield![*field]));
+                let (value, _, _) = store.read(entity_id, &[*field])?;
+                other_values.push(value);
             }
 
-            let reqs = store.perform_mut(reqs)?;
+            let index_key = index_values.clone();
 
-            let index_key = reqs.read()[..index_fields.len()]
-                .iter()
-                .filter_map(|req| req.value().cloned())
-                .collect::<Vec<crate::Value>>();
-
-            let all_fields = reqs.read()[index_fields.len()..]
-                .iter()
-                .filter_map(|req| {
-                    if let (Some(field_types), Some(value)) = (req.field_type(), req.value()) {
-                        // Handle the case where field_types is Vec<FieldType> - take the first one
-                        if let Some(field_type) = field_types.first() {
-                            Some((*field_type, value.clone()))
-                        } else {
-                            None
-                        }
-                    } else {
-                        None
-                    }
-                })
-                .chain(
-                    reqs.read()[..index_fields.len()]
-                        .iter()
-                        .filter_map(|req| {
-                            if let (Some(field_types), Some(value)) = (req.field_type(), req.value()) {
-                                // Handle the case where field_types is Vec<FieldType> - take the first one
-                                if let Some(field_type) = field_types.first() {
-                                    Some((*field_type, value.clone()))
-                                } else {
-                                    None
-                                }
-                            } else {
-                                None
-                            }
-                        }),
-                )
+            let all_fields = index_fields.iter().cloned()
+                .zip(index_values.into_iter())
+                .chain(other_fields.iter().cloned().zip(other_values.into_iter()))
                 .collect::<FxHashMap<FieldType, Value>>();
 
             entity_ids_by_index_fields

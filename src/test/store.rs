@@ -1,4 +1,3 @@
-use crate::sreq;
 use crate::*;
 use crate::data::StorageScope;
 
@@ -117,7 +116,7 @@ fn test_field_operations() -> Result<()> {
 
     // Test write and read operations
     let ft_name = store.get_field_type("Name")?;
-    store.write(user_ref, &[ft_name], Value::from_string("Updated User".to_string()), None)?;
+    store.write(user_ref, &[ft_name], Value::from_string("Updated User".to_string()), None, None, None, None)?;
 
     let (name_value, _, _) = store.read(user_ref, &[ft_name])?;
     if let Value::String(name) = name_value {
@@ -127,7 +126,7 @@ fn test_field_operations() -> Result<()> {
     }
 
     // Test field updates
-    store.write(user_ref, &[ft_name], Value::from_string("Final Name".to_string()), None)?;
+    store.write(user_ref, &[ft_name], Value::from_string("Final Name".to_string()), None, None, None, None)?;
 
     let (final_name_value, _, _) = store.read(user_ref, &[ft_name])?;
     if let Value::String(name) = final_name_value {
@@ -161,7 +160,7 @@ fn test_indirection_resolution() -> Result<()> {
     let ft_name = store.get_field_type("Name")?;
     let parent_name_field = vec![ft_parent, ft_name];
 
-    store.write(admin_user_ref, &[ft_name], Value::from_string("Administrator".to_string()), None)?;
+    store.write(admin_user_ref, &[ft_name], Value::from_string("Administrator".to_string()), None, None, None, None)?;
 
     // Test indirection resolution
     let (indirect_value, _, _) = store.read(admin_user_ref, &parent_name_field)?;
