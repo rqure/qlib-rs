@@ -529,15 +529,32 @@ impl<'a> RespDecode<'a> for Value {
             RespValue::Null => Value::EntityReference(None),
             RespValue::Array(elements) => {
                 // Try to parse as EntityList first
-                if elements.iter().all(|e| matches!(e, RespValue::Integer(_) | RespValue::BulkString(_))) {
-                    let entity_ids: Result<Vec<EntityId>> = elements.iter()
-                        .map(|e| EntityId::decode(&e.encode()))
-                        .map(|res| res.map(|(id, _)| id))
-                        .collect();
-                    match entity_ids {
-                        Ok(ids) => Value::EntityList(ids),
-                        Err(_) => Value::String(format!("{:?}", elements)),
+                let mut all_valid = true;
+                let mut entity_ids = Vec::new();
+                for element in &elements {
+                    match element {
+                        RespValue::Integer(i) if *i >= 0 => entity_ids.push(EntityId(*i as u64)),
+                        RespValue::BulkString(data) => {
+                            if let Ok(s) = std::str::from_utf8(data) {
+                                if let Ok(id) = s.parse::<u64>() {
+                                    entity_ids.push(EntityId(id));
+                                } else {
+                                    all_valid = false;
+                                    break;
+                                }
+                            } else {
+                                all_valid = false;
+                                break;
+                            }
+                        }
+                        _ => {
+                            all_valid = false;
+                            break;
+                        }
                     }
+                }
+                if all_valid && entity_ids.len() == elements.len() {
+                    Value::EntityList(entity_ids)
                 } else {
                     Value::String(format!("{:?}", elements))
                 }
@@ -791,8 +808,8 @@ impl<'a> RespCommand<'a> for WriteCommand<'a> {
             self.value.clone(), 
             self.writer_id, 
             self.write_time, 
-            self.push_condition, 
-            self.adjust_behavior
+            self.push_condition.clone(), 
+            self.adjust_behavior.clone()
         )?;
         Ok(RespResponse::Ok)
     }
@@ -884,6 +901,7 @@ impl<'a> RespCommand<'a> for CreateEntityCommand<'a> {
 // ============================================================================
 
 /// Dispatches RESP commands based on command name
+#[derive(Debug)]
 pub enum RespCommandDispatcher<'a> {
     Read(ReadCommand<'a>),
     Write(WriteCommand<'a>),
