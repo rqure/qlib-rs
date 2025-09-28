@@ -11,10 +11,10 @@ use mio::{Events, Interest, Poll, Token};
 use serde::{de::DeserializeOwned, Serialize};
 
 use crate::{
-    Complete, EntityId, EntitySchema, EntityType, Error, FieldSchema, FieldType, Notification, NotificationQueue, NotifyConfig, hash_notify_config, PageOpts, PageResult, Request, Requests, Result, Single, Value, Timestamp, now, PushCondition, AdjustBehavior
+    Complete, EntityId, EntitySchema, EntityType, Error, FieldSchema, FieldType, Notification, NotificationQueue, NotifyConfig, hash_notify_config, PageOpts, PageResult, Result, Single, Value, Timestamp, PushCondition, AdjustBehavior
 };
 use crate::data::StoreTrait;
-use crate::protocol::{MessageBuffer, QuspCommand, QuspFrame, QuspResponse, encode_command};
+use crate::protocol::{MessageBuffer, QuspCommand, QuspFrame, QuspResponse, encode_command, parse_indirection_response, parse_read_response, parse_entity_id_response, parse_snapshot_response, parse_page_result_entity_ids_response, parse_page_result_entity_types_response, parse_bool_response, encode_value, encode_page_opts, encode_notify_config, field_path_to_string, encode_optional_timestamp, encode_optional_entity_id, encode_push_condition, encode_adjust_behavior, encode_entity_schema_string};
 
 const READ_POLL_INTERVAL: Duration = Duration::from_millis(10);
 
@@ -109,7 +109,7 @@ impl TcpConnection {
     }
     
     pub fn send_command(&mut self, command: &QuspCommand) -> anyhow::Result<()> {
-        let encoded = encode_command(command)?;
+        let encoded = encode_command(command);
         self.stream.write_all(&encoded)?;
         self.stream.flush()?;
         Ok(())
@@ -287,6 +287,7 @@ impl StoreProxy {
         let args = vec![Bytes::copy_from_slice(name.as_bytes())];
         let response = self.send_command("GET_ENTITY_TYPE", args)?;
         crate::protocol::parse_entity_type_response(response)
+            .map_err(|e| Error::StoreProxyError(format!("Failed to parse entity type response: {}", e)))
     }
 
     /// Resolve entity type to name
@@ -294,6 +295,7 @@ impl StoreProxy {
         let args = vec![Bytes::copy_from_slice(&entity_type.0.to_string().as_bytes())];
         let response = self.send_command("RESOLVE_ENTITY_TYPE", args)?;
         crate::protocol::parse_string_response(response)
+            .map_err(|e| Error::StoreProxyError(format!("Failed to parse string response: {}", e)))
     }
 
     /// Get field type by name
@@ -301,6 +303,7 @@ impl StoreProxy {
         let args = vec![Bytes::copy_from_slice(name.as_bytes())];
         let response = self.send_command("GET_FIELD_TYPE", args)?;
         crate::protocol::parse_field_type_response(response)
+            .map_err(|e| Error::StoreProxyError(format!("Failed to parse field type response: {}", e)))
     }
 
     /// Resolve field type to name
@@ -308,6 +311,7 @@ impl StoreProxy {
         let args = vec![Bytes::copy_from_slice(&field_type.0.to_string().as_bytes())];
         let response = self.send_command("RESOLVE_FIELD_TYPE", args)?;
         crate::protocol::parse_string_response(response)
+            .map_err(|e| Error::StoreProxyError(format!("Failed to parse string response: {}", e)))
     }
 
     /// Get entity schema
@@ -315,6 +319,7 @@ impl StoreProxy {
         let args = vec![Bytes::copy_from_slice(&entity_type.0.to_string().as_bytes())];
         let response = self.send_command("GET_ENTITY_SCHEMA", args)?;
         crate::protocol::parse_entity_schema_response(response)
+            .map_err(|e| Error::StoreProxyError(format!("Failed to parse entity schema response: {}", e)))
     }
 
     /// Get complete entity schema
@@ -322,6 +327,7 @@ impl StoreProxy {
         let args = vec![Bytes::copy_from_slice(&entity_type.0.to_string().as_bytes())];
         let response = self.send_command("GET_COMPLETE_ENTITY_SCHEMA", args)?;
         crate::protocol::parse_complete_entity_schema_response(response)
+            .map_err(|e| Error::StoreProxyError(format!("Failed to parse complete entity schema response: {}", e)))
     }
 
     /// Set field schema
@@ -354,6 +360,7 @@ impl StoreProxy {
         ];
         let response = self.send_command("GET_FIELD_SCHEMA", args)?;
         crate::protocol::parse_field_schema_response(response)
+            .map_err(|e| Error::StoreProxyError(format!("Failed to parse field schema response: {}", e)))
     }
 
     /// Check if entity exists
@@ -381,87 +388,138 @@ impl StoreProxy {
         }
     }
 
-    /// Perform requests (deprecated - use specific QUSP commands instead)
-    pub fn perform(&self, requests: Requests) -> Result<Requests> {
-        let id = self.next_id();
-        let payload = serialize_requests(&requests)?;
-        let response = self.send_request(QuspMessage::Perform { id, payload })?;
-
-        match response {
-            QuspMessage::PerformOk { payload, .. } => deserialize_requests(&payload),
-            QuspMessage::PerformErr { message, .. } => {
-                Err(Error::StoreProxyError(bytes_to_string(&message)))
-            }
-            QuspMessage::Error { message, .. } => {
-                Err(Error::StoreProxyError(bytes_to_string(&message)))
-            }
-            other => Err(Error::StoreProxyError(format!(
-                "Unexpected response type: {:?}",
-                other
-            ))),
-        }
+    /// Resolve indirection
+    pub fn resolve_indirection(&self, entity_id: EntityId, fields: &[FieldType]) -> Result<(EntityId, FieldType)> {
+        let field_path_str = crate::protocol::field_path_to_string(fields);
+        let args = vec![
+            Bytes::copy_from_slice(&entity_id.0.to_string().as_bytes()),
+            Bytes::copy_from_slice(field_path_str.as_bytes()),
+        ];
+        let response = self.send_command("RESOLVE_INDIRECTION", args)?;
+        crate::protocol::parse_indirection_response(response)
+            .map_err(|e| Error::StoreProxyError(format!("Failed to parse indirection response: {}", e)))
     }
 
-    pub fn perform_mut(&mut self, requests: Requests) -> Result<Requests> {
-        StoreProxy::perform(self, requests)
+    /// Read a field value
+    pub fn read(&self, entity_id: EntityId, field_path: &[FieldType]) -> Result<(Value, Timestamp, Option<EntityId>)> {
+        let field_path_str = crate::protocol::field_path_to_string(field_path);
+        let args = vec![
+            Bytes::copy_from_slice(&entity_id.0.to_string().as_bytes()),
+            Bytes::copy_from_slice(field_path_str.as_bytes()),
+        ];
+        let response = self.send_command("READ", args)?;
+        crate::protocol::parse_read_response(response)
+            .map_err(|e| Error::StoreProxyError(format!("Failed to parse read response: {}", e)))
     }
 
-    /// Find entities
-    pub fn find_entities_paginated(
-        &self,
-        entity_type: EntityType,
-        page_opts: Option<&PageOpts>,
-        filter: Option<&str>,
-    ) -> Result<PageResult<EntityId>> {
-        let request = Request::FindEntities {
-            entity_type,
-            page_opts: page_opts.cloned(),
-            filter: filter.map(|s| s.to_string()),
-            result: None,
-        };
+    /// Write a field value
+    pub fn write(&mut self, entity_id: EntityId, field_path: &[FieldType], value: Value, writer_id: Option<EntityId>, write_time: Option<Timestamp>, push_condition: Option<PushCondition>, adjust_behavior: Option<AdjustBehavior>) -> Result<()> {
+        let encoded_value = crate::protocol::encode_value(&value);
+        let field_path_str = crate::protocol::field_path_to_string(field_path);
+        let args = vec![
+            Bytes::copy_from_slice(&entity_id.0.to_string().as_bytes()),
+            Bytes::copy_from_slice(field_path_str.as_bytes()),
+            Bytes::copy_from_slice(&encoded_value),
+            Bytes::copy_from_slice(&crate::protocol::encode_optional_entity_id(writer_id).as_bytes()),
+            Bytes::copy_from_slice(&crate::protocol::encode_optional_timestamp(write_time).as_bytes()),
+            Bytes::copy_from_slice(&crate::protocol::encode_push_condition(push_condition).as_bytes()),
+            Bytes::copy_from_slice(&crate::protocol::encode_adjust_behavior(adjust_behavior).as_bytes()),
+        ];
+        self.send_command_ok("WRITE", args)
+    }
+
+    /// Create a new entity
+    pub fn create_entity(&mut self, entity_type: EntityType, parent_id: Option<EntityId>, name: &str) -> Result<EntityId> {
+        let args = vec![
+            Bytes::copy_from_slice(&entity_type.0.to_string().as_bytes()),
+            Bytes::copy_from_slice(&crate::protocol::encode_optional_entity_id(parent_id).as_bytes()),
+            Bytes::copy_from_slice(name.as_bytes()),
+        ];
+        let response = self.send_command("CREATE_ENTITY", args)?;
+        crate::protocol::parse_entity_id_response(response)
+            .map_err(|e| Error::StoreProxyError(format!("Failed to parse entity ID response: {}", e)))
+    }
+
+    /// Delete an entity
+    pub fn delete_entity(&mut self, entity_id: EntityId) -> Result<()> {
+        let args = vec![Bytes::copy_from_slice(&entity_id.0.to_string().as_bytes())];
+        self.send_command_ok("DELETE_ENTITY", args)
+    }
+
+    /// Update entity schema
+    pub fn update_schema(&mut self, schema: EntitySchema<Single, String, String>) -> Result<()> {
+        let encoded_schema = crate::protocol::encode_entity_schema_string(&schema)
+            .map_err(|e| Error::StoreProxyError(format!("Failed to encode entity schema: {}", e)))?;
+        let args = vec![Bytes::copy_from_slice(&encoded_schema)];
+        self.send_command_ok("UPDATE_SCHEMA", args)
+    }
+
+    /// Take a snapshot of the current store state
+    pub fn take_snapshot(&self) -> crate::data::Snapshot {
+        let response = self.send_command("TAKE_SNAPSHOT", vec![]).unwrap();
+        crate::protocol::parse_snapshot_response(response)
+            .map_err(|e| Error::StoreProxyError(format!("Failed to parse snapshot response: {}", e)))
+            .unwrap()
+    }
+
+    /// Find entities with pagination (includes inherited types)
+    pub fn find_entities_paginated(&self, entity_type: EntityType, page_opts: Option<&PageOpts>, filter: Option<&str>) -> Result<PageResult<EntityId>> {
+        let mut args = vec![Bytes::copy_from_slice(&entity_type.0.to_string().as_bytes())];
         
-        let requests = sreq![request];
-        let response = self.perform(requests)?;
-        
-        if let Some(req) = response.first() {
-            match req {
-                Request::FindEntities { result, .. } => {
-                    result.clone().ok_or_else(|| Error::StoreProxyError("Find entities result not found".to_string()))
-                }
-                _ => Err(Error::StoreProxyError("Unexpected response type".to_string())),
-            }
+        if let Some(opts) = page_opts {
+            let encoded_opts = crate::protocol::encode_page_opts(opts);
+            args.push(Bytes::copy_from_slice(&encoded_opts));
         } else {
-            Err(Error::StoreProxyError("No response received".to_string()))
+            args.push(Bytes::copy_from_slice(b"null"));
         }
+        
+        if let Some(f) = filter {
+            args.push(Bytes::copy_from_slice(f.as_bytes()));
+        } else {
+            args.push(Bytes::copy_from_slice(b"null"));
+        }
+        
+        let response = self.send_command("FIND_ENTITIES_PAGINATED", args)?;
+        crate::protocol::parse_page_result_entity_ids_response(response)
+            .map_err(|e| Error::StoreProxyError(format!("Failed to parse page result response: {}", e)))
     }
 
-    /// Find entities exact
-    pub fn find_entities_exact(
-        &self,
-        entity_type: EntityType,
-        page_opts: Option<&PageOpts>,
-        filter: Option<&str>,
-    ) -> Result<PageResult<EntityId>> {
-        let request = Request::FindEntitiesExact {
-            entity_type,
-            page_opts: page_opts.cloned(),
-            filter: filter.map(|s| s.to_string()),
-            result: None,
-        };
+    /// Find entities exactly of the specified type (no inheritance) with pagination
+    pub fn find_entities_exact(&self, entity_type: EntityType, page_opts: Option<&PageOpts>, filter: Option<&str>) -> Result<PageResult<EntityId>> {
+        let mut args = vec![Bytes::copy_from_slice(&entity_type.0.to_string().as_bytes())];
         
-        let requests = sreq![request];
-        let response = self.perform(requests)?;
-        
-        if let Some(req) = response.first() {
-            match req {
-                Request::FindEntitiesExact { result, .. } => {
-                    result.clone().ok_or_else(|| Error::StoreProxyError("Find entities exact result not found".to_string()))
-                }
-                _ => Err(Error::StoreProxyError("Unexpected response type".to_string())),
-            }
+        if let Some(opts) = page_opts {
+            let encoded_opts = crate::protocol::encode_page_opts(opts);
+            args.push(Bytes::copy_from_slice(&encoded_opts));
         } else {
-            Err(Error::StoreProxyError("No response received".to_string()))
+            args.push(Bytes::copy_from_slice(b"null"));
         }
+        
+        if let Some(f) = filter {
+            args.push(Bytes::copy_from_slice(f.as_bytes()));
+        } else {
+            args.push(Bytes::copy_from_slice(b"null"));
+        }
+        
+        let response = self.send_command("FIND_ENTITIES_EXACT", args)?;
+        crate::protocol::parse_page_result_entity_ids_response(response)
+            .map_err(|e| Error::StoreProxyError(format!("Failed to parse page result response: {}", e)))
+    }
+
+    /// Get all entity types with pagination
+    pub fn get_entity_types_paginated(&self, page_opts: Option<&PageOpts>) -> Result<PageResult<EntityType>> {
+        let mut args = vec![];
+        
+        if let Some(opts) = page_opts {
+            let encoded_opts = crate::protocol::encode_page_opts(opts);
+            args.push(Bytes::copy_from_slice(&encoded_opts));
+        } else {
+            args.push(Bytes::copy_from_slice(b"null"));
+        }
+        
+        let response = self.send_command("GET_ENTITY_TYPES_PAGINATED", args)?;
+        crate::protocol::parse_page_result_entity_types_response(response)
+            .map_err(|e| Error::StoreProxyError(format!("Failed to parse page result response: {}", e)))
     }
 
     pub fn find_entities(
@@ -515,30 +573,7 @@ impl StoreProxy {
         Ok(result)
     }
 
-    /// Get entity types
-    pub fn get_entity_types_paginated(
-        &self,
-        page_opts: Option<&PageOpts>,
-    ) -> Result<PageResult<EntityType>> {
-        let request = Request::GetEntityTypes {
-            page_opts: page_opts.cloned(),
-            result: None,
-        };
-        
-        let requests = sreq![request];
-        let response = self.perform(requests)?;
-        
-        if let Some(req) = response.first() {
-            match req {
-                Request::GetEntityTypes { result, .. } => {
-                    result.clone().ok_or_else(|| Error::StoreProxyError("Get entity types result not found".to_string()))
-                }
-                _ => Err(Error::StoreProxyError("Unexpected response type".to_string())),
-            }
-        } else {
-            Err(Error::StoreProxyError("No response received".to_string()))
-        }
-    }
+
 
     /// Register notification with provided sender
     /// Note: For proxy, this registers the notification on the remote server
@@ -548,28 +583,15 @@ impl StoreProxy {
         config: NotifyConfig,
         sender: NotificationQueue,
     ) -> Result<()> {
-        let payload = serialize_notify_config(&config)?;
-        match self.send_request(QuspMessage::Register {
-            id: self.next_id(),
-            config: payload,
-        })? {
-            QuspMessage::RegisterOk { .. } => {
-                let config_hash = hash_notify_config(&config);
-                let mut configs = self.notification_configs.borrow_mut();
-                configs.entry(config_hash).or_insert_with(Vec::new).push(sender);
-                Ok(())
-            }
-            QuspMessage::RegisterErr { message, .. } => {
-                Err(Error::StoreProxyError(bytes_to_string(&message)))
-            }
-            QuspMessage::Error { message, .. } => {
-                Err(Error::StoreProxyError(bytes_to_string(&message)))
-            }
-            other => Err(Error::StoreProxyError(format!(
-                "Unexpected response type: {:?}",
-                other
-            ))),
-        }
+        let encoded_config = crate::protocol::encode_notify_config(&config)
+            .map_err(|e| Error::StoreProxyError(format!("Failed to encode notify config: {}", e)))?;
+        let args = vec![Bytes::copy_from_slice(&encoded_config)];
+        self.send_command_ok("REGISTER_NOTIFICATION", args)?;
+        
+        let config_hash = hash_notify_config(&config);
+        let mut configs = self.notification_configs.borrow_mut();
+        configs.entry(config_hash).or_insert_with(Vec::new).push(sender);
+        Ok(())
     }
 
     /// Unregister a notification by removing a specific sender
@@ -596,21 +618,15 @@ impl StoreProxy {
 
         // If we removed a sender locally, also unregister from remote
         if removed_locally {
-                let payload = match serialize_notify_config(target_config) {
-                    Ok(bytes) => bytes,
-                    Err(_) => return false,
-                };
-
-                match self.send_request(QuspMessage::Unregister {
-                    id: self.next_id(),
-                    config: payload,
-                }) {
-                    Ok(QuspMessage::UnregisterOk { removed, .. }) => removed,
-                    Ok(QuspMessage::UnregisterErr { .. }) => false,
-                    Ok(QuspMessage::Error { .. }) => false,
-                    Ok(_) => false,
-                    Err(_) => false,
-                }
+            let encoded_config = match crate::protocol::encode_notify_config(target_config) {
+                Ok(bytes) => bytes,
+                Err(_) => return false,
+            };
+            let args = vec![Bytes::copy_from_slice(&encoded_config)];
+            match self.send_command_ok("UNREGISTER_NOTIFICATION", args) {
+                Ok(_) => true,
+                Err(_) => false,
+            }
         } else {
             false
         }
@@ -662,105 +678,31 @@ impl StoreTrait for StoreProxy {
     }
 
     fn resolve_indirection(&self, entity_id: EntityId, fields: &[FieldType]) -> Result<(EntityId, FieldType)> {
-        // For StoreProxy, we need to use the old approach via perform() since we don't have direct field access
-        crate::data::indirection::resolve_indirection_via_trait(self, entity_id, fields)
+        self.resolve_indirection(entity_id, fields)
     }
 
     fn read(&self, entity_id: EntityId, field_path: &[FieldType]) -> Result<(Value, Timestamp, Option<EntityId>)> {
-        let request = Request::Read {
-            entity_id,
-            field_types: field_path.iter().cloned().collect(),
-            value: None,
-            write_time: None,
-            writer_id: None,
-        };
-        
-        let requests = Requests::new(vec![request]);
-        let response = self.perform(requests)?;
-        
-        if let Some(req) = response.first() {
-            match req {
-                Request::Read { value, write_time, writer_id, .. } => {
-                    if let (Some(val), Some(time)) = (value, write_time) {
-                        Ok((val.clone(), time.clone(), writer_id.clone()))
-                    } else {
-                        Err(Error::StoreProxyError("Read result incomplete".to_string()))
-                    }
-                }
-                _ => Err(Error::StoreProxyError("Unexpected response type".to_string())),
-            }
-        } else {
-            Err(Error::StoreProxyError("No response received".to_string()))
-        }
+        self.read(entity_id, field_path)
     }
 
-    fn write(&mut self, entity_id: EntityId, field_path: &[FieldType], value: Value, writer_id: Option<EntityId>) -> Result<()> {
-        let request = Request::Write {
-            entity_id,
-            field_types: field_path.iter().cloned().collect(),
-            value: Some(value),
-            push_condition: PushCondition::Always,
-            adjust_behavior: AdjustBehavior::Set,
-            write_time: Some(now()),
-            writer_id,
-            write_processed: false,
-        };
-        
-        let requests = Requests::new(vec![request]);
-        let _response = self.perform_mut(requests)?;
-        Ok(())
+    fn write(&mut self, entity_id: EntityId, field_path: &[FieldType], value: Value, writer_id: Option<EntityId>, write_time: Option<Timestamp>, push_condition: Option<PushCondition>, adjust_behavior: Option<AdjustBehavior>) -> Result<()> {
+        self.write(entity_id, field_path, value, writer_id, write_time, push_condition, adjust_behavior)
     }
 
     fn create_entity(&mut self, entity_type: EntityType, parent_id: Option<EntityId>, name: &str) -> Result<EntityId> {
-        let request = Request::Create {
-            entity_type,
-            parent_id,
-            name: name.to_string(),
-            created_entity_id: None,
-            timestamp: Some(now()),
-        };
-        
-        let requests = Requests::new(vec![request]);
-        let response = self.perform_mut(requests)?;
-        
-        if let Some(req) = response.first() {
-            match req {
-                Request::Create { created_entity_id, .. } => {
-                    created_entity_id.ok_or_else(|| Error::StoreProxyError("Entity creation failed".to_string()))
-                }
-                _ => Err(Error::StoreProxyError("Unexpected response type".to_string())),
-            }
-        } else {
-            Err(Error::StoreProxyError("No response received".to_string()))
-        }
+        self.create_entity(entity_type, parent_id, name)
     }
 
     fn delete_entity(&mut self, entity_id: EntityId) -> Result<()> {
-        let request = Request::Delete {
-            entity_id,
-            timestamp: Some(now()),
-        };
-        
-        let requests = Requests::new(vec![request]);
-        let _response = self.perform_mut(requests)?;
-        Ok(())
+        self.delete_entity(entity_id)
     }
 
     fn update_schema(&mut self, schema: EntitySchema<Single, String, String>) -> Result<()> {
-        let request = Request::SchemaUpdate {
-            schema,
-            timestamp: Some(now()),
-        };
-        
-        let requests = Requests::new(vec![request]);
-        let _response = self.perform_mut(requests)?;
-        Ok(())
+        self.update_schema(schema)
     }
 
     fn take_snapshot(&self) -> crate::data::Snapshot {
-        // For StoreProxy, snapshots are not directly supported
-        // This would need to be implemented via perform if needed
-        unimplemented!("Snapshots not supported in StoreProxy")
+        self.take_snapshot()
     }
 
     fn find_entities_paginated(&self, entity_type: EntityType, page_opts: Option<&PageOpts>, filter: Option<&str>) -> Result<PageResult<EntityId>> {

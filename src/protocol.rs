@@ -513,7 +513,7 @@ fn parse_timestamp(s: &str) -> Result<Timestamp> {
 
 // Binary encoding for Value enum using zero-copy deserialization
 // Format: [type_tag:u8][length:u64][data...]
-fn encode_value(value: &Value) -> Vec<u8> {
+pub fn encode_value(value: &Value) -> Vec<u8> {
     let mut buf = Vec::new();
     match value {
         Value::String(s) => {
@@ -1280,7 +1280,7 @@ fn decode_entity_schema_single(bytes: &Bytes) -> Result<EntitySchema<Single>> {
         _ => return Err(anyhow!("Expected bytes for fields map")),
     };
     
-    let mut schema: EntitySchema<Single> = EntitySchema::new(entity_type, inherit);
+    let mut schema: EntitySchema<Single> = EntitySchema::<Single>::new(entity_type, inherit);
     schema.fields = fields;
     Ok(schema)
 }
@@ -1517,8 +1517,8 @@ fn decode_entity_schema_string(bytes: &Bytes) -> Result<EntitySchema<Single, Str
         }
         _ => return Err(anyhow!("Expected bytes for fields map")),
     };
-    
-    let mut schema: EntitySchema<Single, String, String> = EntitySchema::new(entity_type, inherit);
+
+    let mut schema: EntitySchema<Single, String, String> = EntitySchema::<Single, String, String>::new(entity_type, inherit);
     schema.fields = fields;
     Ok(schema)
 }
