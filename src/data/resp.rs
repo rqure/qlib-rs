@@ -58,14 +58,6 @@ pub enum RespResponse {
     Error(String),
     /// Null response
     Null,
-    /// Custom value response (serialized to appropriate RESP type)
-    Value(Value),
-    /// EntityId response
-    EntityId(EntityId),
-    /// Timestamp response
-    Timestamp(Timestamp),
-    /// Boolean response
-    Bool(bool),
 }
 
 /// Custom command example - users can define their own commands this way
@@ -388,39 +380,6 @@ impl RespEncode for RespResponse {
             RespResponse::Null => {
                 b"$-1\r\n".to_vec()
             },
-            RespResponse::Value(value) => {
-                // Convert Value to appropriate RESP representation
-                match value {
-                    Value::String(s) => RespResponse::String(s.clone()).encode(),
-                    Value::Int(i) => RespResponse::Integer(*i).encode(),
-                    Value::Float(f) => RespResponse::String(f.to_string()).encode(),
-                    Value::Bool(b) => RespResponse::Integer(if *b { 1 } else { 0 }).encode(),
-                    Value::Blob(data) => RespResponse::Bulk(data.clone()).encode(),
-                    Value::EntityReference(Some(entity_id)) => {
-                        RespResponse::String(format!("{}", entity_id.0)).encode()
-                    },
-                    Value::EntityReference(None) => RespResponse::Null.encode(),
-                    Value::EntityList(entities) => {
-                        let responses: Vec<RespResponse> = entities.iter()
-                            .map(|entity_id| RespResponse::String(format!("{}", entity_id.0)))
-                            .collect();
-                        RespResponse::Array(responses).encode()
-                    },
-                    Value::Choice(choice) => RespResponse::Integer(*choice).encode(),
-                    Value::Timestamp(timestamp) => {
-                        RespResponse::String(timestamp.to_string()).encode()
-                    },
-                }
-            },
-            RespResponse::EntityId(entity_id) => {
-                RespResponse::String(format!("{}", entity_id.0)).encode()
-            },
-            RespResponse::Timestamp(timestamp) => {
-                RespResponse::String(timestamp.to_string()).encode()
-            },
-            RespResponse::Bool(b) => {
-                RespResponse::Integer(if *b { 1 } else { 0 }).encode()
-            },
         }
     }
 }
@@ -705,12 +664,7 @@ impl<'a> RespCommand<'a> for ReadCommand<'a> {
         let (value, timestamp, writer_id) = store.read(self.entity_id, &self.field_path)?;
         // Return a structured response with value, timestamp, and writer_id
         let response_array = vec![
-            RespResponse::Value(value),
-            RespResponse::Timestamp(timestamp),
-            match writer_id {
-                Some(id) => RespResponse::EntityId(id),
-                None => RespResponse::Null,
-            },
+
         ];
         Ok(RespResponse::Array(response_array))
     }
@@ -892,7 +846,7 @@ impl<'a> RespCommand<'a> for CreateEntityCommand<'a> {
     
     fn execute(&self, store: &mut dyn crate::data::StoreTrait) -> Result<RespResponse> {
         let entity_id = store.create_entity(self.entity_type, self.parent_id, &self.name)?;
-        Ok(RespResponse::EntityId(entity_id))
+        Ok(entity_id.encode())
     }
 }
 
@@ -906,8 +860,6 @@ pub enum RespCommandDispatcher<'a> {
     Read(ReadCommand<'a>),
     Write(WriteCommand<'a>),
     CreateEntity(CreateEntityCommand<'a>),
-    // Add other commands as needed
-    Custom(CustomCommand<'a>),
 }
 
 impl<'a> RespCommandDispatcher<'a> {
@@ -943,12 +895,7 @@ impl<'a> RespCommandDispatcher<'a> {
                 RespCommandDispatcher::CreateEntity(cmd)
             },
             _ => {
-                // Handle as custom command
-                let custom = CustomCommand {
-                    name: command_name,
-                    args: array[1..].to_vec(),
-                };
-                RespCommandDispatcher::Custom(custom)
+                return Err(crate::Error::InvalidRequest(format!("Unknown command: {}", command_name)));
             }
         };
         
@@ -961,9 +908,6 @@ impl<'a> RespCommandDispatcher<'a> {
             RespCommandDispatcher::Read(cmd) => cmd.execute(store),
             RespCommandDispatcher::Write(cmd) => cmd.execute(store),
             RespCommandDispatcher::CreateEntity(cmd) => cmd.execute(store),
-            RespCommandDispatcher::Custom(_cmd) => {
-                Ok(RespResponse::Error("Custom command execution not implemented".to_string()))
-            }
         }
     }
 }
