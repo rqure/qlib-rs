@@ -4,14 +4,14 @@ use std::io::{Read, Write};
 use std::rc::Rc;
 use std::time::Duration;
 
-use anyhow;
+use anyhow::{anyhow, Result};
 use bytes::Bytes;
 use bincode;
 use mio::{Events, Interest, Poll, Token};
 use serde::{de::DeserializeOwned};
 
 use crate::{
-    Complete, EntityId, EntitySchema, EntityType, Error, FieldSchema, FieldType, Notification, NotificationQueue, NotifyConfig, hash_notify_config, PageOpts, PageResult, Result, Single, Value, Timestamp, PushCondition, AdjustBehavior
+    Complete, EntityId, EntitySchema, EntityType, Error, FieldSchema, FieldType, Notification, NotificationQueue, NotifyConfig, hash_notify_config, PageOpts, PageResult, Single, Value, Timestamp, PushCondition, AdjustBehavior
 };
 use crate::data::StoreTrait;
 use crate::protocol::{MessageBuffer, QuspCommand, QuspFrame, QuspResponse, encode_command};
@@ -149,8 +149,8 @@ impl StoreProxy {
 
     fn handle_incoming_command(&self, command: QuspCommand) -> Result<()> {
         let name = command
-            .uppercase_name()
-            .map_err(|e| Error::StoreProxyError(format!("Invalid command name: {}", e)))?;
+            .name_uppercase()
+            .map_err(|e| anyhow!("Failed to get command name: {}", e))?;
         match name.as_str() {
             "NOTIFY" => {
                 let payload = command

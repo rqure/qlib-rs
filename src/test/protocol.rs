@@ -243,7 +243,7 @@ mod tests {
         }
         
         // Test accessing array elements
-        let elements = frame_ref.as_array().expect("Failed to get array elements");
+        let elements = frame_ref.collect_array().expect("Failed to get array elements");
         assert_eq!(elements.len(), 3);
         
         // Test command name
@@ -265,7 +265,7 @@ mod tests {
         
         // Test command name
         assert_eq!(cmd_ref.name, "GET_ENTITY_TYPE");
-        assert_eq!(cmd_ref.uppercase_name(), "GET_ENTITY_TYPE");
+        assert_eq!(cmd_ref.name_uppercase(), "GET_ENTITY_TYPE");
         
         // Test arguments
         assert_eq!(cmd_ref.arg_count(), 1);
