@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 
 use crate::{
-    sschemaupdate, EntityId, EntitySchema, EntityType, Error, FieldSchema, Result, Single, Store, Value
+    EntityId, EntitySchema, EntityType, Error, FieldSchema, Result, Single, Store, Value
 };
 use crate::data::{StoreTrait, StorageScope};
 
