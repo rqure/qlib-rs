@@ -13,6 +13,15 @@ use crate::data::resp::{RespCommand, RespDecode, ReadCommand, WriteCommand, Crea
 
 const READ_POLL_INTERVAL: Duration = Duration::from_millis(10);
 
+/// Expect an OK response from RESP
+fn expect_ok(resp_value: RespValue) -> Result<()> {
+    match resp_value {
+        RespValue::SimpleString(s) if s == "OK" => Ok(()),
+        RespValue::Error(msg) => Err(Error::StoreProxyError(format!("Server error: {}", msg))),
+        _ => Err(Error::StoreProxyError("Expected OK response".to_string())),
+    }
+}
+
 /// TCP connection for RESP protocol
 #[derive(Debug)]
 pub struct TcpConnection {
@@ -61,46 +70,15 @@ impl TcpConnection {
         Ok(false) // Timeout or no readable event
     }
     
-    pub fn try_receive_resp(&mut self) -> anyhow::Result<Option<RespResponse>> {
+    pub fn try_receive_resp(&mut self) -> anyhow::Result<Option<Vec<u8>>> {
         // For RESP, we need to read until we have a complete response
         // This is a simplified implementation - in practice, you'd want proper buffering
         let mut buffer = [0u8; 8192];
         match self.stream.read(&mut buffer) {
             Ok(0) => return Err(anyhow::anyhow!("Connection closed")),
             Ok(bytes_read) => {
-                let data = &buffer[..bytes_read];
-                // Try to decode a RESP value first
-                match RespValue::decode(data) {
-                    Ok((resp_value, _remaining)) => {
-                        // Convert RespValue to RespResponse - this is a simplified conversion
-                        let response = match resp_value {
-                            RespValue::SimpleString(s) if s == "OK" => RespResponse::Ok,
-                            RespValue::SimpleString(s) => RespResponse::String(s.to_string()),
-                            RespValue::Error(s) => RespResponse::Error(s.to_string()),
-                            RespValue::Integer(i) => RespResponse::Integer(i),
-                            RespValue::BulkString(data) => RespResponse::Bulk(data.to_vec()),
-                            RespValue::Null => RespResponse::Null,
-                            RespValue::Array(elements) => {
-                                let responses: crate::Result<Vec<RespResponse>> = elements.into_iter()
-                                    .map(|v| match v {
-                                        RespValue::SimpleString(s) => Ok(RespResponse::String(s.to_string())),
-                                        RespValue::Error(s) => Ok(RespResponse::Error(s.to_string())),
-                                        RespValue::Integer(i) => Ok(RespResponse::Integer(i)),
-                                        RespValue::BulkString(data) => Ok(RespResponse::Bulk(data.to_vec())),
-                                        RespValue::Null => Ok(RespResponse::Null),
-                                        _ => Err(crate::Error::InvalidRequest("Unsupported array element type".to_string())),
-                                    })
-                                    .collect();
-                                match responses {
-                                    Ok(responses) => RespResponse::Array(responses),
-                                    Err(_) => return Ok(None),
-                                }
-                            }
-                        };
-                        Ok(Some(response))
-                    }
-                    Err(_) => Ok(None), // Incomplete response, need more data
-                }
+                let data = buffer[..bytes_read].to_vec();
+                Ok(Some(data))
             }
             Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
                 Ok(None) // No data available
@@ -141,42 +119,13 @@ impl StoreProxy {
         })
     }
 
-    fn poll_for_resp(&self) -> Result<Option<RespResponse>> {
+    fn poll_for_resp(&self) -> Result<Option<Vec<u8>>> {
         let result = {
             let mut conn = self.tcp_connection.borrow_mut();
             conn.try_receive_resp()
         };
 
         result.map_err(|e| Error::StoreProxyError(format!("TCP error: {}", e)))
-    }
-
-    fn send_resp_command<C: RespCommand<'static>>(&self, command: &C) -> Result<RespResponse> {
-        let encoded = command.encode();
-
-        {
-            let mut conn = self.tcp_connection.borrow_mut();
-            conn.send_bytes(&encoded)
-                .map_err(|e| Error::StoreProxyError(format!("Failed to send command: {}", e)))?;
-        }
-
-        loop {
-            match self.poll_for_resp()? {
-                Some(response) => {
-                    return Ok(response);
-                }
-                None => {
-                    let readable = {
-                        let mut conn = self.tcp_connection.borrow_mut();
-                        conn.wait_for_readable(Some(READ_POLL_INTERVAL))
-                    }
-                    .map_err(|e| Error::StoreProxyError(format!("Poll error: {}", e)))?;
-
-                    if !readable {
-                        continue;
-                    }
-                }
-            }
-        }
     }
 
     fn send_command_get_response<C, R>(&self, command: &C) -> Result<R>
@@ -194,15 +143,21 @@ impl StoreProxy {
 
         loop {
             match self.poll_for_resp()? {
-                Some(response) => {
-                    match response {
-                        RespResponse::Bulk(data) => {
-                            let (response_struct, _) = R::decode(&data)
-                                .map_err(|_| Error::StoreProxyError("Failed to decode structured response".into()))?;
-                            return Ok(response_struct);
+                Some(data) => {
+                    // Decode the RESP value from the received data
+                    match RespValue::decode(&data) {
+                        Ok((resp_value, _remaining)) => {
+                            match resp_value {
+                                RespValue::BulkString(data) => {
+                                    let (response_struct, _) = R::decode(&data)
+                                        .map_err(|_| Error::StoreProxyError("Failed to decode structured response".into()))?;
+                                    return Ok(response_struct);
+                                }
+                                RespValue::Error(msg) => return Err(Error::StoreProxyError(msg.to_string())),
+                                _ => return Err(Error::StoreProxyError("Expected bulk string response for structured data".into())),
+                            }
                         }
-                        RespResponse::Error(msg) => return Err(Error::StoreProxyError(msg)),
-                        _ => return Err(Error::StoreProxyError("Expected bulk response for structured data".into())),
+                        Err(_) => continue, // Incomplete response, try again
                     }
                 }
                 None => {
@@ -221,8 +176,38 @@ impl StoreProxy {
     }
 
     fn send_command_ok<C: RespCommand<'static>>(&self, command: &C) -> Result<()> {
-        let response = self.send_resp_command(command)?;
-        expect_ok(response)
+        let encoded = command.encode();
+
+        {
+            let mut conn = self.tcp_connection.borrow_mut();
+            conn.send_bytes(&encoded)
+                .map_err(|e| Error::StoreProxyError(format!("Failed to send command: {}", e)))?;
+        }
+
+        loop {
+            match self.poll_for_resp()? {
+                Some(data) => {
+                    // Decode the RESP value from the received data
+                    match RespValue::decode(&data) {
+                        Ok((resp_value, _remaining)) => {
+                            return expect_ok(resp_value);
+                        }
+                        Err(_) => continue, // Incomplete response, try again
+                    }
+                }
+                None => {
+                    let readable = {
+                        let mut conn = self.tcp_connection.borrow_mut();
+                        conn.wait_for_readable(Some(READ_POLL_INTERVAL))
+                    }
+                    .map_err(|e| Error::StoreProxyError(format!("Poll error: {}", e)))?;
+
+                    if !readable {
+                        continue;
+                    }
+                }
+            }
+        }
     }
 
     /// Get entity type by name
