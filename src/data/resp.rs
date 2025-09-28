@@ -751,6 +751,7 @@ macro_rules! impl_vec_decode {
 
 impl_vec_decode!(FieldType);
 impl_vec_decode!(EntityId);
+impl_vec_decode!(EntityType);
 
 // String slice decoding for command names
 impl<'a> RespDecode<'a> for &'a str {
@@ -799,6 +800,24 @@ impl RespEncode for Vec<FieldType> {
     fn encode(&self) -> Vec<u8> {
         let elements: Vec<RespValue> = self.iter()
             .map(|ft| RespValue::Integer(ft.0 as i64))
+            .collect();
+        RespValue::Array(elements).encode()
+    }
+}
+
+impl RespEncode for Vec<EntityId> {
+    fn encode(&self) -> Vec<u8> {
+        let elements: Vec<RespValue> = self.iter()
+            .map(|id| RespValue::Integer(id.0 as i64))
+            .collect();
+        RespValue::Array(elements).encode()
+    }
+}
+
+impl RespEncode for Vec<EntityType> {
+    fn encode(&self) -> Vec<u8> {
+        let elements: Vec<RespValue> = self.iter()
+            .map(|et| RespValue::Integer(et.0 as i64))
             .collect();
         RespValue::Array(elements).encode()
     }
@@ -977,7 +996,6 @@ impl<'a, T: RespDecode<'a>> RespDecode<'a> for Option<T> {
 // ============================================================================
 
 /// Read command for reading field values
-#[cfg(feature = "derive")]
 #[respc(name = "READ")]
 #[derive(Debug, Clone, RespEncode, RespDecode)]
 pub struct ReadCommand<'a> {
@@ -987,7 +1005,6 @@ pub struct ReadCommand<'a> {
 }
 
 /// Write command for writing field values
-#[cfg(feature = "derive")]
 #[respc(name = "WRITE")]
 #[derive(Debug, Clone, RespEncode, RespDecode)]
 pub struct WriteCommand<'a> {
@@ -1002,7 +1019,6 @@ pub struct WriteCommand<'a> {
 }
 
 /// Create entity command
-#[cfg(feature = "derive")]
 #[respc(name = "CREATE_ENTITY")]
 #[derive(Debug, Clone, RespEncode, RespDecode)]
 pub struct CreateEntityCommand<'a> {
@@ -1010,4 +1026,281 @@ pub struct CreateEntityCommand<'a> {
     pub parent_id: Option<EntityId>,
     pub name: String,
     pub _marker: std::marker::PhantomData<&'a ()>,
+}
+
+/// Delete entity command
+#[respc(name = "DELETE_ENTITY")]
+#[derive(Debug, Clone, RespEncode, RespDecode)]
+pub struct DeleteEntityCommand<'a> {
+    pub entity_id: EntityId,
+    pub _marker: std::marker::PhantomData<&'a ()>,
+}
+
+/// Get entity type by name command
+#[respc(name = "GET_ENTITY_TYPE")]
+#[derive(Debug, Clone, RespEncode, RespDecode)]
+pub struct GetEntityTypeCommand<'a> {
+    pub name: String,
+    pub _marker: std::marker::PhantomData<&'a ()>,
+}
+
+/// Resolve entity type to name command
+#[respc(name = "RESOLVE_ENTITY_TYPE")]
+#[derive(Debug, Clone, RespEncode, RespDecode)]
+pub struct ResolveEntityTypeCommand<'a> {
+    pub entity_type: EntityType,
+    pub _marker: std::marker::PhantomData<&'a ()>,
+}
+
+/// Get field type by name command
+#[respc(name = "GET_FIELD_TYPE")]
+#[derive(Debug, Clone, RespEncode, RespDecode)]
+pub struct GetFieldTypeCommand<'a> {
+    pub name: String,
+    pub _marker: std::marker::PhantomData<&'a ()>,
+}
+
+/// Resolve field type to name command
+#[respc(name = "RESOLVE_FIELD_TYPE")]
+#[derive(Debug, Clone, RespEncode, RespDecode)]
+pub struct ResolveFieldTypeCommand<'a> {
+    pub field_type: FieldType,
+    pub _marker: std::marker::PhantomData<&'a ()>,
+}
+
+/// Get entity schema command
+#[respc(name = "GET_ENTITY_SCHEMA")]
+#[derive(Debug, Clone, RespEncode, RespDecode)]
+pub struct GetEntitySchemaCommand<'a> {
+    pub entity_type: EntityType,
+    pub _marker: std::marker::PhantomData<&'a ()>,
+}
+
+/// Get field schema command
+#[respc(name = "GET_FIELD_SCHEMA")]
+#[derive(Debug, Clone, RespEncode, RespDecode)]
+pub struct GetFieldSchemaCommand<'a> {
+    pub entity_type: EntityType,
+    pub field_type: FieldType,
+    pub _marker: std::marker::PhantomData<&'a ()>,
+}
+
+/// Set field schema command
+#[respc(name = "SET_FIELD_SCHEMA")]
+#[derive(Debug, Clone, RespEncode, RespDecode)]
+pub struct SetFieldSchemaCommand<'a> {
+    pub entity_type: EntityType,
+    pub field_type: FieldType,
+    pub schema: String, // Serialized FieldSchema
+    pub _marker: std::marker::PhantomData<&'a ()>,
+}
+
+/// Entity exists check command
+#[respc(name = "ENTITY_EXISTS")]
+#[derive(Debug, Clone, RespEncode, RespDecode)]
+pub struct EntityExistsCommand<'a> {
+    pub entity_id: EntityId,
+    pub _marker: std::marker::PhantomData<&'a ()>,
+}
+
+/// Field exists check command
+#[respc(name = "FIELD_EXISTS")]
+#[derive(Debug, Clone, RespEncode, RespDecode)]
+pub struct FieldExistsCommand<'a> {
+    pub entity_type: EntityType,
+    pub field_type: FieldType,
+    pub _marker: std::marker::PhantomData<&'a ()>,
+}
+
+/// Resolve indirection command
+#[respc(name = "RESOLVE_INDIRECTION")]
+#[derive(Debug, Clone, RespEncode, RespDecode)]
+pub struct ResolveIndirectionCommand<'a> {
+    pub entity_id: EntityId,
+    pub fields: Vec<FieldType>,
+    pub _marker: std::marker::PhantomData<&'a ()>,
+}
+
+/// Find entities with pagination command
+#[respc(name = "FIND_ENTITIES_PAGINATED")]
+#[derive(Debug, Clone, RespEncode, RespDecode)]
+pub struct FindEntitiesPaginatedCommand<'a> {
+    pub entity_type: EntityType,
+    pub page_opts: Option<String>, // Serialized PageOpts
+    pub filter: Option<String>,
+    pub _marker: std::marker::PhantomData<&'a ()>,
+}
+
+/// Find entities exactly (no inheritance) with pagination command
+#[respc(name = "FIND_ENTITIES_EXACT")]
+#[derive(Debug, Clone, RespEncode, RespDecode)]
+pub struct FindEntitiesExactCommand<'a> {
+    pub entity_type: EntityType,
+    pub page_opts: Option<String>, // Serialized PageOpts
+    pub filter: Option<String>,
+    pub _marker: std::marker::PhantomData<&'a ()>,
+}
+
+/// Find all entities command
+#[respc(name = "FIND_ENTITIES")]
+#[derive(Debug, Clone, RespEncode, RespDecode)]
+pub struct FindEntitiesCommand<'a> {
+    pub entity_type: EntityType,
+    pub filter: Option<String>,
+    pub _marker: std::marker::PhantomData<&'a ()>,
+}
+
+/// Get all entity types command
+#[respc(name = "GET_ENTITY_TYPES")]
+#[derive(Debug, Clone, RespEncode, RespDecode)]
+pub struct GetEntityTypesCommand<'a> {
+    pub _marker: std::marker::PhantomData<&'a ()>,
+}
+
+/// Get entity types with pagination command
+#[respc(name = "GET_ENTITY_TYPES_PAGINATED")]
+#[derive(Debug, Clone, RespEncode, RespDecode)]
+pub struct GetEntityTypesPaginatedCommand<'a> {
+    pub page_opts: Option<String>, // Serialized PageOpts
+    pub _marker: std::marker::PhantomData<&'a ()>,
+}
+
+/// Take snapshot command
+#[respc(name = "TAKE_SNAPSHOT")]
+#[derive(Debug, Clone, RespEncode, RespDecode)]
+pub struct TakeSnapshotCommand<'a> {
+    pub _marker: std::marker::PhantomData<&'a ()>,
+}
+
+/// Register notification command
+#[respc(name = "REGISTER_NOTIFICATION")]
+#[derive(Debug, Clone, RespEncode, RespDecode)]
+pub struct RegisterNotificationCommand<'a> {
+    pub config: String, // Serialized NotifyConfig
+    pub _marker: std::marker::PhantomData<&'a ()>,
+}
+
+/// Unregister notification command
+#[respc(name = "UNREGISTER_NOTIFICATION")]
+#[derive(Debug, Clone, RespEncode, RespDecode)]
+pub struct UnregisterNotificationCommand<'a> {
+    pub config: String, // Serialized NotifyConfig
+    pub _marker: std::marker::PhantomData<&'a ()>,
+}
+
+// ============================================================================
+// RESP Response Structs for complex return types
+// ============================================================================
+
+/// Response for read operations
+#[derive(Debug, Clone, RespEncode, RespDecode)]
+pub struct ReadResponse {
+    pub value: Value,
+    pub timestamp: Timestamp,
+    pub writer_id: Option<EntityId>,
+}
+
+/// Response for resolve indirection operations
+#[derive(Debug, Clone, RespEncode, RespDecode)]
+pub struct ResolveIndirectionResponse {
+    pub entity_id: EntityId,
+    pub field_type: FieldType,
+}
+
+/// Response for create entity operations
+#[derive(Debug, Clone, RespEncode, RespDecode)]
+pub struct CreateEntityResponse {
+    pub entity_id: EntityId,
+}
+
+/// Response for simple boolean operations (exists checks)
+#[derive(Debug, Clone, RespEncode, RespDecode)]
+pub struct BooleanResponse {
+    pub result: bool,
+}
+
+/// Response for string operations (resolve operations)
+#[derive(Debug, Clone, RespEncode, RespDecode)]
+pub struct StringResponse {
+    pub value: String,
+}
+
+/// Response for integer operations (get operations)
+#[derive(Debug, Clone, RespEncode, RespDecode)]
+pub struct IntegerResponse {
+    pub value: i64,
+}
+
+/// Response for entity list operations
+#[derive(Debug, Clone, RespEncode, RespDecode)]
+pub struct EntityListResponse {
+    pub entities: Vec<EntityId>,
+}
+
+/// Response for entity type list operations
+#[derive(Debug, Clone, RespEncode, RespDecode)]
+pub struct EntityTypeListResponse {
+    pub entity_types: Vec<EntityType>,
+}
+
+/// Response for paginated results
+#[derive(Debug, Clone)]
+pub struct PageResultResponse<T> {
+    pub items: Vec<T>,
+    pub total_count: Option<u64>,
+    pub has_more: bool,
+    pub cursor: Option<String>,
+}
+
+// ============================================================================
+// Additional RespEncode/RespDecode implementations for standard types
+// ============================================================================
+
+impl RespEncode for u64 {
+    fn encode(&self) -> Vec<u8> {
+        RespValue::Integer(*self as i64).encode()
+    }
+}
+
+impl RespDecode<'_> for u64 {
+    fn decode(data: &[u8]) -> Result<(Self, &[u8])> {
+        let (value, remaining) = RespValue::decode(data)?;
+        match value {
+            RespValue::Integer(i) if i >= 0 => Ok((i as u64, remaining)),
+            _ => Err(crate::Error::InvalidRequest("Expected non-negative integer for u64".to_string())),
+        }
+    }
+}
+
+impl RespEncode for bool {
+    fn encode(&self) -> Vec<u8> {
+        RespValue::Integer(if *self { 1 } else { 0 }).encode()
+    }
+}
+
+impl RespDecode<'_> for bool {
+    fn decode(data: &[u8]) -> Result<(Self, &[u8])> {
+        let (value, remaining) = RespValue::decode(data)?;
+        match value {
+            RespValue::Integer(0) => Ok((false, remaining)),
+            RespValue::Integer(1) => Ok((true, remaining)),
+            _ => Err(crate::Error::InvalidRequest("Expected 0 or 1 for bool".to_string())),
+        }
+    }
+}
+
+impl RespEncode for i64 {
+    fn encode(&self) -> Vec<u8> {
+        RespValue::Integer(*self).encode()
+    }
+}
+
+impl RespDecode<'_> for i64 {
+    fn decode(data: &[u8]) -> Result<(Self, &[u8])> {
+        let (value, remaining) = RespValue::decode(data)?;
+        match value {
+            RespValue::Integer(i) => Ok((i, remaining)),
+            _ => Err(crate::Error::InvalidRequest("Expected integer for i64".to_string())),
+        }
+    }
 }

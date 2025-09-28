@@ -9,7 +9,7 @@ use crate::{
     Complete, EntityId, EntitySchema, EntityType, Error, FieldSchema, FieldType, PageOpts, PageResult, Result, Single, Value, Timestamp, PushCondition, AdjustBehavior
 };
 use crate::data::StoreTrait;
-use crate::data::resp::{RespResponse, RespCommand, RespEncode, RespDecode, ReadCommand, WriteCommand, CreateEntityCommand, RespValue};
+use crate::data::resp::{RespResponse, RespCommand, RespDecode, ReadCommand, WriteCommand, CreateEntityCommand, RespValue};
 
 const READ_POLL_INTERVAL: Duration = Duration::from_millis(10);
 
@@ -192,6 +192,47 @@ impl StoreProxy {
         }
     }
 
+    fn send_command_get_response<C, R>(&self, command: &C) -> Result<R>
+    where
+        C: RespCommand<'static>,
+        R: for<'a> RespDecode<'a>,
+    {
+        let encoded = command.encode();
+
+        {
+            let mut conn = self.tcp_connection.borrow_mut();
+            conn.send_bytes(&encoded)
+                .map_err(|e| Error::StoreProxyError(format!("Failed to send command: {}", e)))?;
+        }
+
+        loop {
+            match self.poll_for_resp()? {
+                Some(response) => {
+                    match response {
+                        RespResponse::Bulk(data) => {
+                            let (response_struct, _) = R::decode(&data)
+                                .map_err(|_| Error::StoreProxyError("Failed to decode structured response".into()))?;
+                            return Ok(response_struct);
+                        }
+                        RespResponse::Error(msg) => return Err(Error::StoreProxyError(msg)),
+                        _ => return Err(Error::StoreProxyError("Expected bulk response for structured data".into())),
+                    }
+                }
+                None => {
+                    let readable = {
+                        let mut conn = self.tcp_connection.borrow_mut();
+                        conn.wait_for_readable(Some(READ_POLL_INTERVAL))
+                    }
+                    .map_err(|e| Error::StoreProxyError(format!("Poll error: {}", e)))?;
+
+                    if !readable {
+                        continue;
+                    }
+                }
+            }
+        }
+    }
+
     fn send_command_ok<C: RespCommand<'static>>(&self, command: &C) -> Result<()> {
         let response = self.send_resp_command(command)?;
         expect_ok(response)
@@ -199,96 +240,56 @@ impl StoreProxy {
 
     /// Get entity type by name
     pub fn get_entity_type(&self, name: &str) -> Result<EntityType> {
-        let command_data = RespValue::Array(vec![
-            RespValue::BulkString(b"GET_ENTITY_TYPE"),
-            RespValue::BulkString(name.as_bytes()),
-        ]);
-        let encoded = command_data.encode();
+        let command = crate::data::resp::GetEntityTypeCommand {
+            name: name.to_string(),
+            _marker: std::marker::PhantomData,
+        };
         
-        {
-            let mut conn = self.tcp_connection.borrow_mut();
-            conn.send_bytes(&encoded)
-                .map_err(|e| Error::StoreProxyError(format!("Failed to send get_entity_type command: {}", e)))?;
-        }
-        
-        let response = self.poll_for_resp()?;
-        match response {
-            Some(RespResponse::Integer(i)) if i >= 0 => Ok(EntityType(i as u32)),
-            Some(RespResponse::Error(msg)) => Err(Error::StoreProxyError(msg)),
-            _ => Err(Error::StoreProxyError("Unexpected response for get_entity_type".into())),
-        }
+        let integer_response = self.send_command_get_response::<crate::data::resp::GetEntityTypeCommand, crate::data::resp::IntegerResponse>(&command)?;
+        Ok(EntityType(integer_response.value as u32))
     }
 
     /// Resolve entity type to name
     pub fn resolve_entity_type(&self, entity_type: EntityType) -> Result<String> {
-        let command_data = RespValue::Array(vec![
-            RespValue::BulkString(b"RESOLVE_ENTITY_TYPE"),
-            RespValue::Integer(entity_type.0 as i64),
-        ]);
-        let encoded = command_data.encode();
+        let command = crate::data::resp::ResolveEntityTypeCommand {
+            entity_type,
+            _marker: std::marker::PhantomData,
+        };
         
-        {
-            let mut conn = self.tcp_connection.borrow_mut();
-            conn.send_bytes(&encoded)
-                .map_err(|e| Error::StoreProxyError(format!("Failed to send resolve_entity_type command: {}", e)))?;
-        }
-        
-        let response = self.poll_for_resp()?;
-        match response {
-            Some(RespResponse::String(s)) => Ok(s),
-            Some(RespResponse::Error(msg)) => Err(Error::StoreProxyError(msg)),
-            _ => Err(Error::StoreProxyError("Unexpected response for resolve_entity_type".into())),
-        }
+        let string_response = self.send_command_get_response::<crate::data::resp::ResolveEntityTypeCommand, crate::data::resp::StringResponse>(&command)?;
+        Ok(string_response.value)
     }
 
     /// Get field type by name
     pub fn get_field_type(&self, name: &str) -> Result<FieldType> {
-        let command_data = RespValue::Array(vec![
-            RespValue::BulkString(b"GET_FIELD_TYPE"),
-            RespValue::BulkString(name.as_bytes()),
-        ]);
-        let encoded = command_data.encode();
+        let command = crate::data::resp::GetFieldTypeCommand {
+            name: name.to_string(),
+            _marker: std::marker::PhantomData,
+        };
         
-        {
-            let mut conn = self.tcp_connection.borrow_mut();
-            conn.send_bytes(&encoded)
-                .map_err(|e| Error::StoreProxyError(format!("Failed to send get_field_type command: {}", e)))?;
-        }
-        
-        let response = self.poll_for_resp()?;
-        match response {
-            Some(RespResponse::Integer(i)) if i >= 0 => Ok(FieldType(i as u64)),
-            Some(RespResponse::Error(msg)) => Err(Error::StoreProxyError(msg)),
-            _ => Err(Error::StoreProxyError("Unexpected response for get_field_type".into())),
-        }
+        let integer_response = self.send_command_get_response::<crate::data::resp::GetFieldTypeCommand, crate::data::resp::IntegerResponse>(&command)?;
+        Ok(FieldType(integer_response.value as u64))
     }
 
     /// Resolve field type to name
     pub fn resolve_field_type(&self, field_type: FieldType) -> Result<String> {
-        let command_data = RespValue::Array(vec![
-            RespValue::BulkString(b"RESOLVE_FIELD_TYPE"),
-            RespValue::Integer(field_type.0 as i64),
-        ]);
-        let encoded = command_data.encode();
+        let command = crate::data::resp::ResolveFieldTypeCommand {
+            field_type,
+            _marker: std::marker::PhantomData,
+        };
         
-        {
-            let mut conn = self.tcp_connection.borrow_mut();
-            conn.send_bytes(&encoded)
-                .map_err(|e| Error::StoreProxyError(format!("Failed to send resolve_field_type command: {}", e)))?;
-        }
-        
-        let response = self.poll_for_resp()?;
-        match response {
-            Some(RespResponse::String(s)) => Ok(s),
-            Some(RespResponse::Error(msg)) => Err(Error::StoreProxyError(msg)),
-            _ => Err(Error::StoreProxyError("Unexpected response for resolve_field_type".into())),
-        }
+        let string_response = self.send_command_get_response::<crate::data::resp::ResolveFieldTypeCommand, crate::data::resp::StringResponse>(&command)?;
+        Ok(string_response.value)
     }
 
     /// Get entity schema
-    pub fn get_entity_schema(&self, _entity_type: EntityType) -> Result<EntitySchema<Single>> {
-        // TODO: Implement RESP command for entity schema
-        unimplemented!("Entity schema not yet implemented with RESP")
+    pub fn get_entity_schema(&self, entity_type: EntityType) -> Result<EntitySchema<Single>> {
+        let _command = crate::data::resp::GetEntitySchemaCommand {
+            entity_type,
+            _marker: std::marker::PhantomData,
+        };
+        // TODO: EntitySchema needs RespDecode implementation
+        unimplemented!("Entity schema decoding not yet implemented with RESP")
     }
 
     /// Get complete entity schema
@@ -298,33 +299,66 @@ impl StoreProxy {
     }
 
     /// Set field schema
-    pub fn set_field_schema(&mut self, _entity_type: EntityType, _field_type: FieldType, _schema: FieldSchema) -> Result<()> {
-        // TODO: Implement RESP command for field schema
-        unimplemented!("Field schema operations not yet implemented with RESP")
+    pub fn set_field_schema(&mut self, entity_type: EntityType, field_type: FieldType, schema: FieldSchema) -> Result<()> {
+        // TODO: Need to serialize FieldSchema to String
+        let _command = crate::data::resp::SetFieldSchemaCommand {
+            entity_type,
+            field_type,
+            schema: format!("{:?}", schema), // Temporary serialization
+            _marker: std::marker::PhantomData,
+        };
+        // TODO: Implement proper FieldSchema serialization
+        unimplemented!("Field schema serialization not yet implemented with RESP")
     }
 
     /// Get field schema
-    pub fn get_field_schema(&self, _entity_type: EntityType, _field_type: FieldType) -> Result<FieldSchema> {
-        // TODO: Implement RESP command for field schema
-        unimplemented!("Field schema operations not yet implemented with RESP")
+    pub fn get_field_schema(&self, entity_type: EntityType, field_type: FieldType) -> Result<FieldSchema> {
+        let _command = crate::data::resp::GetFieldSchemaCommand {
+            entity_type,
+            field_type,
+            _marker: std::marker::PhantomData,
+        };
+        // TODO: FieldSchema needs RespDecode implementation
+        unimplemented!("Field schema decoding not yet implemented with RESP")
     }
 
     /// Check if entity exists
-    pub fn entity_exists(&self, _entity_id: EntityId) -> bool {
-        // TODO: Implement RESP command for entity existence check
-        false
+    pub fn entity_exists(&self, entity_id: EntityId) -> bool {
+        let command = crate::data::resp::EntityExistsCommand {
+            entity_id,
+            _marker: std::marker::PhantomData,
+        };
+        
+        match self.send_command_get_response::<crate::data::resp::EntityExistsCommand, crate::data::resp::BooleanResponse>(&command) {
+            Ok(boolean_response) => boolean_response.result,
+            Err(_) => false, // Default to false on any error
+        }
     }
 
     /// Check if field exists
-    pub fn field_exists(&self, _entity_type: EntityType, _field_type: FieldType) -> bool {
-        // TODO: Implement RESP command for field existence check
-        false
+    pub fn field_exists(&self, entity_type: EntityType, field_type: FieldType) -> bool {
+        let command = crate::data::resp::FieldExistsCommand {
+            entity_type,
+            field_type,
+            _marker: std::marker::PhantomData,
+        };
+        
+        match self.send_command_get_response::<crate::data::resp::FieldExistsCommand, crate::data::resp::BooleanResponse>(&command) {
+            Ok(boolean_response) => boolean_response.result,
+            Err(_) => false, // Default to false on any error
+        }
     }
 
     /// Resolve indirection
-    pub fn resolve_indirection(&self, _entity_id: EntityId, _fields: &[FieldType]) -> Result<(EntityId, FieldType)> {
-        // TODO: Implement RESP command for indirection resolution
-        unimplemented!("Indirection resolution not yet implemented with RESP")
+    pub fn resolve_indirection(&self, entity_id: EntityId, fields: &[FieldType]) -> Result<(EntityId, FieldType)> {
+        let command = crate::data::resp::ResolveIndirectionCommand {
+            entity_id,
+            fields: fields.to_vec(),
+            _marker: std::marker::PhantomData,
+        };
+        
+        let resolve_response = self.send_command_get_response::<crate::data::resp::ResolveIndirectionCommand, crate::data::resp::ResolveIndirectionResponse>(&command)?;
+        Ok((resolve_response.entity_id, resolve_response.field_type))
     }
 
     /// Read a field value
@@ -334,54 +368,9 @@ impl StoreProxy {
             field_path: field_path.to_vec(),
             _marker: std::marker::PhantomData,
         };
-        let response = self.send_resp_command(&command)?;
         
-        match response {
-            RespResponse::Array(elements) if elements.len() >= 3 => {
-                // Parse value from first element
-                let value = match &elements[0] {
-                    RespResponse::Bulk(data) => {
-                        // Try to decode a Value from the bulk data
-                        match Value::decode(data) {
-                            Ok((value, _)) => value,
-                            Err(_) => Value::Blob(data.clone()),
-                        }
-                    },
-                    RespResponse::String(s) => Value::String(s.clone()),
-                    RespResponse::Integer(i) => Value::Int(*i),
-                    RespResponse::Null => Value::EntityReference(None),
-                    _ => return Err(Error::StoreProxyError("Invalid value type in read response".into())),
-                };
-                
-                // Parse timestamp from second element
-                let timestamp = match &elements[1] {
-                    RespResponse::Bulk(data) => {
-                        let timestamp_str = std::str::from_utf8(data)
-                            .map_err(|_| Error::StoreProxyError("Invalid UTF-8 in timestamp".into()))?;
-                        // Parse as RFC3339 timestamp
-                        time::OffsetDateTime::parse(timestamp_str, &time::format_description::well_known::Rfc3339)
-                            .map_err(|_| Error::StoreProxyError("Invalid timestamp format".into()))?
-                    },
-                    RespResponse::String(s) => {
-                        // Parse as RFC3339 timestamp
-                        time::OffsetDateTime::parse(s, &time::format_description::well_known::Rfc3339)
-                            .map_err(|_| Error::StoreProxyError("Invalid timestamp format".into()))?
-                    },
-                    _ => return Err(Error::StoreProxyError("Invalid timestamp type in read response".into())),
-                };
-                
-                // Parse writer_id from third element
-                let writer_id = match &elements[2] {
-                    RespResponse::Integer(i) if *i >= 0 => Some(EntityId(*i as u64)),
-                    RespResponse::Null => None,
-                    _ => return Err(Error::StoreProxyError("Invalid writer_id type in read response".into())),
-                };
-                
-                Ok((value, timestamp, writer_id))
-            }
-            RespResponse::Error(msg) => Err(Error::StoreProxyError(msg)),
-            _ => Err(Error::StoreProxyError("Expected array response for read".into())),
-        }
+        let read_response = self.send_command_get_response::<ReadCommand, crate::data::resp::ReadResponse>(&command)?;
+        Ok((read_response.value, read_response.timestamp, read_response.writer_id))
     }
 
     /// Write a field value
@@ -408,36 +397,18 @@ impl StoreProxy {
             name: name.to_string(),
             _marker: std::marker::PhantomData,
         };
-        let response = self.send_resp_command(&command)?;
         
-        match response {
-            RespResponse::Integer(i) if i >= 0 => Ok(EntityId(i as u64)),
-            RespResponse::Error(msg) => Err(Error::StoreProxyError(msg)),
-            _ => Err(Error::StoreProxyError("Expected Integer response for create_entity".into())),
-        }
+        let create_response = self.send_command_get_response::<CreateEntityCommand, crate::data::resp::CreateEntityResponse>(&command)?;
+        Ok(create_response.entity_id)
     }
 
     /// Delete an entity
     pub fn delete_entity(&mut self, entity_id: EntityId) -> Result<()> {
-        // For now, use a simple array command since we don't have a specific RESP command
-        let command_data = RespValue::Array(vec![
-            RespValue::BulkString(b"DELETE_ENTITY"),
-            RespValue::Integer(entity_id.0 as i64),
-        ]);
-        let encoded = command_data.encode();
-        
-        {
-            let mut conn = self.tcp_connection.borrow_mut();
-            conn.send_bytes(&encoded)
-                .map_err(|e| Error::StoreProxyError(format!("Failed to send delete_entity command: {}", e)))?;
-        }
-        
-        let response = self.poll_for_resp()?;
-        match response {
-            Some(RespResponse::Ok) => Ok(()),
-            Some(RespResponse::Error(msg)) => Err(Error::StoreProxyError(msg)),
-            _ => Err(Error::StoreProxyError("Unexpected response for delete_entity".into())),
-        }
+        let command = crate::data::resp::DeleteEntityCommand {
+            entity_id,
+            _marker: std::marker::PhantomData,
+        };
+        self.send_command_ok(&command)
     }
 
     /// Update entity schema
@@ -470,14 +441,24 @@ impl StoreProxy {
         unimplemented!("Pagination not yet implemented with RESP")
     }
 
-    pub fn find_entities(&self, _entity_type: EntityType, _filter: Option<&str>) -> Result<Vec<EntityId>> {
-        // TODO: Implement RESP command for entity finding
-        unimplemented!("Entity finding not yet implemented with RESP")
+    pub fn find_entities(&self, entity_type: EntityType, filter: Option<&str>) -> Result<Vec<EntityId>> {
+        let command = crate::data::resp::FindEntitiesCommand {
+            entity_type,
+            filter: filter.map(|s| s.to_string()),
+            _marker: std::marker::PhantomData,
+        };
+        
+        let entity_list_response = self.send_command_get_response::<crate::data::resp::FindEntitiesCommand, crate::data::resp::EntityListResponse>(&command)?;
+        Ok(entity_list_response.entities)
     }
 
     pub fn get_entity_types(&self) -> Result<Vec<EntityType>> {
-        // TODO: Implement RESP command for entity types
-        unimplemented!("Entity types listing not yet implemented with RESP")
+        let command = crate::data::resp::GetEntityTypesCommand {
+            _marker: std::marker::PhantomData,
+        };
+        
+        let entity_type_list_response = self.send_command_get_response::<crate::data::resp::GetEntityTypesCommand, crate::data::resp::EntityTypeListResponse>(&command)?;
+        Ok(entity_type_list_response.entity_types)
     }
 
 
