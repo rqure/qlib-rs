@@ -8,6 +8,21 @@ use crate::data::StorageScope;
 const MAX_MESSAGE_SIZE: usize = 16 * 1024 * 1024;
 const CRLF: &[u8] = b"\r\n";
 
+/// Trait for types that can encode themselves to RESP format
+pub trait RespEncode {
+    fn encode_to(&self, out: &mut Vec<u8>);
+    
+    fn encode(&self) -> Vec<u8> {
+        let mut out = Vec::new();
+        self.encode_to(&mut out);
+        out
+    }
+}
+
+/// Trait for types that can decode themselves from RESP frames
+pub trait RespDecode: Sized {
+    fn decode_from(bytes: &Bytes) -> Result<Self>;
+}
 
 #[derive(Debug, Clone)]
 pub struct QuspCommand {
@@ -421,6 +436,98 @@ pub fn encode_error(message: &str) -> Vec<u8> {
 	let mut out = Vec::with_capacity(message.len() + 4);
 	write_error(&mut out, message.as_bytes());
 	out
+}
+
+// Trait implementations for basic types
+impl RespEncode for i64 {
+    fn encode_to(&self, out: &mut Vec<u8>) {
+        write_integer(out, *self);
+    }
+}
+
+impl RespEncode for String {
+    fn encode_to(&self, out: &mut Vec<u8>) {
+        write_bulk(out, self.as_bytes());
+    }
+}
+
+impl RespEncode for &str {
+    fn encode_to(&self, out: &mut Vec<u8>) {
+        write_bulk(out, self.as_bytes());
+    }
+}
+
+impl RespEncode for &[u8] {
+    fn encode_to(&self, out: &mut Vec<u8>) {
+        write_bulk(out, self);
+    }
+}
+
+impl RespEncode for Bytes {
+    fn encode_to(&self, out: &mut Vec<u8>) {
+        write_bulk(out, self.as_ref());
+    }
+}
+
+impl<T: RespEncode> RespEncode for Vec<T> {
+    fn encode_to(&self, out: &mut Vec<u8>) {
+        write_array_header(out, self.len());
+        for item in self {
+            item.encode_to(out);
+        }
+    }
+}
+
+impl<T: RespEncode> RespEncode for Option<T> {
+    fn encode_to(&self, out: &mut Vec<u8>) {
+        match self {
+            Some(value) => value.encode_to(out),
+            None => write_null(out),
+        }
+    }
+}
+
+impl RespEncode for QuspResponse {
+    fn encode_to(&self, out: &mut Vec<u8>) {
+        write_response(out, self);
+    }
+}
+
+// Trait implementations for decoding basic types
+impl RespDecode for String {
+    fn decode_from(bytes: &Bytes) -> Result<Self> {
+        parse_str(bytes).map(|s| s.to_string())
+    }
+}
+
+impl RespDecode for u32 {
+    fn decode_from(bytes: &Bytes) -> Result<Self> {
+        parse_u32(bytes)
+    }
+}
+
+impl RespDecode for u64 {
+    fn decode_from(bytes: &Bytes) -> Result<Self> {
+        parse_u64(bytes)
+    }
+}
+
+impl RespDecode for EntityId {
+    fn decode_from(bytes: &Bytes) -> Result<Self> {
+        parse_entity_id(bytes)
+    }
+}
+
+impl RespDecode for EntityType {
+    fn decode_from(bytes: &Bytes) -> Result<Self> {
+        parse_entity_type(bytes)
+    }
+}
+
+impl RespDecode for FieldType {
+    fn decode_from(bytes: &Bytes) -> Result<Self> {
+        parse_field_type(bytes)
+    }
 }
 
 #[derive(Debug)]
@@ -1867,99 +1974,139 @@ pub enum StoreCommand<'a> {
     UnregisterNotification { config: NotifyConfig },
 }
 
+/// Helper trait for command argument parsing and validation
+trait CommandArguments {
+    fn expect_args(&self, count: usize, command_name: &str) -> Result<()>;
+    fn expect_args_range(&self, min: usize, max: usize, command_name: &str) -> Result<()>;
+}
+
+impl CommandArguments for QuspCommand {
+    fn expect_args(&self, count: usize, command_name: &str) -> Result<()> {
+        if self.args.len() != count {
+            return Err(anyhow!("{} expects {} argument{}", 
+                command_name, count, if count == 1 { "" } else { "s" }));
+        }
+        Ok(())
+    }
+    
+    fn expect_args_range(&self, min: usize, max: usize, command_name: &str) -> Result<()> {
+        if self.args.len() < min || self.args.len() > max {
+            return Err(anyhow!("{} expects {}-{} arguments", command_name, min, max));
+        }
+        Ok(())
+    }
+}
+
+/// Command-specific parsers
+mod command_parsers {
+    use super::*;
+    
+    pub fn parse_get_entity_type(cmd: &QuspCommand) -> Result<StoreCommand> {
+        cmd.expect_args(1, "GET_ENTITY_TYPE")?;
+        let name = parse_str(&cmd.args[0])?;
+        Ok(StoreCommand::GetEntityType { name })
+    }
+    
+    pub fn parse_resolve_entity_type(cmd: &QuspCommand) -> Result<StoreCommand> {
+        cmd.expect_args(1, "RESOLVE_ENTITY_TYPE")?;
+        let entity_type = parse_entity_type(&cmd.args[0])?;
+        Ok(StoreCommand::ResolveEntityType { entity_type })
+    }
+    
+    pub fn parse_get_field_type(cmd: &QuspCommand) -> Result<StoreCommand> {
+        cmd.expect_args(1, "GET_FIELD_TYPE")?;
+        let name = parse_str(&cmd.args[0])?;
+        Ok(StoreCommand::GetFieldType { name })
+    }
+    
+    pub fn parse_resolve_field_type(cmd: &QuspCommand) -> Result<StoreCommand> {
+        cmd.expect_args(1, "RESOLVE_FIELD_TYPE")?;
+        let field_type = parse_field_type(&cmd.args[0])?;
+        Ok(StoreCommand::ResolveFieldType { field_type })
+    }
+    
+    pub fn parse_get_entity_schema(cmd: &QuspCommand) -> Result<StoreCommand> {
+        cmd.expect_args(1, "GET_ENTITY_SCHEMA")?;
+        let entity_type = parse_entity_type(&cmd.args[0])?;
+        Ok(StoreCommand::GetEntitySchema { entity_type })
+    }
+    
+    pub fn parse_get_complete_entity_schema(cmd: &QuspCommand) -> Result<StoreCommand> {
+        cmd.expect_args(1, "GET_COMPLETE_ENTITY_SCHEMA")?;
+        let entity_type = parse_entity_type(&cmd.args[0])?;
+        Ok(StoreCommand::GetCompleteEntitySchema { entity_type })
+    }
+    
+    pub fn parse_get_field_schema(cmd: &QuspCommand) -> Result<StoreCommand> {
+        cmd.expect_args(2, "GET_FIELD_SCHEMA")?;
+        let entity_type = parse_entity_type(&cmd.args[0])?;
+        let field_type = parse_field_type(&cmd.args[1])?;
+        Ok(StoreCommand::GetFieldSchema { entity_type, field_type })
+    }
+    
+    pub fn parse_entity_exists(cmd: &QuspCommand) -> Result<StoreCommand> {
+        cmd.expect_args(1, "ENTITY_EXISTS")?;
+        let entity_id = parse_entity_id(&cmd.args[0])?;
+        Ok(StoreCommand::EntityExists { entity_id })
+    }
+    
+    pub fn parse_field_exists(cmd: &QuspCommand) -> Result<StoreCommand> {
+        cmd.expect_args(2, "FIELD_EXISTS")?;
+        let entity_type = parse_entity_type(&cmd.args[0])?;
+        let field_type = parse_field_type(&cmd.args[1])?;
+        Ok(StoreCommand::FieldExists { entity_type, field_type })
+    }
+    
+    pub fn parse_read(cmd: &QuspCommand) -> Result<StoreCommand> {
+        cmd.expect_args(2, "READ")?;
+        let entity_id = parse_entity_id(&cmd.args[0])?;
+        let field_path = parse_field_path(&cmd.args[1])?;
+        Ok(StoreCommand::Read { entity_id, field_path })
+    }
+    
+    pub fn parse_get_entity_types(cmd: &QuspCommand) -> Result<StoreCommand> {
+        cmd.expect_args(0, "GET_ENTITY_TYPES")?;
+        Ok(StoreCommand::GetEntityTypes)
+    }
+    
+    pub fn parse_take_snapshot(cmd: &QuspCommand) -> Result<StoreCommand> {
+        cmd.expect_args(0, "TAKE_SNAPSHOT")?;
+        Ok(StoreCommand::TakeSnapshot)
+    }
+    
+    pub fn parse_set_field_schema(cmd: &QuspCommand) -> Result<StoreCommand> {
+        cmd.expect_args(3, "SET_FIELD_SCHEMA")?;
+        let entity_type = parse_entity_type(&cmd.args[0])?;
+        let field_type = parse_field_type(&cmd.args[1])?;
+        let schema = decode_field_schema(&cmd.args[2])?;
+        Ok(StoreCommand::SetFieldSchema { entity_type, field_type, schema })
+    }
+    
+    pub fn parse_resolve_indirection(cmd: &QuspCommand) -> Result<StoreCommand> {
+        cmd.expect_args(2, "RESOLVE_INDIRECTION")?;
+        let entity_id = parse_entity_id(&cmd.args[0])?;
+        let field_path = parse_field_path(&cmd.args[1])?;
+        Ok(StoreCommand::ResolveIndirection { entity_id, field_path })
+    }
+}
+
 pub fn parse_store_command(cmd: &QuspCommand) -> Result<StoreCommand> {
+    use command_parsers::*;
+    
     let name = cmd.uppercase_name()?;
     match name.as_str() {
-        "GET_ENTITY_TYPE" => {
-            if cmd.args.len() != 1 {
-                return Err(anyhow!("GET_ENTITY_TYPE expects 1 argument"));
-            }
-            let name = parse_str(&cmd.args[0])?;
-            Ok(StoreCommand::GetEntityType { name })
-        }
-        "RESOLVE_ENTITY_TYPE" => {
-            if cmd.args.len() != 1 {
-                return Err(anyhow!("RESOLVE_ENTITY_TYPE expects 1 argument"));
-            }
-            let entity_type = parse_entity_type(&cmd.args[0])?;
-            Ok(StoreCommand::ResolveEntityType { entity_type })
-        }
-        "GET_FIELD_TYPE" => {
-            if cmd.args.len() != 1 {
-                return Err(anyhow!("GET_FIELD_TYPE expects 1 argument"));
-            }
-            let name = parse_str(&cmd.args[0])?;
-            Ok(StoreCommand::GetFieldType { name })
-        }
-        "RESOLVE_FIELD_TYPE" => {
-            if cmd.args.len() != 1 {
-                return Err(anyhow!("RESOLVE_FIELD_TYPE expects 1 argument"));
-            }
-            let field_type = parse_field_type(&cmd.args[0])?;
-            Ok(StoreCommand::ResolveFieldType { field_type })
-        }
-        "GET_ENTITY_SCHEMA" => {
-            if cmd.args.len() != 1 {
-                return Err(anyhow!("GET_ENTITY_SCHEMA expects 1 argument"));
-            }
-            let entity_type = parse_entity_type(&cmd.args[0])?;
-            Ok(StoreCommand::GetEntitySchema { entity_type })
-        }
-        "GET_COMPLETE_ENTITY_SCHEMA" => {
-            if cmd.args.len() != 1 {
-                return Err(anyhow!("GET_COMPLETE_ENTITY_SCHEMA expects 1 argument"));
-            }
-            let entity_type = parse_entity_type(&cmd.args[0])?;
-            Ok(StoreCommand::GetCompleteEntitySchema { entity_type })
-        }
-        "GET_FIELD_SCHEMA" => {
-            if cmd.args.len() != 2 {
-                return Err(anyhow!("GET_FIELD_SCHEMA expects 2 arguments"));
-            }
-            let entity_type = parse_entity_type(&cmd.args[0])?;
-            let field_type = parse_field_type(&cmd.args[1])?;
-            Ok(StoreCommand::GetFieldSchema { entity_type, field_type })
-        }
-        "SET_FIELD_SCHEMA" => {
-            if cmd.args.len() != 3 {
-                return Err(anyhow!("SET_FIELD_SCHEMA expects 3 arguments"));
-            }
-            let entity_type = parse_entity_type(&cmd.args[0])?;
-            let field_type = parse_field_type(&cmd.args[1])?;
-            let schema = decode_field_schema(&cmd.args[2])?;
-            Ok(StoreCommand::SetFieldSchema { entity_type, field_type, schema })
-        }
-        "ENTITY_EXISTS" => {
-            if cmd.args.len() != 1 {
-                return Err(anyhow!("ENTITY_EXISTS expects 1 argument"));
-            }
-            let entity_id = parse_entity_id(&cmd.args[0])?;
-            Ok(StoreCommand::EntityExists { entity_id })
-        }
-        "FIELD_EXISTS" => {
-            if cmd.args.len() != 2 {
-                return Err(anyhow!("FIELD_EXISTS expects 2 arguments"));
-            }
-            let entity_type = parse_entity_type(&cmd.args[0])?;
-            let field_type = parse_field_type(&cmd.args[1])?;
-            Ok(StoreCommand::FieldExists { entity_type, field_type })
-        }
-        "RESOLVE_INDIRECTION" => {
-            if cmd.args.len() != 2 {
-                return Err(anyhow!("RESOLVE_INDIRECTION expects 2 arguments"));
-            }
-            let entity_id = parse_entity_id(&cmd.args[0])?;
-            let field_path = parse_field_path(&cmd.args[1])?;
-            Ok(StoreCommand::ResolveIndirection { entity_id, field_path })
-        }
-        "READ" => {
-            if cmd.args.len() != 2 {
-                return Err(anyhow!("READ expects 2 arguments"));
-            }
-            let entity_id = parse_entity_id(&cmd.args[0])?;
-            let field_path = parse_field_path(&cmd.args[1])?;
-            Ok(StoreCommand::Read { entity_id, field_path })
-        }
+        "GET_ENTITY_TYPE" => parse_get_entity_type(cmd),
+        "RESOLVE_ENTITY_TYPE" => parse_resolve_entity_type(cmd),
+        "GET_FIELD_TYPE" => parse_get_field_type(cmd),
+        "RESOLVE_FIELD_TYPE" => parse_resolve_field_type(cmd),
+        "GET_ENTITY_SCHEMA" => parse_get_entity_schema(cmd),
+        "GET_COMPLETE_ENTITY_SCHEMA" => parse_get_complete_entity_schema(cmd),
+        "GET_FIELD_SCHEMA" => parse_get_field_schema(cmd),
+        "SET_FIELD_SCHEMA" => parse_set_field_schema(cmd),
+        "ENTITY_EXISTS" => parse_entity_exists(cmd),
+        "FIELD_EXISTS" => parse_field_exists(cmd),
+        "RESOLVE_INDIRECTION" => parse_resolve_indirection(cmd),
+        "READ" => parse_read(cmd),
         "WRITE" => {
             if cmd.args.len() < 3 {
                 return Err(anyhow!("WRITE expects at least 3 arguments"));
