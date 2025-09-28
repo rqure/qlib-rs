@@ -384,9 +384,12 @@ impl StoreProxy {
     }
 
     /// Update entity schema
-    pub fn update_schema(&mut self, _schema: EntitySchema<Single, String, String>) -> Result<()> {
-        // TODO: Implement RESP command for schema updates
-        unimplemented!("Schema updates not yet implemented with RESP")
+    pub fn update_schema(&mut self, schema: EntitySchema<Single, String, String>) -> Result<()> {
+        let command = crate::data::resp::UpdateSchemaCommand {
+            schema,
+            _marker: std::marker::PhantomData,
+        };
+        self.send_command_ok(&command)
     }
 
     /// Take a snapshot of the current store state

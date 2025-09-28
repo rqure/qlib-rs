@@ -90,8 +90,7 @@
 //! ```
 
 use crate::{
-    data::{EntityId, EntityType, FieldType, Timestamp, Value},
-    Result,
+    data::{EntityId, EntityType, FieldType, Timestamp, Value}, EntitySchema, Result, Single
 };
 
 // Re-export derive macros when derive feature is enabled
@@ -636,31 +635,63 @@ impl RespEncode for Value {
 }
 
 // Helper macro to decode Vec<T> from RESP arrays
-macro_rules! impl_vec_decode {
-    ($typ:ty) => {
-        impl<'a> RespDecode<'a> for Vec<$typ> {
-            fn decode(input: &'a [u8]) -> Result<(Self, &'a [u8])> {
-                let (value, remaining) = RespValue::decode(input)?;
-                match value {
-                    RespValue::Array(elements) => {
-                        let mut result = Vec::with_capacity(elements.len());
-                        for element in elements {
-                            let element_bytes = element.encode();
-                            let (decoded, _) = <$typ>::decode(&element_bytes)?;
-                            result.push(decoded);
-                        }
-                        Ok((result, remaining))
-                    },
-                    _ => Err(crate::Error::InvalidRequest("Expected array for Vec".to_string())),
-                }
-            }
-        }
-    };
+// macro_rules! impl_vec_decode {
+//     ($typ:ty) => {
+//         impl<'a> RespDecode<'a> for Vec<$typ> {
+//             fn decode(input: &'a [u8]) -> Result<(Self, &'a [u8])> {
+//                 let (value, remaining) = RespValue::decode(input)?;
+//                 match value {
+//                     RespValue::Array(elements) => {
+//                         let mut result = Vec::with_capacity(elements.len());
+//                         for element in elements {
+//                             let element_bytes = element.encode();
+//                             let (decoded, _) = <$typ>::decode(&element_bytes)?;
+//                             result.push(decoded);
+//                         }
+//                         Ok((result, remaining))
+//                     },
+//                     _ => Err(crate::Error::InvalidRequest("Expected array for Vec".to_string())),
+//                 }
+//             }
+//         }
+//     };
+// }
+
+// impl_vec_decode!(FieldType);
+// impl_vec_decode!(EntityId);
+// impl_vec_decode!(EntityType);
+
+impl<T: RespEncode> RespEncode for Vec<T> {
+    fn encode(&self) -> Vec<u8> {
+        let elements: Vec<RespValue> = self.iter()
+            .map(|item| {
+                let encoded = item.encode();
+                // Decode back to RespValue for array construction
+                let (resp_value, _) = RespValue::decode(&encoded).unwrap_or((RespValue::Null, &[]));
+                resp_value
+            })
+            .collect();
+        RespValue::Array(elements).encode()
+    }
 }
 
-impl_vec_decode!(FieldType);
-impl_vec_decode!(EntityId);
-impl_vec_decode!(EntityType);
+impl<'a, T: RespDecode<'a>> RespDecode<'a> for Vec<T> {
+    fn decode(input: &'a [u8]) -> Result<(Self, &'a [u8])> {
+        let (value, remaining) = RespValue::decode(input)?;
+        match value {
+            RespValue::Array(elements) => {
+                let mut result = Vec::with_capacity(elements.len());
+                for element in elements {
+                    let element_bytes = element.encode();
+                    let (decoded, _) = T::decode(&element_bytes)?;
+                    result.push(decoded);
+                }
+                Ok((result, remaining))
+            },
+            _ => Err(crate::Error::InvalidRequest("Expected array for Vec".to_string())),
+        }
+    }
+}
 
 // String slice decoding for command names
 impl<'a> RespDecode<'a> for &'a str {
@@ -702,33 +733,6 @@ impl<'a> RespDecode<'a> for String {
             RespValue::SimpleString(s) => Ok((s.to_string(), remaining)),
             _ => Err(crate::Error::InvalidRequest("Expected string type".to_string())),
         }
-    }
-}
-
-impl RespEncode for Vec<FieldType> {
-    fn encode(&self) -> Vec<u8> {
-        let elements: Vec<RespValue> = self.iter()
-            .map(|ft| RespValue::Integer(ft.0 as i64))
-            .collect();
-        RespValue::Array(elements).encode()
-    }
-}
-
-impl RespEncode for Vec<EntityId> {
-    fn encode(&self) -> Vec<u8> {
-        let elements: Vec<RespValue> = self.iter()
-            .map(|id| RespValue::Integer(id.0 as i64))
-            .collect();
-        RespValue::Array(elements).encode()
-    }
-}
-
-impl RespEncode for Vec<EntityType> {
-    fn encode(&self) -> Vec<u8> {
-        let elements: Vec<RespValue> = self.iter()
-            .map(|et| RespValue::Integer(et.0 as i64))
-            .collect();
-        RespValue::Array(elements).encode()
     }
 }
 
@@ -900,6 +904,55 @@ impl<'a, T: RespDecode<'a>> RespDecode<'a> for Option<T> {
     }
 }
 
+impl RespEncode for u64 {
+    fn encode(&self) -> Vec<u8> {
+        RespValue::Integer(*self as i64).encode()
+    }
+}
+
+impl RespDecode<'_> for u64 {
+    fn decode(data: &[u8]) -> Result<(Self, &[u8])> {
+        let (value, remaining) = RespValue::decode(data)?;
+        match value {
+            RespValue::Integer(i) if i >= 0 => Ok((i as u64, remaining)),
+            _ => Err(crate::Error::InvalidRequest("Expected non-negative integer for u64".to_string())),
+        }
+    }
+}
+
+impl RespEncode for bool {
+    fn encode(&self) -> Vec<u8> {
+        RespValue::Integer(if *self { 1 } else { 0 }).encode()
+    }
+}
+
+impl RespDecode<'_> for bool {
+    fn decode(data: &[u8]) -> Result<(Self, &[u8])> {
+        let (value, remaining) = RespValue::decode(data)?;
+        match value {
+            RespValue::Integer(0) => Ok((false, remaining)),
+            RespValue::Integer(1) => Ok((true, remaining)),
+            _ => Err(crate::Error::InvalidRequest("Expected 0 or 1 for bool".to_string())),
+        }
+    }
+}
+
+impl RespEncode for i64 {
+    fn encode(&self) -> Vec<u8> {
+        RespValue::Integer(*self).encode()
+    }
+}
+
+impl RespDecode<'_> for i64 {
+    fn decode(data: &[u8]) -> Result<(Self, &[u8])> {
+        let (value, remaining) = RespValue::decode(data)?;
+        match value {
+            RespValue::Integer(i) => Ok((i, remaining)),
+            _ => Err(crate::Error::InvalidRequest("Expected integer for i64".to_string())),
+        }
+    }
+}
+
 // ============================================================================
 // RESP Commands for all StoreTrait methods
 // ============================================================================
@@ -982,6 +1035,13 @@ pub struct ResolveFieldTypeCommand<'a> {
 #[derive(Debug, Clone, RespEncode, RespDecode)]
 pub struct GetEntitySchemaCommand<'a> {
     pub entity_type: EntityType,
+    pub _marker: std::marker::PhantomData<&'a ()>,
+}
+
+#[respc(name = "UPDATE_SCHEMA")]
+#[derive(Debug, Clone, RespEncode, RespDecode)]
+pub struct UpdateSchemaCommand<'a> {
+    pub schema: EntitySchema<'a, Single, String, String>,
     pub _marker: std::marker::PhantomData<&'a ()>,
 }
 
@@ -1159,57 +1219,4 @@ pub struct PageResultResponse<T> {
     pub total_count: Option<u64>,
     pub has_more: bool,
     pub cursor: Option<String>,
-}
-
-// ============================================================================
-// Additional RespEncode/RespDecode implementations for standard types
-// ============================================================================
-
-impl RespEncode for u64 {
-    fn encode(&self) -> Vec<u8> {
-        RespValue::Integer(*self as i64).encode()
-    }
-}
-
-impl RespDecode<'_> for u64 {
-    fn decode(data: &[u8]) -> Result<(Self, &[u8])> {
-        let (value, remaining) = RespValue::decode(data)?;
-        match value {
-            RespValue::Integer(i) if i >= 0 => Ok((i as u64, remaining)),
-            _ => Err(crate::Error::InvalidRequest("Expected non-negative integer for u64".to_string())),
-        }
-    }
-}
-
-impl RespEncode for bool {
-    fn encode(&self) -> Vec<u8> {
-        RespValue::Integer(if *self { 1 } else { 0 }).encode()
-    }
-}
-
-impl RespDecode<'_> for bool {
-    fn decode(data: &[u8]) -> Result<(Self, &[u8])> {
-        let (value, remaining) = RespValue::decode(data)?;
-        match value {
-            RespValue::Integer(0) => Ok((false, remaining)),
-            RespValue::Integer(1) => Ok((true, remaining)),
-            _ => Err(crate::Error::InvalidRequest("Expected 0 or 1 for bool".to_string())),
-        }
-    }
-}
-
-impl RespEncode for i64 {
-    fn encode(&self) -> Vec<u8> {
-        RespValue::Integer(*self).encode()
-    }
-}
-
-impl RespDecode<'_> for i64 {
-    fn decode(data: &[u8]) -> Result<(Self, &[u8])> {
-        let (value, remaining) = RespValue::decode(data)?;
-        match value {
-            RespValue::Integer(i) => Ok((i, remaining)),
-            _ => Err(crate::Error::InvalidRequest("Expected integer for i64".to_string())),
-        }
-    }
 }

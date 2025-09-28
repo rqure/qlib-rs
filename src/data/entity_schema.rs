@@ -1,5 +1,6 @@
 use std::hash::Hash;
 
+use qlib_rs_derive::{RespDecode, RespEncode};
 use rustc_hash::FxHashMap;
 use serde::{Deserialize, Serialize};
 
@@ -99,4 +100,19 @@ impl EntitySchema<Single, EntityType, FieldType> {
             _marker: std::marker::PhantomData,
         }
     }
+}
+
+#[derive(Debug, Clone, RespEncode, RespDecode)]
+pub struct EntitySchemaResp {
+    pub entity_type: String,
+    pub inherit: Vec<String>,
+    pub fields: Vec<FieldSchemaResp>,
+}
+
+#[derive(Debug, Clone, RespEncode, RespDecode)]
+pub struct FieldSchemaResp {
+    pub field_type: String,
+    pub rank: i64,
+    pub default_value: String,
+    pub value_type: String,
 }
