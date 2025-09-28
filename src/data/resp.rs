@@ -8,6 +8,7 @@
 //! - Custom command support via traits
 //! - CLI-friendly string-based numeric parsing
 //! - Derive macro support for automatic encoding/decoding
+//! - Command definition macro for easy command creation
 //! 
 //! ## Derive Macros
 //! 
@@ -32,6 +33,44 @@
 //!     Variant3 { field: u32 },
 //! }
 //! ```
+//! 
+//! ## Command Definition Macro
+//! 
+//! The `resp_command!` macro makes it easy to define new RESP commands with automatic
+//! encoding/decoding and execution boilerplate:
+//! 
+//! ```rust,ignore
+//! use qlib_rs::resp_command;
+//! 
+//! resp_command! {
+//!     "CUSTOM_READ" => CustomReadCommand {
+//!         entity_id: EntityId,
+//!         field_path: Vec<FieldType>,
+//!         ?options: String,  // Optional field (prefix with ?)
+//!         {
+//!             // Execution logic
+//!             let (value, timestamp, writer_id) = store.read(self.entity_id, &self.field_path)?;
+//!             Ok(RespResponse::Array(vec![
+//!                 RespResponse::Bulk(value.encode()),
+//!                 RespResponse::Bulk(timestamp.to_string().into_bytes()),
+//!                 match writer_id {
+//!                     Some(id) => RespResponse::Integer(id.0 as i64),
+//!                     None => RespResponse::Null,
+//!                 },
+//!             ]))
+//!         }
+//!     }
+//! }
+//! ```
+//! 
+//! This generates:
+//! - A struct with the specified fields plus a lifetime marker
+//! - `RespDecode` implementation with proper command name validation
+//! - `RespEncode` implementation 
+//! - `RespCommand` implementation with the execute logic
+//! 
+//! Optional fields (prefixed with `?`) are wrapped in `Option<T>` and encoded as 
+//! `Null` when `None`.
 //! 
 //! ## CLI Compatibility
 //! 
@@ -68,7 +107,7 @@ use crate::{
 
 // Re-export derive macros when derive feature is enabled
 #[cfg(feature = "derive")]
-pub use qlib_rs_derive::{RespEncode, RespDecode};
+pub use qlib_rs_derive::{RespEncode, RespDecode, resp_command};
 
 /// Redis RESP data types with zero-copy deserialization support
 ///

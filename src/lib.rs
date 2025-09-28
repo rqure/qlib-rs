@@ -5,7 +5,7 @@ pub mod expr;
 
 // Re-export derive macros when derive feature is enabled
 #[cfg(feature = "derive")]
-pub use qlib_rs_derive::{RespEncode, RespDecode};
+pub use qlib_rs_derive::{RespEncode, RespDecode, resp_command};
 
 pub use data::{
     BadIndirectionReason, Store, PageOpts,
