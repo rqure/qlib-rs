@@ -4,7 +4,7 @@ use qlib_rs_derive::{RespDecode, RespEncode};
 use rustc_hash::FxHashMap;
 use serde::{Deserialize, Serialize};
 
-use crate::{data::{EntityType, FieldSchema, FieldType}, StoreTrait};
+use crate::{data::{resp::RespDecode as RespDecodeT, EntityType, FieldSchema, FieldType}, StoreTrait, Value};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Single;
@@ -113,6 +113,5 @@ pub struct EntitySchemaResp {
 pub struct FieldSchemaResp {
     pub field_type: String,
     pub rank: i64,
-    pub default_value: String,
-    pub value_type: String,
+    pub default_value: Value
 }

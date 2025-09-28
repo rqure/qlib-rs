@@ -385,8 +385,15 @@ impl StoreProxy {
 
     /// Update entity schema
     pub fn update_schema(&mut self, schema: EntitySchema<Single, String, String>) -> Result<()> {
+        // Convert EntitySchema to EntitySchemaResp
+        let schema_resp = crate::data::entity_schema::EntitySchemaResp {
+            entity_type: schema.entity_type,
+            inherit: schema.inherit,
+            fields: Vec::new(), // TODO: Convert FieldSchema to FieldSchemaResp
+        };
+        
         let command = crate::data::resp::UpdateSchemaCommand {
-            schema,
+            schema: schema_resp,
             _marker: std::marker::PhantomData,
         };
         self.send_command_ok(&command)

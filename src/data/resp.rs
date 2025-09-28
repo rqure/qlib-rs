@@ -90,7 +90,7 @@
 //! ```
 
 use crate::{
-    data::{EntityId, EntityType, FieldType, Timestamp, Value}, EntitySchema, Result, Single
+    data::{entity_schema::EntitySchemaResp, EntityId, EntityType, FieldType, Timestamp, Value}, Result
 };
 
 // Re-export derive macros when derive feature is enabled
@@ -142,6 +142,74 @@ pub enum RespValue<'a> {
     Array(Vec<RespValue<'a>>),
     /// Null bulk string encoded as $-1\r\n
     Null,
+}
+
+/// Owned version of RespValue for when we need to construct values from owned data
+#[derive(Debug, Clone, PartialEq)]
+pub enum OwnedRespValue {
+    /// Simple strings are encoded as +<string>\r\n
+    SimpleString(String),
+    /// Errors are encoded as -<error>\r\n  
+    Error(String),
+    /// Integers are encoded as :<number>\r\n
+    Integer(i64),
+    /// Bulk strings are encoded as $<length>\r\n<data>\r\n
+    BulkString(Vec<u8>),
+    /// Arrays are encoded as *<count>\r\n<element1><element2>...
+    Array(Vec<OwnedRespValue>),
+    /// Null bulk string encoded as $-1\r\n
+    Null,
+}
+
+impl RespEncode for OwnedRespValue {
+    fn encode(&self) -> Vec<u8> {
+        match self {
+            OwnedRespValue::SimpleString(s) => {
+                let mut result = Vec::with_capacity(s.len() + 3);
+                result.push(b'+');
+                result.extend_from_slice(s.as_bytes());
+                result.extend_from_slice(b"\r\n");
+                result
+            },
+            OwnedRespValue::Error(s) => {
+                let mut result = Vec::with_capacity(s.len() + 3);
+                result.push(b'-');
+                result.extend_from_slice(s.as_bytes());
+                result.extend_from_slice(b"\r\n");
+                result
+            },
+            OwnedRespValue::Integer(i) => {
+                let s = i.to_string();
+                let mut result = Vec::with_capacity(s.len() + 3);
+                result.push(b':');
+                result.extend_from_slice(s.as_bytes());
+                result.extend_from_slice(b"\r\n");
+                result
+            },
+            OwnedRespValue::BulkString(data) => {
+                let len_str = data.len().to_string();
+                let mut result = Vec::with_capacity(len_str.len() + data.len() + 5);
+                result.push(b'$');
+                result.extend_from_slice(len_str.as_bytes());
+                result.extend_from_slice(b"\r\n");
+                result.extend_from_slice(data);
+                result.extend_from_slice(b"\r\n");
+                result
+            },
+            OwnedRespValue::Array(elements) => {
+                let count_str = elements.len().to_string();
+                let mut result = Vec::new();
+                result.push(b'*');
+                result.extend_from_slice(count_str.as_bytes());
+                result.extend_from_slice(b"\r\n");
+                for element in elements {
+                    result.extend_from_slice(&element.encode());
+                }
+                result
+            },
+            OwnedRespValue::Null => b"$-1\r\n".to_vec(),
+        }
+    }
 }
 
 /// Trait for RESP serialization  
@@ -634,56 +702,164 @@ impl RespEncode for Value {
     }
 }
 
-// Helper macro to decode Vec<T> from RESP arrays
-// macro_rules! impl_vec_decode {
-//     ($typ:ty) => {
-//         impl<'a> RespDecode<'a> for Vec<$typ> {
-//             fn decode(input: &'a [u8]) -> Result<(Self, &'a [u8])> {
-//                 let (value, remaining) = RespValue::decode(input)?;
-//                 match value {
-//                     RespValue::Array(elements) => {
-//                         let mut result = Vec::with_capacity(elements.len());
-//                         for element in elements {
-//                             let element_bytes = element.encode();
-//                             let (decoded, _) = <$typ>::decode(&element_bytes)?;
-//                             result.push(decoded);
-//                         }
-//                         Ok((result, remaining))
-//                     },
-//                     _ => Err(crate::Error::InvalidRequest("Expected array for Vec".to_string())),
-//                 }
-//             }
-//         }
-//     };
-// }
-
-// impl_vec_decode!(FieldType);
-// impl_vec_decode!(EntityId);
-// impl_vec_decode!(EntityType);
-
+// Vec implementations - we need to be careful about lifetimes
+// We can only decode Vec of types that produce owned data
 impl<T: RespEncode> RespEncode for Vec<T> {
     fn encode(&self) -> Vec<u8> {
-        let elements: Vec<RespValue> = self.iter()
+        // Encode each item as a bulk string in an array
+        let elements: Vec<OwnedRespValue> = self.iter()
             .map(|item| {
                 let encoded = item.encode();
-                // Decode back to RespValue for array construction
-                let (resp_value, _) = RespValue::decode(&encoded).unwrap_or((RespValue::Null, &[]));
-                resp_value
+                OwnedRespValue::BulkString(encoded)
             })
             .collect();
-        RespValue::Array(elements).encode()
+        OwnedRespValue::Array(elements).encode()
     }
 }
 
-impl<'a, T: RespDecode<'a>> RespDecode<'a> for Vec<T> {
-    fn decode(input: &'a [u8]) -> Result<(Self, &'a [u8])> {
+// For Vec decoding, we need a different approach - we'll implement specific Vec decoders
+// for the types we need rather than a generic one
+impl RespDecode<'_> for Vec<String> {
+    fn decode(input: &[u8]) -> Result<(Self, &[u8])> {
+        let (value, remaining) = RespValue::decode(input)?;
+        match value {
+            RespValue::Array(elements) => {
+                let mut result = Vec::with_capacity(elements.len());
+                for element in elements {
+                    match element {
+                        RespValue::BulkString(data) => {
+                            let s = std::str::from_utf8(data)
+                                .map_err(|_| crate::Error::InvalidRequest("Invalid UTF-8 in string".to_string()))?
+                                .to_string();
+                            result.push(s);
+                        },
+                        RespValue::SimpleString(s) => {
+                            result.push(s.to_string());
+                        },
+                        _ => return Err(crate::Error::InvalidRequest("Expected string in array".to_string())),
+                    }
+                }
+                Ok((result, remaining))
+            },
+            _ => Err(crate::Error::InvalidRequest("Expected array for Vec".to_string())),
+        }
+    }
+}
+
+impl RespDecode<'_> for Vec<EntityId> {
+    fn decode(input: &[u8]) -> Result<(Self, &[u8])> {
+        let (value, remaining) = RespValue::decode(input)?;
+        match value {
+            RespValue::Array(elements) => {
+                let mut result = Vec::with_capacity(elements.len());
+                for element in elements {
+                    match element {
+                        RespValue::Integer(i) => {
+                            result.push(EntityId(i as u64));
+                        },
+                        RespValue::BulkString(data) => {
+                            let s = std::str::from_utf8(data)
+                                .map_err(|_| crate::Error::InvalidRequest("Invalid UTF-8 in integer".to_string()))?;
+                            let id = s.parse::<u64>()
+                                .map_err(|_| crate::Error::InvalidRequest("Invalid integer format".to_string()))?;
+                            result.push(EntityId(id));
+                        },
+                        _ => return Err(crate::Error::InvalidRequest("Expected integer in array".to_string())),
+                    }
+                }
+                Ok((result, remaining))
+            },
+            _ => Err(crate::Error::InvalidRequest("Expected array for Vec".to_string())),
+        }
+    }
+}
+
+impl RespDecode<'_> for Vec<EntityType> {
+    fn decode(input: &[u8]) -> Result<(Self, &[u8])> {
+        let (value, remaining) = RespValue::decode(input)?;
+        match value {
+            RespValue::Array(elements) => {
+                let mut result = Vec::with_capacity(elements.len());
+                for element in elements {
+                    match element {
+                        RespValue::Integer(i) => {
+                            result.push(EntityType(i as u32));
+                        },
+                        RespValue::BulkString(data) => {
+                            let s = std::str::from_utf8(data)
+                                .map_err(|_| crate::Error::InvalidRequest("Invalid UTF-8 in integer".to_string()))?;
+                            let id = s.parse::<u32>()
+                                .map_err(|_| crate::Error::InvalidRequest("Invalid integer format".to_string()))?;
+                            result.push(EntityType(id));
+                        },
+                        _ => return Err(crate::Error::InvalidRequest("Expected integer in array".to_string())),
+                    }
+                }
+                Ok((result, remaining))
+            },
+            _ => Err(crate::Error::InvalidRequest("Expected array for Vec".to_string())),
+        }
+    }
+}
+
+impl RespDecode<'_> for Vec<FieldType> {
+    fn decode(input: &[u8]) -> Result<(Self, &[u8])> {
+        let (value, remaining) = RespValue::decode(input)?;
+        match value {
+            RespValue::Array(elements) => {
+                let mut result = Vec::with_capacity(elements.len());
+                for element in elements {
+                    match element {
+                        RespValue::Integer(i) => {
+                            result.push(FieldType(i as u64));
+                        },
+                        RespValue::BulkString(data) => {
+                            let s = std::str::from_utf8(data)
+                                .map_err(|_| crate::Error::InvalidRequest("Invalid UTF-8 in integer".to_string()))?;
+                            let id = s.parse::<u64>()
+                                .map_err(|_| crate::Error::InvalidRequest("Invalid integer format".to_string()))?;
+                            result.push(FieldType(id));
+                        },
+                        _ => return Err(crate::Error::InvalidRequest("Expected integer in array".to_string())),
+                    }
+                }
+                Ok((result, remaining))
+            },
+            _ => Err(crate::Error::InvalidRequest("Expected array for Vec".to_string())),
+        }
+    }
+}
+
+impl RespDecode<'_> for Vec<EntitySchemaResp> {
+    fn decode(input: &[u8]) -> Result<(Self, &[u8])> {
         let (value, remaining) = RespValue::decode(input)?;
         match value {
             RespValue::Array(elements) => {
                 let mut result = Vec::with_capacity(elements.len());
                 for element in elements {
                     let element_bytes = element.encode();
-                    let (decoded, _) = T::decode(&element_bytes)?;
+                    let (decoded, _) = EntitySchemaResp::decode(&element_bytes)?;
+                    result.push(decoded);
+                }
+                Ok((result, remaining))
+            },
+            _ => Err(crate::Error::InvalidRequest("Expected array for Vec".to_string())),
+        }
+    }
+}
+
+// For FieldSchemaResp, we'll need a specific decoder too
+use crate::data::entity_schema::FieldSchemaResp;
+
+impl RespDecode<'_> for Vec<FieldSchemaResp> {
+    fn decode(input: &[u8]) -> Result<(Self, &[u8])> {
+        let (value, remaining) = RespValue::decode(input)?;
+        match value {
+            RespValue::Array(elements) => {
+                let mut result = Vec::with_capacity(elements.len());
+                for element in elements {
+                    let element_bytes = element.encode();
+                    let (decoded, _) = FieldSchemaResp::decode(&element_bytes)?;
                     result.push(decoded);
                 }
                 Ok((result, remaining))
@@ -1041,7 +1217,7 @@ pub struct GetEntitySchemaCommand<'a> {
 #[respc(name = "UPDATE_SCHEMA")]
 #[derive(Debug, Clone, RespEncode, RespDecode)]
 pub struct UpdateSchemaCommand<'a> {
-    pub schema: EntitySchema<'a, Single, String, String>,
+    pub schema: EntitySchemaResp,
     pub _marker: std::marker::PhantomData<&'a ()>,
 }
 
