@@ -530,6 +530,98 @@ impl RespDecode for FieldType {
     }
 }
 
+/// Generic response builders to reduce code duplication
+pub struct ResponseBuilder;
+
+impl ResponseBuilder {
+    /// Create a simple integer response from any integer-like type
+    #[inline]
+    pub fn integer<T>(value: T) -> QuspResponse 
+    where 
+        T: Into<i64>,
+    {
+        QuspResponse::Integer(value.into())
+    }
+    
+    /// Create a bulk string response
+    #[inline]
+    pub fn bulk_string(value: &str) -> QuspResponse {
+        QuspResponse::Bulk(Bytes::copy_from_slice(value.as_bytes()))
+    }
+    
+    /// Create a simple string response
+    #[inline]
+    pub fn simple_string(value: &str) -> QuspResponse {
+        QuspResponse::Simple(Bytes::copy_from_slice(value.as_bytes()))
+    }
+    
+    /// Create an array response from any iterable of encodable items
+    #[inline]
+    pub fn array<T, I>(items: I) -> QuspResponse 
+    where
+        T: Into<QuspResponse>,
+        I: IntoIterator<Item = T>,
+    {
+        QuspResponse::Array(items.into_iter().map(|item| item.into()).collect())
+    }
+    
+    /// Create a response from an optional value, using null for None
+    #[inline]
+    pub fn optional<T>(value: Option<T>) -> QuspResponse
+    where
+        T: Into<QuspResponse>,
+    {
+        match value {
+            Some(v) => v.into(),
+            None => QuspResponse::Null,
+        }
+    }
+    
+    /// Create a paginated response with consistent structure
+    pub fn paginated<T>(result: &PageResult<T>) -> QuspResponse
+    where 
+        T: Clone + Into<QuspResponse>,
+    {
+        let mut response = vec![
+            ResponseBuilder::array(result.items.iter().cloned().map(|item| item.into())),
+            ResponseBuilder::integer(result.total as i64),
+        ];
+        
+        if let Some(cursor) = result.next_cursor {
+            response.push(ResponseBuilder::integer(cursor as i64));
+        } else {
+            response.push(QuspResponse::Null);
+        }
+        
+        QuspResponse::Array(response)
+    }
+}
+
+/// Trait to convert common types to QuspResponse for use with ResponseBuilder::array
+impl From<EntityId> for QuspResponse {
+    fn from(id: EntityId) -> Self {
+        ResponseBuilder::integer(id.0 as i64)
+    }
+}
+
+impl From<EntityType> for QuspResponse {
+    fn from(entity_type: EntityType) -> Self {
+        ResponseBuilder::integer(entity_type.0 as i64)
+    }
+}
+
+impl From<FieldType> for QuspResponse {
+    fn from(field_type: FieldType) -> Self {
+        ResponseBuilder::integer(field_type.0 as i64)
+    }
+}
+
+impl From<bool> for QuspResponse {
+    fn from(value: bool) -> Self {
+        ResponseBuilder::integer(if value { 1 } else { 0 })
+    }
+}
+
 #[derive(Debug)]
 pub struct MessageBuffer {
 	buffer: BytesMut,
@@ -2294,23 +2386,21 @@ fn parse_field_type_str(s: &str) -> Result<FieldType> {
     s.trim().parse().map_err(|e| anyhow!("invalid field type: {}", e)).map(FieldType)
 }
 
-// Response encoding functions
+// Response encoding functions (refactored to use generic builders)
 pub fn encode_entity_type_response(entity_type: EntityType) -> QuspResponse {
-    QuspResponse::Integer(entity_type.0 as i64)
+    entity_type.into()
 }
 
 pub fn encode_entity_type_name_response(name: &str) -> QuspResponse {
-    QuspResponse::Bulk(Bytes::copy_from_slice(name.as_bytes()))
+    ResponseBuilder::bulk_string(name)
 }
 
 pub fn encode_field_type_response(field_type: FieldType) -> QuspResponse {
-    let mut buf = [0u8; 8];
-    buf.copy_from_slice(&field_type.0.to_le_bytes());
-    QuspResponse::Bulk(Bytes::copy_from_slice(&buf))
+    field_type.into()
 }
 
 pub fn encode_field_type_name_response(name: &str) -> QuspResponse {
-    QuspResponse::Bulk(Bytes::copy_from_slice(name.as_bytes()))
+    ResponseBuilder::bulk_string(name)
 }
 
 pub fn encode_entity_schema_response(schema: &EntitySchema<Single>) -> Result<QuspResponse> {
@@ -2329,33 +2419,26 @@ pub fn encode_field_schema_response(schema: &FieldSchema) -> Result<QuspResponse
 }
 
 pub fn encode_bool_response(value: bool) -> QuspResponse {
-    QuspResponse::Integer(if value { 1 } else { 0 })
+    value.into()
 }
 
 pub fn encode_indirection_response(entity_id: EntityId, field_type: FieldType) -> QuspResponse {
-    let mut response = Vec::new();
-    response.push(QuspResponse::Integer(entity_id.0 as i64));
-    let mut buf = [0u8; 8];
-    buf.copy_from_slice(&field_type.0.to_le_bytes());
-    response.push(QuspResponse::Bulk(Bytes::copy_from_slice(&buf)));
-    QuspResponse::Array(response)
+    let responses: [QuspResponse; 2] = [entity_id.into(), field_type.into()];
+    ResponseBuilder::array(responses)
 }
 
 pub fn encode_read_response(value: &Value, timestamp: Timestamp, writer_id: Option<EntityId>) -> QuspResponse {
-    let mut response = Vec::new();
     let encoded_value = encode_value(value);
-    response.push(QuspResponse::Bulk(Bytes::copy_from_slice(&encoded_value)));
-    response.push(QuspResponse::Integer(timestamp.unix_timestamp_nanos() as i64));
-    if let Some(writer) = writer_id {
-        response.push(QuspResponse::Integer(writer.0 as i64));
-    } else {
-        response.push(QuspResponse::Null);
-    }
-    QuspResponse::Array(response)
+    let responses: [QuspResponse; 3] = [
+        QuspResponse::Bulk(Bytes::copy_from_slice(&encoded_value)),
+        ResponseBuilder::integer(timestamp.unix_timestamp_nanos() as i64),
+        ResponseBuilder::optional(writer_id),
+    ];
+    ResponseBuilder::array(responses)
 }
 
 pub fn encode_entity_id_response(entity_id: EntityId) -> QuspResponse {
-    QuspResponse::Integer(entity_id.0 as i64)
+    entity_id.into()
 }
 
 pub fn encode_snapshot_response(snapshot: &Snapshot) -> Result<QuspResponse> {
@@ -2364,51 +2447,19 @@ pub fn encode_snapshot_response(snapshot: &Snapshot) -> Result<QuspResponse> {
 }
 
 pub fn encode_page_result_entity_ids(result: &PageResult<EntityId>) -> QuspResponse {
-    let mut response = Vec::new();
-    let mut items = Vec::new();
-    for entity_id in &result.items {
-        items.push(QuspResponse::Integer(entity_id.0 as i64));
-    }
-    response.push(QuspResponse::Array(items));
-    response.push(QuspResponse::Integer(result.total as i64));
-    if let Some(cursor) = result.next_cursor {
-        response.push(QuspResponse::Integer(cursor as i64));
-    } else {
-        response.push(QuspResponse::Null);
-    }
-    QuspResponse::Array(response)
+    ResponseBuilder::paginated(result)
 }
 
 pub fn encode_page_result_entity_types(result: &PageResult<EntityType>) -> QuspResponse {
-    let mut response = Vec::new();
-    let mut items = Vec::new();
-    for entity_type in &result.items {
-        items.push(QuspResponse::Integer(entity_type.0 as i64));
-    }
-    response.push(QuspResponse::Array(items));
-    response.push(QuspResponse::Integer(result.total as i64));
-    if let Some(cursor) = result.next_cursor {
-        response.push(QuspResponse::Integer(cursor as i64));
-    } else {
-        response.push(QuspResponse::Null);
-    }
-    QuspResponse::Array(response)
+    ResponseBuilder::paginated(result)
 }
 
 pub fn encode_entity_ids_response(entity_ids: &[EntityId]) -> QuspResponse {
-    let mut items = Vec::new();
-    for entity_id in entity_ids {
-        items.push(QuspResponse::Integer(entity_id.0 as i64));
-    }
-    QuspResponse::Array(items)
+    ResponseBuilder::array(entity_ids.iter().cloned())
 }
 
 pub fn encode_entity_types_response(entity_types: &[EntityType]) -> QuspResponse {
-    let mut items = Vec::new();
-    for entity_type in entity_types {
-        items.push(QuspResponse::Integer(entity_type.0 as i64));
-    }
-    QuspResponse::Array(items)
+    ResponseBuilder::array(entity_types.iter().cloned())
 }
 
 // Response parsing functions for zero-copy deserialization
