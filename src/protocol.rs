@@ -1975,7 +1975,7 @@ pub enum StoreCommand<'a> {
 }
 
 /// Helper trait for command argument parsing and validation
-trait CommandArguments {
+pub trait CommandArguments {
     fn expect_args(&self, count: usize, command_name: &str) -> Result<()>;
     fn expect_args_range(&self, min: usize, max: usize, command_name: &str) -> Result<()>;
 }
@@ -1998,7 +1998,7 @@ impl CommandArguments for QuspCommand {
 }
 
 /// Command-specific parsers
-mod command_parsers {
+pub mod command_parsers {
     use super::*;
     
     pub fn parse_get_entity_type(cmd: &QuspCommand) -> Result<StoreCommand> {
@@ -2088,6 +2088,153 @@ mod command_parsers {
         let field_path = parse_field_path(&cmd.args[1])?;
         Ok(StoreCommand::ResolveIndirection { entity_id, field_path })
     }
+    
+    pub fn parse_write(cmd: &QuspCommand) -> Result<StoreCommand> {
+        if cmd.args.len() < 3 {
+            return Err(anyhow!("WRITE expects at least 3 arguments"));
+        }
+        let entity_id = parse_entity_id(&cmd.args[0])?;
+        let field_path = parse_field_path(&cmd.args[1])?;
+        let value = decode_value(&cmd.args[2])?;
+        
+        let mut writer_id = None;
+        let mut write_time = None;
+        let mut push_condition = None;
+        let mut adjust_behavior = None;
+        
+        // Parse optional arguments based on their position
+        let mut idx = 3;
+        if idx < cmd.args.len() {
+            // Writer ID (optional)
+            let writer_str = parse_str(&cmd.args[idx])?;
+            if writer_str != "null" {
+                writer_id = Some(parse_entity_id(&cmd.args[idx])?);
+            }
+            idx += 1;
+        }
+        if idx < cmd.args.len() {
+            // Write time (optional)
+            let time_str = parse_str(&cmd.args[idx])?;
+            if time_str != "null" {
+                write_time = Some(parse_timestamp(time_str)?);
+            }
+            idx += 1;
+        }
+        if idx < cmd.args.len() {
+            // Push condition (optional)
+            let cond_str = parse_str(&cmd.args[idx])?;
+            if cond_str != "null" {
+                push_condition = Some(match cond_str {
+                    "Always" => PushCondition::Always,
+                    "Changes" => PushCondition::Changes,
+                    _ => return Err(anyhow!("invalid PushCondition: {}", cond_str)),
+                });
+            }
+            idx += 1;
+        }
+        if idx < cmd.args.len() {
+            // Adjust behavior (optional)
+            let adjust_str = parse_str(&cmd.args[idx])?;
+            if adjust_str != "null" {
+                adjust_behavior = Some(parse_adjust_behavior(&cmd.args[idx])?);
+            }
+        }
+        
+        Ok(StoreCommand::Write { entity_id, field_path, value, writer_id, write_time, push_condition, adjust_behavior })
+    }
+    
+    pub fn parse_create_entity(cmd: &QuspCommand) -> Result<StoreCommand> {
+        if cmd.args.len() < 3 {
+            return Err(anyhow!("CREATE_ENTITY expects at least 3 arguments"));
+        }
+        let entity_type = parse_entity_type(&cmd.args[0])?;
+        let parent_id_str = parse_str(&cmd.args[1])?;
+        let parent_id = if parent_id_str == "null" {
+            None
+        } else {
+            Some(parse_entity_id(&cmd.args[1])?)
+        };
+        let name = parse_str(&cmd.args[2])?.to_string();
+        Ok(StoreCommand::CreateEntity { entity_type, parent_id, name })
+    }
+    
+    pub fn parse_delete_entity(cmd: &QuspCommand) -> Result<StoreCommand> {
+        cmd.expect_args(1, "DELETE_ENTITY")?;
+        let entity_id = parse_entity_id(&cmd.args[0])?;
+        Ok(StoreCommand::DeleteEntity { entity_id })
+    }
+    
+    pub fn parse_update_schema(cmd: &QuspCommand) -> Result<StoreCommand> {
+        cmd.expect_args(1, "UPDATE_SCHEMA")?;
+        let schema = decode_entity_schema_string(&cmd.args[0])?;
+        Ok(StoreCommand::UpdateSchema { schema })
+    }
+    
+    // Helper function for parsing optional arguments with null handling
+    fn parse_optional_page_opts(cmd: &QuspCommand, index: usize) -> Result<Option<PageOpts>> {
+        if index >= cmd.args.len() {
+            return Ok(None);
+        }
+        let opts_str = parse_str(&cmd.args[index])?;
+        if opts_str == "null" {
+            Ok(None)
+        } else {
+            Ok(Some(decode_page_opts(&cmd.args[index])?))
+        }
+    }
+    
+    fn parse_optional_filter(cmd: &QuspCommand, index: usize) -> Result<Option<String>> {
+        if index >= cmd.args.len() {
+            return Ok(None);
+        }
+        let filter_str = parse_str(&cmd.args[index])?;
+        if filter_str == "null" {
+            Ok(None)
+        } else {
+            Ok(Some(filter_str.to_string()))
+        }
+    }
+    
+    pub fn parse_find_entities_paginated(cmd: &QuspCommand) -> Result<StoreCommand> {
+        cmd.expect_args_range(1, 3, "FIND_ENTITIES_PAGINATED")?;
+        let entity_type = parse_entity_type(&cmd.args[0])?;
+        let page_opts = parse_optional_page_opts(cmd, 1)?;
+        let filter = parse_optional_filter(cmd, 2)?;
+        Ok(StoreCommand::FindEntitiesPaginated { entity_type, page_opts, filter })
+    }
+    
+    pub fn parse_find_entities_exact(cmd: &QuspCommand) -> Result<StoreCommand> {
+        cmd.expect_args_range(1, 3, "FIND_ENTITIES_EXACT")?;
+        let entity_type = parse_entity_type(&cmd.args[0])?;
+        let page_opts = parse_optional_page_opts(cmd, 1)?;
+        let filter = parse_optional_filter(cmd, 2)?;
+        Ok(StoreCommand::FindEntitiesExact { entity_type, page_opts, filter })
+    }
+    
+    pub fn parse_find_entities(cmd: &QuspCommand) -> Result<StoreCommand> {
+        cmd.expect_args_range(1, 2, "FIND_ENTITIES")?;
+        let entity_type = parse_entity_type(&cmd.args[0])?;
+        let filter = parse_optional_filter(cmd, 1)?;
+        Ok(StoreCommand::FindEntities { entity_type, filter })
+    }
+    
+    pub fn parse_get_entity_types_paginated(cmd: &QuspCommand) -> Result<StoreCommand> {
+        cmd.expect_args_range(0, 1, "GET_ENTITY_TYPES_PAGINATED")?;
+        let page_opts = parse_optional_page_opts(cmd, 0)?;
+        Ok(StoreCommand::GetEntityTypesPaginated { page_opts })
+    }
+    
+    pub fn parse_register_notification(cmd: &QuspCommand) -> Result<StoreCommand> {
+        cmd.expect_args(1, "REGISTER_NOTIFICATION")?;
+        let config = decode_notify_config(&cmd.args[0])?;
+        Ok(StoreCommand::RegisterNotification { config })
+    }
+    
+    pub fn parse_unregister_notification(cmd: &QuspCommand) -> Result<StoreCommand> {
+        cmd.expect_args(1, "UNREGISTER_NOTIFICATION")?;
+        let config = decode_notify_config(&cmd.args[0])?;
+        Ok(StoreCommand::UnregisterNotification { config })
+    }
 }
 
 pub fn parse_store_command(cmd: &QuspCommand) -> Result<StoreCommand> {
@@ -2107,200 +2254,18 @@ pub fn parse_store_command(cmd: &QuspCommand) -> Result<StoreCommand> {
         "FIELD_EXISTS" => parse_field_exists(cmd),
         "RESOLVE_INDIRECTION" => parse_resolve_indirection(cmd),
         "READ" => parse_read(cmd),
-        "WRITE" => {
-            if cmd.args.len() < 3 {
-                return Err(anyhow!("WRITE expects at least 3 arguments"));
-            }
-            let entity_id = parse_entity_id(&cmd.args[0])?;
-            let field_path = parse_field_path(&cmd.args[1])?;
-            let value = decode_value(&cmd.args[2])?;
-            
-            let mut writer_id = None;
-            let mut write_time = None;
-            let mut push_condition = None;
-            let mut adjust_behavior = None;
-            
-            // Parse optional arguments based on their position
-            let mut idx = 3;
-            if idx < cmd.args.len() {
-                // Writer ID (optional)
-                let writer_str = parse_str(&cmd.args[idx])?;
-                if writer_str != "null" {
-                    writer_id = Some(parse_entity_id(&cmd.args[idx])?);
-                }
-                idx += 1;
-            }
-            if idx < cmd.args.len() {
-                // Write time (optional)
-                let time_str = parse_str(&cmd.args[idx])?;
-                if time_str != "null" {
-                    write_time = Some(parse_timestamp(time_str)?);
-                }
-                idx += 1;
-            }
-            if idx < cmd.args.len() {
-                // Push condition (optional)
-                let cond_str = parse_str(&cmd.args[idx])?;
-                if cond_str != "null" {
-                    push_condition = Some(match cond_str {
-                        "Always" => PushCondition::Always,
-                        "Changes" => PushCondition::Changes,
-                        _ => return Err(anyhow!("invalid PushCondition: {}", cond_str)),
-                    });
-                }
-                idx += 1;
-            }
-            if idx < cmd.args.len() {
-                // Adjust behavior (optional)
-                let adjust_str = parse_str(&cmd.args[idx])?;
-                if adjust_str != "null" {
-                    adjust_behavior = Some(parse_adjust_behavior(&cmd.args[idx])?);
-                }
-            }
-            
-            Ok(StoreCommand::Write { entity_id, field_path, value, writer_id, write_time, push_condition, adjust_behavior })
-        }
-        "CREATE_ENTITY" => {
-            if cmd.args.len() < 3 {
-                return Err(anyhow!("CREATE_ENTITY expects at least 3 arguments"));
-            }
-            let entity_type = parse_entity_type(&cmd.args[0])?;
-            let parent_id_str = parse_str(&cmd.args[1])?;
-            let parent_id = if parent_id_str == "null" {
-                None
-            } else {
-                Some(parse_entity_id(&cmd.args[1])?)
-            };
-            let name = parse_str(&cmd.args[2])?.to_string();
-            Ok(StoreCommand::CreateEntity { entity_type, parent_id, name })
-        }
-        "DELETE_ENTITY" => {
-            if cmd.args.len() != 1 {
-                return Err(anyhow!("DELETE_ENTITY expects 1 argument"));
-            }
-            let entity_id = parse_entity_id(&cmd.args[0])?;
-            Ok(StoreCommand::DeleteEntity { entity_id })
-        }
-        "UPDATE_SCHEMA" => {
-            if cmd.args.len() != 1 {
-                return Err(anyhow!("UPDATE_SCHEMA expects 1 argument"));
-            }
-            let schema = decode_entity_schema_string(&cmd.args[0])?;
-            Ok(StoreCommand::UpdateSchema { schema })
-        }
-        "TAKE_SNAPSHOT" => {
-            if cmd.args.len() != 0 {
-                return Err(anyhow!("TAKE_SNAPSHOT expects no arguments"));
-            }
-            Ok(StoreCommand::TakeSnapshot)
-        }
-        "FIND_ENTITIES_PAGINATED" => {
-            if cmd.args.len() < 1 || cmd.args.len() > 3 {
-                return Err(anyhow!("FIND_ENTITIES_PAGINATED expects 1-3 arguments"));
-            }
-            let entity_type = parse_entity_type(&cmd.args[0])?;
-            let page_opts = if cmd.args.len() > 1 {
-                let opts_str = parse_str(&cmd.args[1])?;
-                if opts_str == "null" {
-                    None
-                } else {
-                    Some(decode_page_opts(&cmd.args[1])?)
-                }
-            } else {
-                None
-            };
-            let filter = if cmd.args.len() > 2 {
-                let filter_str = parse_str(&cmd.args[2])?;
-                if filter_str == "null" {
-                    None
-                } else {
-                    Some(filter_str.to_string())
-                }
-            } else {
-                None
-            };
-            Ok(StoreCommand::FindEntitiesPaginated { entity_type, page_opts, filter })
-        }
-        "FIND_ENTITIES_EXACT" => {
-            if cmd.args.len() < 1 || cmd.args.len() > 3 {
-                return Err(anyhow!("FIND_ENTITIES_EXACT expects 1-3 arguments"));
-            }
-            let entity_type = parse_entity_type(&cmd.args[0])?;
-            let page_opts = if cmd.args.len() > 1 {
-                let opts_str = parse_str(&cmd.args[1])?;
-                if opts_str == "null" {
-                    None
-                } else {
-                    Some(decode_page_opts(&cmd.args[1])?)
-                }
-            } else {
-                None
-            };
-            let filter = if cmd.args.len() > 2 {
-                let filter_str = parse_str(&cmd.args[2])?;
-                if filter_str == "null" {
-                    None
-                } else {
-                    Some(filter_str.to_string())
-                }
-            } else {
-                None
-            };
-            Ok(StoreCommand::FindEntitiesExact { entity_type, page_opts, filter })
-        }
-        "FIND_ENTITIES" => {
-            if cmd.args.len() < 1 || cmd.args.len() > 2 {
-                return Err(anyhow!("FIND_ENTITIES expects 1-2 arguments"));
-            }
-            let entity_type = parse_entity_type(&cmd.args[0])?;
-            let filter = if cmd.args.len() > 1 {
-                let filter_str = parse_str(&cmd.args[1])?;
-                if filter_str == "null" {
-                    None
-                } else {
-                    Some(filter_str.to_string())
-                }
-            } else {
-                None
-            };
-            Ok(StoreCommand::FindEntities { entity_type, filter })
-        }
-        "GET_ENTITY_TYPES" => {
-            if cmd.args.len() != 0 {
-                return Err(anyhow!("GET_ENTITY_TYPES expects no arguments"));
-            }
-            Ok(StoreCommand::GetEntityTypes)
-        }
-        "GET_ENTITY_TYPES_PAGINATED" => {
-            if cmd.args.len() > 1 {
-                return Err(anyhow!("GET_ENTITY_TYPES_PAGINATED expects 0-1 arguments"));
-            }
-            let page_opts = if cmd.args.len() > 0 {
-                let opts_str = parse_str(&cmd.args[0])?;
-                if opts_str == "null" {
-                    None
-                } else {
-                    Some(decode_page_opts(&cmd.args[0])?)
-                }
-            } else {
-                None
-            };
-            Ok(StoreCommand::GetEntityTypesPaginated { page_opts })
-        }
-        "REGISTER_NOTIFICATION" => {
-            if cmd.args.len() != 1 {
-                return Err(anyhow!("REGISTER_NOTIFICATION expects 1 argument"));
-            }
-            let config = decode_notify_config(&cmd.args[0])?;
-            Ok(StoreCommand::RegisterNotification { config })
-        }
-        "UNREGISTER_NOTIFICATION" => {
-            if cmd.args.len() != 1 {
-                return Err(anyhow!("UNREGISTER_NOTIFICATION expects 1 argument"));
-            }
-            let config = decode_notify_config(&cmd.args[0])?;
-            Ok(StoreCommand::UnregisterNotification { config })
-        }
+        "WRITE" => parse_write(cmd),
+        "CREATE_ENTITY" => parse_create_entity(cmd),
+        "DELETE_ENTITY" => parse_delete_entity(cmd),
+        "UPDATE_SCHEMA" => parse_update_schema(cmd),
+        "TAKE_SNAPSHOT" => parse_take_snapshot(cmd),
+        "FIND_ENTITIES_PAGINATED" => parse_find_entities_paginated(cmd),
+        "FIND_ENTITIES_EXACT" => parse_find_entities_exact(cmd),
+        "FIND_ENTITIES" => parse_find_entities(cmd),
+        "GET_ENTITY_TYPES" => parse_get_entity_types(cmd),
+        "GET_ENTITY_TYPES_PAGINATED" => parse_get_entity_types_paginated(cmd),
+        "REGISTER_NOTIFICATION" => parse_register_notification(cmd),
+        "UNREGISTER_NOTIFICATION" => parse_unregister_notification(cmd),
         _ => Err(anyhow!("unknown command: {}", name)),
     }
 }

@@ -328,6 +328,121 @@ fn bench_schema_operations(c: &mut Criterion) {
     group.finish();
 }
 
+fn bench_protocol_operations(c: &mut Criterion) {
+    use qlib_rs::protocol::*;
+    use bytes::Bytes;
+    
+    let mut group = c.benchmark_group("protocol");
+    group.throughput(Throughput::Elements(1));
+    
+    // Create test commands for benchmarking
+    let simple_cmd = QuspCommand::new("GET_ENTITY_TYPE", vec![
+        Bytes::from_static(b"TestEntity"),
+    ]);
+    
+    let complex_cmd = QuspCommand::new("FIND_ENTITIES_PAGINATED", vec![
+        Bytes::from_static(b"1"),
+        Bytes::from_static(b"null"), 
+        Bytes::from_static(b"test_filter"),
+    ]);
+    
+    let write_cmd = QuspCommand::new("WRITE", vec![
+        Bytes::from_static(b"123"),
+        Bytes::from_static(b"1,2,3"),
+        Bytes::from_static(b"test_value"),
+        Bytes::from_static(b"null"),
+        Bytes::from_static(b"null"),
+        Bytes::from_static(b"null"),
+        Bytes::from_static(b"null"),
+    ]);
+    
+    // Benchmark command parsing with new refactored approach
+    group.bench_function("parse_simple_command", |b| {
+        b.iter(|| {
+            black_box(parse_store_command(&simple_cmd))
+        })
+    });
+    
+    group.bench_function("parse_complex_command", |b| {
+        b.iter(|| {
+            black_box(parse_store_command(&complex_cmd))
+        })
+    });
+    
+    // Benchmark individual command parsers (should be faster than old monolithic approach)
+    group.bench_function("parse_direct_simple", |b| {
+        b.iter(|| {
+            black_box(command_parsers::parse_get_entity_type(&simple_cmd))
+        })
+    });
+    
+    group.bench_function("parse_direct_complex", |b| {
+        b.iter(|| {
+            black_box(command_parsers::parse_find_entities_paginated(&complex_cmd))
+        })
+    });
+    
+    // Benchmark trait-based encoding
+    group.bench_function("encode_integer_trait", |b| {
+        let value: i64 = 12345;
+        b.iter(|| {
+            black_box(value.encode())
+        })
+    });
+    
+    group.bench_function("encode_string_trait", |b| {
+        let value = "Hello, World!";
+        b.iter(|| {
+            black_box(value.encode())
+        })
+    });
+    
+    group.bench_function("encode_vec_trait", |b| {
+        let values = vec![1i64, 2i64, 3i64, 4i64, 5i64];
+        b.iter(|| {
+            black_box(values.encode())
+        })
+    });
+    
+    // Compare with old approach
+    group.bench_function("encode_integer_old", |b| {
+        let value: i64 = 12345;
+        b.iter(|| {
+            black_box(encode_integer(value))
+        })
+    });
+    
+    group.bench_function("encode_string_old", |b| {
+        let value = "Hello, World!";
+        b.iter(|| {
+            black_box(encode_simple_string(value))
+        })
+    });
+    
+    // Benchmark command argument validation
+    group.bench_function("argument_validation", |b| {
+        b.iter(|| {
+            black_box(simple_cmd.expect_args(1, "GET_ENTITY_TYPE"))
+        })
+    });
+    
+    // Benchmark response encoding with traits
+    let response = QuspResponse::Integer(42);
+    group.bench_function("encode_response_trait", |b| {
+        b.iter(|| {
+            black_box(response.encode())
+        })
+    });
+    
+    group.bench_function("encode_response_old", |b| {
+        b.iter(|| {
+            black_box(encode_response(&response))
+        })
+    });
+    
+    group.finish();
+}
+
 criterion_group!(
     benches,
     bench_entity_creation,
@@ -335,7 +450,8 @@ criterion_group!(
     bench_entity_search,
     bench_inheritance_operations,
     bench_pagination,
-    bench_schema_operations
+    bench_schema_operations,
+    bench_protocol_operations
 );
 
 criterion_main!(benches);
