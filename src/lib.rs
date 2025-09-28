@@ -1,6 +1,5 @@
 pub mod data;
 pub mod auth;
-pub mod protocol;
 mod test;
 pub mod expr;
 
@@ -20,10 +19,6 @@ pub use auth::{
     AuthConfig, AuthMethod,
     authenticate_user, find_user_by_name, create_user, set_user_password,
     change_password, validate_password, hash_password, verify_password,
-};
-
-pub use protocol::{
-    QuspFrame, QuspCommand, QuspResponse, MessageBuffer, encode_command, encode_response, StoreCommand, parse_store_command,
 };
 
 pub use expr::CelExecutor;

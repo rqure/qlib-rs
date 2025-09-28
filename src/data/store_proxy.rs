@@ -4,14 +4,13 @@ use std::io::{Read, Write};
 use std::rc::Rc;
 use std::time::Duration;
 
-use anyhow::{anyhow, Result};
 use bytes::Bytes;
 use bincode;
 use mio::{Events, Interest, Poll, Token};
 use serde::{de::DeserializeOwned};
 
 use crate::{
-    Complete, EntityId, EntitySchema, EntityType, Error, FieldSchema, FieldType, Notification, NotificationQueue, NotifyConfig, hash_notify_config, PageOpts, PageResult, Single, Value, Timestamp, PushCondition, AdjustBehavior
+    Complete, EntityId, EntitySchema, EntityType, Error, FieldSchema, FieldType, Notification, NotificationQueue, NotifyConfig, hash_notify_config, PageOpts, PageResult, Result, Single, Value, Timestamp, PushCondition, AdjustBehavior, Result
 };
 use crate::data::StoreTrait;
 use crate::protocol::{MessageBuffer, QuspCommand, QuspFrame, QuspResponse, encode_command};
