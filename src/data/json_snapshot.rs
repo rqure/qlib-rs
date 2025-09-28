@@ -608,11 +608,10 @@ pub fn restore_json_snapshot<T: StoreTrait>(store: &mut T, json_snapshot: &JsonS
         a.entity_type.cmp(&b.entity_type)
     });
 
-    // Calculate proper rank offsets for inheritance
+    // First, restore schemas in dependency order with proper rank adjustments
     let mut max_ranks: std::collections::HashMap<String, i64> = std::collections::HashMap::new();
 
-    // First, restore schemas in dependency order with proper rank adjustments
-    let schema_requests = crate::sreq![];
+    // Perform schema updates first
     for json_schema in &sorted_schemas {
         // Calculate rank offset based on ALL inherited schemas
         // For multiple inheritance, we need to accumulate offsets properly
@@ -744,11 +743,8 @@ pub fn restore_json_snapshot<T: StoreTrait>(store: &mut T, json_snapshot: &JsonS
             string_schema.fields.insert(field.name.clone(), field_schema);
         }
 
-        schema_requests.write().push(sschemaupdate!(string_schema));
+        store.update_schema(string_schema)?;
     }
-
-    // Perform schema updates first
-    store.perform_mut(schema_requests)?;
 
     // Restore the entity tree starting from the root
     restore_entity_recursive(store, &json_snapshot.tree, None)?;
@@ -769,21 +765,11 @@ pub fn restore_entity_recursive<T: StoreTrait>(
         .unwrap_or("Unknown")
         .to_string();
 
-    let create_requests = crate::sreq![crate::Request::Create {
-        entity_type: store.get_entity_type(&json_entity.entity_type)?,
-        parent_id: parent_id.clone(),
-        name: name.clone(),
-        created_entity_id: None,
-        timestamp: None,
-    }];
-    let create_requests = store.perform_mut(create_requests)?;
-
-    // Get the created entity ID
-    let entity_id = if let Some(crate::Request::Create { created_entity_id: Some(ref id), .. }) = create_requests.read().first() {
-        id.clone()
-    } else {
-        return Err(crate::Error::EntityNotFound(crate::EntityId::new(store.get_entity_type(&json_entity.entity_type).unwrap_or(EntityType(0)), 0)));
-    };
+    let entity_id = store.create_entity(
+        store.get_entity_type(&json_entity.entity_type)?,
+        parent_id,
+        &name
+    )?;
 
     // Get the entity schema to understand field types
     let complete_schema = store.get_complete_entity_schema(store.get_entity_type(&json_entity.entity_type)?)?;
@@ -791,9 +777,7 @@ pub fn restore_entity_recursive<T: StoreTrait>(
     // Clone the fields map to avoid borrowing conflicts
     let schema_fields = complete_schema.fields.clone();
 
-    // Debug: Print the complete schema fields
     // Set field values (except Children - we'll handle that last)
-    let write_requests = crate::sreq![];
     for (field_name, json_value) in &json_entity.fields {
         if field_name == "Children" {
             continue; // Handle children separately
@@ -809,28 +793,10 @@ pub fn restore_entity_recursive<T: StoreTrait>(
                 _ => crate::json_value_to_value(json_value, field_schema),
             };
             
-            match value_result {
-                Ok(value) => {
-                    write_requests.push(crate::Request::Write {
-                        entity_id: entity_id,
-                        field_types: crate::sfield![field_type],
-                        value: Some(value),
-                        push_condition: crate::PushCondition::Always,
-                        adjust_behavior: crate::AdjustBehavior::Set,
-                        write_time: None,
-                        writer_id: None,
-                        write_processed: false,
-                    });
-                }
-                Err(_) => {
-                    // Skip invalid values
-                }
+            if let Ok(value) = value_result {
+                store.write(entity_id, &[field_type], value, None, None, None, None)?;
             }
         }
-    }
-
-    if !write_requests.is_empty() {
-        store.perform_mut(write_requests)?;
     }
 
     // Handle Children - recursively create child entities
@@ -846,17 +812,12 @@ pub fn restore_entity_recursive<T: StoreTrait>(
 
             // Update the Children field with the created child IDs
             if !child_ids.is_empty() {
-                let children_write_requests = crate::sreq![crate::Request::Write {
-                    entity_id: entity_id,
-                    field_types: crate::sfield![store.get_field_type("Children")?],
-                    value: Some(crate::Value::EntityList(child_ids)),
-                    push_condition: crate::PushCondition::Always,
-                    adjust_behavior: crate::AdjustBehavior::Set,
-                    write_time: None,
-                    writer_id: None,
-                    write_processed: false,
-                }];
-                store.perform_mut(children_write_requests)?;
+                store.write(
+                    entity_id,
+                    &[store.get_field_type("Children")?],
+                    crate::Value::EntityList(child_ids),
+                    None, None, None, None
+                )?;
             }
         }
     }
@@ -982,8 +943,6 @@ fn apply_schema_diff(
         .map(|s| (s.entity_type.clone(), s))
         .collect();
     
-    let schema_requests = crate::sreq![];
-    
     // Add or update schemas that are different
     for target_schema in target_schemas {
         let needs_update = match current_map.get(&target_schema.entity_type) {
@@ -997,10 +956,7 @@ fn apply_schema_diff(
         
         if needs_update {
             let schema = target_schema.to_entity_schema(store)?;
-            schema_requests.push(crate::Request::SchemaUpdate { 
-                schema: schema.to_string_schema(store), 
-                timestamp: None,
-            });
+            store.update_schema(schema.to_string_schema(store))?;
         }
         
         current_map.remove(&target_schema.entity_type);
@@ -1008,10 +964,6 @@ fn apply_schema_diff(
     
     // Note: We don't remove schemas that exist in current but not in target
     // as this could be destructive. Only add/update schemas.
-    
-    if !schema_requests.is_empty() {
-        store.perform_mut(schema_requests)?;
-    }
     
     Ok(())
 }
@@ -1051,16 +1003,8 @@ fn apply_entity_diff_recursive<'a>(
                 
             let mut found_entity_id = None;
             for entity_id in &entities {
-                let read_requests = crate::sreq![crate::Request::Read {
-                    entity_id: *entity_id,
-                    field_types: crate::sfield![store.get_field_type("Name")?],
-                    value: None,
-                    write_time: None,
-                    writer_id: None,
-                }];
-                
-                if let Ok(read_requests) = store.perform_mut(read_requests) {
-                    if let Some(crate::Request::Read { value: Some(crate::Value::String(name)), .. }) = read_requests.first() {
+                if let Ok((value, _, _)) = store.read(*entity_id, &[store.get_field_type("Name")?]) {
+                    if let crate::Value::String(name) = value {
                         if name.as_str() == target_name {
                             found_entity_id = Some(*entity_id);
                             break;
@@ -1089,7 +1033,6 @@ fn apply_entity_diff_recursive<'a>(
     // Clone the fields map to avoid borrowing conflicts
     let schema_fields = complete_schema.fields.clone();
     
-    let write_requests = crate::sreq![];
     for (field_name, json_value) in &target_entity.fields {
         if field_name == "Children" {
             continue; // Handle children separately
@@ -1100,23 +1043,10 @@ fn apply_entity_diff_recursive<'a>(
             // Only update configuration fields
             if matches!(field_schema.storage_scope(), crate::data::StorageScope::Configuration) {
                 if let Ok(value) = json_value_to_value(json_value, field_schema) {
-                    write_requests.push(crate::Request::Write {
-                        entity_id: entity_id,
-                        field_types: crate::sfield![field_type],
-                        value: Some(value),
-                        push_condition: crate::PushCondition::Always,
-                        adjust_behavior: crate::AdjustBehavior::Set,
-                        write_time: None,
-                        writer_id: None,
-                        write_processed: false,
-                    });
+                    store.write(entity_id, &[field_type], value, None, None, None, None)?;
                 }
             }
         }
-    }
-    
-    if !write_requests.is_empty() {
-        store.perform_mut(write_requests)?;
     }
     
     // Handle children recursively
@@ -1151,17 +1081,12 @@ fn apply_entity_diff_recursive<'a>(
             
             // Update the Children field
             if !child_ids.is_empty() {
-                let children_write_requests = crate::sreq![crate::Request::Write {
-                    entity_id: entity_id,
-                    field_types: crate::sfield![store.get_field_type("Children")?],
-                    value: Some(crate::Value::EntityList(child_ids)),
-                    push_condition: crate::PushCondition::Always,
-                    adjust_behavior: crate::AdjustBehavior::Set,
-                    write_time: None,
-                    writer_id: None,
-                    write_processed: false,
-                }];
-                store.perform_mut(children_write_requests)?;
+                store.write(
+                    entity_id,
+                    &[store.get_field_type("Children")?],
+                    crate::Value::EntityList(child_ids),
+                    None, None, None, None
+                )?;
             }
         }
     }
@@ -1180,19 +1105,9 @@ fn create_entity_from_json(
         .unwrap_or("Unknown")
         .to_string();
 
-    let create_requests = crate::sreq![crate::Request::Create {
-        entity_type: store.get_entity_type(&json_entity.entity_type)?,
+    store.create_entity(
+        store.get_entity_type(&json_entity.entity_type)?,
         parent_id,
-        name,
-        created_entity_id: None,
-        timestamp: None,
-    }];
-    
-    let create_requests = store.perform_mut(create_requests)?;
-
-    if let Some(crate::Request::Create { created_entity_id: Some(ref id), .. }) = create_requests.first() {
-        Ok(id.clone())
-    } else {
-        Err(crate::Error::EntityNotFound(crate::EntityId::new(store.get_entity_type(&json_entity.entity_type).unwrap_or(EntityType(0)), 0)))
-    }
+        &name
+    )
 }
