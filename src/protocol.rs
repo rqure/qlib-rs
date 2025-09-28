@@ -657,7 +657,7 @@ fn decode_value(bytes: &Bytes) -> Result<Value> {
 }
 
 // RESP encoding for FieldSchema - format: [type_name, field_type_id, default_value_encoded, rank, storage_scope]
-fn encode_field_schema(schema: &FieldSchema) -> Result<Vec<u8>> {
+pub fn encode_field_schema(schema: &FieldSchema) -> Result<Vec<u8>> {
     let mut out = Vec::new();
     
     match schema {
@@ -973,7 +973,7 @@ fn decode_field_schema(bytes: &Bytes) -> Result<FieldSchema> {
 }
 
 // Binary encoding for PageOpts
-fn encode_page_opts(opts: &PageOpts) -> Vec<u8> {
+pub fn encode_page_opts(opts: &PageOpts) -> Vec<u8> {
     let mut buf = Vec::new();
     buf.extend_from_slice(&(opts.limit as u64).to_le_bytes());
     if let Some(cursor) = opts.cursor {
@@ -1003,7 +1003,7 @@ fn decode_page_opts(bytes: &Bytes) -> Result<PageOpts> {
 }
 
 // RESP encoding for NotifyConfig - format depends on variant
-fn encode_notify_config(config: &NotifyConfig) -> Result<Vec<u8>> {
+pub fn encode_notify_config(config: &NotifyConfig) -> Result<Vec<u8>> {
     let mut out = Vec::new();
     
     match config {
@@ -1159,8 +1159,259 @@ fn decode_notify_config(bytes: &Bytes) -> Result<NotifyConfig> {
     }
 }
 
-// RESP encoding for EntitySchema<Single, String, String> - format: [entity_type_name, inherit_array, fields_map]
-fn encode_entity_schema_string(schema: &EntitySchema<Single, String, String>) -> Result<Vec<u8>> {
+// RESP encoding for EntitySchema<Single> - format: [entity_type_id, inherit_array, fields_map]
+fn encode_entity_schema_single(schema: &EntitySchema<Single>) -> Result<Vec<u8>> {
+    let mut out = Vec::new();
+    write_array_header(&mut out, 3);
+    
+    // Encode entity type ID
+    write_bulk(&mut out, &schema.entity_type.0.to_le_bytes());
+    
+    // Encode inherit array
+    let mut inherit_data = Vec::new();
+    write_array_header(&mut inherit_data, schema.inherit.len());
+    for parent_type in &schema.inherit {
+        write_bulk(&mut inherit_data, &parent_type.0.to_le_bytes());
+    }
+    write_bulk(&mut out, &inherit_data);
+    
+    // Encode fields map - as array of [field_type_id, field_schema] pairs
+    let mut fields_data = Vec::new();
+    write_array_header(&mut fields_data, schema.fields.len());
+    for (field_type, field_schema) in &schema.fields {
+        let mut field_pair = Vec::new();
+        write_array_header(&mut field_pair, 2);
+        write_bulk(&mut field_pair, &field_type.0.to_le_bytes());
+        
+        // Encode FieldSchema using our RESP encoding
+        let field_schema_bytes = encode_field_schema(field_schema)?;
+        write_bulk(&mut field_pair, &field_schema_bytes);
+        
+        fields_data.extend_from_slice(&field_pair);
+    }
+    write_bulk(&mut out, &fields_data);
+    
+    Ok(out)
+}
+
+fn decode_entity_schema_single(bytes: &Bytes) -> Result<EntitySchema<Single>> {
+    let frame = parse_root_frame(bytes)?;
+    let items = match frame {
+        RespFrame::Array(items) => items,
+        _ => return Err(anyhow!("Expected array for EntitySchema")),
+    };
+    
+    if items.len() != 3 {
+        return Err(anyhow!("EntitySchema array expects 3 elements"));
+    }
+    
+    let entity_type = match &items[0] {
+        RespFrame::Bulk(bytes) => {
+            if bytes.len() != 4 {
+                return Err(anyhow!("Invalid entity type bytes"));
+            }
+            EntityType(u32::from_le_bytes(bytes.as_ref().try_into().unwrap()))
+        }
+        _ => return Err(anyhow!("Expected bytes for entity type")),
+    };
+    
+    let inherit = match &items[1] {
+        RespFrame::Bulk(inherit_bytes) => {
+            let inherit_frame = parse_root_frame(&Bytes::copy_from_slice(inherit_bytes))?;
+            match inherit_frame {
+                RespFrame::Array(inherit_items) => {
+                    let mut inherit_vec = Vec::new();
+                    for item in inherit_items {
+                        match item {
+                            RespFrame::Bulk(bytes) => {
+                                if bytes.len() != 4 {
+                                    return Err(anyhow!("Invalid entity type bytes"));
+                                }
+                                inherit_vec.push(EntityType(u32::from_le_bytes(bytes.as_ref().try_into().unwrap())));
+                            }
+                            _ => return Err(anyhow!("Expected bytes for inherit type")),
+                        }
+                    }
+                    inherit_vec
+                }
+                _ => return Err(anyhow!("Expected array for inherit list")),
+            }
+        }
+        _ => return Err(anyhow!("Expected bytes for inherit array")),
+    };
+    
+    let fields = match &items[2] {
+        RespFrame::Bulk(fields_bytes) => {
+            let fields_frame = parse_root_frame(&Bytes::copy_from_slice(fields_bytes))?;
+            match fields_frame {
+                RespFrame::Array(field_items) => {
+                    let mut fields_map = rustc_hash::FxHashMap::default();
+                    for item in field_items {
+                        match item {
+                            RespFrame::Array(pair_items) => {
+                                if pair_items.len() != 2 {
+                                    return Err(anyhow!("Field pair expects 2 elements"));
+                                }
+                                let field_type = match &pair_items[0] {
+                                    RespFrame::Bulk(bytes) => {
+                                        if bytes.len() != 8 {
+                                            return Err(anyhow!("Invalid field type bytes"));
+                                        }
+                                        FieldType(u64::from_le_bytes(bytes.as_ref().try_into().unwrap()))
+                                    }
+                                    _ => return Err(anyhow!("Expected bytes for field type")),
+                                };
+                                let field_schema = match &pair_items[1] {
+                                    RespFrame::Bulk(schema_bytes) => {
+                                        decode_field_schema(&Bytes::copy_from_slice(schema_bytes))?
+                                    }
+                                    _ => return Err(anyhow!("Expected bytes for field schema")),
+                                };
+                                fields_map.insert(field_type, field_schema);
+                            }
+                            _ => return Err(anyhow!("Expected array for field pair")),
+                        }
+                    }
+                    fields_map
+                }
+                _ => return Err(anyhow!("Expected array for fields")),
+            }
+        }
+        _ => return Err(anyhow!("Expected bytes for fields map")),
+    };
+    
+    let mut schema: EntitySchema<Single> = EntitySchema::new(entity_type, inherit);
+    schema.fields = fields;
+    Ok(schema)
+}
+
+// RESP encoding for EntitySchema<Complete> - format: [entity_type_id, inherit_array, fields_map]
+fn encode_entity_schema_complete(schema: &EntitySchema<Complete>) -> Result<Vec<u8>> {
+    let mut out = Vec::new();
+    write_array_header(&mut out, 3);
+    
+    // Encode entity type ID
+    write_bulk(&mut out, &schema.entity_type.0.to_le_bytes());
+    
+    // Encode inherit array
+    let mut inherit_data = Vec::new();
+    write_array_header(&mut inherit_data, schema.inherit.len());
+    for parent_type in &schema.inherit {
+        write_bulk(&mut inherit_data, &parent_type.0.to_le_bytes());
+    }
+    write_bulk(&mut out, &inherit_data);
+    
+    // Encode fields map - as array of [field_type_id, field_schema] pairs
+    let mut fields_data = Vec::new();
+    write_array_header(&mut fields_data, schema.fields.len());
+    for (field_type, field_schema) in &schema.fields {
+        let mut field_pair = Vec::new();
+        write_array_header(&mut field_pair, 2);
+        write_bulk(&mut field_pair, &field_type.0.to_le_bytes());
+        
+        // Encode FieldSchema using our RESP encoding
+        let field_schema_bytes = encode_field_schema(field_schema)?;
+        write_bulk(&mut field_pair, &field_schema_bytes);
+        
+        fields_data.extend_from_slice(&field_pair);
+    }
+    write_bulk(&mut out, &fields_data);
+    
+    Ok(out)
+}
+
+fn decode_entity_schema_complete(bytes: &Bytes) -> Result<EntitySchema<Complete>> {
+    let frame = parse_root_frame(bytes)?;
+    let items = match frame {
+        RespFrame::Array(items) => items,
+        _ => return Err(anyhow!("Expected array for EntitySchema")),
+    };
+    
+    if items.len() != 3 {
+        return Err(anyhow!("EntitySchema array expects 3 elements"));
+    }
+    
+    let entity_type = match &items[0] {
+        RespFrame::Bulk(bytes) => {
+            if bytes.len() != 4 {
+                return Err(anyhow!("Invalid entity type bytes"));
+            }
+            EntityType(u32::from_le_bytes(bytes.as_ref().try_into().unwrap()))
+        }
+        _ => return Err(anyhow!("Expected bytes for entity type")),
+    };
+    
+    let inherit = match &items[1] {
+        RespFrame::Bulk(inherit_bytes) => {
+            let inherit_frame = parse_root_frame(&Bytes::copy_from_slice(inherit_bytes))?;
+            match inherit_frame {
+                RespFrame::Array(inherit_items) => {
+                    let mut inherit_vec = Vec::new();
+                    for item in inherit_items {
+                        match item {
+                            RespFrame::Bulk(bytes) => {
+                                if bytes.len() != 4 {
+                                    return Err(anyhow!("Invalid entity type bytes"));
+                                }
+                                inherit_vec.push(EntityType(u32::from_le_bytes(bytes.as_ref().try_into().unwrap())));
+                            }
+                            _ => return Err(anyhow!("Expected bytes for inherit type")),
+                        }
+                    }
+                    inherit_vec
+                }
+                _ => return Err(anyhow!("Expected array for inherit list")),
+            }
+        }
+        _ => return Err(anyhow!("Expected bytes for inherit array")),
+    };
+    
+    let fields = match &items[2] {
+        RespFrame::Bulk(fields_bytes) => {
+            let fields_frame = parse_root_frame(&Bytes::copy_from_slice(fields_bytes))?;
+            match fields_frame {
+                RespFrame::Array(field_items) => {
+                    let mut fields_map = rustc_hash::FxHashMap::default();
+                    for item in field_items {
+                        match item {
+                            RespFrame::Array(pair_items) => {
+                                if pair_items.len() != 2 {
+                                    return Err(anyhow!("Field pair expects 2 elements"));
+                                }
+                                let field_type = match &pair_items[0] {
+                                    RespFrame::Bulk(bytes) => {
+                                        if bytes.len() != 8 {
+                                            return Err(anyhow!("Invalid field type bytes"));
+                                        }
+                                        FieldType(u64::from_le_bytes(bytes.as_ref().try_into().unwrap()))
+                                    }
+                                    _ => return Err(anyhow!("Expected bytes for field type")),
+                                };
+                                let field_schema = match &pair_items[1] {
+                                    RespFrame::Bulk(schema_bytes) => {
+                                        decode_field_schema(&Bytes::copy_from_slice(schema_bytes))?
+                                    }
+                                    _ => return Err(anyhow!("Expected bytes for field schema")),
+                                };
+                                fields_map.insert(field_type, field_schema);
+                            }
+                            _ => return Err(anyhow!("Expected array for field pair")),
+                        }
+                    }
+                    fields_map
+                }
+                _ => return Err(anyhow!("Expected array for fields")),
+            }
+        }
+        _ => return Err(anyhow!("Expected bytes for fields map")),
+    };
+    
+    let schema: EntitySchema<Complete> = EntitySchema::<Single>::new(entity_type, inherit).into();
+    let mut complete_schema = schema;
+    complete_schema.fields = fields;
+    Ok(complete_schema)
+}
+pub fn encode_entity_schema_string(schema: &EntitySchema<Single, String, String>) -> Result<Vec<u8>> {
     let mut out = Vec::new();
     write_array_header(&mut out, 3);
     
@@ -1970,16 +2221,12 @@ pub fn encode_field_type_name_response(name: &str) -> QuspResponse {
 }
 
 pub fn encode_entity_schema_response(schema: &EntitySchema<Single>) -> Result<QuspResponse> {
-    // For now, still use bincode since we're encoding EntitySchema<Single, EntityType, FieldType>
-    // which is different from the string-based version
-    let encoded = bincode::serialize(schema).map_err(|e| anyhow!("failed to encode EntitySchema: {}", e))?;
+    let encoded = encode_entity_schema_single(schema)?;
     Ok(QuspResponse::Bulk(Bytes::copy_from_slice(&encoded)))
 }
 
 pub fn encode_complete_entity_schema_response(schema: &EntitySchema<Complete>) -> Result<QuspResponse> {
-    // For now, still use bincode since we're encoding EntitySchema<Complete, EntityType, FieldType>
-    // which is different from the string-based version
-    let encoded = bincode::serialize(schema).map_err(|e| anyhow!("failed to encode Complete EntitySchema: {}", e))?;
+    let encoded = encode_entity_schema_complete(schema)?;
     Ok(QuspResponse::Bulk(Bytes::copy_from_slice(&encoded)))
 }
 
@@ -2073,6 +2320,279 @@ pub fn encode_entity_types_response(entity_types: &[EntityType]) -> QuspResponse
     QuspResponse::Array(items)
 }
 
+// Response parsing functions for zero-copy deserialization
+pub fn parse_entity_type_response(response: QuspResponse) -> Result<EntityType> {
+    match response {
+        QuspResponse::Integer(i) => Ok(EntityType(i as u32)),
+        _ => Err(anyhow!("Expected integer for EntityType")),
+    }
+}
 
+pub fn parse_field_type_response(response: QuspResponse) -> Result<FieldType> {
+    match response {
+        QuspResponse::Bulk(bytes) => {
+            if bytes.len() != 8 {
+                return Err(anyhow!("Invalid FieldType bytes"));
+            }
+            Ok(FieldType(u64::from_le_bytes(bytes.as_ref().try_into().unwrap())))
+        }
+        _ => Err(anyhow!("Expected bulk bytes for FieldType")),
+    }
+}
 
+pub fn parse_string_response(response: QuspResponse) -> Result<String> {
+    match response {
+        QuspResponse::Bulk(bytes) => {
+            String::from_utf8(bytes.to_vec()).map_err(|e| anyhow!("Invalid UTF-8: {}", e))
+        }
+        QuspResponse::Simple(bytes) => {
+            String::from_utf8(bytes.to_vec()).map_err(|e| anyhow!("Invalid UTF-8: {}", e))
+        }
+        _ => Err(anyhow!("Expected bulk or simple string")),
+    }
+}
 
+pub fn parse_bool_response(response: QuspResponse) -> Result<bool> {
+    match response {
+        QuspResponse::Integer(i) => Ok(i != 0),
+        _ => Err(anyhow!("Expected integer for boolean")),
+    }
+}
+
+pub fn parse_entity_id_response(response: QuspResponse) -> Result<EntityId> {
+    match response {
+        QuspResponse::Integer(i) => Ok(EntityId(i as u64)),
+        _ => Err(anyhow!("Expected integer for EntityId")),
+    }
+}
+
+pub fn parse_indirection_response(response: QuspResponse) -> Result<(EntityId, FieldType)> {
+    match response {
+        QuspResponse::Array(items) => {
+            if items.len() != 2 {
+                return Err(anyhow!("Indirection response expects 2 elements"));
+            }
+            let entity_id = parse_entity_id_response(items[0].clone())?;
+            let field_type = parse_field_type_response(items[1].clone())?;
+            Ok((entity_id, field_type))
+        }
+        _ => Err(anyhow!("Expected array for indirection response")),
+    }
+}
+
+pub fn parse_read_response(response: QuspResponse) -> Result<(Value, Timestamp, Option<EntityId>)> {
+    match response {
+        QuspResponse::Array(items) => {
+            if items.len() != 3 {
+                return Err(anyhow!("Read response expects 3 elements"));
+            }
+            let value = match &items[0] {
+                QuspResponse::Bulk(bytes) => decode_value(bytes)?,
+                _ => return Err(anyhow!("Expected bulk bytes for value")),
+            };
+            let timestamp = match &items[1] {
+                QuspResponse::Integer(nanos) => crate::nanos_to_timestamp(*nanos as u64),
+                _ => return Err(anyhow!("Expected integer for timestamp")),
+            };
+            let writer_id = match &items[2] {
+                QuspResponse::Integer(id) => Some(EntityId(*id as u64)),
+                QuspResponse::Null => None,
+                _ => return Err(anyhow!("Expected integer or null for writer_id")),
+            };
+            Ok((value, timestamp, writer_id))
+        }
+        _ => Err(anyhow!("Expected array for read response")),
+    }
+}
+
+pub fn parse_entity_schema_response(response: QuspResponse) -> Result<EntitySchema<Single>> {
+    match response {
+        QuspResponse::Bulk(bytes) => decode_entity_schema_single(&bytes),
+        _ => Err(anyhow!("Expected bulk bytes for EntitySchema")),
+    }
+}
+
+pub fn parse_complete_entity_schema_response(response: QuspResponse) -> Result<EntitySchema<Complete>> {
+    match response {
+        QuspResponse::Bulk(bytes) => decode_entity_schema_complete(&bytes),
+        _ => Err(anyhow!("Expected bulk bytes for Complete EntitySchema")),
+    }
+}
+
+pub fn parse_field_schema_response(response: QuspResponse) -> Result<FieldSchema> {
+    match response {
+        QuspResponse::Bulk(bytes) => decode_field_schema(&bytes),
+        _ => Err(anyhow!("Expected bulk bytes for FieldSchema")),
+    }
+}
+
+pub fn parse_snapshot_response(response: QuspResponse) -> Result<Snapshot> {
+    match response {
+        QuspResponse::Bulk(bytes) => {
+            // TODO: Replace with RESP decoding when Snapshot encoding is implemented
+            bincode::deserialize(bytes.as_ref())
+                .map_err(|e| anyhow!("Failed to decode Snapshot: {}", e))
+        }
+        _ => Err(anyhow!("Expected bulk bytes for Snapshot")),
+    }
+}
+
+pub fn parse_page_result_entity_ids_response(response: QuspResponse) -> Result<PageResult<EntityId>> {
+    match response {
+        QuspResponse::Array(items) => {
+            if items.len() != 3 {
+                return Err(anyhow!("PageResult response expects 3 elements"));
+            }
+            let entity_ids = match &items[0] {
+                QuspResponse::Array(id_items) => {
+                    let mut ids = Vec::new();
+                    for item in id_items {
+                        match item {
+                            QuspResponse::Integer(i) => ids.push(EntityId(*i as u64)),
+                            _ => return Err(anyhow!("Expected integer for EntityId")),
+                        }
+                    }
+                    ids
+                }
+                _ => return Err(anyhow!("Expected array for entity IDs")),
+            };
+            let total = match &items[1] {
+                QuspResponse::Integer(i) => *i as usize,
+                _ => return Err(anyhow!("Expected integer for total")),
+            };
+            let next_cursor = match &items[2] {
+                QuspResponse::Integer(i) => Some(*i as usize),
+                QuspResponse::Null => None,
+                _ => return Err(anyhow!("Expected integer or null for next_cursor")),
+            };
+            Ok(PageResult::new(entity_ids, total, next_cursor))
+        }
+        _ => Err(anyhow!("Expected array for PageResult")),
+    }
+}
+
+pub fn parse_page_result_entity_types_response(response: QuspResponse) -> Result<PageResult<EntityType>> {
+    match response {
+        QuspResponse::Array(items) => {
+            if items.len() != 3 {
+                return Err(anyhow!("PageResult response expects 3 elements"));
+            }
+            let entity_types = match &items[0] {
+                QuspResponse::Array(type_items) => {
+                    let mut types = Vec::new();
+                    for item in type_items {
+                        match item {
+                            QuspResponse::Integer(i) => types.push(EntityType(*i as u32)),
+                            _ => return Err(anyhow!("Expected integer for EntityType")),
+                        }
+                    }
+                    types
+                }
+                _ => return Err(anyhow!("Expected array for entity types")),
+            };
+            let total = match &items[1] {
+                QuspResponse::Integer(i) => *i as usize,
+                _ => return Err(anyhow!("Expected integer for total")),
+            };
+            let next_cursor = match &items[2] {
+                QuspResponse::Integer(i) => Some(*i as usize),
+                QuspResponse::Null => None,
+                _ => return Err(anyhow!("Expected integer or null for next_cursor")),
+            };
+            Ok(PageResult::new(entity_types, total, next_cursor))
+        }
+        _ => Err(anyhow!("Expected array for PageResult")),
+    }
+}
+
+pub fn parse_entity_ids_response(response: QuspResponse) -> Result<Vec<EntityId>> {
+    match response {
+        QuspResponse::Array(items) => {
+            let mut entity_ids = Vec::new();
+            for item in items {
+                match item {
+                    QuspResponse::Integer(i) => entity_ids.push(EntityId(i as u64)),
+                    _ => return Err(anyhow!("Expected integer for EntityId")),
+                }
+            }
+            Ok(entity_ids)
+        }
+        _ => Err(anyhow!("Expected array for entity IDs")),
+    }
+}
+
+pub fn parse_entity_types_response(response: QuspResponse) -> Result<Vec<EntityType>> {
+    match response {
+        QuspResponse::Array(items) => {
+            let mut entity_types = Vec::new();
+            for item in items {
+                match item {
+                    QuspResponse::Integer(i) => entity_types.push(EntityType(i as u32)),
+                    _ => return Err(anyhow!("Expected integer for EntityType")),
+                }
+            }
+            Ok(entity_types)
+        }
+        _ => Err(anyhow!("Expected array for entity types")),
+    }
+}
+
+// Helper function to convert field path to comma-separated string
+pub fn field_path_to_string(field_path: &[FieldType]) -> String {
+    field_path
+        .iter()
+        .map(|ft| ft.0.to_string())
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
+// Helper function to encode optional timestamp
+pub fn encode_optional_timestamp(timestamp: Option<Timestamp>) -> String {
+    match timestamp {
+        Some(ts) => (ts.unix_timestamp_nanos() as u64).to_string(),
+        None => "null".to_string(),
+    }
+}
+
+// Helper function to encode optional entity ID
+pub fn encode_optional_entity_id(entity_id: Option<EntityId>) -> String {
+    match entity_id {
+        Some(id) => id.0.to_string(),
+        None => "null".to_string(),
+    }
+}
+
+// Helper function to encode PushCondition
+pub fn encode_push_condition(condition: Option<PushCondition>) -> String {
+    match condition {
+        Some(PushCondition::Always) => "Always".to_string(),
+        Some(PushCondition::Changes) => "Changes".to_string(),
+        None => "null".to_string(),
+    }
+}
+
+// Helper function to encode AdjustBehavior
+pub fn encode_adjust_behavior(behavior: Option<AdjustBehavior>) -> String {
+    match behavior {
+        Some(AdjustBehavior::Set) => "Set".to_string(),
+        Some(AdjustBehavior::Add) => "Add".to_string(),
+        Some(AdjustBehavior::Subtract) => "Subtract".to_string(),
+        None => "null".to_string(),
+    }
+}
+
+// Export expect_ok function
+pub fn expect_ok(response: QuspResponse) -> Result<()> {
+    match response {
+        QuspResponse::Simple(bytes) => {
+            let s = std::str::from_utf8(bytes.as_ref()).map_err(|e| anyhow!("invalid UTF-8: {}", e))?;
+            if s == "OK" {
+                Ok(())
+            } else {
+                Err(anyhow!("expected OK, got: {}", s))
+            }
+        }
+        QuspResponse::Error(msg) => Err(anyhow!("server error: {}", msg)),
+        _ => Err(anyhow!("expected simple string response")),
+    }
+}
