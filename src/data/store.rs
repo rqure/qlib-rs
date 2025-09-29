@@ -10,46 +10,10 @@ use std::{
 use crate::{
     data::{
         entity_schema::Complete, hash_notify_config,
-        interner::Interner, now, request::PushCondition, EntityType, FieldType, Notification,
+        interner::Interner, now, EntityType, FieldType, Notification,
         NotificationQueue, NotifyConfig, NotifyInfo, StoreTrait, Timestamp,
-    },
-    et::ET,
-    expr::CelExecutor,
-    ft::FT,
-    AdjustBehavior, EntityId, EntitySchema, Error, Field, FieldSchema,
-    PageOpts, PageResult, Result, Single, Snapshot, Value,
+    }, et::ET, expr::CelExecutor, ft::FT, AdjustBehavior, EntityId, EntitySchema, Error, Field, FieldSchema, PageOpts, PageResult, PushCondition, Result, Single, Snapshot, Value, WriteInfo
 };
-
-pub enum WriteInfo {
-    FieldUpdate {
-        entity_id: EntityId,
-        field_type: FieldType,
-        value: Option<Value>,
-        push_condition: PushCondition,
-        adjust_behavior: AdjustBehavior,
-        write_time: Option<Timestamp>,
-        writer_id: Option<EntityId>,
-    },
-    CreateEntity {
-        entity_type: EntityType,
-        parent_id: Option<EntityId>,
-        name: String,
-        created_entity_id: EntityId,
-        timestamp: Timestamp,
-    },
-    DeleteEntity {
-        entity_id: EntityId,
-        timestamp: Timestamp,
-    },
-    SchemaUpdate {
-        schema: EntitySchema<Single>,
-        timestamp: Timestamp,
-    },
-    Snapshot {
-        snapshot_counter: u64,
-        timestamp: Timestamp,
-    },
-}
 
 pub struct Store {
     schemas: FxHashMap<EntityType, EntitySchema<Single>>,
