@@ -128,6 +128,15 @@ impl EntitySchemaResp {
             _marker: std::marker::PhantomData,
         })
     }
+
+    /// Convert from EntitySchema to EntitySchemaResp
+    pub fn from_entity_schema(schema: &EntitySchema<Single, EntityType, FieldType>, store: &impl StoreTrait) -> Self {
+        Self {
+            entity_type: store.resolve_entity_type(schema.entity_type.clone()).expect("Entity type does not exist"),
+            inherit: schema.inherit.iter().map(|et| store.resolve_entity_type(et.clone()).expect("Entity type does not exist")).collect(),
+            fields: schema.fields.iter().map(|(ft, fs)| FieldSchemaResp::from_field_schema(fs, store)).collect(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, RespEncode, RespDecode)]
@@ -197,6 +206,28 @@ impl FieldSchemaResp {
                 rank: self.rank,
                 storage_scope: crate::data::field_schema::StorageScope::Runtime,
             },
+        }
+    }
+
+    /// Convert from FieldSchema to FieldSchemaResp
+    pub fn from_field_schema(schema: &FieldSchema<FieldType>, store: &impl StoreTrait) -> Self {
+        let field_type = store.resolve_field_type(schema.field_type().clone()).expect("Field type does not exist");
+        let (rank, default_value) = match schema {
+            FieldSchema::Blob { rank, default_value, .. } => (*rank, Value::Blob(default_value.clone())),
+            FieldSchema::Bool { rank, default_value, .. } => (*rank, Value::Bool(*default_value)),
+            FieldSchema::Choice { rank, default_value, .. } => (*rank, Value::Choice(*default_value)),
+            FieldSchema::EntityList { rank, default_value, .. } => (*rank, Value::EntityList(default_value.clone())),
+            FieldSchema::EntityReference { rank, default_value, .. } => (*rank, Value::EntityReference(*default_value)),
+            FieldSchema::Float { rank, default_value, .. } => (*rank, Value::Float(*default_value)),
+            FieldSchema::Int { rank, default_value, .. } => (*rank, Value::Int(*default_value)),
+            FieldSchema::String { rank, default_value, .. } => (*rank, Value::String(default_value.clone())),
+            FieldSchema::Timestamp { rank, default_value, .. } => (*rank, Value::Timestamp(*default_value)),
+        };
+
+        Self {
+            field_type,
+            rank,
+            default_value,
         }
     }
 }

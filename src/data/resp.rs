@@ -1458,3 +1458,48 @@ pub struct PageResultResponse<T> {
     pub has_more: bool,
     pub cursor: Option<String>,
 }
+
+// ============================================================================
+// RESP Commands for Peer Communication
+// ============================================================================
+
+/// Peer handshake command
+#[respc(name = "PEER_HANDSHAKE")]
+#[derive(Debug, Clone, RespEncode, RespDecode)]
+pub struct PeerHandshakeCommand<'a> {
+    pub start_time: u64,
+    pub is_response: bool,
+    pub machine_id: String,
+    pub _marker: std::marker::PhantomData<&'a ()>,
+}
+
+/// Full sync request command
+#[respc(name = "FULL_SYNC_REQUEST")]
+#[derive(Debug, Clone, RespEncode, RespDecode)]
+pub struct FullSyncRequestCommand<'a> {
+    pub _marker: std::marker::PhantomData<&'a ()>,
+}
+
+/// Full sync response command
+#[respc(name = "FULL_SYNC_RESPONSE")]
+#[derive(Debug, Clone, RespEncode, RespDecode)]
+pub struct FullSyncResponseCommand<'a> {
+    pub snapshot_data: String, // JSON-serialized snapshot
+    pub _marker: std::marker::PhantomData<&'a ()>,
+}
+
+/// Sync write command
+#[respc(name = "SYNC_WRITE")]
+#[derive(Debug, Clone, RespEncode, RespDecode)]
+pub struct SyncWriteCommand<'a> {
+    pub requests_data: String, // JSON-serialized requests
+    pub _marker: std::marker::PhantomData<&'a ()>,
+}
+
+/// Notification message command
+#[respc(name = "NOTIFICATION")]
+#[derive(Debug, Clone, RespEncode, RespDecode)]
+pub struct NotificationCommand<'a> {
+    pub notification_data: String, // JSON-serialized notification
+    pub _marker: std::marker::PhantomData<&'a ()>,
+}

@@ -1,6 +1,6 @@
 pub mod et;
 mod entity_id;
-mod entity_schema;
+pub mod entity_schema;
 mod field_schema;
 mod field;
 pub mod ft;
