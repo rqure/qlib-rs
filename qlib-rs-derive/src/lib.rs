@@ -396,10 +396,75 @@ pub fn respc(args: TokenStream, input: TokenStream) -> TokenStream {
     let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
     let command_name = args.name;
 
+    // Generate field encoding for the RespEncode override
+    let encode_fields = match &input.data {
+        Data::Struct(data) => {
+            match &data.fields {
+                Fields::Named(fields) => {
+                    let non_phantom_fields: Vec<_> = fields.named.iter()
+                        .filter(|field| !is_phantom_data(&field.ty))
+                        .collect();
+                    
+                    non_phantom_fields.iter().map(|field| {
+                        let field_name = &field.ident;
+                        quote! {
+                            elements.push(crate::data::resp::RespValue::BulkString(
+                                stringify!(#field_name).as_bytes()
+                            ));
+                            let field_encoded = crate::data::resp::RespEncode::encode(&self.#field_name);
+                            if let Ok((field_value, _)) = crate::data::resp::RespValue::decode(&field_encoded) {
+                                elements.push(field_value);
+                            } else {
+                                elements.push(crate::data::resp::RespValue::Null);
+                            }
+                        }
+                    }).collect()
+                }
+                Fields::Unnamed(fields) => {
+                    let non_phantom_fields: Vec<_> = fields.unnamed.iter()
+                        .enumerate()
+                        .filter(|(_, field)| !is_phantom_data(&field.ty))
+                        .collect();
+                    
+                    non_phantom_fields.iter().map(|(i, _)| {
+                        let index = Index::from(*i);
+                        quote! {
+                            let field_encoded = crate::data::resp::RespEncode::encode(&self.#index);
+                            if let Ok((field_value, _)) = crate::data::resp::RespValue::decode(&field_encoded) {
+                                elements.push(field_value);
+                            } else {
+                                elements.push(crate::data::resp::RespValue::Null);
+                            }
+                        }
+                    }).collect()
+                }
+                Fields::Unit => Vec::new(),
+            }
+        }
+        _ => {
+            return syn::Error::new_spanned(&input, "respc can only be used with structs")
+                .to_compile_error()
+                .into();
+        }
+    };
+
     // Generate the RespCommand trait implementation
     let resp_command_impl = quote! {
         impl #impl_generics crate::data::resp::RespCommand<'_> for #name #ty_generics #where_clause {
             const COMMAND_NAME: &'static str = #command_name;
+        }
+        
+        // Override RespEncode to include command name
+        impl #impl_generics crate::data::resp::RespEncode for #name #ty_generics #where_clause {
+            fn encode(&self) -> Vec<u8> {
+                // Manually encode the struct fields with command name first
+                let mut elements = vec![crate::data::resp::RespValue::BulkString(#command_name.as_bytes())];
+                
+                // Use the same field encoding logic as the derive macro but without the infinite recursion
+                #(#encode_fields)*
+                
+                crate::data::resp::RespValue::Array(elements).encode()
+            }
         }
     };
 
