@@ -103,7 +103,7 @@ impl Store {
     }
 
     /// Internal entity creation that doesn't use perform to avoid recursion
-    fn create_entity_internal(
+    pub fn create_entity_with_id(
         &mut self,
         entity_type: EntityType,
         parent_id: Option<EntityId>,
@@ -1663,7 +1663,7 @@ impl StoreTrait for Store {
 
     fn create_entity(&mut self, entity_type: EntityType, parent_id: Option<EntityId>, name: &str) -> Result<EntityId> {
         let mut created_entity_id = None;
-        self.create_entity_internal(entity_type, parent_id, &mut created_entity_id, name)?;
+        self.create_entity_with_id(entity_type, parent_id, &mut created_entity_id, name)?;
         let created_entity_id = created_entity_id.ok_or_else(|| Error::InvalidRequest("Failed to create entity".to_string()))?;
 
         self.write_queue.push_back(WriteInfo::CreateEntity {
