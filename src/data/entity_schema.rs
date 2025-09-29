@@ -134,7 +134,7 @@ impl EntitySchemaResp {
         Self {
             entity_type: store.resolve_entity_type(schema.entity_type.clone()).expect("Entity type does not exist"),
             inherit: schema.inherit.iter().map(|et| store.resolve_entity_type(et.clone()).expect("Entity type does not exist")).collect(),
-            fields: schema.fields.iter().map(|(ft, fs)| FieldSchemaResp::from_field_schema(fs, store)).collect(),
+            fields: schema.fields.iter().map(|(_ft, fs)| FieldSchemaResp::from_field_schema(fs, store)).collect(),
         }
     }
 }
