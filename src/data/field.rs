@@ -1,8 +1,9 @@
 use serde::{Deserialize, Serialize};
+use qlib_rs_derive::{RespDecode, RespEncode};
 
-use crate::{data::{EntityId, FieldType, Timestamp, Value}};
+use crate::{data::{resp::RespDecode as RespDecodeT, EntityId, FieldType, Timestamp, Value}};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, RespEncode, RespDecode)]
 pub struct Field {
     pub field_type: FieldType,
     pub value: Value,

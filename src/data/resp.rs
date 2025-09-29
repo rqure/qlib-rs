@@ -830,6 +830,24 @@ impl RespDecode<'_> for Vec<FieldType> {
     }
 }
 
+impl RespDecode<'_> for Vec<Vec<FieldType>> {
+    fn decode(input: &[u8]) -> Result<(Self, &[u8])> {
+        let (value, remaining) = RespValue::decode(input)?;
+        match value {
+            RespValue::Array(elements) => {
+                let mut result = Vec::with_capacity(elements.len());
+                for element in elements {
+                    let element_bytes = element.encode();
+                    let (decoded, _) = Vec::<FieldType>::decode(&element_bytes)?;
+                    result.push(decoded);
+                }
+                Ok((result, remaining))
+            },
+            _ => Err(crate::Error::InvalidRequest("Expected array for Vec<Vec<FieldType>>".to_string())),
+        }
+    }
+}
+
 impl RespDecode<'_> for Vec<EntitySchemaResp> {
     fn decode(input: &[u8]) -> Result<(Self, &[u8])> {
         let (value, remaining) = RespValue::decode(input)?;
@@ -1129,6 +1147,22 @@ impl RespDecode<'_> for i64 {
     }
 }
 
+impl RespEncode for usize {
+    fn encode(&self) -> Vec<u8> {
+        RespValue::Integer(*self as i64).encode()
+    }
+}
+
+impl RespDecode<'_> for usize {
+    fn decode(data: &[u8]) -> Result<(Self, &[u8])> {
+        let (value, remaining) = RespValue::decode(data)?;
+        match value {
+            RespValue::Integer(i) => Ok((i as usize, remaining)),
+            _ => Err(crate::Error::InvalidRequest("Expected integer for usize".to_string())),
+        }
+    }
+}
+
 // ============================================================================
 // RESP Commands for all StoreTrait methods
 // ============================================================================
@@ -1236,7 +1270,7 @@ pub struct GetFieldSchemaCommand<'a> {
 pub struct SetFieldSchemaCommand<'a> {
     pub entity_type: EntityType,
     pub field_type: FieldType,
-    pub schema: String, // Serialized FieldSchema
+    pub schema: crate::data::entity_schema::FieldSchemaResp,
     pub _marker: std::marker::PhantomData<&'a ()>,
 }
 
@@ -1271,7 +1305,7 @@ pub struct ResolveIndirectionCommand<'a> {
 #[derive(Debug, Clone, RespEncode, RespDecode)]
 pub struct FindEntitiesPaginatedCommand<'a> {
     pub entity_type: EntityType,
-    pub page_opts: Option<String>, // Serialized PageOpts
+    pub page_opts: Option<crate::data::PageOpts>,
     pub filter: Option<String>,
     pub _marker: std::marker::PhantomData<&'a ()>,
 }
@@ -1281,7 +1315,7 @@ pub struct FindEntitiesPaginatedCommand<'a> {
 #[derive(Debug, Clone, RespEncode, RespDecode)]
 pub struct FindEntitiesExactCommand<'a> {
     pub entity_type: EntityType,
-    pub page_opts: Option<String>, // Serialized PageOpts
+    pub page_opts: Option<crate::data::PageOpts>,
     pub filter: Option<String>,
     pub _marker: std::marker::PhantomData<&'a ()>,
 }
@@ -1306,7 +1340,7 @@ pub struct GetEntityTypesCommand<'a> {
 #[respc(name = "GET_ENTITY_TYPES_PAGINATED")]
 #[derive(Debug, Clone, RespEncode, RespDecode)]
 pub struct GetEntityTypesPaginatedCommand<'a> {
-    pub page_opts: Option<String>, // Serialized PageOpts
+    pub page_opts: Option<crate::data::PageOpts>,
     pub _marker: std::marker::PhantomData<&'a ()>,
 }
 
@@ -1321,7 +1355,7 @@ pub struct TakeSnapshotCommand<'a> {
 #[respc(name = "REGISTER_NOTIFICATION")]
 #[derive(Debug, Clone, RespEncode, RespDecode)]
 pub struct RegisterNotificationCommand<'a> {
-    pub config: String, // Serialized NotifyConfig
+    pub config: crate::NotifyConfig,
     pub _marker: std::marker::PhantomData<&'a ()>,
 }
 
@@ -1329,7 +1363,7 @@ pub struct RegisterNotificationCommand<'a> {
 #[respc(name = "UNREGISTER_NOTIFICATION")]
 #[derive(Debug, Clone, RespEncode, RespDecode)]
 pub struct UnregisterNotificationCommand<'a> {
-    pub config: String, // Serialized NotifyConfig
+    pub config: crate::NotifyConfig,
     pub _marker: std::marker::PhantomData<&'a ()>,
 }
 
@@ -1386,6 +1420,34 @@ pub struct EntityListResponse {
 #[derive(Debug, Clone, RespEncode, RespDecode)]
 pub struct EntityTypeListResponse {
     pub entity_types: Vec<EntityType>,
+}
+
+/// Response for field schema operations
+#[derive(Debug, Clone, RespEncode, RespDecode)]
+pub struct FieldSchemaResponse {
+    pub schema: crate::data::entity_schema::FieldSchemaResp,
+}
+
+/// Response for snapshot operations - simplified version of Snapshot for RESP transport
+#[derive(Debug, Clone, RespEncode, RespDecode)]
+pub struct SnapshotResponse {
+    pub data: String, // JSON-serialized snapshot data
+}
+
+/// Response for paginated entity results
+#[derive(Debug, Clone, RespEncode, RespDecode)]
+pub struct PaginatedEntityResponse {
+    pub items: Vec<EntityId>,
+    pub total: usize,
+    pub next_cursor: Option<usize>,
+}
+
+/// Response for paginated entity type results
+#[derive(Debug, Clone, RespEncode, RespDecode)]
+pub struct PaginatedEntityTypeResponse {
+    pub items: Vec<EntityType>,
+    pub total: usize,
+    pub next_cursor: Option<usize>,
 }
 
 /// Response for paginated results

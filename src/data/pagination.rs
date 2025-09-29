@@ -1,7 +1,9 @@
 use serde::{Deserialize, Serialize};
+use qlib_rs_derive::{RespDecode, RespEncode};
+use crate::data::resp::RespDecode as RespDecodeT;
 
 /// Pagination options for retrieving lists of items
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, RespEncode, RespDecode)]
 pub struct PageOpts {
     /// The maximum number of items to return
     pub limit: usize,

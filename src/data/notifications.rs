@@ -4,10 +4,12 @@ use std::collections::{BTreeMap, hash_map::DefaultHasher};
 use std::hash::{Hash, Hasher};
 use std::rc::Rc;
 use serde::{Deserialize, Serialize};
+use qlib_rs_derive::{RespDecode, RespEncode};
 
 use crate::{EntityId, EntityType, FieldType, IndirectFieldType, Value, Timestamp};
+use crate::data::resp::RespDecode as RespDecodeT;
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash, RespEncode, RespDecode)]
 pub enum NotifyConfig {
     EntityId {
         entity_id: EntityId,

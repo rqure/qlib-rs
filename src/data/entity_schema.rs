@@ -109,9 +109,94 @@ pub struct EntitySchemaResp {
     pub fields: Vec<FieldSchemaResp>,
 }
 
+impl EntitySchemaResp {
+    /// Convert from EntitySchemaResp to EntitySchema<Single, String, String>
+    pub fn to_entity_schema(self, _store: &impl StoreTrait) -> crate::Result<EntitySchema<Single, String, String>> {
+        let fields = self.fields
+            .into_iter()
+            .map(|field_resp| {
+                let field_type = field_resp.field_type.clone();
+                let field_schema = field_resp.to_field_schema();
+                Ok((field_type, field_schema))
+            })
+            .collect::<Result<rustc_hash::FxHashMap<String, FieldSchema<String>>, crate::Error>>()?;
+
+        Ok(EntitySchema {
+            entity_type: self.entity_type,
+            inherit: self.inherit,
+            fields,
+            _marker: std::marker::PhantomData,
+        })
+    }
+}
+
 #[derive(Debug, Clone, RespEncode, RespDecode)]
 pub struct FieldSchemaResp {
     pub field_type: String,
     pub rank: i64,
-    pub default_value: Value
+    pub default_value: Value,
+}
+
+impl FieldSchemaResp {
+    /// Convert from FieldSchemaResp to FieldSchema<String>
+    pub fn to_field_schema(self) -> FieldSchema<String> {
+        // Determine the field schema variant based on the default value type
+        match self.default_value {
+            Value::Blob(data) => FieldSchema::Blob {
+                field_type: self.field_type,
+                default_value: data,
+                rank: self.rank,
+                storage_scope: crate::data::field_schema::StorageScope::Runtime,
+            },
+            Value::Bool(val) => FieldSchema::Bool {
+                field_type: self.field_type,
+                default_value: val,
+                rank: self.rank,
+                storage_scope: crate::data::field_schema::StorageScope::Runtime,
+            },
+            Value::Choice(val) => FieldSchema::Choice {
+                field_type: self.field_type,
+                default_value: val,
+                rank: self.rank,
+                choices: Vec::new(), // TODO: Consider adding choices to FieldSchemaResp
+                storage_scope: crate::data::field_schema::StorageScope::Runtime,
+            },
+            Value::EntityList(val) => FieldSchema::EntityList {
+                field_type: self.field_type,
+                default_value: val,
+                rank: self.rank,
+                storage_scope: crate::data::field_schema::StorageScope::Runtime,
+            },
+            Value::EntityReference(val) => FieldSchema::EntityReference {
+                field_type: self.field_type,
+                default_value: val,
+                rank: self.rank,
+                storage_scope: crate::data::field_schema::StorageScope::Runtime,
+            },
+            Value::Float(val) => FieldSchema::Float {
+                field_type: self.field_type,
+                default_value: val,
+                rank: self.rank,
+                storage_scope: crate::data::field_schema::StorageScope::Runtime,
+            },
+            Value::Int(val) => FieldSchema::Int {
+                field_type: self.field_type,
+                default_value: val,
+                rank: self.rank,
+                storage_scope: crate::data::field_schema::StorageScope::Runtime,
+            },
+            Value::String(val) => FieldSchema::String {
+                field_type: self.field_type,
+                default_value: val,
+                rank: self.rank,
+                storage_scope: crate::data::field_schema::StorageScope::Runtime,
+            },
+            Value::Timestamp(val) => FieldSchema::Timestamp {
+                field_type: self.field_type,
+                default_value: val,
+                rank: self.rank,
+                storage_scope: crate::data::field_schema::StorageScope::Runtime,
+            },
+        }
+    }
 }
