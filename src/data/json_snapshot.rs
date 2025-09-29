@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 
 use crate::{
-    EntityId, EntitySchema, EntityType, Error, FieldSchema, Result, Single, Store, Value
+    now, EntityId, EntitySchema, EntityType, Error, FieldSchema, Result, Single, Store, Value
 };
 use crate::data::{StoreTrait, StorageScope};
 
@@ -889,9 +889,9 @@ pub fn factory_restore_json_snapshot(
     let wal_filename = "wal_0000000000.log";
     let wal_path = wal_dir.join(wal_filename);
     
-    let snapshot_request = crate::Request::Snapshot {
+    let snapshot_request = crate::WriteInfo::Snapshot {
         snapshot_counter: 0,
-        timestamp: None,
+        timestamp: now(),
     };
     
     let serialized_request = bincode::serialize(&snapshot_request)
