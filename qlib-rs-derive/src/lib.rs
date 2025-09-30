@@ -186,13 +186,15 @@ pub fn derive_resp_decode(input: TokenStream) -> TokenStream {
                     let non_phantom_fields: Vec<_> = fields.named.iter()
                         .filter(|field| !is_phantom_data(&field.ty))
                         .collect();
+                    let field_count = non_phantom_fields.len();
+                    let field_count_lit = syn::LitInt::new(&field_count.to_string(), proc_macro2::Span::call_site());
                     
                     let field_decodes: Vec<_> = non_phantom_fields.iter().enumerate().map(|(i, field)| {
                         let field_name = &field.ident;
                         let field_index = i * 2 + 1; // Skip field name, get value
                         quote! {
-                            let #field_name = if elements.len() > #field_index {
-                                let field_bytes = crate::data::resp::RespEncode::encode(&elements[#field_index]);
+                            let #field_name = if elements.len() > command_offset + #field_index {
+                                let field_bytes = crate::data::resp::RespEncode::encode(&elements[command_offset + #field_index]);
                                 let (decoded_field, _) = <_ as crate::data::resp::RespDecode>::decode(&field_bytes)?;
                                 decoded_field
                             } else {
@@ -215,6 +217,18 @@ pub fn derive_resp_decode(input: TokenStream) -> TokenStream {
                         let (value, remaining) = crate::data::resp::RespValue::decode(input)?;
                         match value {
                             crate::data::resp::RespValue::Array(elements) => {
+                                let command_offset = if elements.len() == (#field_count_lit * 2 + 1)
+                                    && matches!(elements.first(), Some(crate::data::resp::RespValue::BulkString(_)))
+                                {
+                                    1usize
+                                } else {
+                                    0usize
+                                };
+                                if elements.len() < command_offset + (#field_count_lit * 2) {
+                                    return Err(crate::Error::InvalidRequest(format!(
+                                        "Not enough elements for struct {}", stringify!(#name)
+                                    )));
+                                }
                                 #(#field_decodes)*
                                 Ok((Self { #(#phantom_assignments),* }, remaining))
                             }
