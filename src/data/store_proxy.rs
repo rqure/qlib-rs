@@ -28,6 +28,7 @@ pub struct TcpConnection {
     stream: mio::net::TcpStream,
     poll: Poll,
     token: Token,
+    read_buffer: Vec<u8>,
 }
 
 impl TcpConnection {
@@ -46,6 +47,7 @@ impl TcpConnection {
             stream,
             poll,
             token,
+            read_buffer: Vec::new(),
         })
     }
     
@@ -70,18 +72,16 @@ impl TcpConnection {
         Ok(false) // Timeout or no readable event
     }
     
-    pub fn try_receive_resp(&mut self) -> anyhow::Result<Option<Vec<u8>>> {
-        // For RESP, we need to read until we have a complete response
-        // This is a simplified implementation - in practice, you'd want proper buffering
-        let mut buffer = [0u8; 8192];
+    pub fn read_bytes(&mut self) -> anyhow::Result<()> {
+        let mut buffer = [0u8; 65536];
         match self.stream.read(&mut buffer) {
             Ok(0) => return Err(anyhow::anyhow!("Connection closed")),
             Ok(bytes_read) => {
-                let data = buffer[..bytes_read].to_vec();
-                Ok(Some(data))
+                self.read_buffer.extend_from_slice(&buffer[..bytes_read]);
+                Ok(())
             }
             Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                Ok(None) // No data available
+                Ok(()) // No data available
             }
             Err(e) => Err(anyhow::anyhow!("TCP read error: {}", e)),
         }
@@ -90,7 +90,7 @@ impl TcpConnection {
 
 #[derive(Debug)]
 pub struct StoreProxy {
-    tcp_connection: Rc<RefCell<TcpConnection>>,
+    tcp_connection: TcpConnection,
 }
 
 impl StoreProxy {
@@ -111,93 +111,33 @@ impl StoreProxy {
         let tcp_connection = TcpConnection::new(stream)
             .map_err(|e| Error::StoreProxyError(format!("Failed to create TCP connection: {}", e)))?;
 
-        // Create single-threaded collections
-        let tcp_connection = Rc::new(RefCell::new(tcp_connection));
-
         Ok(StoreProxy {
             tcp_connection,
         })
     }
 
-    fn poll_for_resp(&self) -> Result<Option<Vec<u8>>> {
-        let result = {
-            let mut conn = self.tcp_connection.borrow_mut();
-            conn.try_receive_resp()
-        };
-
-        result.map_err(|e| Error::StoreProxyError(format!("TCP error: {}", e)))
-    }
-
-    fn send_command_get_response<C, R>(&self, command: &C) -> Result<R>
+    fn send_command_get_response<'a, C, R>(&self, command: &C) -> Result<R>
     where
-        C: RespCommand<'static>,
-        R: RespDecode<'static>,
+        C: RespCommand<'a>,
+        R: RespDecode<'a>,
     {
         let encoded = command.encode();
         let encoded_bytes = encoded.to_bytes();
-
-        {
-            let mut conn = self.tcp_connection.borrow_mut();
-            conn.send_bytes(&encoded_bytes)
-                .map_err(|e| Error::StoreProxyError(format!("Failed to send command: {}", e)))?;
-        }
+        
+        self.tcp_connection.send_bytes(&encoded_bytes)
+            .map_err(|e| Error::StoreProxyError(format!("Failed to send command: {}", e)))?;
 
         loop {
-            match self.poll_for_resp()? {
-                Some(data) => {
-                    // Decode the RESP value from the received data
-                    match RespValue::from_bytes(&data) {
-                        Ok((resp_value, _remaining)) => {
-                            let response_struct = R::decode(resp_value)
-                                .map_err(|_| Error::StoreProxyError("Failed to decode structured response".into()))?;
-                            return Ok(response_struct);
-                        }
-                        Err(_) => continue, // Incomplete response, try again
-                    }
+            match RespValue::from_bytes(&self.tcp_connection.read_buffer) {
+                Ok((resp_value, remaining)) => {
+                    let response_struct = R::decode(resp_value)
+                        .map_err(|_| Error::StoreProxyError("Failed to decode structured response".into()))?;
+                    return Ok(response_struct);
                 }
-                None => {
-                    let readable = {
-                        let mut conn = self.tcp_connection.borrow_mut();
-                        conn.wait_for_readable(Some(READ_POLL_INTERVAL))
-                    }
-                    .map_err(|e| Error::StoreProxyError(format!("Poll error: {}", e)))?;
-
-                    if !readable {
-                        continue;
-                    }
-                }
-            }
-        }
-    }
-
-    fn send_command_ok<C: RespCommand<'static>>(&self, command: &C) -> Result<()> {
-        let encoded = command.encode();
-        let encoded_bytes = encoded.to_bytes();
-
-        {
-            let mut conn = self.tcp_connection.borrow_mut();
-            conn.send_bytes(&encoded_bytes)
-                .map_err(|e| Error::StoreProxyError(format!("Failed to send command: {}", e)))?;
-        }
-
-        loop {
-            match self.poll_for_resp()? {
-                Some(data) => {
-                    // Decode the RESP value from the received data
-                    match RespValue::from_bytes(&data) {
-                        Ok((resp_value, _remaining)) => {
-                            return expect_ok(resp_value);
-                        }
-                        Err(_) => continue, // Incomplete response, try again
-                    }
-                }
-                None => {
-                    let readable = {
-                        let mut conn = self.tcp_connection.borrow_mut();
-                        conn.wait_for_readable(Some(READ_POLL_INTERVAL))
-                    }
-                    .map_err(|e| Error::StoreProxyError(format!("Poll error: {}", e)))?;
-
+                Err(_) => {
+                    let readable = self.tcp_connection
+                        .wait_for_readable(Some(READ_POLL_INTERVAL))
+                        .map_err(|e| Error::StoreProxyError(format!("Poll error: {}", e)))?;
                     if !readable {
                         continue;
                     }
