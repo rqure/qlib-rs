@@ -32,7 +32,7 @@ pub fn derive_resp_encode(input: TokenStream) -> TokenStream {
                         let field_name = &field.ident;
                         quote! {
                             elements.push(crate::data::resp::OwnedRespValue::BulkString(
-                                stringify!(#field_name).as_bytes()
+                                stringify!(#field_name).as_bytes().to_vec()
                             ));
                             elements.push(crate::data::resp::RespEncode::encode(&self.#field_name));
                         }
@@ -389,7 +389,7 @@ pub fn respc(args: TokenStream, input: TokenStream) -> TokenStream {
                         let field_name = &field.ident;
                         quote! {
                             elements.push(crate::data::resp::OwnedRespValue::BulkString(
-                                stringify!(#field_name).as_bytes()
+                                stringify!(#field_name).as_bytes().to_vec()
                             ));
                             elements.push(crate::data::resp::RespEncode::encode(&self.#field_name));
                         }

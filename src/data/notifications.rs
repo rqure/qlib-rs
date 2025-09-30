@@ -7,7 +7,6 @@ use serde::{Deserialize, Serialize};
 use qlib_rs_derive::{RespDecode, RespEncode};
 
 use crate::{EntityId, EntityType, FieldType, IndirectFieldType, Value, Timestamp};
-use crate::data::resp::RespDecode as RespDecodeT;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash, RespEncode, RespDecode)]
 pub enum NotifyConfig {
