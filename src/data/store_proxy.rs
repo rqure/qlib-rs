@@ -9,7 +9,7 @@ use crate::{
     Complete, EntityId, EntitySchema, EntityType, Error, FieldSchema, FieldType, PageOpts, PageResult, Result, Single, Value, Timestamp, PushCondition, AdjustBehavior
 };
 use crate::data::StoreTrait;
-use crate::data::resp::{RespCommand, RespDecode, ReadCommand, WriteCommand, CreateEntityCommand, RespValue};
+use crate::data::resp::{RespCommand, RespDecode, ReadCommand, WriteCommand, CreateEntityCommand, RespValue, RespToBytes, RespFromBytes};
 
 const READ_POLL_INTERVAL: Duration = Duration::from_millis(10);
 
@@ -131,13 +131,14 @@ impl StoreProxy {
     fn send_command_get_response<C, R>(&self, command: &C) -> Result<R>
     where
         C: RespCommand<'static>,
-        R: for<'a> RespDecode<'a>,
+        R: RespDecode<'static>,
     {
         let encoded = command.encode();
+        let encoded_bytes = encoded.to_bytes();
 
         {
             let mut conn = self.tcp_connection.borrow_mut();
-            conn.send_bytes(&encoded)
+            conn.send_bytes(&encoded_bytes)
                 .map_err(|e| Error::StoreProxyError(format!("Failed to send command: {}", e)))?;
         }
 
@@ -145,17 +146,11 @@ impl StoreProxy {
             match self.poll_for_resp()? {
                 Some(data) => {
                     // Decode the RESP value from the received data
-                    match RespValue::decode(&data) {
+                    match RespValue::from_bytes(&data) {
                         Ok((resp_value, _remaining)) => {
-                            match resp_value {
-                                RespValue::BulkString(data) => {
-                                    let (response_struct, _) = R::decode(&data)
-                                        .map_err(|_| Error::StoreProxyError("Failed to decode structured response".into()))?;
-                                    return Ok(response_struct);
-                                }
-                                RespValue::Error(msg) => return Err(Error::StoreProxyError(msg.to_string())),
-                                _ => return Err(Error::StoreProxyError("Expected bulk string response for structured data".into())),
-                            }
+                            let response_struct = R::decode(resp_value)
+                                .map_err(|_| Error::StoreProxyError("Failed to decode structured response".into()))?;
+                            return Ok(response_struct);
                         }
                         Err(_) => continue, // Incomplete response, try again
                     }
@@ -177,10 +172,11 @@ impl StoreProxy {
 
     fn send_command_ok<C: RespCommand<'static>>(&self, command: &C) -> Result<()> {
         let encoded = command.encode();
+        let encoded_bytes = encoded.to_bytes();
 
         {
             let mut conn = self.tcp_connection.borrow_mut();
-            conn.send_bytes(&encoded)
+            conn.send_bytes(&encoded_bytes)
                 .map_err(|e| Error::StoreProxyError(format!("Failed to send command: {}", e)))?;
         }
 
@@ -188,7 +184,7 @@ impl StoreProxy {
             match self.poll_for_resp()? {
                 Some(data) => {
                     // Decode the RESP value from the received data
-                    match RespValue::decode(&data) {
+                    match RespValue::from_bytes(&data) {
                         Ok((resp_value, _remaining)) => {
                             return expect_ok(resp_value);
                         }

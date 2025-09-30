@@ -418,6 +418,179 @@ pub fn respc(args: TokenStream, input: TokenStream) -> TokenStream {
         }
     };
 
+    // Generate the decode implementation
+    let decode_impl = match &input.data {
+        Data::Struct(data) => {
+            match &data.fields {
+                Fields::Named(fields) => {
+                    let non_phantom_fields: Vec<_> = fields.named.iter()
+                        .filter(|field| !is_phantom_data(&field.ty))
+                        .collect();
+                    let field_count = non_phantom_fields.len();
+                    let field_count_lit = syn::LitInt::new(&field_count.to_string(), proc_macro2::Span::call_site());
+                    
+                    let field_decodes: Vec<_> = non_phantom_fields.iter().enumerate().map(|(i, field)| {
+                        let field_name = &field.ident;
+                        let field_index = i * 2 + 2; // Skip command name and field name, get value
+                        quote! {
+                            let #field_name = if elements.len() > #field_index {
+                                <_ as crate::data::resp::RespDecode>::decode(elements[#field_index].clone())?
+                            } else {
+                                return Err(crate::Error::InvalidRequest(format!("Missing field {}", stringify!(#field_name))));
+                            };
+                        }
+                    }).collect();
+                    
+                    // Generate phantom data assignments
+                    let phantom_assignments: Vec<_> = fields.named.iter().filter_map(|field| {
+                        let field_name = &field.ident;
+                        if is_phantom_data(&field.ty) {
+                            Some(quote! { #field_name: std::marker::PhantomData })
+                        } else {
+                            Some(quote! { #field_name })
+                        }
+                    }).collect();
+                    
+                    quote! {
+                        match input {
+                            crate::data::resp::RespValue::Array(elements) => {
+                                // Check if we have the expected command name
+                                if elements.is_empty() {
+                                    return Err(crate::Error::InvalidRequest("Empty array for command".to_string()));
+                                }
+                                
+                                // Verify command name matches
+                                let expected_cmd = #command_name;
+                                match &elements[0] {
+                                    crate::data::resp::RespValue::BulkString(cmd_bytes) => {
+                                        let cmd_str = std::str::from_utf8(cmd_bytes)
+                                            .map_err(|_| crate::Error::InvalidRequest("Invalid UTF-8 in command name".to_string()))?;
+                                        if cmd_str != expected_cmd {
+                                            return Err(crate::Error::InvalidRequest(format!("Expected command '{}', got '{}'", expected_cmd, cmd_str)));
+                                        }
+                                    }
+                                    crate::data::resp::RespValue::SimpleString(cmd_str) => {
+                                        if cmd_str != &expected_cmd {
+                                            return Err(crate::Error::InvalidRequest(format!("Expected command '{}', got '{}'", expected_cmd, cmd_str)));
+                                        }
+                                    }
+                                    _ => return Err(crate::Error::InvalidRequest("Expected command name as first element".to_string())),
+                                }
+                                
+                                if elements.len() < 1 + (#field_count_lit * 2) {
+                                    return Err(crate::Error::InvalidRequest(format!(
+                                        "Not enough elements for command {}", stringify!(#name)
+                                    )));
+                                }
+                                #(#field_decodes)*
+                                Ok(Self { #(#phantom_assignments),* })
+                            }
+                            _ => Err(crate::Error::InvalidRequest("Expected array for command".to_string())),
+                        }
+                    }
+                }
+                Fields::Unnamed(fields) => {
+                    let non_phantom_fields: Vec<_> = fields.unnamed.iter()
+                        .enumerate()
+                        .filter(|(_, field)| !is_phantom_data(&field.ty))
+                        .collect();
+                    
+                    let field_decodes: Vec<_> = non_phantom_fields.iter().map(|(i, _)| {
+                        let field_name = format_ident!("field_{}", i);
+                        let field_index = i + 1; // Skip command name
+                        quote! {
+                            let #field_name = if elements.len() > #field_index {
+                                <_ as crate::data::resp::RespDecode>::decode(elements[#field_index].clone())?
+                            } else {
+                                return Err(crate::Error::InvalidRequest(format!("Missing field {}", #field_index)));
+                            };
+                        }
+                    }).collect();
+                    
+                    let field_assignments: Vec<_> = (0..fields.unnamed.len()).map(|i| {
+                        if is_phantom_data(&fields.unnamed[i].ty) {
+                            quote! { std::marker::PhantomData }
+                        } else {
+                            let field_name = format_ident!("field_{}", i);
+                            quote! { #field_name }
+                        }
+                    }).collect();
+                    
+                    quote! {
+                        match input {
+                            crate::data::resp::RespValue::Array(elements) => {
+                                // Check if we have the expected command name
+                                if elements.is_empty() {
+                                    return Err(crate::Error::InvalidRequest("Empty array for command".to_string()));
+                                }
+                                
+                                // Verify command name matches
+                                let expected_cmd = #command_name;
+                                match &elements[0] {
+                                    crate::data::resp::RespValue::BulkString(cmd_bytes) => {
+                                        let cmd_str = std::str::from_utf8(cmd_bytes)
+                                            .map_err(|_| crate::Error::InvalidRequest("Invalid UTF-8 in command name".to_string()))?;
+                                        if cmd_str != expected_cmd {
+                                            return Err(crate::Error::InvalidRequest(format!("Expected command '{}', got '{}'", expected_cmd, cmd_str)));
+                                        }
+                                    }
+                                    crate::data::resp::RespValue::SimpleString(cmd_str) => {
+                                        if cmd_str != &expected_cmd {
+                                            return Err(crate::Error::InvalidRequest(format!("Expected command '{}', got '{}'", expected_cmd, cmd_str)));
+                                        }
+                                    }
+                                    _ => return Err(crate::Error::InvalidRequest("Expected command name as first element".to_string())),
+                                }
+                                
+                                #(#field_decodes)*
+                                Ok(Self(#(#field_assignments),*))
+                            }
+                            _ => Err(crate::Error::InvalidRequest("Expected array for command".to_string())),
+                        }
+                    }
+                }
+                Fields::Unit => {
+                    quote! {
+                        match input {
+                            crate::data::resp::RespValue::Array(elements) => {
+                                // Check if we have the expected command name
+                                if elements.is_empty() {
+                                    return Err(crate::Error::InvalidRequest("Empty array for command".to_string()));
+                                }
+                                
+                                // Verify command name matches
+                                let expected_cmd = #command_name;
+                                match &elements[0] {
+                                    crate::data::resp::RespValue::BulkString(cmd_bytes) => {
+                                        let cmd_str = std::str::from_utf8(cmd_bytes)
+                                            .map_err(|_| crate::Error::InvalidRequest("Invalid UTF-8 in command name".to_string()))?;
+                                        if cmd_str != expected_cmd {
+                                            return Err(crate::Error::InvalidRequest(format!("Expected command '{}', got '{}'", expected_cmd, cmd_str)));
+                                        }
+                                    }
+                                    crate::data::resp::RespValue::SimpleString(cmd_str) => {
+                                        if cmd_str != &expected_cmd {
+                                            return Err(crate::Error::InvalidRequest(format!("Expected command '{}', got '{}'", expected_cmd, cmd_str)));
+                                        }
+                                    }
+                                    _ => return Err(crate::Error::InvalidRequest("Expected command name as first element".to_string())),
+                                }
+                                
+                                Ok(Self)
+                            }
+                            _ => Err(crate::Error::InvalidRequest("Expected array for command".to_string())),
+                        }
+                    }
+                }
+            }
+        }
+        _ => {
+            return syn::Error::new_spanned(&input, "respc can only be used with structs")
+                .to_compile_error()
+                .into();
+        }
+    };
+
     // Generate the RespCommand trait implementation
     let resp_command_impl = quote! {
         impl #impl_generics crate::data::resp::RespCommand<'_> for #name #ty_generics #where_clause {
@@ -434,6 +607,13 @@ pub fn respc(args: TokenStream, input: TokenStream) -> TokenStream {
                 #(#encode_fields)*
                 
                 crate::data::resp::OwnedRespValue::Array(elements)
+            }
+        }
+        
+        // Override RespDecode to handle command name parsing
+        impl #impl_generics crate::data::resp::RespDecode<'_> for #name #ty_generics #where_clause {
+            fn decode(input: crate::data::resp::RespValue<'_>) -> crate::Result<Self> {
+                #decode_impl
             }
         }
     };
