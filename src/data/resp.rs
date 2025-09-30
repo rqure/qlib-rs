@@ -161,8 +161,70 @@ pub enum OwnedRespValue {
     Null,
 }
 
-impl RespEncode for OwnedRespValue {
-    fn encode(&self) -> Vec<u8> {
+pub trait RespToBytes {
+    fn to_bytes(&self) -> Vec<u8>;
+}
+
+pub trait RespFromBytes<'a>: Sized {
+    fn from_bytes(input: &'a [u8]) -> Result<(Self, &'a [u8])>;
+}
+
+impl<'a> RespToBytes for RespValue<'a> {
+    fn to_bytes(&self) -> Vec<u8> {
+        match self {
+            RespValue::SimpleString(s) => {
+                let mut result = Vec::with_capacity(s.len() + 3);
+                result.push(b'+');
+                result.extend_from_slice(s.as_bytes());
+                result.extend_from_slice(b"\r\n");
+                result
+            },
+            RespValue::Error(e) => {
+                let mut result = Vec::with_capacity(e.len() + 3);
+                result.push(b'-');
+                result.extend_from_slice(e.as_bytes());
+                result.extend_from_slice(b"\r\n");
+                result
+            },
+            RespValue::Integer(i) => {
+                let num_str = i.to_string();
+                let mut result = Vec::with_capacity(num_str.len() + 3);
+                result.push(b':');
+                result.extend_from_slice(num_str.as_bytes());
+                result.extend_from_slice(b"\r\n");
+                result
+            },
+            RespValue::BulkString(data) => {
+                let len_str = data.len().to_string();
+                let mut result = Vec::with_capacity(len_str.len() + data.len() + 5);
+                result.push(b'$');
+                result.extend_from_slice(len_str.as_bytes());
+                result.extend_from_slice(b"\r\n");
+                result.extend_from_slice(data);
+                result.extend_from_slice(b"\r\n");
+                result
+            },
+            RespValue::Array(elements) => {
+                let count_str = elements.len().to_string();
+                let mut result = Vec::new();
+                result.push(b'*');
+                result.extend_from_slice(count_str.as_bytes());
+                result.extend_from_slice(b"\r\n");
+                
+                for element in elements {
+                    result.extend_from_slice(&element.to_bytes());
+                }
+                result
+            },
+            RespValue::Null => {
+                b"$-1\r\n".to_vec()
+            },
+        }
+    }
+}
+
+impl RespToBytes for OwnedRespValue {
+    fn to_bytes(&self) -> Vec<u8> {
         match self {
             OwnedRespValue::SimpleString(s) => {
                 let mut result = Vec::with_capacity(s.len() + 3);
@@ -202,8 +264,9 @@ impl RespEncode for OwnedRespValue {
                 result.push(b'*');
                 result.extend_from_slice(count_str.as_bytes());
                 result.extend_from_slice(b"\r\n");
+                
                 for element in elements {
-                    result.extend_from_slice(&element.encode());
+                    result.extend_from_slice(&element.to_bytes());
                 }
                 result
             },
@@ -212,16 +275,22 @@ impl RespEncode for OwnedRespValue {
     }
 }
 
+impl <'a> RespFromBytes<'a> for RespValue<'a> {
+    fn from_bytes(input: &'a [u8]) -> Result<(Self, &'a [u8])> {
+        RespParser::parse_value(input)
+    }
+}
+
 /// Trait for RESP serialization  
 pub trait RespEncode {
     /// Serialize to RESP format
-    fn encode(&self) -> Vec<u8>;
+    fn encode(&self) -> RespValue<'_>;
 }
 
 /// Trait for zero-copy RESP deserialization
 pub trait RespDecode<'a>: Sized {
     /// Parse from a RESP buffer without copying data
-    fn decode(input: &'a [u8]) -> Result<(Self, &'a [u8])>;
+    fn decode(input: RespValue<'a>) -> Result<Self>;
 }
 
 /// Custom command trait that all RESP commands must implement
@@ -435,74 +504,6 @@ impl RespParser {
             },
             _ => Err(crate::Error::InvalidRequest("Invalid RESP type marker".to_string())),
         }
-    }
-}
-
-// ============================================================================
-// RESP Encoding Implementations
-// ============================================================================
-
-impl RespEncode for RespValue<'_> {
-    fn encode(&self) -> Vec<u8> {
-        match self {
-            RespValue::SimpleString(s) => {
-                let mut result = Vec::with_capacity(s.len() + 3);
-                result.push(b'+');
-                result.extend_from_slice(s.as_bytes());
-                result.extend_from_slice(b"\r\n");
-                result
-            },
-            RespValue::Error(e) => {
-                let mut result = Vec::with_capacity(e.len() + 3);
-                result.push(b'-');
-                result.extend_from_slice(e.as_bytes());
-                result.extend_from_slice(b"\r\n");
-                result
-            },
-            RespValue::Integer(i) => {
-                let num_str = i.to_string();
-                let mut result = Vec::with_capacity(num_str.len() + 3);
-                result.push(b':');
-                result.extend_from_slice(num_str.as_bytes());
-                result.extend_from_slice(b"\r\n");
-                result
-            },
-            RespValue::BulkString(data) => {
-                let len_str = data.len().to_string();
-                let mut result = Vec::with_capacity(len_str.len() + data.len() + 5);
-                result.push(b'$');
-                result.extend_from_slice(len_str.as_bytes());
-                result.extend_from_slice(b"\r\n");
-                result.extend_from_slice(data);
-                result.extend_from_slice(b"\r\n");
-                result
-            },
-            RespValue::Array(elements) => {
-                let count_str = elements.len().to_string();
-                let mut result = Vec::new();
-                result.push(b'*');
-                result.extend_from_slice(count_str.as_bytes());
-                result.extend_from_slice(b"\r\n");
-                
-                for element in elements {
-                    result.extend_from_slice(&element.encode());
-                }
-                result
-            },
-            RespValue::Null => {
-                b"$-1\r\n".to_vec()
-            },
-        }
-    }
-}
-
-// ============================================================================
-// Zero-Copy Decoding Implementations for Core Types
-// ============================================================================
-
-impl<'a> RespDecode<'a> for RespValue<'a> {
-    fn decode(input: &'a [u8]) -> Result<(Self, &'a [u8])> {
-        RespParser::parse_value(input)
     }
 }
 
