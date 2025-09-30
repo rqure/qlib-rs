@@ -3,7 +3,11 @@ use std::hash::{Hash, Hasher};
 use crate::{data::Timestamp, epoch, EntityId, Result};
 use serde::{Deserialize, Serialize};
 
+#[cfg(feature = "derive")]
+use crate::data::resp::{RespEncode, RespDecode};
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "derive", derive(RespEncode, RespDecode))]
 pub enum Value {
     Blob(Vec<u8>),
     Bool(bool),

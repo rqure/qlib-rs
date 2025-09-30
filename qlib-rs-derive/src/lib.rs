@@ -31,22 +31,17 @@ pub fn derive_resp_encode(input: TokenStream) -> TokenStream {
                     let field_encodes: Vec<_> = non_phantom_fields.iter().map(|field| {
                         let field_name = &field.ident;
                         quote! {
-                            elements.push(crate::data::resp::RespValue::BulkString(
+                            elements.push(crate::data::resp::OwnedRespValue::BulkString(
                                 stringify!(#field_name).as_bytes()
                             ));
-                            let field_encoded = crate::data::resp::RespEncode::encode(&self.#field_name);
-                            if let Ok((field_value, _)) = crate::data::resp::RespValue::decode(&field_encoded) {
-                                elements.push(field_value);
-                            } else {
-                                elements.push(crate::data::resp::RespValue::Null);
-                            }
+                            elements.push(crate::data::resp::RespEncode::encode(&self.#field_name));
                         }
                     }).collect();
                     
                     quote! {
-                        let mut elements = Vec::new();
+                        let mut elements: Vec<crate::data::resp::OwnedRespValue> = Vec::new();
                         #(#field_encodes)*
-                        crate::data::resp::RespValue::Array(elements).encode()
+                        crate::data::resp::OwnedRespValue::Array(elements)
                     }
                 }
                 Fields::Unnamed(fields) => {
@@ -58,24 +53,19 @@ pub fn derive_resp_encode(input: TokenStream) -> TokenStream {
                     let field_encodes: Vec<_> = non_phantom_fields.iter().map(|(i, _)| {
                         let index = Index::from(*i);
                         quote! {
-                            let field_encoded = crate::data::resp::RespEncode::encode(&self.#index);
-                            if let Ok((field_value, _)) = crate::data::resp::RespValue::decode(&field_encoded) {
-                                elements.push(field_value);
-                            } else {
-                                elements.push(crate::data::resp::RespValue::Null);
-                            }
+                            elements.push(crate::data::resp::RespEncode::encode(&self.#index));
                         }
                     }).collect();
                     
                     quote! {
-                        let mut elements = Vec::new();
+                        let mut elements: Vec<crate::data::resp::OwnedRespValue> = Vec::new();
                         #(#field_encodes)*
-                        crate::data::resp::RespValue::Array(elements).encode()
+                        crate::data::resp::OwnedRespValue::Array(elements)
                     }
                 }
                 Fields::Unit => {
                     quote! {
-                        crate::data::resp::RespValue::Array(vec![]).encode()
+                        crate::data::resp::OwnedRespValue::Array(vec![])
                     }
                 }
             }
@@ -91,22 +81,17 @@ pub fn derive_resp_encode(input: TokenStream) -> TokenStream {
                         let field_encodes: Vec<_> = fields.named.iter().map(|field| {
                             let field_name = &field.ident;
                             quote! {
-                                let field_encoded = crate::data::resp::RespEncode::encode(#field_name);
-                                if let Ok((field_value, _)) = crate::data::resp::RespValue::decode(&field_encoded) {
-                                    elements.push(field_value);
-                                } else {
-                                    elements.push(crate::data::resp::RespValue::Null);
-                                }
+                                elements.push(crate::data::resp::RespEncode::encode(#field_name));
                             }
                         }).collect();
                         
                         quote! {
                             Self::#variant_name { #(#field_names),* } => {
-                                let mut elements = vec![
-                                    crate::data::resp::RespValue::Integer(#variant_index as i64),
+                                let mut elements: Vec<crate::data::resp::OwnedRespValue> = vec![
+                                    crate::data::resp::OwnedRespValue::Integer(#variant_index as i64),
                                 ];
                                 #(#field_encodes)*
-                                crate::data::resp::RespValue::Array(elements).encode()
+                                crate::data::resp::OwnedRespValue::Array(elements)
                             }
                         }
                     }
@@ -116,31 +101,26 @@ pub fn derive_resp_encode(input: TokenStream) -> TokenStream {
                             .collect();
                         let field_encodes: Vec<_> = field_names.iter().map(|field_name| {
                             quote! {
-                                let field_encoded = crate::data::resp::RespEncode::encode(#field_name);
-                                if let Ok((field_value, _)) = crate::data::resp::RespValue::decode(&field_encoded) {
-                                    elements.push(field_value);
-                                } else {
-                                    elements.push(crate::data::resp::RespValue::Null);
-                                }
+                                elements.push(crate::data::resp::RespEncode::encode(#field_name));
                             }
                         }).collect();
                         
                         quote! {
                             Self::#variant_name(#(#field_names),*) => {
-                                let mut elements = vec![
-                                    crate::data::resp::RespValue::Integer(#variant_index as i64),
+                                let mut elements: Vec<crate::data::resp::OwnedRespValue> = vec![
+                                    crate::data::resp::OwnedRespValue::Integer(#variant_index as i64),
                                 ];
                                 #(#field_encodes)*
-                                crate::data::resp::RespValue::Array(elements).encode()
+                                crate::data::resp::OwnedRespValue::Array(elements)
                             }
                         }
                     }
                     Fields::Unit => {
                         quote! {
                             Self::#variant_name => {
-                                crate::data::resp::RespValue::Array(vec![
-                                    crate::data::resp::RespValue::Integer(#variant_index as i64),
-                                ]).encode()
+                                crate::data::resp::OwnedRespValue::Array(vec![
+                                    crate::data::resp::OwnedRespValue::Integer(#variant_index as i64),
+                                ])
                             }
                         }
                     }
@@ -162,7 +142,7 @@ pub fn derive_resp_encode(input: TokenStream) -> TokenStream {
 
     let expanded = quote! {
         impl #impl_generics crate::data::resp::RespEncode for #name #ty_generics #where_clause {
-            fn encode(&self) -> Vec<u8> {
+            fn encode(&self) -> crate::data::resp::OwnedRespValue {
                 #encode_impl
             }
         }
@@ -194,9 +174,7 @@ pub fn derive_resp_decode(input: TokenStream) -> TokenStream {
                         let field_index = i * 2 + 1; // Skip field name, get value
                         quote! {
                             let #field_name = if elements.len() > command_offset + #field_index {
-                                let field_bytes = crate::data::resp::RespEncode::encode(&elements[command_offset + #field_index]);
-                                let (decoded_field, _) = <_ as crate::data::resp::RespDecode>::decode(&field_bytes)?;
-                                decoded_field
+                                <_ as crate::data::resp::RespDecode>::decode(elements[command_offset + #field_index].clone())?
                             } else {
                                 return Err(crate::Error::InvalidRequest(format!("Missing field {}", stringify!(#field_name))));
                             };
@@ -214,8 +192,7 @@ pub fn derive_resp_decode(input: TokenStream) -> TokenStream {
                     }).collect();
                     
                     quote! {
-                        let (value, remaining) = crate::data::resp::RespValue::decode(input)?;
-                        match value {
+                        match input {
                             crate::data::resp::RespValue::Array(elements) => {
                                 let command_offset = if elements.len() == (#field_count_lit * 2 + 1)
                                     && matches!(elements.first(), Some(crate::data::resp::RespValue::BulkString(_)))
@@ -230,7 +207,7 @@ pub fn derive_resp_decode(input: TokenStream) -> TokenStream {
                                     )));
                                 }
                                 #(#field_decodes)*
-                                Ok((Self { #(#phantom_assignments),* }, remaining))
+                                Ok(Self { #(#phantom_assignments),* })
                             }
                             _ => Err(crate::Error::InvalidRequest("Expected array for struct".to_string())),
                         }
@@ -241,9 +218,7 @@ pub fn derive_resp_decode(input: TokenStream) -> TokenStream {
                         let field_name = format_ident!("field_{}", i);
                         quote! {
                             let #field_name = if elements.len() > #i {
-                                let field_bytes = crate::data::resp::RespEncode::encode(&elements[#i]);
-                                let (decoded_field, _) = <_ as crate::data::resp::RespDecode>::decode(&field_bytes)?;
-                                decoded_field
+                                <_ as crate::data::resp::RespDecode>::decode(elements[#i].clone())?
                             } else {
                                 return Err(crate::Error::InvalidRequest(format!("Missing field {}", #i)));
                             };
@@ -255,11 +230,10 @@ pub fn derive_resp_decode(input: TokenStream) -> TokenStream {
                         .collect();
                     
                     quote! {
-                        let (value, remaining) = crate::data::resp::RespValue::decode(input)?;
-                        match value {
+                        match input {
                             crate::data::resp::RespValue::Array(elements) => {
                                 #(#field_decodes)*
-                                Ok((Self(#(#field_names),*), remaining))
+                                Ok(Self(#(#field_names),*))
                             }
                             _ => Err(crate::Error::InvalidRequest("Expected array for tuple struct".to_string())),
                         }
@@ -267,9 +241,8 @@ pub fn derive_resp_decode(input: TokenStream) -> TokenStream {
                 }
                 Fields::Unit => {
                     quote! {
-                        let (value, remaining) = crate::data::resp::RespValue::decode(input)?;
-                        match value {
-                            crate::data::resp::RespValue::Array(_) => Ok((Self, remaining)),
+                        match input {
+                            crate::data::resp::RespValue::Array(_) => Ok(Self),
                             _ => Err(crate::Error::InvalidRequest("Expected array for unit struct".to_string())),
                         }
                     }
@@ -288,9 +261,7 @@ pub fn derive_resp_decode(input: TokenStream) -> TokenStream {
                             let element_index = field_i + 1; // Skip variant discriminant
                             quote! {
                                 let #field_name = if elements.len() > #element_index {
-                                    let field_bytes = crate::data::resp::RespEncode::encode(&elements[#element_index]);
-                                    let (decoded_field, _) = <_ as crate::data::resp::RespDecode>::decode(&field_bytes)?;
-                                    decoded_field
+                                    <_ as crate::data::resp::RespDecode>::decode(elements[#element_index].clone())?
                                 } else {
                                     return Err(crate::Error::InvalidRequest(format!("Missing field {} for variant {}", stringify!(#field_name), stringify!(#variant_name))));
                                 };
@@ -312,9 +283,7 @@ pub fn derive_resp_decode(input: TokenStream) -> TokenStream {
                             let element_index = field_i + 1; // Skip variant discriminant
                             quote! {
                                 let #field_name = if elements.len() > #element_index {
-                                    let field_bytes = crate::data::resp::RespEncode::encode(&elements[#element_index]);
-                                    let (decoded_field, _) = <_ as crate::data::resp::RespDecode>::decode(&field_bytes)?;
-                                    decoded_field
+                                    <_ as crate::data::resp::RespDecode>::decode(elements[#element_index].clone())?
                                 } else {
                                     return Err(crate::Error::InvalidRequest(format!("Missing field {} for variant {}", #field_i, stringify!(#variant_name))));
                                 };
@@ -341,8 +310,7 @@ pub fn derive_resp_decode(input: TokenStream) -> TokenStream {
             }).collect();
             
             quote! {
-                let (value, remaining) = crate::data::resp::RespValue::decode(input)?;
-                match value {
+                match input {
                     crate::data::resp::RespValue::Array(elements) if !elements.is_empty() => {
                         let discriminant = match &elements[0] {
                             crate::data::resp::RespValue::Integer(i) => *i,
@@ -359,12 +327,10 @@ pub fn derive_resp_decode(input: TokenStream) -> TokenStream {
                             _ => return Err(crate::Error::InvalidRequest("Invalid discriminant type".to_string())),
                         };
                         
-                        let result = match discriminant {
+                        match discriminant {
                             #(#variant_arms)*
-                            _ => return Err(crate::Error::InvalidRequest(format!("Unknown variant discriminant: {}", discriminant))),
-                        };
-                        
-                        Ok((result?, remaining))
+                            _ => Err(crate::Error::InvalidRequest(format!("Unknown variant discriminant: {}", discriminant))),
+                        }
                     }
                     _ => Err(crate::Error::InvalidRequest("Expected non-empty array for enum".to_string())),
                 }
@@ -379,7 +345,7 @@ pub fn derive_resp_decode(input: TokenStream) -> TokenStream {
 
     let expanded = quote! {
         impl #impl_generics crate::data::resp::RespDecode<'_> for #name #ty_generics #where_clause {
-            fn decode(input: &[u8]) -> crate::Result<(Self, &[u8])> {
+            fn decode(input: crate::data::resp::RespValue<'_>) -> crate::Result<Self> {
                 #decode_impl
             }
         }
@@ -422,15 +388,10 @@ pub fn respc(args: TokenStream, input: TokenStream) -> TokenStream {
                     non_phantom_fields.iter().map(|field| {
                         let field_name = &field.ident;
                         quote! {
-                            elements.push(crate::data::resp::RespValue::BulkString(
+                            elements.push(crate::data::resp::OwnedRespValue::BulkString(
                                 stringify!(#field_name).as_bytes()
                             ));
-                            let field_encoded = crate::data::resp::RespEncode::encode(&self.#field_name);
-                            if let Ok((field_value, _)) = crate::data::resp::RespValue::decode(&field_encoded) {
-                                elements.push(field_value);
-                            } else {
-                                elements.push(crate::data::resp::RespValue::Null);
-                            }
+                            elements.push(crate::data::resp::RespEncode::encode(&self.#field_name));
                         }
                     }).collect()
                 }
@@ -443,12 +404,7 @@ pub fn respc(args: TokenStream, input: TokenStream) -> TokenStream {
                     non_phantom_fields.iter().map(|(i, _)| {
                         let index = Index::from(*i);
                         quote! {
-                            let field_encoded = crate::data::resp::RespEncode::encode(&self.#index);
-                            if let Ok((field_value, _)) = crate::data::resp::RespValue::decode(&field_encoded) {
-                                elements.push(field_value);
-                            } else {
-                                elements.push(crate::data::resp::RespValue::Null);
-                            }
+                            elements.push(crate::data::resp::RespEncode::encode(&self.#index));
                         }
                     }).collect()
                 }
@@ -470,14 +426,14 @@ pub fn respc(args: TokenStream, input: TokenStream) -> TokenStream {
         
         // Override RespEncode to include command name
         impl #impl_generics crate::data::resp::RespEncode for #name #ty_generics #where_clause {
-            fn encode(&self) -> Vec<u8> {
+            fn encode(&self) -> crate::data::resp::OwnedRespValue {
                 // Manually encode the struct fields with command name first
-                let mut elements = vec![crate::data::resp::RespValue::BulkString(#command_name.as_bytes())];
+                let mut elements: Vec<crate::data::resp::OwnedRespValue> = vec![crate::data::resp::OwnedRespValue::BulkString(#command_name.as_bytes().to_vec())];
                 
                 // Use the same field encoding logic as the derive macro but without the infinite recursion
                 #(#encode_fields)*
                 
-                crate::data::resp::RespValue::Array(elements).encode()
+                crate::data::resp::OwnedRespValue::Array(elements)
             }
         }
     };

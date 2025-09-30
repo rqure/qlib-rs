@@ -284,7 +284,7 @@ impl <'a> RespFromBytes<'a> for RespValue<'a> {
 /// Trait for RESP serialization  
 pub trait RespEncode {
     /// Serialize to RESP format
-    fn encode(&self) -> RespValue<'_>;
+    fn encode(&self) -> OwnedRespValue;
 }
 
 /// Trait for zero-copy RESP deserialization
@@ -512,21 +512,20 @@ impl RespParser {
 // ============================================================================
 
 impl<'a> RespDecode<'a> for EntityId {
-    fn decode(input: &'a [u8]) -> Result<(Self, &'a [u8])> {
-        let (value, remaining) = RespValue::decode(input)?;
-        match value {
-            RespValue::Integer(i) if i >= 0 => Ok((EntityId(i as u64), remaining)),
+    fn decode(input: RespValue<'a>) -> Result<Self> {
+        match input {
+            RespValue::Integer(i) if i >= 0 => Ok(EntityId(i as u64)),
             RespValue::BulkString(data) => {
                 let id_str = std::str::from_utf8(data)
                     .map_err(|_| crate::Error::InvalidRequest("Invalid UTF-8 in EntityId".to_string()))?;
                 let id = id_str.parse::<u64>()
                     .map_err(|_| crate::Error::InvalidRequest("Invalid EntityId format".to_string()))?;
-                Ok((EntityId(id), remaining))
+                Ok(EntityId(id))
             },
             RespValue::SimpleString(s) => {
                 let id = s.parse::<u64>()
                     .map_err(|_| crate::Error::InvalidRequest("Invalid EntityId format".to_string()))?;
-                Ok((EntityId(id), remaining))
+                Ok(EntityId(id))
             },
             _ => Err(crate::Error::InvalidRequest("Invalid EntityId type".to_string())),
         }
@@ -534,27 +533,26 @@ impl<'a> RespDecode<'a> for EntityId {
 }
 
 impl RespEncode for EntityId {
-    fn encode(&self) -> Vec<u8> {
-        RespValue::Integer(self.0 as i64).encode()
+    fn encode(&self) -> OwnedRespValue {
+        OwnedRespValue::Integer(self.0 as i64)
     }
 }
 
 impl<'a> RespDecode<'a> for EntityType {
-    fn decode(input: &'a [u8]) -> Result<(Self, &'a [u8])> {
-        let (value, remaining) = RespValue::decode(input)?;
-        match value {
-            RespValue::Integer(i) if i >= 0 => Ok((EntityType(i as u32), remaining)),
+    fn decode(input: RespValue<'a>) -> Result<Self> {
+        match input {
+            RespValue::Integer(i) if i >= 0 => Ok(EntityType(i as u32)),
             RespValue::BulkString(data) => {
                 let type_str = std::str::from_utf8(data)
                     .map_err(|_| crate::Error::InvalidRequest("Invalid UTF-8 in EntityType".to_string()))?;
                 let type_val = type_str.parse::<u32>()
                     .map_err(|_| crate::Error::InvalidRequest("Invalid EntityType format".to_string()))?;
-                Ok((EntityType(type_val), remaining))
+                Ok(EntityType(type_val))
             },
             RespValue::SimpleString(s) => {
                 let type_val = s.parse::<u32>()
                     .map_err(|_| crate::Error::InvalidRequest("Invalid EntityType format".to_string()))?;
-                Ok((EntityType(type_val), remaining))
+                Ok(EntityType(type_val))
             },
             _ => Err(crate::Error::InvalidRequest("Invalid EntityType".to_string())),
         }
@@ -562,27 +560,26 @@ impl<'a> RespDecode<'a> for EntityType {
 }
 
 impl RespEncode for EntityType {
-    fn encode(&self) -> Vec<u8> {
-        RespValue::Integer(self.0 as i64).encode()
+    fn encode(&self) -> OwnedRespValue {
+        OwnedRespValue::Integer(self.0 as i64)
     }
 }
 
 impl<'a> RespDecode<'a> for FieldType {
-    fn decode(input: &'a [u8]) -> Result<(Self, &'a [u8])> {
-        let (value, remaining) = RespValue::decode(input)?;
-        match value {
-            RespValue::Integer(i) if i >= 0 => Ok((FieldType(i as u64), remaining)),
+    fn decode(input: RespValue<'a>) -> Result<Self> {
+        match input {
+            RespValue::Integer(i) if i >= 0 => Ok(FieldType(i as u64)),
             RespValue::BulkString(data) => {
                 let type_str = std::str::from_utf8(data)
                     .map_err(|_| crate::Error::InvalidRequest("Invalid UTF-8 in FieldType".to_string()))?;
                 let type_val = type_str.parse::<u64>()
                     .map_err(|_| crate::Error::InvalidRequest("Invalid FieldType format".to_string()))?;
-                Ok((FieldType(type_val), remaining))
+                Ok(FieldType(type_val))
             },
             RespValue::SimpleString(s) => {
                 let type_val = s.parse::<u64>()
                     .map_err(|_| crate::Error::InvalidRequest("Invalid FieldType format".to_string()))?;
-                Ok((FieldType(type_val), remaining))
+                Ok(FieldType(type_val))
             },
             _ => Err(crate::Error::InvalidRequest("Invalid FieldType".to_string())),
         }
@@ -590,259 +587,93 @@ impl<'a> RespDecode<'a> for FieldType {
 }
 
 impl RespEncode for FieldType {
-    fn encode(&self) -> Vec<u8> {
-        RespValue::Integer(self.0 as i64).encode()
+    fn encode(&self) -> OwnedRespValue {
+        OwnedRespValue::Integer(self.0 as i64)
     }
 }
 
-impl<'a> RespDecode<'a> for Value {
-    fn decode(input: &'a [u8]) -> Result<(Self, &'a [u8])> {
-        let (value, remaining) = RespValue::decode(input)?;
-        let decoded_value = match value {
-            RespValue::SimpleString(s) => {
-                // Try to parse various numeric types from strings for CLI compatibility
-                if let Ok(i) = s.parse::<i64>() {
-                    Value::Int(i)
-                } else if let Ok(f) = s.parse::<f64>() {
-                    Value::Float(f)
-                } else if s.eq_ignore_ascii_case("true") {
-                    Value::Bool(true)
-                } else if s.eq_ignore_ascii_case("false") {
-                    Value::Bool(false)
-                } else {
-                    Value::String(s.to_string())
-                }
-            },
-            RespValue::BulkString(data) => {
-                // Try to parse as UTF-8 string first
-                match std::str::from_utf8(data) {
-                    Ok(s) => {
-                        // Try to parse various numeric types from strings for CLI compatibility
-                        if let Ok(i) = s.parse::<i64>() {
-                            Value::Int(i)
-                        } else if let Ok(f) = s.parse::<f64>() {
-                            Value::Float(f)
-                        } else if s.eq_ignore_ascii_case("true") {
-                            Value::Bool(true)
-                        } else if s.eq_ignore_ascii_case("false") {
-                            Value::Bool(false)
-                        } else {
-                            Value::String(s.to_string())
-                        }
-                    },
-                    Err(_) => Value::Blob(data.to_vec()),
-                }
-            },
-            RespValue::Integer(i) => Value::Int(i),
-            RespValue::Null => Value::EntityReference(None),
-            RespValue::Array(elements) => {
-                // Try to parse as EntityList first
-                let mut all_valid = true;
-                let mut entity_ids = Vec::new();
-                for element in &elements {
-                    match element {
-                        RespValue::Integer(i) if *i >= 0 => entity_ids.push(EntityId(*i as u64)),
-                        RespValue::SimpleString(s) => {
-                            if let Ok(id) = s.parse::<u64>() {
-                                entity_ids.push(EntityId(id));
-                            } else {
-                                all_valid = false;
-                                break;
-                            }
-                        },
-                        RespValue::BulkString(data) => {
-                            if let Ok(s) = std::str::from_utf8(data) {
-                                if let Ok(id) = s.parse::<u64>() {
-                                    entity_ids.push(EntityId(id));
-                                } else {
-                                    all_valid = false;
-                                    break;
-                                }
-                            } else {
-                                all_valid = false;
-                                break;
-                            }
-                        }
-                        _ => {
-                            all_valid = false;
-                            break;
-                        }
-                    }
-                }
-                if all_valid && entity_ids.len() == elements.len() {
-                    Value::EntityList(entity_ids)
-                } else {
-                    Value::String(format!("{:?}", elements))
-                }
-            },
-            RespValue::Error(e) => Value::String(e.to_string()),
-        };
-        Ok((decoded_value, remaining))
-    }
-}
+// Value will use derive macros - implementations are generated automatically
+// The derive macro will handle the complex logic for CLI compatibility and type detection
 
-impl RespEncode for Value {
-    fn encode(&self) -> Vec<u8> {
-        match self {
-            Value::String(s) => RespValue::BulkString(s.as_bytes()).encode(),
-            Value::Int(i) => RespValue::Integer(*i).encode(),
-            Value::Float(f) => RespValue::BulkString(f.to_string().as_bytes()).encode(),
-            Value::Bool(b) => RespValue::Integer(if *b { 1 } else { 0 }).encode(),
-            Value::Blob(data) => RespValue::BulkString(data).encode(),
-            Value::EntityReference(Some(entity_id)) => entity_id.encode(),
-            Value::EntityReference(None) => RespValue::Null.encode(),
-            Value::EntityList(entities) => {
-                let elements: Vec<RespValue> = entities.iter()
-                    .map(|entity_id| RespValue::Integer(entity_id.0 as i64))
-                    .collect();
-                RespValue::Array(elements).encode()
-            },
-            Value::Choice(choice) => RespValue::Integer(*choice).encode(),
-            Value::Timestamp(timestamp) => RespValue::BulkString(timestamp.to_string().as_bytes()).encode(),
-        }
-    }
-}
-
-// Vec implementations - we need to be careful about lifetimes
-// We can only decode Vec of types that produce owned data
-impl<T: RespEncode> RespEncode for Vec<T> {
-    fn encode(&self) -> Vec<u8> {
-        // Encode each item as a bulk string in an array
-        let elements: Vec<OwnedRespValue> = self.iter()
-            .map(|item| {
-                let encoded = item.encode();
-                OwnedRespValue::BulkString(encoded)
-            })
-            .collect();
-        OwnedRespValue::Array(elements).encode()
-    }
-}
+// Vec implementations - we need specific implementations instead of generic ones
+// to avoid conflicts and lifetime issues
 
 // For Vec decoding, we need a different approach - we'll implement specific Vec decoders
 // for the types we need rather than a generic one
 impl RespDecode<'_> for Vec<String> {
-    fn decode(input: &[u8]) -> Result<(Self, &[u8])> {
-        let (value, remaining) = RespValue::decode(input)?;
-        match value {
+    fn decode(input: RespValue<'_>) -> Result<Self> {
+        match input {
             RespValue::Array(elements) => {
                 let mut result = Vec::with_capacity(elements.len());
                 for element in elements {
-                    match element {
-                        RespValue::BulkString(data) => {
-                            let s = std::str::from_utf8(data)
-                                .map_err(|_| crate::Error::InvalidRequest("Invalid UTF-8 in string".to_string()))?
-                                .to_string();
-                            result.push(s);
-                        },
-                        RespValue::SimpleString(s) => {
-                            result.push(s.to_string());
-                        },
-                        _ => return Err(crate::Error::InvalidRequest("Expected string in array".to_string())),
-                    }
+                    let decoded = String::decode(element)?;
+                    result.push(decoded);
                 }
-                Ok((result, remaining))
+                Ok(result)
             },
-            _ => Err(crate::Error::InvalidRequest("Expected array for Vec".to_string())),
+            _ => Err(crate::Error::InvalidRequest("Expected array for Vec<String>".to_string())),
         }
     }
 }
 
 impl RespDecode<'_> for Vec<EntityId> {
-    fn decode(input: &[u8]) -> Result<(Self, &[u8])> {
-        let (value, remaining) = RespValue::decode(input)?;
-        match value {
+    fn decode(input: RespValue<'_>) -> Result<Self> {
+        match input {
             RespValue::Array(elements) => {
                 let mut result = Vec::with_capacity(elements.len());
                 for element in elements {
-                    match element {
-                        RespValue::Integer(i) => {
-                            result.push(EntityId(i as u64));
-                        },
-                        RespValue::BulkString(data) => {
-                            let s = std::str::from_utf8(data)
-                                .map_err(|_| crate::Error::InvalidRequest("Invalid UTF-8 in integer".to_string()))?;
-                            let id = s.parse::<u64>()
-                                .map_err(|_| crate::Error::InvalidRequest("Invalid integer format".to_string()))?;
-                            result.push(EntityId(id));
-                        },
-                        _ => return Err(crate::Error::InvalidRequest("Expected integer in array".to_string())),
-                    }
+                    let decoded = EntityId::decode(element)?;
+                    result.push(decoded);
                 }
-                Ok((result, remaining))
+                Ok(result)
             },
-            _ => Err(crate::Error::InvalidRequest("Expected array for Vec".to_string())),
+            _ => Err(crate::Error::InvalidRequest("Expected array for Vec<EntityId>".to_string())),
         }
     }
 }
 
 impl RespDecode<'_> for Vec<EntityType> {
-    fn decode(input: &[u8]) -> Result<(Self, &[u8])> {
-        let (value, remaining) = RespValue::decode(input)?;
-        match value {
+    fn decode(input: RespValue<'_>) -> Result<Self> {
+        match input {
             RespValue::Array(elements) => {
                 let mut result = Vec::with_capacity(elements.len());
                 for element in elements {
-                    match element {
-                        RespValue::Integer(i) => {
-                            result.push(EntityType(i as u32));
-                        },
-                        RespValue::BulkString(data) => {
-                            let s = std::str::from_utf8(data)
-                                .map_err(|_| crate::Error::InvalidRequest("Invalid UTF-8 in integer".to_string()))?;
-                            let id = s.parse::<u32>()
-                                .map_err(|_| crate::Error::InvalidRequest("Invalid integer format".to_string()))?;
-                            result.push(EntityType(id));
-                        },
-                        _ => return Err(crate::Error::InvalidRequest("Expected integer in array".to_string())),
-                    }
+                    let decoded = EntityType::decode(element)?;
+                    result.push(decoded);
                 }
-                Ok((result, remaining))
+                Ok(result)
             },
-            _ => Err(crate::Error::InvalidRequest("Expected array for Vec".to_string())),
+            _ => Err(crate::Error::InvalidRequest("Expected array for Vec<EntityType>".to_string())),
         }
     }
 }
 
 impl RespDecode<'_> for Vec<FieldType> {
-    fn decode(input: &[u8]) -> Result<(Self, &[u8])> {
-        let (value, remaining) = RespValue::decode(input)?;
-        match value {
+    fn decode(input: RespValue<'_>) -> Result<Self> {
+        match input {
             RespValue::Array(elements) => {
                 let mut result = Vec::with_capacity(elements.len());
                 for element in elements {
-                    match element {
-                        RespValue::Integer(i) => {
-                            result.push(FieldType(i as u64));
-                        },
-                        RespValue::BulkString(data) => {
-                            let s = std::str::from_utf8(data)
-                                .map_err(|_| crate::Error::InvalidRequest("Invalid UTF-8 in integer".to_string()))?;
-                            let id = s.parse::<u64>()
-                                .map_err(|_| crate::Error::InvalidRequest("Invalid integer format".to_string()))?;
-                            result.push(FieldType(id));
-                        },
-                        _ => return Err(crate::Error::InvalidRequest("Expected integer in array".to_string())),
-                    }
+                    let decoded = FieldType::decode(element)?;
+                    result.push(decoded);
                 }
-                Ok((result, remaining))
+                Ok(result)
             },
-            _ => Err(crate::Error::InvalidRequest("Expected array for Vec".to_string())),
+            _ => Err(crate::Error::InvalidRequest("Expected array for Vec<FieldType>".to_string())),
         }
     }
 }
 
 impl RespDecode<'_> for Vec<Vec<FieldType>> {
-    fn decode(input: &[u8]) -> Result<(Self, &[u8])> {
-        let (value, remaining) = RespValue::decode(input)?;
-        match value {
+    fn decode(input: RespValue<'_>) -> Result<Self> {
+        match input {
             RespValue::Array(elements) => {
                 let mut result = Vec::with_capacity(elements.len());
                 for element in elements {
-                    let element_bytes = element.encode();
-                    let (decoded, _) = Vec::<FieldType>::decode(&element_bytes)?;
+                    let decoded = Vec::<FieldType>::decode(element)?;
                     result.push(decoded);
                 }
-                Ok((result, remaining))
+                Ok(result)
             },
             _ => Err(crate::Error::InvalidRequest("Expected array for Vec<Vec<FieldType>>".to_string())),
         }
@@ -850,19 +681,17 @@ impl RespDecode<'_> for Vec<Vec<FieldType>> {
 }
 
 impl RespDecode<'_> for Vec<EntitySchemaResp> {
-    fn decode(input: &[u8]) -> Result<(Self, &[u8])> {
-        let (value, remaining) = RespValue::decode(input)?;
-        match value {
+    fn decode(input: RespValue<'_>) -> Result<Self> {
+        match input {
             RespValue::Array(elements) => {
                 let mut result = Vec::with_capacity(elements.len());
                 for element in elements {
-                    let element_bytes = element.encode();
-                    let (decoded, _) = EntitySchemaResp::decode(&element_bytes)?;
+                    let decoded = EntitySchemaResp::decode(element)?;
                     result.push(decoded);
                 }
-                Ok((result, remaining))
+                Ok(result)
             },
-            _ => Err(crate::Error::InvalidRequest("Expected array for Vec".to_string())),
+            _ => Err(crate::Error::InvalidRequest("Expected array for Vec<EntitySchemaResp>".to_string())),
         }
     }
 }
@@ -871,61 +700,57 @@ impl RespDecode<'_> for Vec<EntitySchemaResp> {
 use crate::data::entity_schema::FieldSchemaResp;
 
 impl RespDecode<'_> for Vec<FieldSchemaResp> {
-    fn decode(input: &[u8]) -> Result<(Self, &[u8])> {
-        let (value, remaining) = RespValue::decode(input)?;
-        match value {
+    fn decode(input: RespValue<'_>) -> Result<Self> {
+        match input {
             RespValue::Array(elements) => {
                 let mut result = Vec::with_capacity(elements.len());
                 for element in elements {
-                    let element_bytes = element.encode();
-                    let (decoded, _) = FieldSchemaResp::decode(&element_bytes)?;
+                    let decoded = FieldSchemaResp::decode(element)?;
                     result.push(decoded);
                 }
-                Ok((result, remaining))
+                Ok(result)
             },
-            _ => Err(crate::Error::InvalidRequest("Expected array for Vec".to_string())),
+            _ => Err(crate::Error::InvalidRequest("Expected array for Vec<FieldSchemaResp>".to_string())),
         }
     }
 }
 
 // String slice decoding for command names
 impl<'a> RespDecode<'a> for &'a str {
-    fn decode(input: &'a [u8]) -> Result<(Self, &'a [u8])> {
-        let (value, remaining) = RespValue::decode(input)?;
-        match value {
+    fn decode(input: RespValue<'a>) -> Result<Self> {
+        match input {
             RespValue::BulkString(data) => {
                 let s = std::str::from_utf8(data)
                     .map_err(|_| crate::Error::InvalidRequest("Invalid UTF-8 in string".to_string()))?;
-                Ok((s, remaining))
+                Ok(s)
             },
-            RespValue::SimpleString(s) => Ok((s, remaining)),
+            RespValue::SimpleString(s) => Ok(s),
             _ => Err(crate::Error::InvalidRequest("Expected string type".to_string())),
         }
     }
 }
 
 impl RespEncode for &str {
-    fn encode(&self) -> Vec<u8> {
-        RespValue::BulkString(self.as_bytes()).encode()
+    fn encode(&self) -> OwnedRespValue {
+        OwnedRespValue::BulkString(self.as_bytes().to_vec())
     }
 }
 
 impl RespEncode for String {
-    fn encode(&self) -> Vec<u8> {
-        RespValue::BulkString(self.as_bytes()).encode()
+    fn encode(&self) -> OwnedRespValue {
+        OwnedRespValue::BulkString(self.as_bytes().to_vec())
     }
 }
 
 impl<'a> RespDecode<'a> for String {
-    fn decode(input: &'a [u8]) -> Result<(Self, &'a [u8])> {
-        let (value, remaining) = RespValue::decode(input)?;
-        match value {
+    fn decode(input: RespValue<'a>) -> Result<Self> {
+        match input {
             RespValue::BulkString(data) => {
                 let s = std::str::from_utf8(data)
                     .map_err(|_| crate::Error::InvalidRequest("Invalid UTF-8 in string".to_string()))?;
-                Ok((s.to_string(), remaining))
+                Ok(s.to_string())
             },
-            RespValue::SimpleString(s) => Ok((s.to_string(), remaining)),
+            RespValue::SimpleString(s) => Ok(s.to_string()),
             _ => Err(crate::Error::InvalidRequest("Expected string type".to_string())),
         }
     }
@@ -933,34 +758,33 @@ impl<'a> RespDecode<'a> for String {
 
 // Implementations for PushCondition and AdjustBehavior
 impl RespEncode for crate::PushCondition {
-    fn encode(&self) -> Vec<u8> {
+    fn encode(&self) -> OwnedRespValue {
         let value = match self {
             crate::PushCondition::Always => 0,
             crate::PushCondition::Changes => 1,
         };
-        RespValue::Integer(value).encode()
+        OwnedRespValue::Integer(value)
     }
 }
 
 impl<'a> RespDecode<'a> for crate::PushCondition {
-    fn decode(input: &'a [u8]) -> Result<(Self, &'a [u8])> {
-        let (value, remaining) = RespValue::decode(input)?;
-        match value {
-            RespValue::Integer(0) => Ok((crate::PushCondition::Always, remaining)),
-            RespValue::Integer(1) => Ok((crate::PushCondition::Changes, remaining)),
+    fn decode(input: RespValue<'a>) -> Result<Self> {
+        match input {
+            RespValue::Integer(0) => Ok(crate::PushCondition::Always),
+            RespValue::Integer(1) => Ok(crate::PushCondition::Changes),
             RespValue::BulkString(data) => {
                 let s = std::str::from_utf8(data)
                     .map_err(|_| crate::Error::InvalidRequest("Invalid UTF-8 in PushCondition".to_string()))?;
                 match s.to_lowercase().as_str() {
-                    "always" => Ok((crate::PushCondition::Always, remaining)),
-                    "changes" => Ok((crate::PushCondition::Changes, remaining)),
+                    "always" => Ok(crate::PushCondition::Always),
+                    "changes" => Ok(crate::PushCondition::Changes),
                     _ => Err(crate::Error::InvalidRequest("Invalid PushCondition value".to_string())),
                 }
             },
             RespValue::SimpleString(s) => {
                 match s.to_lowercase().as_str() {
-                    "always" => Ok((crate::PushCondition::Always, remaining)),
-                    "changes" => Ok((crate::PushCondition::Changes, remaining)),
+                    "always" => Ok(crate::PushCondition::Always),
+                    "changes" => Ok(crate::PushCondition::Changes),
                     _ => Err(crate::Error::InvalidRequest("Invalid PushCondition value".to_string())),
                 }
             },
@@ -970,38 +794,37 @@ impl<'a> RespDecode<'a> for crate::PushCondition {
 }
 
 impl RespEncode for crate::AdjustBehavior {
-    fn encode(&self) -> Vec<u8> {
+    fn encode(&self) -> OwnedRespValue {
         let value = match self {
             crate::AdjustBehavior::Set => 0,
             crate::AdjustBehavior::Add => 1,
             crate::AdjustBehavior::Subtract => 2,
         };
-        RespValue::Integer(value).encode()
+        OwnedRespValue::Integer(value)
     }
 }
 
 impl<'a> RespDecode<'a> for crate::AdjustBehavior {
-    fn decode(input: &'a [u8]) -> Result<(Self, &'a [u8])> {
-        let (value, remaining) = RespValue::decode(input)?;
-        match value {
-            RespValue::Integer(0) => Ok((crate::AdjustBehavior::Set, remaining)),
-            RespValue::Integer(1) => Ok((crate::AdjustBehavior::Add, remaining)),
-            RespValue::Integer(2) => Ok((crate::AdjustBehavior::Subtract, remaining)),
+    fn decode(input: RespValue<'a>) -> Result<Self> {
+        match input {
+            RespValue::Integer(0) => Ok(crate::AdjustBehavior::Set),
+            RespValue::Integer(1) => Ok(crate::AdjustBehavior::Add),
+            RespValue::Integer(2) => Ok(crate::AdjustBehavior::Subtract),
             RespValue::BulkString(data) => {
                 let s = std::str::from_utf8(data)
                     .map_err(|_| crate::Error::InvalidRequest("Invalid UTF-8 in AdjustBehavior".to_string()))?;
                 match s.to_lowercase().as_str() {
-                    "set" => Ok((crate::AdjustBehavior::Set, remaining)),
-                    "add" => Ok((crate::AdjustBehavior::Add, remaining)),
-                    "subtract" => Ok((crate::AdjustBehavior::Subtract, remaining)),
+                    "set" => Ok(crate::AdjustBehavior::Set),
+                    "add" => Ok(crate::AdjustBehavior::Add),
+                    "subtract" => Ok(crate::AdjustBehavior::Subtract),
                     _ => Err(crate::Error::InvalidRequest("Invalid AdjustBehavior value".to_string())),
                 }
             },
             RespValue::SimpleString(s) => {
                 match s.to_lowercase().as_str() {
-                    "set" => Ok((crate::AdjustBehavior::Set, remaining)),
-                    "add" => Ok((crate::AdjustBehavior::Add, remaining)),
-                    "subtract" => Ok((crate::AdjustBehavior::Subtract, remaining)),
+                    "set" => Ok(crate::AdjustBehavior::Set),
+                    "add" => Ok(crate::AdjustBehavior::Add),
+                    "subtract" => Ok(crate::AdjustBehavior::Subtract),
                     _ => Err(crate::Error::InvalidRequest("Invalid AdjustBehavior value".to_string())),
                 }
             },
@@ -1011,9 +834,8 @@ impl<'a> RespDecode<'a> for crate::AdjustBehavior {
 }
 
 impl<'a> RespDecode<'a> for Timestamp {
-    fn decode(input: &'a [u8]) -> Result<(Self, &'a [u8])> {
-        let (value, remaining) = RespValue::decode(input)?;
-        match value {
+    fn decode(input: RespValue<'a>) -> Result<Self> {
+        match input {
             RespValue::BulkString(data) => {
                 let timestamp_str = std::str::from_utf8(data)
                     .map_err(|_| crate::Error::InvalidRequest("Invalid UTF-8 in Timestamp".to_string()))?;
@@ -1027,7 +849,7 @@ impl<'a> RespDecode<'a> for Timestamp {
                                 .map_err(|_| crate::Error::InvalidRequest("Invalid unix timestamp".to_string())))
                     })
                     .map_err(|_| crate::Error::InvalidRequest("Invalid Timestamp format".to_string()))?;
-                Ok((timestamp, remaining))
+                Ok(timestamp)
             },
             RespValue::SimpleString(s) => {
                 // Try parsing as RFC3339 format first
@@ -1040,12 +862,12 @@ impl<'a> RespDecode<'a> for Timestamp {
                                 .map_err(|_| crate::Error::InvalidRequest("Invalid unix timestamp".to_string())))
                     })
                     .map_err(|_| crate::Error::InvalidRequest("Invalid Timestamp format".to_string()))?;
-                Ok((timestamp, remaining))
+                Ok(timestamp)
             },
             RespValue::Integer(i) => {
                 let timestamp = time::OffsetDateTime::from_unix_timestamp(i)
                     .map_err(|_| crate::Error::InvalidRequest("Invalid Timestamp value".to_string()))?;
-                Ok((timestamp, remaining))
+                Ok(timestamp)
             },
             _ => Err(crate::Error::InvalidRequest("Invalid Timestamp type".to_string())),
         }
@@ -1053,46 +875,43 @@ impl<'a> RespDecode<'a> for Timestamp {
 }
 
 impl RespEncode for Timestamp {
-    fn encode(&self) -> Vec<u8> {
-        RespValue::BulkString(self.to_string().as_bytes()).encode()
+    fn encode(&self) -> OwnedRespValue {
+        OwnedRespValue::BulkString(self.to_string().into_bytes())
     }
 }
 
 // Implementation for PhantomData
 impl<T> RespEncode for std::marker::PhantomData<T> {
-    fn encode(&self) -> Vec<u8> {
-        RespValue::Null.encode()
+    fn encode(&self) -> OwnedRespValue {
+        OwnedRespValue::Null
     }
 }
 
 impl<'a, T> RespDecode<'a> for std::marker::PhantomData<T> {
-    fn decode(input: &'a [u8]) -> Result<(Self, &'a [u8])> {
-        let (_, remaining) = RespValue::decode(input)?;
-        // PhantomData doesn't consume actual data, just advance the parser
-        Ok((std::marker::PhantomData, remaining))
+    fn decode(_input: RespValue<'a>) -> Result<Self> {
+        // PhantomData doesn't consume actual data
+        Ok(std::marker::PhantomData)
     }
 }
 
 // Implementation for Option<T> where T implements the traits
 impl<T: RespEncode> RespEncode for Option<T> {
-    fn encode(&self) -> Vec<u8> {
+    fn encode(&self) -> OwnedRespValue {
         match self {
             Some(value) => value.encode(),
-            None => RespValue::Null.encode(),
+            None => OwnedRespValue::Null,
         }
     }
 }
 
 impl<'a, T: RespDecode<'a>> RespDecode<'a> for Option<T> {
-    fn decode(input: &'a [u8]) -> Result<(Self, &'a [u8])> {
-        let (value, remaining) = RespValue::decode(input)?;
-        match value {
-            RespValue::Null => Ok((None, remaining)),
+    fn decode(input: RespValue<'a>) -> Result<Self> {
+        match input {
+            RespValue::Null => Ok(None),
             _ => {
-                // For Option<T>, we need to decode T from the same input since we can't extend lifetimes
                 match T::decode(input) {
-                    Ok((decoded_value, new_remaining)) => Ok((Some(decoded_value), new_remaining)),
-                    Err(_) => Ok((None, remaining)), // If T can't be decoded, treat as None
+                    Ok(decoded_value) => Ok(Some(decoded_value)),
+                    Err(_) => Ok(None), // If T can't be decoded, treat as None
                 }
             }
         }
@@ -1100,66 +919,245 @@ impl<'a, T: RespDecode<'a>> RespDecode<'a> for Option<T> {
 }
 
 impl RespEncode for u64 {
-    fn encode(&self) -> Vec<u8> {
-        RespValue::Integer(*self as i64).encode()
+    fn encode(&self) -> OwnedRespValue {
+        OwnedRespValue::Integer(*self as i64)
     }
 }
 
 impl RespDecode<'_> for u64 {
-    fn decode(data: &[u8]) -> Result<(Self, &[u8])> {
-        let (value, remaining) = RespValue::decode(data)?;
-        match value {
-            RespValue::Integer(i) if i >= 0 => Ok((i as u64, remaining)),
+    fn decode(input: RespValue<'_>) -> Result<Self> {
+        match input {
+            RespValue::Integer(i) if i >= 0 => Ok(i as u64),
+            RespValue::BulkString(data) => {
+                let s = std::str::from_utf8(data)
+                    .map_err(|_| crate::Error::InvalidRequest("Invalid UTF-8 in u64".to_string()))?;
+                let val = s.parse::<u64>()
+                    .map_err(|_| crate::Error::InvalidRequest("Invalid u64 format".to_string()))?;
+                Ok(val)
+            },
+            RespValue::SimpleString(s) => {
+                let val = s.parse::<u64>()
+                    .map_err(|_| crate::Error::InvalidRequest("Invalid u64 format".to_string()))?;
+                Ok(val)
+            },
             _ => Err(crate::Error::InvalidRequest("Expected non-negative integer for u64".to_string())),
         }
     }
 }
 
 impl RespEncode for bool {
-    fn encode(&self) -> Vec<u8> {
-        RespValue::Integer(if *self { 1 } else { 0 }).encode()
+    fn encode(&self) -> OwnedRespValue {
+        OwnedRespValue::Integer(if *self { 1 } else { 0 })
     }
 }
 
 impl RespDecode<'_> for bool {
-    fn decode(data: &[u8]) -> Result<(Self, &[u8])> {
-        let (value, remaining) = RespValue::decode(data)?;
-        match value {
-            RespValue::Integer(0) => Ok((false, remaining)),
-            RespValue::Integer(1) => Ok((true, remaining)),
+    fn decode(input: RespValue<'_>) -> Result<Self> {
+        match input {
+            RespValue::Integer(0) => Ok(false),
+            RespValue::Integer(1) => Ok(true),
+            RespValue::BulkString(data) => {
+                let s = std::str::from_utf8(data)
+                    .map_err(|_| crate::Error::InvalidRequest("Invalid UTF-8 in bool".to_string()))?;
+                match s.to_lowercase().as_str() {
+                    "true" | "1" => Ok(true),
+                    "false" | "0" => Ok(false),
+                    _ => Err(crate::Error::InvalidRequest("Invalid bool format".to_string())),
+                }
+            },
+            RespValue::SimpleString(s) => {
+                match s.to_lowercase().as_str() {
+                    "true" | "1" => Ok(true),
+                    "false" | "0" => Ok(false),
+                    _ => Err(crate::Error::InvalidRequest("Invalid bool format".to_string())),
+                }
+            },
             _ => Err(crate::Error::InvalidRequest("Expected 0 or 1 for bool".to_string())),
         }
     }
 }
 
 impl RespEncode for i64 {
-    fn encode(&self) -> Vec<u8> {
-        RespValue::Integer(*self).encode()
+    fn encode(&self) -> OwnedRespValue {
+        OwnedRespValue::Integer(*self)
     }
 }
 
 impl RespDecode<'_> for i64 {
-    fn decode(data: &[u8]) -> Result<(Self, &[u8])> {
-        let (value, remaining) = RespValue::decode(data)?;
-        match value {
-            RespValue::Integer(i) => Ok((i, remaining)),
+    fn decode(input: RespValue<'_>) -> Result<Self> {
+        match input {
+            RespValue::Integer(i) => Ok(i),
+            RespValue::BulkString(data) => {
+                let s = std::str::from_utf8(data)
+                    .map_err(|_| crate::Error::InvalidRequest("Invalid UTF-8 in i64".to_string()))?;
+                let val = s.parse::<i64>()
+                    .map_err(|_| crate::Error::InvalidRequest("Invalid i64 format".to_string()))?;
+                Ok(val)
+            },
+            RespValue::SimpleString(s) => {
+                let val = s.parse::<i64>()
+                    .map_err(|_| crate::Error::InvalidRequest("Invalid i64 format".to_string()))?;
+                Ok(val)
+            },
             _ => Err(crate::Error::InvalidRequest("Expected integer for i64".to_string())),
         }
     }
 }
 
 impl RespEncode for usize {
-    fn encode(&self) -> Vec<u8> {
-        RespValue::Integer(*self as i64).encode()
+    fn encode(&self) -> OwnedRespValue {
+        OwnedRespValue::Integer(*self as i64)
+    }
+}
+
+impl RespEncode for u8 {
+    fn encode(&self) -> OwnedRespValue {
+        OwnedRespValue::Integer(*self as i64)
+    }
+}
+
+impl RespDecode<'_> for u8 {
+    fn decode(input: RespValue<'_>) -> Result<Self> {
+        match input {
+            RespValue::Integer(i) if i >= 0 && i <= 255 => Ok(i as u8),
+            RespValue::BulkString(data) => {
+                let s = std::str::from_utf8(data)
+                    .map_err(|_| crate::Error::InvalidRequest("Invalid UTF-8 in u8".to_string()))?;
+                let val = s.parse::<u8>()
+                    .map_err(|_| crate::Error::InvalidRequest("Invalid u8 format".to_string()))?;
+                Ok(val)
+            },
+            RespValue::SimpleString(s) => {
+                let val = s.parse::<u8>()
+                    .map_err(|_| crate::Error::InvalidRequest("Invalid u8 format".to_string()))?;
+                Ok(val)
+            },
+            _ => Err(crate::Error::InvalidRequest("Expected integer for u8".to_string())),
+        }
+    }
+}
+
+impl RespEncode for f64 {
+    fn encode(&self) -> OwnedRespValue {
+        OwnedRespValue::BulkString(self.to_string().into_bytes())
+    }
+}
+
+impl RespDecode<'_> for f64 {
+    fn decode(input: RespValue<'_>) -> Result<Self> {
+        match input {
+            RespValue::Integer(i) => Ok(i as f64),
+            RespValue::BulkString(data) => {
+                let s = std::str::from_utf8(data)
+                    .map_err(|_| crate::Error::InvalidRequest("Invalid UTF-8 in f64".to_string()))?;
+                let val = s.parse::<f64>()
+                    .map_err(|_| crate::Error::InvalidRequest("Invalid f64 format".to_string()))?;
+                Ok(val)
+            },
+            RespValue::SimpleString(s) => {
+                let val = s.parse::<f64>()
+                    .map_err(|_| crate::Error::InvalidRequest("Invalid f64 format".to_string()))?;
+                Ok(val)
+            },
+            _ => Err(crate::Error::InvalidRequest("Expected number for f64".to_string())),
+        }
+    }
+}
+
+// Vec<u8> implementation for binary data
+impl RespEncode for Vec<u8> {
+    fn encode(&self) -> OwnedRespValue {
+        OwnedRespValue::BulkString(self.clone())
+    }
+}
+
+impl RespDecode<'_> for Vec<u8> {
+    fn decode(input: RespValue<'_>) -> Result<Self> {
+        match input {
+            RespValue::BulkString(data) => Ok(data.to_vec()),
+            RespValue::SimpleString(s) => Ok(s.as_bytes().to_vec()),
+            _ => Err(crate::Error::InvalidRequest("Expected binary data for Vec<u8>".to_string())),
+        }
+    }
+}
+
+// Vec<EntityId> implementation
+impl RespEncode for Vec<EntityId> {
+    fn encode(&self) -> OwnedRespValue {
+        let elements: Vec<OwnedRespValue> = self.iter()
+            .map(|item| item.encode())
+            .collect();
+        OwnedRespValue::Array(elements)
+    }
+}
+
+// Vec<EntityType> implementation
+impl RespEncode for Vec<EntityType> {
+    fn encode(&self) -> OwnedRespValue {
+        let elements: Vec<OwnedRespValue> = self.iter()
+            .map(|item| item.encode())
+            .collect();
+        OwnedRespValue::Array(elements)
+    }
+}
+
+// Vec<FieldType> implementation
+impl RespEncode for Vec<FieldType> {
+    fn encode(&self) -> OwnedRespValue {
+        let elements: Vec<OwnedRespValue> = self.iter()
+            .map(|item| item.encode())
+            .collect();
+        OwnedRespValue::Array(elements)
+    }
+}
+
+// Vec<String> implementation
+impl RespEncode for Vec<String> {
+    fn encode(&self) -> OwnedRespValue {
+        let elements: Vec<OwnedRespValue> = self.iter()
+            .map(|item| item.encode())
+            .collect();
+        OwnedRespValue::Array(elements)
+    }
+}
+
+// Vec<Vec<FieldType>> implementation
+impl RespEncode for Vec<Vec<FieldType>> {
+    fn encode(&self) -> OwnedRespValue {
+        let elements: Vec<OwnedRespValue> = self.iter()
+            .map(|item| item.encode())
+            .collect();
+        OwnedRespValue::Array(elements)
+    }
+}
+
+// Vec<FieldSchemaResp> implementation
+impl RespEncode for Vec<FieldSchemaResp> {
+    fn encode(&self) -> OwnedRespValue {
+        let elements: Vec<OwnedRespValue> = self.iter()
+            .map(|item| item.encode())
+            .collect();
+        OwnedRespValue::Array(elements)
     }
 }
 
 impl RespDecode<'_> for usize {
-    fn decode(data: &[u8]) -> Result<(Self, &[u8])> {
-        let (value, remaining) = RespValue::decode(data)?;
-        match value {
-            RespValue::Integer(i) => Ok((i as usize, remaining)),
-            _ => Err(crate::Error::InvalidRequest("Expected integer for usize".to_string())),
+    fn decode(input: RespValue<'_>) -> Result<Self> {
+        match input {
+            RespValue::Integer(i) if i >= 0 => Ok(i as usize),
+            RespValue::BulkString(data) => {
+                let s = std::str::from_utf8(data)
+                    .map_err(|_| crate::Error::InvalidRequest("Invalid UTF-8 in usize".to_string()))?;
+                let val = s.parse::<usize>()
+                    .map_err(|_| crate::Error::InvalidRequest("Invalid usize format".to_string()))?;
+                Ok(val)
+            },
+            RespValue::SimpleString(s) => {
+                let val = s.parse::<usize>()
+                    .map_err(|_| crate::Error::InvalidRequest("Invalid usize format".to_string()))?;
+                Ok(val)
+            },
+            _ => Err(crate::Error::InvalidRequest("Expected non-negative integer for usize".to_string())),
         }
     }
 }
