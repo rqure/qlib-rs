@@ -127,26 +127,34 @@ impl StoreProxy {
             .map_err(|e| Error::StoreProxyError(format!("Failed to send command: {}", e)))?;
 
         loop {
-            // Temporarily borrow to check buffer - we need to own the data for lifetime reasons
-            let buffer_copy = self.tcp_connection.borrow().read_buffer.clone();
-            
-            match RespValue::from_bytes(&buffer_copy) {
-                Ok((resp_value, _remaining)) => {
-                    let response_struct = R::decode(resp_value)
-                        .map_err(|_| Error::StoreProxyError("Failed to decode structured response".into()))?;
-                    // Clear the buffer after successful parse
-                    self.tcp_connection.borrow_mut().read_buffer.clear();
-                    return Ok(response_struct);
-                }
-                Err(_) => {
-                    let readable = self.tcp_connection.borrow_mut()
-                        .wait_for_readable(Some(READ_POLL_INTERVAL))
-                        .map_err(|e| Error::StoreProxyError(format!("Poll error: {}", e)))?;
-                    if readable {
-                        self.tcp_connection.borrow_mut().read_bytes()
-                            .map_err(|e| Error::StoreProxyError(format!("Failed to read bytes: {}", e)))?;
+            // Try to parse and get the number of bytes consumed
+            let consumed_opt = {
+                let conn = self.tcp_connection.borrow();
+                match RespValue::from_bytes(&conn.read_buffer) {
+                    Ok((resp_value, remaining)) => {
+                        // Decode while we have the resp_value
+                        let response_struct = R::decode(resp_value)
+                            .map_err(|_| Error::StoreProxyError("Failed to decode structured response".into()))?;
+                        let consumed = conn.read_buffer.len() - remaining.len();
+                        Ok(Some((consumed, response_struct)))
                     }
+                    Err(_) => Ok(None)
                 }
+            }?;
+            
+            if let Some((consumed, response_struct)) = consumed_opt {
+                // Remove only the consumed bytes, keeping the remaining unparsed data
+                self.tcp_connection.borrow_mut().read_buffer.drain(..consumed);
+                return Ok(response_struct);
+            }
+            
+            // Need more data
+            let readable = self.tcp_connection.borrow_mut()
+                .wait_for_readable(Some(READ_POLL_INTERVAL))
+                .map_err(|e| Error::StoreProxyError(format!("Poll error: {}", e)))?;
+            if readable {
+                self.tcp_connection.borrow_mut().read_bytes()
+                    .map_err(|e| Error::StoreProxyError(format!("Failed to read bytes: {}", e)))?;
             }
         }
     }
@@ -164,22 +172,32 @@ impl StoreProxy {
             .map_err(|e| Error::StoreProxyError(format!("Failed to send command: {}", e)))?;
 
         loop {
-            let buffer_copy = self.tcp_connection.borrow().read_buffer.clone();
-            
-            match RespValue::from_bytes(&buffer_copy) {
-                Ok((resp_value, _remaining)) => {
-                    self.tcp_connection.borrow_mut().read_buffer.clear();
-                    return expect_ok(resp_value);
-                }
-                Err(_) => {
-                    let readable = self.tcp_connection.borrow_mut()
-                        .wait_for_readable(Some(READ_POLL_INTERVAL))
-                        .map_err(|e| Error::StoreProxyError(format!("Poll error: {}", e)))?;
-                    if readable {
-                        self.tcp_connection.borrow_mut().read_bytes()
-                            .map_err(|e| Error::StoreProxyError(format!("Failed to read bytes: {}", e)))?;
+            // Try to parse and get the number of bytes consumed
+            let result_opt = {
+                let conn = self.tcp_connection.borrow();
+                match RespValue::from_bytes(&conn.read_buffer) {
+                    Ok((resp_value, remaining)) => {
+                        let consumed = conn.read_buffer.len() - remaining.len();
+                        let result = expect_ok(resp_value);
+                        Some((consumed, result))
                     }
+                    Err(_) => None
                 }
+            };
+            
+            if let Some((consumed, result)) = result_opt {
+                // Remove only the consumed bytes, keeping the remaining unparsed data
+                self.tcp_connection.borrow_mut().read_buffer.drain(..consumed);
+                return result;
+            }
+            
+            // Need more data
+            let readable = self.tcp_connection.borrow_mut()
+                .wait_for_readable(Some(READ_POLL_INTERVAL))
+                .map_err(|e| Error::StoreProxyError(format!("Poll error: {}", e)))?;
+            if readable {
+                self.tcp_connection.borrow_mut().read_bytes()
+                    .map_err(|e| Error::StoreProxyError(format!("Failed to read bytes: {}", e)))?;
             }
         }
     }
