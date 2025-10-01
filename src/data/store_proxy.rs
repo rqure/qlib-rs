@@ -1,6 +1,5 @@
 use std::cell::RefCell;
 use std::io::{Read, Write};
-use std::rc::Rc;
 use std::time::Duration;
 
 use mio::{Events, Interest, Poll, Token};
@@ -90,7 +89,7 @@ impl TcpConnection {
 
 #[derive(Debug)]
 pub struct StoreProxy {
-    tcp_connection: TcpConnection,
+    tcp_connection: RefCell<TcpConnection>,
 }
 
 impl StoreProxy {
@@ -112,34 +111,73 @@ impl StoreProxy {
             .map_err(|e| Error::StoreProxyError(format!("Failed to create TCP connection: {}", e)))?;
 
         Ok(StoreProxy {
-            tcp_connection,
+            tcp_connection: RefCell::new(tcp_connection),
         })
     }
 
-    fn send_command_get_response<'a, C, R>(&self, command: &C) -> Result<R>
+    fn send_command_get_response<C, R>(&self, command: &C) -> Result<R>
     where
-        C: RespCommand<'a>,
-        R: RespDecode<'a>,
+        C: RespCommand<'static>,
+        R: for<'a> RespDecode<'a>,
     {
         let encoded = command.encode();
         let encoded_bytes = encoded.to_bytes();
         
-        self.tcp_connection.send_bytes(&encoded_bytes)
+        self.tcp_connection.borrow_mut().send_bytes(&encoded_bytes)
             .map_err(|e| Error::StoreProxyError(format!("Failed to send command: {}", e)))?;
 
         loop {
-            match RespValue::from_bytes(&self.tcp_connection.read_buffer) {
-                Ok((resp_value, remaining)) => {
+            // Temporarily borrow to check buffer - we need to own the data for lifetime reasons
+            let buffer_copy = self.tcp_connection.borrow().read_buffer.clone();
+            
+            match RespValue::from_bytes(&buffer_copy) {
+                Ok((resp_value, _remaining)) => {
                     let response_struct = R::decode(resp_value)
                         .map_err(|_| Error::StoreProxyError("Failed to decode structured response".into()))?;
+                    // Clear the buffer after successful parse
+                    self.tcp_connection.borrow_mut().read_buffer.clear();
                     return Ok(response_struct);
                 }
                 Err(_) => {
-                    let readable = self.tcp_connection
+                    let readable = self.tcp_connection.borrow_mut()
                         .wait_for_readable(Some(READ_POLL_INTERVAL))
                         .map_err(|e| Error::StoreProxyError(format!("Poll error: {}", e)))?;
-                    if !readable {
-                        continue;
+                    if readable {
+                        self.tcp_connection.borrow_mut().read_bytes()
+                            .map_err(|e| Error::StoreProxyError(format!("Failed to read bytes: {}", e)))?;
+                    }
+                }
+            }
+        }
+    }
+
+    fn send_command_ok<C>(&self, command: &C) -> Result<()>
+    where
+        C: RespCommand<'static>,
+    {
+        // We need to get the raw RESP value and check if it's OK
+        // Use a custom inline check instead of trying to decode RespValue itself
+        let encoded = command.encode();
+        let encoded_bytes = encoded.to_bytes();
+        
+        self.tcp_connection.borrow_mut().send_bytes(&encoded_bytes)
+            .map_err(|e| Error::StoreProxyError(format!("Failed to send command: {}", e)))?;
+
+        loop {
+            let buffer_copy = self.tcp_connection.borrow().read_buffer.clone();
+            
+            match RespValue::from_bytes(&buffer_copy) {
+                Ok((resp_value, _remaining)) => {
+                    self.tcp_connection.borrow_mut().read_buffer.clear();
+                    return expect_ok(resp_value);
+                }
+                Err(_) => {
+                    let readable = self.tcp_connection.borrow_mut()
+                        .wait_for_readable(Some(READ_POLL_INTERVAL))
+                        .map_err(|e| Error::StoreProxyError(format!("Poll error: {}", e)))?;
+                    if readable {
+                        self.tcp_connection.borrow_mut().read_bytes()
+                            .map_err(|e| Error::StoreProxyError(format!("Failed to read bytes: {}", e)))?;
                     }
                 }
             }
@@ -215,7 +253,7 @@ impl StoreProxy {
     }
 
     /// Set field schema
-    pub fn set_field_schema(&mut self, entity_type: EntityType, field_type: FieldType, schema: FieldSchema) -> Result<()> {
+    pub fn set_field_schema(&self, entity_type: EntityType, field_type: FieldType, schema: FieldSchema) -> Result<()> {
         // Convert FieldSchema to FieldSchemaResp
         let field_type_str = self.resolve_field_type(field_type.clone())?;
         let schema_resp = crate::data::entity_schema::FieldSchemaResp {
@@ -306,7 +344,7 @@ impl StoreProxy {
 
     /// Write a field value
     #[allow(unused_variables)]
-    pub fn write(&mut self, entity_id: EntityId, field_path: &[FieldType], value: Value, writer_id: Option<EntityId>, write_time: Option<Timestamp>, push_condition: Option<PushCondition>, adjust_behavior: Option<AdjustBehavior>) -> Result<()> {
+    pub fn write(&self, entity_id: EntityId, field_path: &[FieldType], value: Value, writer_id: Option<EntityId>, write_time: Option<Timestamp>, push_condition: Option<PushCondition>, adjust_behavior: Option<AdjustBehavior>) -> Result<()> {
         let command = WriteCommand {
             entity_id,
             field_path: field_path.to_vec(),
@@ -321,7 +359,7 @@ impl StoreProxy {
     }
 
     /// Create a new entity
-    pub fn create_entity(&mut self, entity_type: EntityType, parent_id: Option<EntityId>, name: &str) -> Result<EntityId> {
+    pub fn create_entity(&self, entity_type: EntityType, parent_id: Option<EntityId>, name: &str) -> Result<EntityId> {
         let command = CreateEntityCommand {
             entity_type,
             parent_id,
@@ -334,7 +372,7 @@ impl StoreProxy {
     }
 
     /// Delete an entity
-    pub fn delete_entity(&mut self, entity_id: EntityId) -> Result<()> {
+    pub fn delete_entity(&self, entity_id: EntityId) -> Result<()> {
         let command = crate::data::resp::DeleteEntityCommand {
             entity_id,
             _marker: std::marker::PhantomData,
@@ -343,7 +381,7 @@ impl StoreProxy {
     }
 
     /// Update entity schema
-    pub fn update_schema(&mut self, schema: EntitySchema<Single, String, String>) -> Result<()> {
+    pub fn update_schema(&self, schema: EntitySchema<Single, String, String>) -> Result<()> {
         // Convert EntitySchema to EntitySchemaResp
         let fields_resp: Vec<crate::data::entity_schema::FieldSchemaResp> = schema
             .fields
@@ -472,7 +510,7 @@ impl StoreProxy {
     /// Note: For proxy, this registers the notification on the remote server
     /// and stores the sender locally to forward notifications
     pub fn register_notification(
-        &mut self,
+        &self,
         config: crate::NotifyConfig,
         _sender: crate::NotificationQueue,
     ) -> Result<()> {
@@ -488,7 +526,7 @@ impl StoreProxy {
 
     /// Unregister a notification by removing a specific sender
     /// Note: This will remove ALL notifications matching the config for proxy
-   pub fn unregister_notification(&mut self, target_config: &crate::NotifyConfig, _sender: &crate::NotificationQueue) -> bool {
+   pub fn unregister_notification(&self, target_config: &crate::NotifyConfig, _sender: &crate::NotificationQueue) -> bool {
         let command = crate::data::resp::UnregisterNotificationCommand {
             config: target_config.clone(),
             _marker: std::marker::PhantomData,
@@ -536,7 +574,22 @@ impl StoreTrait for StoreProxy {
     }
 
     fn set_field_schema(&mut self, entity_type: EntityType, field_type: FieldType, schema: FieldSchema) -> Result<()> {
-        self.set_field_schema(entity_type, field_type, schema)
+        // Convert FieldSchema to FieldSchemaResp
+        let field_type_str = Self::resolve_field_type(self, field_type.clone())?;
+        let schema_resp = crate::data::entity_schema::FieldSchemaResp {
+            field_type: field_type_str,
+            rank: schema.rank(),
+            default_value: schema.default_value(),
+        };
+
+        let command = crate::data::resp::SetFieldSchemaCommand {
+            entity_type,
+            field_type,
+            schema: schema_resp,
+            _marker: std::marker::PhantomData,
+        };
+        
+        self.send_command_ok(&command)
     }
 
     fn entity_exists(&self, entity_id: EntityId) -> bool {
@@ -556,19 +609,64 @@ impl StoreTrait for StoreProxy {
     }
 
     fn write(&mut self, entity_id: EntityId, field_path: &[FieldType], value: Value, writer_id: Option<EntityId>, write_time: Option<Timestamp>, push_condition: Option<PushCondition>, adjust_behavior: Option<AdjustBehavior>) -> Result<()> {
-        self.write(entity_id, field_path, value, writer_id, write_time, push_condition, adjust_behavior)
+        let command = WriteCommand {
+            entity_id,
+            field_path: field_path.to_vec(),
+            value,
+            writer_id,
+            write_time,
+            push_condition,
+            adjust_behavior,
+            _marker: std::marker::PhantomData,
+        };
+        self.send_command_ok(&command)
     }
 
     fn create_entity(&mut self, entity_type: EntityType, parent_id: Option<EntityId>, name: &str) -> Result<EntityId> {
-        self.create_entity(entity_type, parent_id, name)
+        let command = CreateEntityCommand {
+            entity_type,
+            parent_id,
+            name: name.to_string(),
+            _marker: std::marker::PhantomData,
+        };
+        
+        let create_response = self.send_command_get_response::<CreateEntityCommand, crate::data::resp::CreateEntityResponse>(&command)?;
+        Ok(create_response.entity_id)
     }
 
     fn delete_entity(&mut self, entity_id: EntityId) -> Result<()> {
-        self.delete_entity(entity_id)
+        let command = crate::data::resp::DeleteEntityCommand {
+            entity_id,
+            _marker: std::marker::PhantomData,
+        };
+        self.send_command_ok(&command)
     }
 
     fn update_schema(&mut self, schema: EntitySchema<Single, String, String>) -> Result<()> {
-        self.update_schema(schema)
+        // Convert EntitySchema to EntitySchemaResp
+        let fields_resp: Vec<crate::data::entity_schema::FieldSchemaResp> = schema
+            .fields
+            .into_iter()
+            .map(|(field_type_str, field_schema)| {
+                crate::data::entity_schema::FieldSchemaResp {
+                    field_type: field_type_str,
+                    rank: field_schema.rank(),
+                    default_value: field_schema.default_value(),
+                }
+            })
+            .collect();
+
+        let schema_resp = crate::data::entity_schema::EntitySchemaResp {
+            entity_type: schema.entity_type,
+            inherit: schema.inherit,
+            fields: fields_resp,
+        };
+        
+        let command = crate::data::resp::UpdateSchemaCommand {
+            schema: schema_resp,
+            _marker: std::marker::PhantomData,
+        };
+        self.send_command_ok(&command)
     }
 
     fn take_snapshot(&self) -> crate::data::Snapshot {
@@ -595,11 +693,28 @@ impl StoreTrait for StoreProxy {
         self.get_entity_types_paginated(page_opts)
     }
 
-    fn register_notification(&mut self, config: crate::NotifyConfig, sender: crate::NotificationQueue) -> Result<()> {
-        self.register_notification(config, sender)
+    fn register_notification(&mut self, config: crate::NotifyConfig, _sender: crate::NotificationQueue) -> Result<()> {
+        let command = crate::data::resp::RegisterNotificationCommand {
+            config,
+            _marker: std::marker::PhantomData,
+        };
+        
+        // Note: For proxy implementation, we only register on the server
+        // The sender is ignored since we can't forward notifications in this simple implementation
+        self.send_command_ok(&command)
     }
 
-    fn unregister_notification(&mut self, config: &crate::NotifyConfig, sender: &crate::NotificationQueue) -> bool {
-        self.unregister_notification(config, sender)
+    fn unregister_notification(&mut self, target_config: &crate::NotifyConfig, _sender: &crate::NotificationQueue) -> bool {
+        let command = crate::data::resp::UnregisterNotificationCommand {
+            config: target_config.clone(),
+            _marker: std::marker::PhantomData,
+        };
+        
+        // Note: For proxy implementation, we only unregister on the server
+        // The sender is ignored since we can't manage specific senders in this simple implementation
+        match self.send_command_ok(&command) {
+            Ok(()) => true,
+            Err(_) => false,
+        }
     }
 }
