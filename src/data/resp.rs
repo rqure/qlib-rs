@@ -187,28 +187,29 @@ impl<'a> RespToBytes for RespValue<'a> {
                 result
             },
             RespValue::Integer(i) => {
-                let num_str = i.to_string();
-                let mut result = Vec::with_capacity(num_str.len() + 3);
+                let mut result = Vec::with_capacity(24); // Max i64 is 20 digits + ':' + '\r\n'
                 result.push(b':');
-                result.extend_from_slice(num_str.as_bytes());
+                let mut buf = itoa::Buffer::new();
+                result.extend_from_slice(buf.format(*i).as_bytes());
                 result.extend_from_slice(b"\r\n");
                 result
             },
             RespValue::BulkString(data) => {
-                let len_str = data.len().to_string();
-                let mut result = Vec::with_capacity(len_str.len() + data.len() + 5);
+                let mut result = Vec::with_capacity(data.len() + 25); // data + max length digits + markers
                 result.push(b'$');
-                result.extend_from_slice(len_str.as_bytes());
+                let mut buf = itoa::Buffer::new();
+                result.extend_from_slice(buf.format(data.len()).as_bytes());
                 result.extend_from_slice(b"\r\n");
                 result.extend_from_slice(data);
                 result.extend_from_slice(b"\r\n");
                 result
             },
             RespValue::Array(elements) => {
-                let count_str = elements.len().to_string();
-                let mut result = Vec::new();
+                // Pre-allocate: rough estimate of 50 bytes per element
+                let mut result = Vec::with_capacity(elements.len() * 50 + 25);
                 result.push(b'*');
-                result.extend_from_slice(count_str.as_bytes());
+                let mut buf = itoa::Buffer::new();
+                result.extend_from_slice(buf.format(elements.len()).as_bytes());
                 result.extend_from_slice(b"\r\n");
                 
                 for element in elements {
@@ -217,7 +218,8 @@ impl<'a> RespToBytes for RespValue<'a> {
                 result
             },
             RespValue::Null => {
-                b"$-1\r\n".to_vec()
+                const NULL_BYTES: &[u8] = b"$-1\r\n";
+                NULL_BYTES.to_vec()
             },
         }
     }
@@ -241,28 +243,29 @@ impl RespToBytes for OwnedRespValue {
                 result
             },
             OwnedRespValue::Integer(i) => {
-                let s = i.to_string();
-                let mut result = Vec::with_capacity(s.len() + 3);
+                let mut result = Vec::with_capacity(24); // Max i64 is 20 digits + ':' + '\r\n'
                 result.push(b':');
-                result.extend_from_slice(s.as_bytes());
+                let mut buf = itoa::Buffer::new();
+                result.extend_from_slice(buf.format(*i).as_bytes());
                 result.extend_from_slice(b"\r\n");
                 result
             },
             OwnedRespValue::BulkString(data) => {
-                let len_str = data.len().to_string();
-                let mut result = Vec::with_capacity(len_str.len() + data.len() + 5);
+                let mut result = Vec::with_capacity(data.len() + 25); // data + max length digits + markers
                 result.push(b'$');
-                result.extend_from_slice(len_str.as_bytes());
+                let mut buf = itoa::Buffer::new();
+                result.extend_from_slice(buf.format(data.len()).as_bytes());
                 result.extend_from_slice(b"\r\n");
                 result.extend_from_slice(data);
                 result.extend_from_slice(b"\r\n");
                 result
             },
             OwnedRespValue::Array(elements) => {
-                let count_str = elements.len().to_string();
-                let mut result = Vec::new();
+                // Pre-allocate: rough estimate of 50 bytes per element
+                let mut result = Vec::with_capacity(elements.len() * 50 + 25);
                 result.push(b'*');
-                result.extend_from_slice(count_str.as_bytes());
+                let mut buf = itoa::Buffer::new();
+                result.extend_from_slice(buf.format(elements.len()).as_bytes());
                 result.extend_from_slice(b"\r\n");
                 
                 for element in elements {
@@ -270,7 +273,10 @@ impl RespToBytes for OwnedRespValue {
                 }
                 result
             },
-            OwnedRespValue::Null => b"$-1\r\n".to_vec(),
+            OwnedRespValue::Null => {
+                const NULL_BYTES: &[u8] = b"$-1\r\n";
+                NULL_BYTES.to_vec()
+            },
         }
     }
 }
