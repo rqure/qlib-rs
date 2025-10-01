@@ -876,7 +876,10 @@ impl<'a> RespDecode<'a> for Timestamp {
 
 impl RespEncode for Timestamp {
     fn encode(&self) -> OwnedRespValue {
-        OwnedRespValue::BulkString(self.to_string().into_bytes())
+        // Use RFC3339 format for timestamp encoding to ensure compatibility
+        let formatted = self.format(&time::format_description::well_known::Rfc3339)
+            .unwrap_or_else(|_| self.to_string());
+        OwnedRespValue::BulkString(formatted.into_bytes())
     }
 }
 

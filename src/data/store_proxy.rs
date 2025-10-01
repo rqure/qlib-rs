@@ -134,7 +134,7 @@ impl StoreProxy {
                     Ok((resp_value, remaining)) => {
                         // Decode while we have the resp_value
                         let response_struct = R::decode(resp_value)
-                            .map_err(|_| Error::StoreProxyError("Failed to decode structured response".into()))?;
+                            .map_err(|e| Error::StoreProxyError(format!("Failed to decode structured response: {}", e)))?;
                         let consumed = conn.read_buffer.len() - remaining.len();
                         Ok(Some((consumed, response_struct)))
                     }
