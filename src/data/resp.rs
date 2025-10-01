@@ -836,37 +836,35 @@ impl<'a> RespDecode<'a> for crate::AdjustBehavior {
 impl<'a> RespDecode<'a> for Timestamp {
     fn decode(input: RespValue<'a>) -> Result<Self> {
         match input {
+            RespValue::Integer(nanos) => {
+                // Decode from nanoseconds since epoch
+                let timestamp = time::OffsetDateTime::UNIX_EPOCH + time::Duration::nanoseconds(nanos);
+                Ok(timestamp)
+            },
             RespValue::BulkString(data) => {
                 let timestamp_str = std::str::from_utf8(data)
                     .map_err(|_| crate::Error::InvalidRequest("Invalid UTF-8 in Timestamp".to_string()))?;
-                // Try parsing as RFC3339 format first
+                // Try parsing as RFC3339 format first (for backward compatibility)
                 let timestamp = time::OffsetDateTime::parse(timestamp_str, &time::format_description::well_known::Rfc3339)
                     .or_else(|_| {
                         // Try parsing as unix timestamp string
                         timestamp_str.parse::<i64>()
                             .map_err(|_| crate::Error::InvalidRequest("Invalid Timestamp format".to_string()))
-                            .and_then(|ts| time::OffsetDateTime::from_unix_timestamp(ts)
-                                .map_err(|_| crate::Error::InvalidRequest("Invalid unix timestamp".to_string())))
+                            .map(|nanos| time::OffsetDateTime::UNIX_EPOCH + time::Duration::nanoseconds(nanos))
                     })
                     .map_err(|_| crate::Error::InvalidRequest("Invalid Timestamp format".to_string()))?;
                 Ok(timestamp)
             },
             RespValue::SimpleString(s) => {
-                // Try parsing as RFC3339 format first
+                // Try parsing as RFC3339 format first (for backward compatibility)
                 let timestamp = time::OffsetDateTime::parse(s, &time::format_description::well_known::Rfc3339)
                     .or_else(|_| {
                         // Try parsing as unix timestamp string
                         s.parse::<i64>()
                             .map_err(|_| crate::Error::InvalidRequest("Invalid Timestamp format".to_string()))
-                            .and_then(|ts| time::OffsetDateTime::from_unix_timestamp(ts)
-                                .map_err(|_| crate::Error::InvalidRequest("Invalid unix timestamp".to_string())))
+                            .map(|nanos| time::OffsetDateTime::UNIX_EPOCH + time::Duration::nanoseconds(nanos))
                     })
                     .map_err(|_| crate::Error::InvalidRequest("Invalid Timestamp format".to_string()))?;
-                Ok(timestamp)
-            },
-            RespValue::Integer(i) => {
-                let timestamp = time::OffsetDateTime::from_unix_timestamp(i)
-                    .map_err(|_| crate::Error::InvalidRequest("Invalid Timestamp value".to_string()))?;
                 Ok(timestamp)
             },
             _ => Err(crate::Error::InvalidRequest("Invalid Timestamp type".to_string())),
@@ -876,10 +874,9 @@ impl<'a> RespDecode<'a> for Timestamp {
 
 impl RespEncode for Timestamp {
     fn encode(&self) -> OwnedRespValue {
-        // Use RFC3339 format for timestamp encoding to ensure compatibility
-        let formatted = self.format(&time::format_description::well_known::Rfc3339)
-            .unwrap_or_else(|_| self.to_string());
-        OwnedRespValue::BulkString(formatted.into_bytes())
+        // Encode as nanoseconds since epoch for maximum performance
+        let nanos = (*self - time::OffsetDateTime::UNIX_EPOCH).whole_nanoseconds() as i64;
+        OwnedRespValue::Integer(nanos)
     }
 }
 
