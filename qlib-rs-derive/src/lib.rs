@@ -388,9 +388,6 @@ pub fn respc(args: TokenStream, input: TokenStream) -> TokenStream {
                     non_phantom_fields.iter().map(|field| {
                         let field_name = &field.ident;
                         quote! {
-                            elements.push(crate::data::resp::OwnedRespValue::BulkString(
-                                stringify!(#field_name).as_bytes().to_vec()
-                            ));
                             elements.push(crate::data::resp::RespEncode::encode(&self.#field_name));
                         }
                     }).collect()
@@ -431,7 +428,7 @@ pub fn respc(args: TokenStream, input: TokenStream) -> TokenStream {
                     
                     let field_decodes: Vec<_> = non_phantom_fields.iter().enumerate().map(|(i, field)| {
                         let field_name = &field.ident;
-                        let field_index = i * 2 + 2; // Skip command name and field name, get value
+                        let field_index = i + 1; // Skip command name
                         quote! {
                             let #field_name = if elements.len() > #field_index {
                                 <_ as crate::data::resp::RespDecode>::decode(elements[#field_index].clone())?
@@ -477,7 +474,7 @@ pub fn respc(args: TokenStream, input: TokenStream) -> TokenStream {
                                     _ => return Err(crate::Error::InvalidRequest("Expected command name as first element".to_string())),
                                 }
                                 
-                                if elements.len() < 1 + (#field_count_lit * 2) {
+                                if elements.len() < 1 + #field_count_lit {
                                     return Err(crate::Error::InvalidRequest(format!(
                                         "Not enough elements for command {}", stringify!(#name)
                                     )));
