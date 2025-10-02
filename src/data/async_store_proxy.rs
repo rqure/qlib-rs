@@ -21,7 +21,7 @@ fn expect_ok(resp_value: RespValue) -> Result<()> {
 #[derive(Debug)]
 pub struct AsyncTcpConnection {
     stream: TcpStream,
-    read_buffer: Vec<u8>,
+    pub(crate) read_buffer: Vec<u8>,
 }
 
 impl AsyncTcpConnection {
@@ -54,10 +54,15 @@ impl AsyncTcpConnection {
 /// Async version of StoreProxy
 #[derive(Debug, Clone)]
 pub struct AsyncStoreProxy {
-    tcp_connection: Arc<Mutex<AsyncTcpConnection>>,
+    pub(crate) tcp_connection: Arc<Mutex<AsyncTcpConnection>>,
 }
 
 impl AsyncStoreProxy {
+    /// Create a new pipeline for batching commands
+    pub fn pipeline(&self) -> crate::data::pipeline::AsyncPipeline {
+        crate::data::pipeline::AsyncPipeline::new(self)
+    }
+
     /// Connect to TCP server
     pub async fn connect(address: &str) -> Result<Self> {
         // Connect to TCP server
@@ -246,7 +251,7 @@ impl AsyncStoreProxy {
     }
     
     /// Helper method to convert FieldSchema<String> to FieldSchema<FieldType>
-    async fn convert_field_schema_from_string(&self, schema: FieldSchema<String>) -> Result<FieldSchema<FieldType>> {
+    pub(crate) async fn convert_field_schema_from_string(&self, schema: FieldSchema<String>) -> Result<FieldSchema<FieldType>> {
         Ok(match schema {
             FieldSchema::Blob { field_type, default_value, rank, storage_scope } => FieldSchema::Blob {
                 field_type: self.get_field_type(&field_type).await?,

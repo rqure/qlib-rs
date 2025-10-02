@@ -18,6 +18,7 @@ mod store_trait;
 mod value;
 mod cache;
 mod utils;
+pub mod pipeline;
 
 pub use entity_id::EntityId;
 pub use entity_schema::{EntitySchema, Single, Complete};
@@ -38,6 +39,7 @@ pub use async_store_proxy::AsyncStoreProxy;
 pub use value::Value;
 pub use notifications::{NotifyConfig, Notification, NotificationQueue, NotifyInfo, hash_notify_config};
 pub use interner::Interner;
+pub use pipeline::{Pipeline, AsyncPipeline, PipelineResults, FromDecodedResponse};
 
 pub use utils::{from_base64, to_base64};
 

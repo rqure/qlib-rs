@@ -27,7 +27,7 @@ pub struct TcpConnection {
     stream: mio::net::TcpStream,
     poll: Poll,
     token: Token,
-    read_buffer: Vec<u8>,
+    pub(crate) read_buffer: Vec<u8>,
 }
 
 impl TcpConnection {
@@ -89,10 +89,15 @@ impl TcpConnection {
 
 #[derive(Debug)]
 pub struct StoreProxy {
-    tcp_connection: RefCell<TcpConnection>,
+    pub(crate) tcp_connection: RefCell<TcpConnection>,
 }
 
 impl StoreProxy {
+    /// Create a new pipeline for batching commands
+    pub fn pipeline(&self) -> crate::data::pipeline::Pipeline {
+        crate::data::pipeline::Pipeline::new(self)
+    }
+
     /// Connect to TCP server
     pub fn connect(address: &str) -> Result<Self> {
         // Connect to TCP server
