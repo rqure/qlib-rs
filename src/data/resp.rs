@@ -1173,7 +1173,7 @@ impl RespDecode<'_> for usize {
 // ============================================================================
 
 /// Read command for reading field values
-#[respc(name = "READ")]
+#[respc(name = "GET")]
 #[derive(Debug, Clone)]
 pub struct ReadCommand<'a> {
     pub entity_id: EntityId,
@@ -1182,7 +1182,7 @@ pub struct ReadCommand<'a> {
 }
 
 /// Write command for writing field values
-#[respc(name = "WRITE")]
+#[respc(name = "SET")]
 #[derive(Debug, Clone)]
 pub struct WriteCommand<'a> {
     pub entity_id: EntityId,
@@ -1196,7 +1196,7 @@ pub struct WriteCommand<'a> {
 }
 
 /// Create entity command
-#[respc(name = "CREATE_ENTITY")]
+#[respc(name = "CREATE")]
 #[derive(Debug, Clone)]
 pub struct CreateEntityCommand<'a> {
     pub entity_type: EntityType,
@@ -1206,7 +1206,7 @@ pub struct CreateEntityCommand<'a> {
 }
 
 /// Delete entity command
-#[respc(name = "DELETE_ENTITY")]
+#[respc(name = "DEL")]
 #[derive(Debug, Clone)]
 pub struct DeleteEntityCommand<'a> {
     pub entity_id: EntityId,
@@ -1214,7 +1214,7 @@ pub struct DeleteEntityCommand<'a> {
 }
 
 /// Get entity type by name command
-#[respc(name = "GET_ENTITY_TYPE")]
+#[respc(name = "GETTYPE")]
 #[derive(Debug, Clone)]
 pub struct GetEntityTypeCommand<'a> {
     pub name: String,
@@ -1222,7 +1222,7 @@ pub struct GetEntityTypeCommand<'a> {
 }
 
 /// Resolve entity type to name command
-#[respc(name = "RESOLVE_ENTITY_TYPE")]
+#[respc(name = "RESTYPE")]
 #[derive(Debug, Clone)]
 pub struct ResolveEntityTypeCommand<'a> {
     pub entity_type: EntityType,
@@ -1230,7 +1230,7 @@ pub struct ResolveEntityTypeCommand<'a> {
 }
 
 /// Get field type by name command
-#[respc(name = "GET_FIELD_TYPE")]
+#[respc(name = "GETFLD")]
 #[derive(Debug, Clone)]
 pub struct GetFieldTypeCommand<'a> {
     pub name: String,
@@ -1238,7 +1238,7 @@ pub struct GetFieldTypeCommand<'a> {
 }
 
 /// Resolve field type to name command
-#[respc(name = "RESOLVE_FIELD_TYPE")]
+#[respc(name = "RESFLD")]
 #[derive(Debug, Clone)]
 pub struct ResolveFieldTypeCommand<'a> {
     pub field_type: FieldType,
@@ -1246,14 +1246,14 @@ pub struct ResolveFieldTypeCommand<'a> {
 }
 
 /// Get entity schema command
-#[respc(name = "GET_ENTITY_SCHEMA")]
+#[respc(name = "GETSCH")]
 #[derive(Debug, Clone)]
 pub struct GetEntitySchemaCommand<'a> {
     pub entity_type: EntityType,
     pub _marker: std::marker::PhantomData<&'a ()>,
 }
 
-#[respc(name = "UPDATE_SCHEMA")]
+#[respc(name = "SETSCH")]
 #[derive(Debug, Clone)]
 pub struct UpdateSchemaCommand<'a> {
     pub schema: EntitySchemaResp,
@@ -1261,7 +1261,7 @@ pub struct UpdateSchemaCommand<'a> {
 }
 
 /// Get field schema command
-#[respc(name = "GET_FIELD_SCHEMA")]
+#[respc(name = "GETFSCH")]
 #[derive(Debug, Clone)]
 pub struct GetFieldSchemaCommand<'a> {
     pub entity_type: EntityType,
@@ -1270,7 +1270,7 @@ pub struct GetFieldSchemaCommand<'a> {
 }
 
 /// Set field schema command
-#[respc(name = "SET_FIELD_SCHEMA")]
+#[respc(name = "SETFSCH")]
 #[derive(Debug, Clone)]
 pub struct SetFieldSchemaCommand<'a> {
     pub entity_type: EntityType,
@@ -1280,7 +1280,7 @@ pub struct SetFieldSchemaCommand<'a> {
 }
 
 /// Entity exists check command
-#[respc(name = "ENTITY_EXISTS")]
+#[respc(name = "EXISTS")]
 #[derive(Debug, Clone)]
 pub struct EntityExistsCommand<'a> {
     pub entity_id: EntityId,
@@ -1288,7 +1288,7 @@ pub struct EntityExistsCommand<'a> {
 }
 
 /// Field exists check command
-#[respc(name = "FIELD_EXISTS")]
+#[respc(name = "FEXISTS")]
 #[derive(Debug, Clone)]
 pub struct FieldExistsCommand<'a> {
     pub entity_type: EntityType,
@@ -1297,7 +1297,7 @@ pub struct FieldExistsCommand<'a> {
 }
 
 /// Resolve indirection command
-#[respc(name = "RESOLVE_INDIRECTION")]
+#[respc(name = "RESOLVE")]
 #[derive(Debug, Clone)]
 pub struct ResolveIndirectionCommand<'a> {
     pub entity_id: EntityId,
@@ -1306,7 +1306,7 @@ pub struct ResolveIndirectionCommand<'a> {
 }
 
 /// Find entities with pagination command
-#[respc(name = "FIND_ENTITIES_PAGINATED")]
+#[respc(name = "FINDPAG")]
 #[derive(Debug, Clone)]
 pub struct FindEntitiesPaginatedCommand<'a> {
     pub entity_type: EntityType,
@@ -1316,7 +1316,7 @@ pub struct FindEntitiesPaginatedCommand<'a> {
 }
 
 /// Find entities exactly (no inheritance) with pagination command
-#[respc(name = "FIND_ENTITIES_EXACT")]
+#[respc(name = "FINDEX")]
 #[derive(Debug, Clone)]
 pub struct FindEntitiesExactCommand<'a> {
     pub entity_type: EntityType,
@@ -1326,7 +1326,7 @@ pub struct FindEntitiesExactCommand<'a> {
 }
 
 /// Find all entities command
-#[respc(name = "FIND_ENTITIES")]
+#[respc(name = "FIND")]
 #[derive(Debug, Clone)]
 pub struct FindEntitiesCommand<'a> {
     pub entity_type: EntityType,
@@ -1335,14 +1335,14 @@ pub struct FindEntitiesCommand<'a> {
 }
 
 /// Get all entity types command
-#[respc(name = "GET_ENTITY_TYPES")]
+#[respc(name = "TYPES")]
 #[derive(Debug, Clone)]
 pub struct GetEntityTypesCommand<'a> {
     pub _marker: std::marker::PhantomData<&'a ()>,
 }
 
 /// Get entity types with pagination command
-#[respc(name = "GET_ENTITY_TYPES_PAGINATED")]
+#[respc(name = "TYPEPAG")]
 #[derive(Debug, Clone)]
 pub struct GetEntityTypesPaginatedCommand<'a> {
     pub page_opts: Option<crate::data::PageOpts>,
@@ -1350,14 +1350,14 @@ pub struct GetEntityTypesPaginatedCommand<'a> {
 }
 
 /// Take snapshot command
-#[respc(name = "TAKE_SNAPSHOT")]
+#[respc(name = "SNAP")]
 #[derive(Debug, Clone)]
 pub struct TakeSnapshotCommand<'a> {
     pub _marker: std::marker::PhantomData<&'a ()>,
 }
 
 /// Register notification command
-#[respc(name = "REGISTER_NOTIFICATION")]
+#[respc(name = "NOTIFY")]
 #[derive(Debug, Clone)]
 pub struct RegisterNotificationCommand<'a> {
     pub config: crate::NotifyConfig,
@@ -1365,7 +1365,7 @@ pub struct RegisterNotificationCommand<'a> {
 }
 
 /// Unregister notification command
-#[respc(name = "UNREGISTER_NOTIFICATION")]
+#[respc(name = "UNNOTIFY")]
 #[derive(Debug, Clone)]
 pub struct UnregisterNotificationCommand<'a> {
     pub config: crate::NotifyConfig,
@@ -1469,7 +1469,7 @@ pub struct PageResultResponse<T> {
 // ============================================================================
 
 /// Peer handshake command
-#[respc(name = "PEER_HANDSHAKE")]
+#[respc(name = "HANDSHAKE")]
 #[derive(Debug, Clone)]
 pub struct PeerHandshakeCommand<'a> {
     pub start_time: u64,
@@ -1479,14 +1479,14 @@ pub struct PeerHandshakeCommand<'a> {
 }
 
 /// Full sync request command
-#[respc(name = "FULL_SYNC_REQUEST")]
+#[respc(name = "FSYNCREQ")]
 #[derive(Debug, Clone)]
 pub struct FullSyncRequestCommand<'a> {
     pub _marker: std::marker::PhantomData<&'a ()>,
 }
 
 /// Full sync response command
-#[respc(name = "FULL_SYNC_RESPONSE")]
+#[respc(name = "FSYNCRESP")]
 #[derive(Debug, Clone)]
 pub struct FullSyncResponseCommand<'a> {
     pub snapshot_data: String, // JSON-serialized snapshot
@@ -1494,7 +1494,7 @@ pub struct FullSyncResponseCommand<'a> {
 }
 
 /// Sync write command
-#[respc(name = "SYNC_WRITE")]
+#[respc(name = "SYNCSET")]
 #[derive(Debug, Clone)]
 pub struct SyncWriteCommand<'a> {
     pub requests_data: String, // JSON-serialized requests
@@ -1502,7 +1502,7 @@ pub struct SyncWriteCommand<'a> {
 }
 
 /// Notification message command
-#[respc(name = "NOTIFICATION")]
+#[respc(name = "EVENT")]
 #[derive(Debug, Clone)]
 pub struct NotificationCommand<'a> {
     pub notification_data: String, // JSON-serialized notification
