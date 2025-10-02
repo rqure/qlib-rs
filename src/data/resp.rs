@@ -1357,7 +1357,7 @@ pub struct TakeSnapshotCommand<'a> {
 }
 
 /// Register notification command
-#[respc(name = "NOTIFY")]
+#[respc(name = "LISTEN")]
 #[derive(Debug, Clone)]
 pub struct RegisterNotificationCommand<'a> {
     pub config: crate::NotifyConfig,
@@ -1365,7 +1365,7 @@ pub struct RegisterNotificationCommand<'a> {
 }
 
 /// Unregister notification command
-#[respc(name = "UNNOTIFY")]
+#[respc(name = "UNLISTEN")]
 #[derive(Debug, Clone)]
 pub struct UnregisterNotificationCommand<'a> {
     pub config: crate::NotifyConfig,
@@ -1502,7 +1502,7 @@ pub struct SyncWriteCommand<'a> {
 }
 
 /// Notification message command
-#[respc(name = "EVENT")]
+#[respc(name = "NOTIFY")]
 #[derive(Debug, Clone)]
 pub struct NotificationCommand<'a> {
     pub notification_data: String, // JSON-serialized notification
