@@ -12,6 +12,7 @@ mod pagination;
 pub mod resp;
 mod snapshots;
 mod store_proxy;
+mod async_store_proxy;
 mod store;
 mod store_trait;
 mod value;
@@ -33,6 +34,7 @@ pub use json_snapshot::{JsonSnapshot, JsonEntitySchema, JsonEntity, value_to_jso
 pub use cache::Cache;
 
 pub use store_proxy::StoreProxy;
+pub use async_store_proxy::AsyncStoreProxy;
 pub use value::Value;
 pub use notifications::{NotifyConfig, Notification, NotificationQueue, NotifyInfo, hash_notify_config};
 pub use interner::Interner;
