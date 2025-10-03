@@ -4,8 +4,9 @@ use std::time::Duration;
 
 use crossbeam::channel::Sender;
 use mio::{Events, Interest, Poll, Token};
+use ahash::AHashMap;
 
-use crate::data::resp::{BooleanResponse, CreateEntityCommand, CreateEntityResponse, DeleteEntityCommand, EntityExistsCommand, EntityListResponse, EntityTypeListResponse, FieldExistsCommand, FieldSchemaResponse, FindEntitiesCommand, FindEntitiesExactCommand, FindEntitiesPaginatedCommand, GetEntitySchemaCommand, GetEntityTypeCommand, GetEntityTypesCommand, GetEntityTypesPaginatedCommand, GetFieldSchemaCommand, GetFieldTypeCommand, IntegerResponse, PaginatedEntityResponse, PaginatedEntityTypeResponse, ReadCommand, ReadResponse, RegisterNotificationCommand, ResolveEntityTypeCommand, ResolveFieldTypeCommand, ResolveIndirectionCommand, ResolveIndirectionResponse, RespCommand, RespDecode, RespFromBytes, RespToBytes, RespValue, SetFieldSchemaCommand, SnapshotResponse, StringResponse, TakeSnapshotCommand, UnregisterNotificationCommand, UpdateSchemaCommand, WriteCommand};
+use crate::data::resp::{BooleanResponse, CreateEntityCommand, CreateEntityResponse, DeleteEntityCommand, EntityExistsCommand, EntityListResponse, EntityTypeListResponse, FieldExistsCommand, FieldSchemaResponse, FindEntitiesCommand, FindEntitiesExactCommand, FindEntitiesPaginatedCommand, GetEntitySchemaCommand, GetEntityTypeCommand, GetEntityTypesCommand, GetEntityTypesPaginatedCommand, GetFieldSchemaCommand, GetFieldTypeCommand, IntegerResponse, NotificationCommand, PaginatedEntityResponse, PaginatedEntityTypeResponse, ReadCommand, ReadResponse, RegisterNotificationCommand, ResolveEntityTypeCommand, ResolveFieldTypeCommand, ResolveIndirectionCommand, ResolveIndirectionResponse, RespCommand, RespDecode, RespFromBytes, RespToBytes, RespValue, SetFieldSchemaCommand, SnapshotResponse, StringResponse, TakeSnapshotCommand, UnregisterNotificationCommand, UpdateSchemaCommand, WriteCommand};
 use crate::{
     AdjustBehavior, Complete, EntityId, EntitySchema, EntitySchemaResp, EntityType, Error, FieldSchema, FieldType, Notification, NotifyConfig, PageOpts, PageResult, PushCondition, Result, Single, Timestamp, Value
 };
@@ -91,6 +92,8 @@ impl TcpConnection {
 #[derive(Debug)]
 pub struct StoreProxy {
     pub(crate) tcp_connection: RefCell<TcpConnection>,
+    /// Mapping from config_hash to (NotifyConfig, list of notification senders)
+    notification_senders: RefCell<AHashMap<u64, (NotifyConfig, Vec<Sender<Notification>>)>>,
 }
 
 impl StoreProxy {
@@ -118,6 +121,7 @@ impl StoreProxy {
 
         Ok(StoreProxy {
             tcp_connection: RefCell::new(tcp_connection),
+            notification_senders: RefCell::new(AHashMap::new()),
         })
     }
 
@@ -138,11 +142,21 @@ impl StoreProxy {
                 let conn = self.tcp_connection.borrow();
                 match RespValue::from_bytes(&conn.read_buffer) {
                     Ok((resp_value, remaining)) => {
-                        // Decode while we have the resp_value
-                        let response_struct = R::decode(resp_value)
-                            .map_err(|e| Error::StoreProxyError(format!("Failed to decode structured response: {}", e)))?;
-                        let consumed = conn.read_buffer.len() - remaining.len();
-                        Ok(Some((consumed, response_struct)))
+                        match R::decode(resp_value.clone()) {
+                            Ok(response_struct) => {
+                                let consumed = conn.read_buffer.len() - remaining.len();
+                                Ok(Some((consumed, Some(response_struct))))
+                            }
+                            Err(e) => {
+                                if let Ok(notification) = NotificationCommand::decode(resp_value.clone()) {
+                                    let consumed = conn.read_buffer.len() - remaining.len();
+                                    self.handle_notification(notification);
+                                    Ok(Some((consumed, None)))
+                                } else {
+                                    Err(Error::StoreProxyError(format!("Failed to decode response: {}", e)))
+                                }
+                            },
+                        }
                     }
                     Err(_) => Ok(None)
                 }
@@ -151,7 +165,13 @@ impl StoreProxy {
             if let Some((consumed, response_struct)) = consumed_opt {
                 // Remove only the consumed bytes, keeping the remaining unparsed data
                 self.tcp_connection.borrow_mut().read_buffer.drain(..consumed);
-                return Ok(response_struct);
+                if let Some(response_struct) = response_struct {
+                    return Ok(response_struct);
+                } else {
+                    // Continue loop to see if we can get the actual response
+                    // without having to read more data
+                    continue; 
+                }
             }
             
             // Need more data
@@ -530,6 +550,36 @@ impl StoreProxy {
 
 
 
+    /// Handle a notification command received from the server
+    fn handle_notification(&self, notification_cmd: NotificationCommand) {
+        // Deserialize the notification from JSON
+        let notification: Notification = match serde_json::from_str(&notification_cmd.notification_data) {
+            Ok(n) => n,
+            Err(e) => {
+                eprintln!("Failed to deserialize notification: {}", e);
+                return;
+            }
+        };
+
+        // Get the config_hash from the notification to find matching senders
+        let config_hash = notification.config_hash;
+        
+        // Send to all registered senders for this config
+        let senders = self.notification_senders.borrow();
+        if let Some((_config, sender_list)) = senders.get(&config_hash) {
+            for sender in sender_list {
+                // Ignore send errors (receiver might have been dropped)
+                let _ = sender.try_send(notification.clone());
+            }
+        }
+    }
+
+    /// Process notifications for up to some time
+    /// This checks if any notification commands were received from the server
+    pub fn process_notifications(&self) -> Result<()> {
+        Ok(())
+    }
+
     /// Register notification with provided sender
     /// Note: For proxy, this registers the notification on the remote server
     /// and stores the sender locally to forward notifications
@@ -538,29 +588,62 @@ impl StoreProxy {
         config: NotifyConfig,
         sender: Sender<Notification>,
     ) -> Result<()> {
+        // Calculate config hash
+        let config_hash = crate::data::notifications::hash_notify_config(&config);
+        
+        // Add sender to our local mapping
+        let mut senders = self.notification_senders.borrow_mut();
+        let entry = senders.entry(config_hash).or_insert_with(|| (config.clone(), Vec::new()));
+        entry.1.push(sender);
+        
         let command = RegisterNotificationCommand {
             config,
             _marker: std::marker::PhantomData,
         };
         
-        // Note: For proxy implementation, we only register on the server
-        // The sender is ignored since we can't forward notifications in this simple implementation
+        // Register on the server
         self.send_command_ok(&command)
     }
 
     /// Unregister a notification by removing a specific sender
-    /// Note: This will remove ALL notifications matching the config for proxy
-   pub fn unregister_notification(&self, target_config: &NotifyConfig, _sender: &Sender<Notification>) -> bool {
-        let command = UnregisterNotificationCommand {
-            config: target_config.clone(),
-            _marker: std::marker::PhantomData,
+    pub fn unregister_notification(&self, target_config: &NotifyConfig, sender: &Sender<Notification>) -> bool {
+        // Calculate config hash
+        let config_hash = crate::data::notifications::hash_notify_config(target_config);
+        
+        // Remove sender from our local mapping
+        let mut senders = self.notification_senders.borrow_mut();
+        let should_unregister_on_server = if let Some((_config, sender_list)) = senders.get_mut(&config_hash) {
+            // Remove this specific sender by comparing channel addresses
+            sender_list.retain(|s| !std::ptr::eq(s as *const _, sender as *const _));
+            
+            // If no more senders for this config, remove the config entry and unregister on server
+            if sender_list.is_empty() {
+                senders.remove(&config_hash);
+                true
+            } else {
+                false
+            }
+        } else {
+            // Config not found, nothing to do
+            false
         };
         
-        // Note: For proxy implementation, we only unregister on the server
-        // The sender is ignored since we can't manage specific senders in this simple implementation
-        match self.send_command_ok(&command) {
-            Ok(_) => true,
-            Err(_) => false,
+        // Drop the borrow before calling send_command_ok
+        drop(senders);
+        
+        // Only unregister on server if we removed the last sender for this config
+        if should_unregister_on_server {
+            let command = UnregisterNotificationCommand {
+                config: target_config.clone(),
+                _marker: std::marker::PhantomData,
+            };
+            
+            match self.send_command_ok(&command) {
+                Ok(_) => true,
+                Err(_) => false,
+            }
+        } else {
+            true
         }
     }
 
