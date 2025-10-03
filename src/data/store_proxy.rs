@@ -577,6 +577,53 @@ impl StoreProxy {
     /// Process notifications for up to some time
     /// This checks if any notification commands were received from the server
     pub fn process_notifications(&self) -> Result<()> {
+        loop {
+            // Try to parse and get the number of bytes consumed
+            let consumed_opt = {
+                let conn = self.tcp_connection.borrow();
+                match RespValue::from_bytes(&conn.read_buffer) {
+                    Ok((resp_value, remaining)) => {
+                        let consumed = conn.read_buffer.len() - remaining.len();
+                        match NotificationCommand::decode(resp_value) {
+                            Ok(response_struct) => {
+                                Ok(Some((consumed, Some(response_struct))))
+                            }
+                            Err(_) => {
+                                // This should not happen since we only expect notifications here
+                                // but if it does, ignore the message because it did not follow
+                                // the protocol
+                                Ok(Some((consumed, None)))
+                            },
+                        }
+                    }
+                    Err(_) => Ok(None)
+                }
+            }?;
+            
+            if let Some((consumed, response_struct)) = consumed_opt {
+                // Remove only the consumed bytes, keeping the remaining unparsed data
+                self.tcp_connection.borrow_mut().read_buffer.drain(..consumed);
+                if let Some(response_struct) = response_struct {
+                    self.handle_notification(response_struct);
+                    
+                    // Continue loop to see if we can get the more notifications
+                    // without having to read more data
+                    continue;
+                }
+            } else {
+                // Read more data
+                let readable = self.tcp_connection.borrow_mut()
+                    .wait_for_readable(Some(READ_POLL_INTERVAL))
+                    .map_err(|e| Error::StoreProxyError(format!("Poll error: {}", e)))?;
+                if readable {
+                    self.tcp_connection.borrow_mut().read_bytes()
+                        .map_err(|e| Error::StoreProxyError(format!("Failed to read bytes: {}", e)))?;
+                }
+                
+                break;
+            }
+        }
+
         Ok(())
     }
 
