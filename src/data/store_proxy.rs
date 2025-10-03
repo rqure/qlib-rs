@@ -660,8 +660,8 @@ impl StoreProxy {
         // Remove sender from our local mapping
         let mut senders = self.notification_senders.borrow_mut();
         let should_unregister_on_server = if let Some((_config, sender_list)) = senders.get_mut(&config_hash) {
-            // Remove this specific sender by comparing channel addresses
-            sender_list.retain(|s| !std::ptr::eq(s as *const _, sender as *const _));
+            // Remove this specific sender by comparing channels
+            sender_list.retain(|s| !s.same_channel(sender));
             
             // If no more senders for this config, remove the config entry and unregister on server
             if sender_list.is_empty() {
