@@ -6,7 +6,7 @@ use tokio::sync::Mutex;
 use crate::{
     Complete, EntityId, EntitySchema, EntityType, Error, FieldSchema, FieldType, PageOpts, PageResult, Result, Single, Value, Timestamp, PushCondition, AdjustBehavior
 };
-use crate::data::resp::{RespCommand, RespDecode, ReadCommand, WriteCommand, CreateEntityCommand, RespValue, RespToBytes, RespFromBytes};
+use crate::data::resp::{RespCommand, RespDecode, ReadCommand, WriteCommand, CreateEntityCommand, RespValue, RespToBytes, RespFromBytes, NotificationCommand};
 
 /// Expect an OK response from RESP
 fn expect_ok(resp_value: RespValue) -> Result<()> {
@@ -63,6 +63,12 @@ impl AsyncStoreProxy {
         crate::data::pipeline::AsyncPipeline::new(self)
     }
 
+    /// Handle a notification command received from the server
+    pub(crate) fn handle_notification(&self, _notification_cmd: NotificationCommand) {
+        // TODO: Implement notification handling for async proxy
+        // For now, notifications are ignored in async mode
+    }
+
     /// Connect to TCP server
     pub async fn connect(address: &str) -> Result<Self> {
         // Connect to TCP server
@@ -99,11 +105,19 @@ impl AsyncStoreProxy {
             // Try to parse and get the number of bytes consumed
             let consumed_opt = match RespValue::from_bytes(&conn.read_buffer) {
                 Ok((resp_value, remaining)) => {
-                    // Decode while we have the resp_value
-                    let response_struct = R::decode(resp_value)
-                        .map_err(|e| Error::StoreProxyError(format!("Failed to decode structured response: {}", e)))?;
                     let consumed = conn.read_buffer.len() - remaining.len();
-                    Some((consumed, response_struct))
+                    match R::decode(resp_value.clone()) {
+                        Ok(response_struct) => Some((consumed, Some(response_struct))),
+                        Err(_) => {
+                            // Try to decode as notification
+                            if let Ok(notification) = NotificationCommand::decode(resp_value.clone()) {
+                                self.handle_notification(notification);
+                                Some((consumed, None))
+                            } else {
+                                return Err(Error::StoreProxyError(format!("Failed to decode response or notification")));
+                            }
+                        }
+                    }
                 }
                 Err(_) => None
             };
@@ -111,7 +125,12 @@ impl AsyncStoreProxy {
             if let Some((consumed, response_struct)) = consumed_opt {
                 // Remove only the consumed bytes, keeping the remaining unparsed data
                 conn.read_buffer.drain(..consumed);
-                return Ok(response_struct);
+                if let Some(response_struct) = response_struct {
+                    return Ok(response_struct);
+                } else {
+                    // Continue loop to get the actual response
+                    continue;
+                }
             }
             
             // Need more data

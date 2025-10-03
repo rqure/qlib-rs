@@ -54,12 +54,14 @@
 use crate::{
     EntityId, EntitySchema, EntityType, Error, FieldSchema, FieldType, PageResult, Result, Single, Value, Timestamp, PushCondition, AdjustBehavior
 };
+use std::time::Duration;
 use crate::data::resp::{
     RespCommand, RespDecode, RespValue, RespToBytes, RespFromBytes,
     ReadCommand, WriteCommand, CreateEntityCommand, DeleteEntityCommand,
     GetEntityTypeCommand, ResolveEntityTypeCommand, GetFieldTypeCommand, ResolveFieldTypeCommand,
     EntityExistsCommand, FieldExistsCommand,
     FindEntitiesCommand, GetEntityTypesCommand,
+    NotificationCommand,
 };
 
 /// A queued command in the pipeline
@@ -500,28 +502,60 @@ impl<'a> Pipeline<'a> {
         conn.send_bytes(&all_bytes)
             .map_err(|e| Error::StoreProxyError(format!("Failed to send pipeline commands: {}", e)))?;
 
-        // Receive all responses
+        // Receive all responses, handling notifications
         let mut responses = Vec::new();
-        for cmd in &self.commands {
-            loop {
-                // Try to parse response
-                match RespValue::from_bytes(&conn.read_buffer) {
+        let mut command_index = 0;
+        loop {
+            // Try to parse response
+            let consumed_opt = {
+                let conn_ref = &conn;
+                match RespValue::from_bytes(&conn_ref.read_buffer) {
                     Ok((resp_value, remaining)) => {
-                        let consumed = conn.read_buffer.len() - remaining.len();
-                        let decoded = self.decode_response(resp_value, &cmd.response_type)?;
-                        responses.push(decoded);
-                        conn.read_buffer.drain(..consumed);
-                        break;
-                    }
-                    Err(_) => {
-                        // Need more data
-                        if !conn.wait_for_readable(Some(std::time::Duration::from_millis(100)))
-                            .map_err(|e| Error::StoreProxyError(format!("Failed to wait for readable: {}", e)))? {
-                            return Err(Error::StoreProxyError("Timeout waiting for pipeline response".to_string()));
+                        let consumed = conn_ref.read_buffer.len() - remaining.len();
+                        if command_index < self.commands.len() {
+                            let cmd = &self.commands[command_index];
+                            match self.decode_response(resp_value.clone(), &cmd.response_type) {
+                                Ok(decoded) => {
+                                    responses.push(decoded);
+                                    command_index += 1;
+                                    Some((consumed, true))
+                                }
+                                Err(_) => {
+                                    // Try as notification
+                                    if let Ok(notification) = NotificationCommand::decode(resp_value.clone()) {
+                                        self.proxy.handle_notification(notification);
+                                        Some((consumed, false))
+                                    } else {
+                                        return Err(Error::StoreProxyError(format!("Failed to decode response or notification")));
+                                    }
+                                }
+                            }
+                        } else {
+                            // Extra response, try as notification
+                            if let Ok(notification) = NotificationCommand::decode(resp_value.clone()) {
+                                self.proxy.handle_notification(notification);
+                                Some((consumed, false))
+                            } else {
+                                return Err(Error::StoreProxyError("Unexpected extra response".to_string()));
+                            }
                         }
-                        conn.read_bytes()
-                            .map_err(|e| Error::StoreProxyError(format!("Failed to read pipeline response: {}", e)))?;
                     }
+                    Err(_) => None
+                }
+            };
+
+            if let Some((consumed, _is_response)) = consumed_opt {
+                conn.read_buffer.drain(..consumed);
+                if command_index >= self.commands.len() {
+                    break;
+                }
+            } else {
+                // Need more data
+                let readable = conn.wait_for_readable(Some(Duration::from_millis(10)))
+                    .map_err(|e| Error::StoreProxyError(format!("Poll error: {}", e)))?;
+                if readable {
+                    conn.read_bytes()
+                        .map_err(|e| Error::StoreProxyError(format!("Failed to read bytes: {}", e)))?;
                 }
             }
         }
@@ -855,26 +889,55 @@ impl<'a> AsyncPipeline<'a> {
             .await
             .map_err(|e| Error::StoreProxyError(format!("Failed to send pipeline commands: {}", e)))?;
 
-        // Receive all responses
+        // Receive all responses, handling notifications
         let mut responses = Vec::new();
-        for cmd in &self.commands {
-            loop {
-                // Try to parse response
-                match RespValue::from_bytes(&conn.read_buffer) {
-                    Ok((resp_value, remaining)) => {
-                        let consumed = conn.read_buffer.len() - remaining.len();
-                        let decoded = self.decode_response(resp_value, &cmd.response_type).await?;
-                        responses.push(decoded);
-                        conn.read_buffer.drain(..consumed);
-                        break;
-                    }
-                    Err(_) => {
-                        // Need more data
-                        conn.read_bytes()
-                            .await
-                            .map_err(|e| Error::StoreProxyError(format!("Failed to read pipeline response: {}", e)))?;
+        let mut command_index = 0;
+        loop {
+            // Try to parse response
+            let consumed_opt = match RespValue::from_bytes(&conn.read_buffer) {
+                Ok((resp_value, remaining)) => {
+                    let consumed = conn.read_buffer.len() - remaining.len();
+                    if command_index < self.commands.len() {
+                        let cmd = &self.commands[command_index];
+                        match self.decode_response(resp_value.clone(), &cmd.response_type).await {
+                            Ok(decoded) => {
+                                responses.push(decoded);
+                                command_index += 1;
+                                Some((consumed, true))
+                            }
+                            Err(_) => {
+                                // Try as notification
+                                if let Ok(notification) = NotificationCommand::decode(resp_value.clone()) {
+                                    self.proxy.handle_notification(notification);
+                                    Some((consumed, false))
+                                } else {
+                                    return Err(Error::StoreProxyError(format!("Failed to decode response or notification")));
+                                }
+                            }
+                        }
+                    } else {
+                        // Extra response, try as notification
+                        if let Ok(notification) = NotificationCommand::decode(resp_value.clone()) {
+                            self.proxy.handle_notification(notification);
+                            Some((consumed, false))
+                        } else {
+                            return Err(Error::StoreProxyError("Unexpected extra response".to_string()));
+                        }
                     }
                 }
+                Err(_) => None
+            };
+
+            if let Some((consumed, _is_response)) = consumed_opt {
+                conn.read_buffer.drain(..consumed);
+                if command_index >= self.commands.len() {
+                    break;
+                }
+            } else {
+                // Need more data
+                conn.read_bytes()
+                    .await
+                    .map_err(|e| Error::StoreProxyError(format!("Failed to read pipeline response: {}", e)))?;
             }
         }
 
