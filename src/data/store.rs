@@ -206,6 +206,16 @@ impl Store {
             }
         }
 
+        if let Some(created_entity_id) = created_entity_id {
+            self.write_queue.push_back(WriteInfo::CreateEntity {
+                entity_type,
+                parent_id,
+                name: name.to_string(),
+                created_entity_id: *created_entity_id,
+                timestamp: now(),
+            });
+        }
+
         Ok(())
     }
 
@@ -1665,14 +1675,6 @@ impl StoreTrait for Store {
         let mut created_entity_id = None;
         self.create_entity_with_id(entity_type, parent_id, &mut created_entity_id, name)?;
         let created_entity_id = created_entity_id.ok_or_else(|| Error::InvalidRequest("Failed to create entity".to_string()))?;
-
-        self.write_queue.push_back(WriteInfo::CreateEntity {
-            entity_type,
-            parent_id,
-            name: name.to_string(),
-            created_entity_id,
-            timestamp: now(),
-        });
 
         Ok(created_entity_id)
     }
