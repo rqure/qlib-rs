@@ -199,22 +199,34 @@ impl StoreProxy {
 
         loop {
             // Try to parse and get the number of bytes consumed
-            let result_opt = {
+            let consumed_opt = {
                 let conn = self.tcp_connection.borrow();
                 match RespValue::from_bytes(&conn.read_buffer) {
                     Ok((resp_value, remaining)) => {
                         let consumed = conn.read_buffer.len() - remaining.len();
-                        let result = expect_ok(resp_value);
-                        Some((consumed, result))
+                        // First, try to decode as notification
+                        if let Ok(notification) = NotificationCommand::decode(resp_value.clone()) {
+                            self.handle_notification(notification);
+                            Ok(Some((consumed, None))) // None means notification handled, continue
+                        } else {
+                            // Not a notification, check if OK
+                            let result = expect_ok(resp_value);
+                            Ok(Some((consumed, Some(result))))
+                        }
                     }
-                    Err(_) => None
+                    Err(_) => Ok(None)
                 }
-            };
+            }?;
             
-            if let Some((consumed, result)) = result_opt {
+            if let Some((consumed, maybe_result)) = consumed_opt {
                 // Remove only the consumed bytes, keeping the remaining unparsed data
                 self.tcp_connection.borrow_mut().read_buffer.drain(..consumed);
-                return result;
+                if let Some(result) = maybe_result {
+                    return result;
+                } else {
+                    // Notification handled, continue loop
+                    continue;
+                }
             }
             
             // Need more data
