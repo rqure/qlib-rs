@@ -173,10 +173,14 @@ pub fn derive_resp_decode(input: TokenStream) -> TokenStream {
                         let field_name = &field.ident;
                         let field_index = i * 2 + 1; // Skip field name, get value
                         quote! {
-                            let #field_name = if elements.len() > command_offset + #field_index {
-                                <_ as crate::data::resp::RespDecode>::decode(elements[command_offset + #field_index].clone())?
+                            let #field_name = if let crate::data::resp::RespValue::BulkString(key) = &elements[#field_index - 1] {
+                                if key == &stringify!(#field_name).as_bytes().to_vec() {
+                                    <_ as crate::data::resp::RespDecode>::decode(elements[#field_index].clone())?
+                                } else {
+                                    return Err(crate::Error::InvalidRequest(format!("Expected field '{}', got '{}'", stringify!(#field_name), String::from_utf8_lossy(key))));
+                                }
                             } else {
-                                return Err(crate::Error::InvalidRequest(format!("Missing field {}", stringify!(#field_name))));
+                                return Err(crate::Error::InvalidRequest("Expected bulk string for field name".to_string()));
                             };
                         }
                     }).collect();
@@ -194,16 +198,10 @@ pub fn derive_resp_decode(input: TokenStream) -> TokenStream {
                     quote! {
                         match input {
                             crate::data::resp::RespValue::Array(elements) => {
-                                let command_offset = if elements.len() == (#field_count_lit * 2 + 1)
-                                    && matches!(elements.first(), Some(crate::data::resp::RespValue::BulkString(_)))
-                                {
-                                    1usize
-                                } else {
-                                    0usize
-                                };
-                                if elements.len() < command_offset + (#field_count_lit * 2) {
+                                if elements.len() != #field_count_lit * 2 {
                                     return Err(crate::Error::InvalidRequest(format!(
-                                        "Not enough elements for struct {}", stringify!(#name)
+                                        "Expected exactly {} elements for struct {}, got {}",
+                                        #field_count_lit * 2, stringify!(#name), elements.len()
                                     )));
                                 }
                                 #(#field_decodes)*
@@ -474,9 +472,10 @@ pub fn respc(args: TokenStream, input: TokenStream) -> TokenStream {
                                     _ => return Err(crate::Error::InvalidRequest("Expected command name as first element".to_string())),
                                 }
                                 
-                                if elements.len() < 1 + #field_count_lit {
+                                if elements.len() != 1 + #field_count_lit {
                                     return Err(crate::Error::InvalidRequest(format!(
-                                        "Not enough elements for command {}", stringify!(#name)
+                                        "Expected exactly {} elements for command {}, got {}",
+                                        1 + #field_count_lit, stringify!(#name), elements.len()
                                     )));
                                 }
                                 #(#field_decodes)*
@@ -491,6 +490,9 @@ pub fn respc(args: TokenStream, input: TokenStream) -> TokenStream {
                         .enumerate()
                         .filter(|(_, field)| !is_phantom_data(&field.ty))
                         .collect();
+                    
+                    let field_count = non_phantom_fields.len();
+                    let field_count_lit = syn::LitInt::new(&field_count.to_string(), proc_macro2::Span::call_site());
                     
                     let field_decodes: Vec<_> = non_phantom_fields.iter().map(|(i, _)| {
                         let field_name = format_ident!("field_{}", i);
@@ -539,6 +541,13 @@ pub fn respc(args: TokenStream, input: TokenStream) -> TokenStream {
                                     _ => return Err(crate::Error::InvalidRequest("Expected command name as first element".to_string())),
                                 }
                                 
+                                if elements.len() != 1 + #field_count_lit {
+                                    return Err(crate::Error::InvalidRequest(format!(
+                                        "Expected exactly {} elements for command {}, got {}",
+                                        1 + #field_count_lit, stringify!(#name), elements.len()
+                                    )));
+                                }
+                                
                                 #(#field_decodes)*
                                 Ok(Self(#(#field_assignments),*))
                             }
@@ -571,6 +580,13 @@ pub fn respc(args: TokenStream, input: TokenStream) -> TokenStream {
                                         }
                                     }
                                     _ => return Err(crate::Error::InvalidRequest("Expected command name as first element".to_string())),
+                                }
+                                
+                                if elements.len() != 1 {
+                                    return Err(crate::Error::InvalidRequest(format!(
+                                        "Expected exactly 1 element for command {}, got {}",
+                                        stringify!(#name), elements.len()
+                                    )));
                                 }
                                 
                                 Ok(Self)
