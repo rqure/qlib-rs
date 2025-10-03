@@ -33,7 +33,7 @@ pub struct NotifyInfo {
     pub writer_id: Option<EntityId>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct Notification {
     pub current: NotifyInfo,   // Current field value and metadata
     pub previous: NotifyInfo,  // Previous field value and metadata
@@ -64,4 +64,74 @@ pub fn hash_notify_config(config: &NotifyConfig) -> u64 {
     let mut hasher = DefaultHasher::new();
     config.hash(&mut hasher);
     hasher.finish()
+}
+
+// Custom serialization for Notification to handle Vec<FieldType> keys
+impl Serialize for Notification {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+
+        let mut state = serializer.serialize_struct("Notification", 4)?;
+        state.serialize_field("current", &self.current)?;
+        state.serialize_field("previous", &self.previous)?;
+        state.serialize_field("config_hash", &self.config_hash)?;
+
+        // Convert context map with Vec<FieldType> keys to string keys
+        let context_map: std::collections::BTreeMap<String, &NotifyInfo> = self
+            .context
+            .iter()
+            .map(|(key, value)| {
+                let key_str = key
+                    .iter()
+                    .map(|ft| ft.0.to_string())
+                    .collect::<Vec<String>>()
+                    .join(",");
+                (key_str, value)
+            })
+            .collect();
+
+        state.serialize_field("context", &context_map)?;
+        state.end()
+    }
+}
+
+// Custom deserialization for Notification
+impl<'de> Deserialize<'de> for Notification {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        struct NotificationHelper {
+            current: NotifyInfo,
+            previous: NotifyInfo,
+            context: std::collections::BTreeMap<String, NotifyInfo>,
+            config_hash: u64,
+        }
+
+        let helper = NotificationHelper::deserialize(deserializer)?;
+
+        // Convert string keys back to Vec<FieldType>
+        let context: BTreeMap<Vec<FieldType>, NotifyInfo> = helper
+            .context
+            .into_iter()
+            .map(|(key_str, value)| {
+                let field_types: Vec<FieldType> = key_str
+                    .split(',')
+                    .map(|s| s.parse::<u64>().map(FieldType).unwrap_or(FieldType(0)))
+                    .collect();
+                (field_types, value)
+            })
+            .collect();
+
+        Ok(Notification {
+            current: helper.current,
+            previous: helper.previous,
+            context,
+            config_hash: helper.config_hash,
+        })
+    }
 }
