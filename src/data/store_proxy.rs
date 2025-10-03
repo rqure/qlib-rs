@@ -715,29 +715,4 @@ impl StoreTrait for StoreProxy {
     fn get_entity_types_paginated(&self, page_opts: Option<&PageOpts>) -> Result<PageResult<EntityType>> {
         self.get_entity_types_paginated(page_opts)
     }
-
-    fn register_notification(&mut self, config: crate::NotifyConfig, _sender: crate::NotificationQueue) -> Result<()> {
-        let command = crate::data::resp::RegisterNotificationCommand {
-            config,
-            _marker: std::marker::PhantomData,
-        };
-        
-        // Note: For proxy implementation, we only register on the server
-        // The sender is ignored since we can't forward notifications in this simple implementation
-        self.send_command_ok(&command)
-    }
-
-    fn unregister_notification(&mut self, target_config: &crate::NotifyConfig, _sender: &crate::NotificationQueue) -> bool {
-        let command = crate::data::resp::UnregisterNotificationCommand {
-            config: target_config.clone(),
-            _marker: std::marker::PhantomData,
-        };
-        
-        // Note: For proxy implementation, we only unregister on the server
-        // The sender is ignored since we can't manage specific senders in this simple implementation
-        match self.send_command_ok(&command) {
-            Ok(()) => true,
-            Err(_) => false,
-        }
-    }
 }

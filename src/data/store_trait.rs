@@ -1,5 +1,5 @@
 use crate::{
-    AdjustBehavior, Complete, EntityId, EntitySchema, EntityType, FieldSchema, FieldType, NotificationQueue, NotifyConfig, PageOpts, PageResult, PushCondition, Result, Single, Timestamp, Value
+    AdjustBehavior, Complete, EntityId, EntitySchema, EntityType, FieldSchema, FieldType, PageOpts, PageResult, PushCondition, Result, Single, Timestamp, Value
 };
 
 /// Async trait defining the common interface for store implementations
@@ -66,10 +66,4 @@ pub trait StoreTrait {
 
     /// Get all entity types with pagination
     fn get_entity_types_paginated(&self, page_opts: Option<&PageOpts>) -> Result<PageResult<EntityType>>;
-
-    /// Register a notification with a provided sender
-    fn register_notification(&mut self, config: NotifyConfig, sender: NotificationQueue) -> Result<()>;
-
-    /// Unregister a notification by removing a specific sender
-    fn unregister_notification(&mut self, config: &NotifyConfig, sender: &NotificationQueue) -> bool;
 }

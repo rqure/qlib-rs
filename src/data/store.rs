@@ -1816,20 +1816,4 @@ impl StoreTrait for Store {
     ) -> Result<PageResult<EntityType>> {
         self.get_entity_types_paginated(page_opts)
     }
-
-    fn register_notification(
-        &mut self,
-        config: NotifyConfig,
-        sender: NotificationQueue,
-    ) -> Result<()> {
-        self.register_notification(config, sender)
-    }
-
-    fn unregister_notification(
-        &mut self,
-        config: &NotifyConfig,
-        sender: &NotificationQueue,
-    ) -> bool {
-        self.unregister_notification(config, sender)
-    }
 }
