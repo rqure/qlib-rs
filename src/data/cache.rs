@@ -1,9 +1,10 @@
 use std::collections::HashMap;
 
+use crossbeam::channel::{Receiver, Sender};
 use rustc_hash::FxHashMap;
 
 use crate::{
-    EntityId, EntityType, FieldType, NotificationQueue, NotifyConfig, NotifyInfo, StoreProxy, Value
+    EntityId, EntityType, FieldType, Notification, NotifyConfig, NotifyInfo, StoreProxy, Value
 };
 
 #[derive(Debug)]
@@ -21,17 +22,18 @@ pub struct Cache {
     // For instance, an entity with a specific ID may have different values for the other fields.
     pub fields_by_entity_id: FxHashMap<EntityId, FxHashMap<FieldType, Value>>,
 
-    pub notify_queue: NotificationQueue,
+    notify_receiver: Receiver<Notification>,
+    notify_sender: Sender<Notification>,
 }
 
 impl Cache {
     pub fn new(
-        store: &mut StoreProxy,
+        store: &StoreProxy,
         entity_type: EntityType,
         index_fields: Vec<FieldType>,
         other_fields: Vec<FieldType>,
-    ) -> crate::Result<(Self, NotificationQueue)> {
-        let queue = NotificationQueue::new();
+    ) -> crate::Result<(Self, Receiver<Notification>)> {
+        let (sender, receiver) = crossbeam::channel::unbounded();
 
         // Register notifications for all fields
         for field_type in index_fields.iter() {
@@ -42,7 +44,7 @@ impl Cache {
                     trigger_on_change: true,
                     context: vec![],
                 },
-                queue.clone(),
+                sender.clone(),
             )?;
         }
 
@@ -54,7 +56,7 @@ impl Cache {
                     trigger_on_change: true,
                     context: vec![],
                 },
-                queue.clone(),
+                sender.clone(),
             )?;
         }
 
@@ -100,15 +102,16 @@ impl Cache {
             other_fields,
             entity_ids_by_index_fields,
             fields_by_entity_id,
-            notify_queue: queue.clone()
-        }, queue))
+            notify_receiver: receiver.clone(),
+            notify_sender: sender.clone(),
+        }, receiver))
     }
 }
 
 impl Cache {
     pub fn process_notifications(&mut self) {
         // Extract entity_id and field_type from the current request
-        while let Some(notification) = self.notify_queue.pop() {
+        while let Ok(notification) = self.notify_receiver.try_recv() {
             let NotifyInfo { entity_id, field_path: field_type, value: current_value, .. } = &notification.current;
             let NotifyInfo { value: previous_value, .. } = &notification.previous;
             // Handle the case where field_type is Vec<FieldType> - take the first one
@@ -186,11 +189,10 @@ impl Cache {
         });
     }
 
-    pub fn get_config_sender(&self) -> (Vec<NotifyConfig>, Option<NotificationQueue>) {
-        let sender = &self.notify_queue;
+    pub fn get_config_sender(&self) -> (Vec<NotifyConfig>, Sender<Notification>) {
         let mut configs = Vec::new();
 
-        // Unregister notifications for index fields
+        // Collect notification configs for index fields
         for field in self.index_fields.iter() {
             let config = crate::NotifyConfig::EntityType {
                 entity_type: self.entity_type,
@@ -201,7 +203,7 @@ impl Cache {
             configs.push(config);
         }
 
-        // Unregister notifications for other fields
+        // Collect notification configs for other fields
         for field in self.other_fields.iter() {
             let config = crate::NotifyConfig::EntityType {
                 entity_type: self.entity_type,
@@ -212,6 +214,6 @@ impl Cache {
             configs.push(config);
         }
 
-        (configs, Some(sender.clone()))
+        (configs, self.notify_sender.clone())
     }
 }
