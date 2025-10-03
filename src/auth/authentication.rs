@@ -6,11 +6,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     now, EntityId, Error, Result,
-    Value, StoreProxy,
+    Value, StoreTrait,
 };
 
 const USER_ENTITY_NAME: &str = "User";
-const SUBJECT_ENTITY_NAME: &str = "Subject";
 const NAME_FIELD_NAME: &str = "Name";
 const SECRET_FIELD_NAME: &str = "Secret";
 const AUTH_METHOD_FIELD_NAME: &str = "AuthMethod";
@@ -78,7 +77,7 @@ impl Default for AuthConfig {
 /// This function determines the authentication method from the user's AuthMethod field
 /// and delegates to the appropriate authentication mechanism
 pub fn authenticate_user(
-    store: &StoreProxy,
+    store: &mut impl StoreTrait,
     name: &str,
     password: &str,
     config: &AuthConfig,
@@ -122,7 +121,7 @@ pub fn authenticate_user(
 
 /// Authenticate a user using native (password hash) authentication
 pub fn authenticate_native(
-    store: &StoreProxy,
+    store: &mut impl StoreTrait,
     user_id: EntityId,
     password: &str,
     config: &AuthConfig,
@@ -143,7 +142,7 @@ pub fn authenticate_native(
 /// Authenticate a user using LDAP
 /// Note: This is a placeholder - actual LDAP implementation would require LDAP client
 pub fn authenticate_ldap(
-    _store: &StoreProxy,
+    _store: &mut impl StoreTrait,
     _user_id: EntityId,
     _name: &str,
     _password: &str,
@@ -156,7 +155,7 @@ pub fn authenticate_ldap(
 
 /// Authenticate a user using OpenID Connect token validation
 pub fn authenticate_openid_connect(
-    _store: &StoreProxy,
+    _store: &mut impl StoreTrait,
     _user_id: EntityId,
     _id_token: &str,
     _config: &AuthConfig,
@@ -167,7 +166,7 @@ pub fn authenticate_openid_connect(
 }
 
 /// Get user authentication method
-pub fn get_user_auth_method(store: &StoreProxy, user_id: EntityId) -> Result<AuthMethod> {
+pub fn get_user_auth_method(store: &mut impl StoreTrait, user_id: EntityId) -> Result<AuthMethod> {
     let auth_method_ft = store.get_field_type(AUTH_METHOD_FIELD_NAME)?;
     let result = store.read(user_id, &[auth_method_ft]);
     
@@ -184,7 +183,7 @@ pub fn get_user_auth_method(store: &StoreProxy, user_id: EntityId) -> Result<Aut
 }
 
 /// Get user secret (password hash for native auth, or other secret data)
-pub fn get_user_secret(store: &StoreProxy, user_id: EntityId) -> Result<String> {
+pub fn get_user_secret(store: &mut impl StoreTrait, user_id: EntityId) -> Result<String> {
     let secret_ft = store.get_field_type(SECRET_FIELD_NAME)?;
     let (value, _, _) = store.read(user_id, &[secret_ft])?;
 
@@ -196,7 +195,7 @@ pub fn get_user_secret(store: &StoreProxy, user_id: EntityId) -> Result<String> 
 
 /// Change a user's password (only for Native authentication)
 pub fn change_password(
-    store: &StoreProxy,
+    store: &mut impl StoreTrait,
     user_id: EntityId,
     new_password: &str,
     config: &AuthConfig,
@@ -220,7 +219,7 @@ pub fn change_password(
 }
 
 /// Find a user by name
-pub fn find_user_by_name(store: &StoreProxy, name: &str) -> Result<Option<EntityId>> {
+pub fn find_user_by_name(store: &mut impl StoreTrait, name: &str) -> Result<Option<EntityId>> {
     let user_et = store.get_entity_type(USER_ENTITY_NAME)?;
     let entities = store.find_entities(user_et, None)?;
     let name_ft = store.get_field_type(NAME_FIELD_NAME)?;
@@ -238,7 +237,7 @@ pub fn find_user_by_name(store: &StoreProxy, name: &str) -> Result<Option<Entity
 }
 
 /// Check if a user is active
-pub fn is_user_active(store: &StoreProxy, user_id: EntityId) -> Result<bool> {
+pub fn is_user_active(store: &mut impl StoreTrait, user_id: EntityId) -> Result<bool> {
     let active_ft = store.get_field_type(ACTIVE_FIELD_NAME)?;
     
     let (value, _, _) = store.read(user_id, &[active_ft])?;
@@ -250,7 +249,7 @@ pub fn is_user_active(store: &StoreProxy, user_id: EntityId) -> Result<bool> {
 }
 
 /// Check if a user is locked
-pub fn is_user_locked(store: &StoreProxy, user_id: EntityId) -> Result<bool> {
+pub fn is_user_locked(store: &mut impl StoreTrait, user_id: EntityId) -> Result<bool> {
     let locked_until_ft = store.get_field_type(LOCKED_UNTIL_FIELD_NAME)?;
     let (value, _, _) = match store.read(user_id, &[locked_until_ft]) {
         Ok(value) => value,
@@ -309,7 +308,7 @@ pub fn validate_password(password: &str, config: &AuthConfig) -> Result<()> {
 
 /// Increment failed login attempts and lock account if needed
 pub fn increment_failed_attempts(
-    store: &StoreProxy,
+    store: &mut impl StoreTrait,
     user_id: EntityId,
     config: &AuthConfig,
 ) -> Result<()> {
@@ -339,7 +338,7 @@ pub fn increment_failed_attempts(
 }
 
 /// Reset failed login attempts
-pub fn reset_failed_attempts(store: &StoreProxy, user_id: EntityId) -> Result<()> {
+pub fn reset_failed_attempts(store: &mut impl StoreTrait, user_id: EntityId) -> Result<()> {
     let failed_attempts_ft = store.get_field_type(FAILED_ATTEMPTS_FIELD_NAME)?;
     store.write(user_id, &[failed_attempts_ft], Value::Int(0), None, None, None, None)?;
 
@@ -347,7 +346,7 @@ pub fn reset_failed_attempts(store: &StoreProxy, user_id: EntityId) -> Result<()
 }
 
 /// Update last login timestamp
-pub fn update_last_login(store: &StoreProxy, user_id: EntityId) -> Result<()> {
+pub fn update_last_login(store: &mut impl StoreTrait, user_id: EntityId) -> Result<()> {
     let last_login_ft = store.get_field_type(LAST_LOGIN_FIELD_NAME)?;
     store.write(user_id, &[last_login_ft], Value::Timestamp(now()), None, None, None, None)?;
 
@@ -356,7 +355,7 @@ pub fn update_last_login(store: &StoreProxy, user_id: EntityId) -> Result<()> {
 
 /// Create a new user with specified authentication method
 pub fn create_user(
-    store: &StoreProxy,
+    store: &mut impl StoreTrait,
     name: &str,
     auth_method: AuthMethod,
     parent_id: EntityId,
@@ -383,7 +382,7 @@ pub fn create_user(
 
 /// Set user password (only for Native authentication method)
 pub fn set_user_password(
-    store: &StoreProxy,
+    store: &mut impl StoreTrait,
     user_id: EntityId,
     password: &str,
     config: &AuthConfig,
@@ -409,7 +408,7 @@ pub fn set_user_password(
 
 /// Set user authentication method
 pub fn set_user_auth_method(
-    store: &StoreProxy,
+    store: &mut impl StoreTrait,
     user_id: EntityId,
     auth_method: AuthMethod,
 ) -> Result<()> {
@@ -417,96 +416,4 @@ pub fn set_user_auth_method(
     store.write(user_id, &[auth_method_ft], Value::Choice(i64::from(auth_method)), None, None, None, None)?;
 
     Ok(())
-}
-
-/// Authenticate a service using its secret key
-pub fn authenticate_service(
-    store: &StoreProxy,
-    name: &str,
-    secret_key: &str,
-) -> Result<EntityId> {
-    let service_id = find_subject_by_name(store, name)?
-        .ok_or(Error::SubjectNotFound)?; // Reusing user error for services
-
-    // Check if service is active
-    if !is_service_active(store, service_id)? {
-        return Err(Error::AccountDisabled);
-    }
-
-    // Get stored secret key
-    let stored_secret = get_service_secret(store, service_id)?;
-
-    // Compare secret keys (simple string comparison for services)
-    if stored_secret == secret_key {
-        Ok(service_id)
-    } else {
-        Err(Error::InvalidCredentials)
-    }
-}
-
-/// Find a subject by name
-pub fn find_subject_by_name(store: &StoreProxy, name: &str) -> Result<Option<EntityId>> {
-    let entities = store.find_entities(store.get_entity_type(SUBJECT_ENTITY_NAME)?, None)?;
-
-    let name_ft = store.get_field_type(NAME_FIELD_NAME)?;
-    for entity_id in entities {
-        let (value, _, _) = store.read(entity_id, &[name_ft])?;
-        if let Value::String(stored_name) = value {
-            if stored_name.eq_ignore_ascii_case(name) {
-                return Ok(Some(entity_id));
-            }
-        }
-    }
-
-    Ok(None)
-}
-
-/// Check if a service is active
-pub fn is_service_active(store: &StoreProxy, service_id: EntityId) -> Result<bool> {
-    let active_ft = store.get_field_type(ACTIVE_FIELD_NAME)?;
-    let (value, _, _) = store.read(service_id, &[active_ft])?;
-    match value {
-        Value::Bool(active) => Ok(active),
-        _ => Ok(false), // Default to inactive if field not found
-    }
-}
-
-/// Get service secret key
-pub fn get_service_secret(store: &StoreProxy, service_id: EntityId) -> Result<String> {
-    let secret_ft = store.get_field_type(SECRET_FIELD_NAME)?;
-    let (value, _, _) = store.read(service_id, &[secret_ft])?;
-    match value {
-        Value::String(secret) => Ok(secret.to_string()),
-        _ => Err(Error::SubjectNotFound),
-    }
-}
-
-/// Set service secret key
-pub fn set_service_secret(
-    store: &StoreProxy,
-    service_id: EntityId,
-    secret_key: &str,
-) -> Result<()> {
-    let secret_ft = store.get_field_type(SECRET_FIELD_NAME)?;
-    store.write(service_id, &[secret_ft], Value::String(secret_key.to_string().into()), None, None, None, None)?;
-    Ok(())
-}
-
-/// Generic subject authentication - determines if it's a user or service and authenticates accordingly
-pub fn authenticate_subject(
-    store: &StoreProxy,
-    name: &str,
-    credential: &str,
-    config: &AuthConfig,
-) -> Result<EntityId> {
-    match authenticate_user(store, name, credential, config) {
-        Ok(user_id) => return Ok(user_id),
-        Err(Error::SubjectNotFound) => {
-            match authenticate_service(store, name, credential) {
-                Ok(service_id) => return Ok(service_id),
-                Err(e) => return Err(e),
-            }
-        }
-        Err(e) => return Err(e),
-    }
 }

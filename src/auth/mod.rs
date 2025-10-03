@@ -7,9 +7,6 @@ pub use authentication::{
     hash_password, verify_password, validate_password, increment_failed_attempts,
     reset_failed_attempts, update_last_login, create_user, set_user_password,
     set_user_auth_method, authenticate_native, authenticate_ldap, authenticate_openid_connect,
-    // Service authentication functions
-    authenticate_service, find_subject_by_name, is_service_active,
-    get_service_secret, set_service_secret, authenticate_subject,
 };
 pub use authorization::{
     AuthorizationScope, get_scope
