@@ -2,13 +2,14 @@ use std::cell::RefCell;
 use std::io::{Read, Write};
 use std::time::Duration;
 
+use crossbeam::channel::Sender;
 use mio::{Events, Interest, Poll, Token};
 
+use crate::data::resp::{BooleanResponse, CreateEntityCommand, CreateEntityResponse, DeleteEntityCommand, EntityExistsCommand, EntityListResponse, EntityTypeListResponse, FieldExistsCommand, FieldSchemaResponse, FindEntitiesCommand, FindEntitiesExactCommand, FindEntitiesPaginatedCommand, GetEntitySchemaCommand, GetEntityTypeCommand, GetEntityTypesCommand, GetEntityTypesPaginatedCommand, GetFieldSchemaCommand, GetFieldTypeCommand, IntegerResponse, PaginatedEntityResponse, PaginatedEntityTypeResponse, ReadCommand, ReadResponse, RegisterNotificationCommand, ResolveEntityTypeCommand, ResolveFieldTypeCommand, ResolveIndirectionCommand, ResolveIndirectionResponse, RespCommand, RespDecode, RespFromBytes, RespToBytes, RespValue, SetFieldSchemaCommand, SnapshotResponse, StringResponse, TakeSnapshotCommand, UnregisterNotificationCommand, UpdateSchemaCommand, WriteCommand};
 use crate::{
-    Complete, EntityId, EntitySchema, EntityType, Error, FieldSchema, FieldType, PageOpts, PageResult, Result, Single, Value, Timestamp, PushCondition, AdjustBehavior
+    AdjustBehavior, Complete, EntityId, EntitySchema, EntitySchemaResp, EntityType, Error, FieldSchema, FieldType, Notification, NotifyConfig, PageOpts, PageResult, PushCondition, Result, Single, Timestamp, Value
 };
 use crate::data::StoreTrait;
-use crate::data::resp::{RespCommand, RespDecode, ReadCommand, WriteCommand, CreateEntityCommand, RespValue, RespToBytes, RespFromBytes};
 
 const READ_POLL_INTERVAL: Duration = Duration::from_millis(10);
 
@@ -209,56 +210,56 @@ impl StoreProxy {
 
     /// Get entity type by name
     pub fn get_entity_type(&self, name: &str) -> Result<EntityType> {
-        let command = crate::data::resp::GetEntityTypeCommand {
+        let command = GetEntityTypeCommand {
             name: name.to_string(),
             _marker: std::marker::PhantomData,
         };
         
-        let integer_response = self.send_command_get_response::<crate::data::resp::GetEntityTypeCommand, crate::data::resp::IntegerResponse>(&command)?;
+        let integer_response = self.send_command_get_response::<GetEntityTypeCommand, IntegerResponse>(&command)?;
         Ok(EntityType(integer_response.value as u32))
     }
 
     /// Resolve entity type to name
     pub fn resolve_entity_type(&self, entity_type: EntityType) -> Result<String> {
-        let command = crate::data::resp::ResolveEntityTypeCommand {
+        let command = ResolveEntityTypeCommand {
             entity_type,
             _marker: std::marker::PhantomData,
         };
         
-        let string_response = self.send_command_get_response::<crate::data::resp::ResolveEntityTypeCommand, crate::data::resp::StringResponse>(&command)?;
+        let string_response = self.send_command_get_response::<ResolveEntityTypeCommand, StringResponse>(&command)?;
         Ok(string_response.value)
     }
 
     /// Get field type by name
     pub fn get_field_type(&self, name: &str) -> Result<FieldType> {
-        let command = crate::data::resp::GetFieldTypeCommand {
+        let command = GetFieldTypeCommand {
             name: name.to_string(),
             _marker: std::marker::PhantomData,
         };
         
-        let integer_response = self.send_command_get_response::<crate::data::resp::GetFieldTypeCommand, crate::data::resp::IntegerResponse>(&command)?;
+        let integer_response = self.send_command_get_response::<GetFieldTypeCommand, IntegerResponse>(&command)?;
         Ok(FieldType(integer_response.value as u64))
     }
 
     /// Resolve field type to name
     pub fn resolve_field_type(&self, field_type: FieldType) -> Result<String> {
-        let command = crate::data::resp::ResolveFieldTypeCommand {
+        let command = ResolveFieldTypeCommand {
             field_type,
             _marker: std::marker::PhantomData,
         };
         
-        let string_response = self.send_command_get_response::<crate::data::resp::ResolveFieldTypeCommand, crate::data::resp::StringResponse>(&command)?;
+        let string_response = self.send_command_get_response::<ResolveFieldTypeCommand, StringResponse>(&command)?;
         Ok(string_response.value)
     }
 
     /// Get entity schema
     pub fn get_entity_schema(&self, entity_type: EntityType) -> Result<EntitySchema<Single>> {
-        let command = crate::data::resp::GetEntitySchemaCommand {
+        let command = GetEntitySchemaCommand {
             entity_type,
             _marker: std::marker::PhantomData,
         };
         
-        let schema_resp = self.send_command_get_response::<crate::data::resp::GetEntitySchemaCommand, crate::data::entity_schema::EntitySchemaResp>(&command)?;
+        let schema_resp = self.send_command_get_response::<GetEntitySchemaCommand, EntitySchemaResp>(&command)?;
         
         // Convert EntitySchemaResp back to EntitySchema<Single, String, String>
         let schema_string = schema_resp.to_entity_schema(self)?;
@@ -285,7 +286,7 @@ impl StoreProxy {
             default_value: schema.default_value(),
         };
 
-        let command = crate::data::resp::SetFieldSchemaCommand {
+        let command = SetFieldSchemaCommand {
             entity_type,
             field_type,
             schema: schema_resp,
@@ -297,13 +298,13 @@ impl StoreProxy {
 
     /// Get field schema
     pub fn get_field_schema(&self, entity_type: EntityType, field_type: FieldType) -> Result<FieldSchema> {
-        let command = crate::data::resp::GetFieldSchemaCommand {
+        let command = GetFieldSchemaCommand {
             entity_type,
             field_type,
             _marker: std::marker::PhantomData,
         };
         
-        let field_schema_response = self.send_command_get_response::<crate::data::resp::GetFieldSchemaCommand, crate::data::resp::FieldSchemaResponse>(&command)?;
+        let field_schema_response = self.send_command_get_response::<GetFieldSchemaCommand, FieldSchemaResponse>(&command)?;
         
         // Convert FieldSchemaResp back to FieldSchema<FieldType>
         let field_schema_string = field_schema_response.schema.to_field_schema();
@@ -316,12 +317,12 @@ impl StoreProxy {
 
     /// Check if entity exists
     pub fn entity_exists(&self, entity_id: EntityId) -> bool {
-        let command = crate::data::resp::EntityExistsCommand {
+        let command = EntityExistsCommand {
             entity_id,
             _marker: std::marker::PhantomData,
         };
         
-        match self.send_command_get_response::<crate::data::resp::EntityExistsCommand, crate::data::resp::BooleanResponse>(&command) {
+        match self.send_command_get_response::<EntityExistsCommand, BooleanResponse>(&command) {
             Ok(boolean_response) => boolean_response.result,
             Err(_) => false, // Default to false on any error
         }
@@ -329,13 +330,13 @@ impl StoreProxy {
 
     /// Check if field exists
     pub fn field_exists(&self, entity_type: EntityType, field_type: FieldType) -> bool {
-        let command = crate::data::resp::FieldExistsCommand {
+        let command = FieldExistsCommand {
             entity_type,
             field_type,
             _marker: std::marker::PhantomData,
         };
         
-        match self.send_command_get_response::<crate::data::resp::FieldExistsCommand, crate::data::resp::BooleanResponse>(&command) {
+        match self.send_command_get_response::<FieldExistsCommand, BooleanResponse>(&command) {
             Ok(boolean_response) => boolean_response.result,
             Err(_) => false, // Default to false on any error
         }
@@ -343,13 +344,13 @@ impl StoreProxy {
 
     /// Resolve indirection
     pub fn resolve_indirection(&self, entity_id: EntityId, fields: &[FieldType]) -> Result<(EntityId, FieldType)> {
-        let command = crate::data::resp::ResolveIndirectionCommand {
+        let command = ResolveIndirectionCommand {
             entity_id,
             fields: fields.to_vec(),
             _marker: std::marker::PhantomData,
         };
         
-        let resolve_response = self.send_command_get_response::<crate::data::resp::ResolveIndirectionCommand, crate::data::resp::ResolveIndirectionResponse>(&command)?;
+        let resolve_response = self.send_command_get_response::<ResolveIndirectionCommand, ResolveIndirectionResponse>(&command)?;
         Ok((resolve_response.entity_id, resolve_response.field_type))
     }
 
@@ -361,7 +362,7 @@ impl StoreProxy {
             _marker: std::marker::PhantomData,
         };
         
-        let read_response = self.send_command_get_response::<ReadCommand, crate::data::resp::ReadResponse>(&command)?;
+        let read_response = self.send_command_get_response::<ReadCommand, ReadResponse>(&command)?;
         Ok((read_response.value, read_response.timestamp, read_response.writer_id))
     }
 
@@ -390,13 +391,13 @@ impl StoreProxy {
             _marker: std::marker::PhantomData,
         };
         
-        let create_response = self.send_command_get_response::<CreateEntityCommand, crate::data::resp::CreateEntityResponse>(&command)?;
+        let create_response = self.send_command_get_response::<CreateEntityCommand, CreateEntityResponse>(&command)?;
         Ok(create_response.entity_id)
     }
 
     /// Delete an entity
     pub fn delete_entity(&self, entity_id: EntityId) -> Result<()> {
-        let command = crate::data::resp::DeleteEntityCommand {
+        let command = DeleteEntityCommand {
             entity_id,
             _marker: std::marker::PhantomData,
         };
@@ -424,7 +425,7 @@ impl StoreProxy {
             fields: fields_resp,
         };
         
-        let command = crate::data::resp::UpdateSchemaCommand {
+        let command = UpdateSchemaCommand {
             schema: schema_resp,
             _marker: std::marker::PhantomData,
         };
@@ -433,11 +434,11 @@ impl StoreProxy {
 
     /// Take a snapshot of the current store state
     pub fn take_snapshot(&self) -> crate::data::Snapshot {
-        let command = crate::data::resp::TakeSnapshotCommand {
+        let command = TakeSnapshotCommand {
             _marker: std::marker::PhantomData,
         };
         
-        match self.send_command_get_response::<crate::data::resp::TakeSnapshotCommand, crate::data::resp::SnapshotResponse>(&command) {
+        match self.send_command_get_response::<TakeSnapshotCommand, SnapshotResponse>(&command) {
             Ok(snapshot_response) => {
                 // Deserialize the JSON data back to Snapshot
                 match serde_json::from_str::<crate::data::Snapshot>(&snapshot_response.data) {
@@ -457,14 +458,14 @@ impl StoreProxy {
 
     /// Find entities with pagination (includes inherited types)
     pub fn find_entities_paginated(&self, entity_type: EntityType, page_opts: Option<&PageOpts>, filter: Option<&str>) -> Result<PageResult<EntityId>> {
-        let command = crate::data::resp::FindEntitiesPaginatedCommand {
+        let command = FindEntitiesPaginatedCommand {
             entity_type,
             page_opts: page_opts.cloned(),
             filter: filter.map(|s| s.to_string()),
             _marker: std::marker::PhantomData,
         };
         
-        let paginated_response = self.send_command_get_response::<crate::data::resp::FindEntitiesPaginatedCommand, crate::data::resp::PaginatedEntityResponse>(&command)?;
+        let paginated_response = self.send_command_get_response::<FindEntitiesPaginatedCommand, PaginatedEntityResponse>(&command)?;
         
         Ok(PageResult::new(
             paginated_response.items,
@@ -475,14 +476,14 @@ impl StoreProxy {
 
     /// Find entities exactly of the specified type (no inheritance) with pagination
     pub fn find_entities_exact(&self, entity_type: EntityType, page_opts: Option<&PageOpts>, filter: Option<&str>) -> Result<PageResult<EntityId>> {
-        let command = crate::data::resp::FindEntitiesExactCommand {
+        let command = FindEntitiesExactCommand {
             entity_type,
             page_opts: page_opts.cloned(),
             filter: filter.map(|s| s.to_string()),
             _marker: std::marker::PhantomData,
         };
         
-        let paginated_response = self.send_command_get_response::<crate::data::resp::FindEntitiesExactCommand, crate::data::resp::PaginatedEntityResponse>(&command)?;
+        let paginated_response = self.send_command_get_response::<FindEntitiesExactCommand, PaginatedEntityResponse>(&command)?;
         
         Ok(PageResult::new(
             paginated_response.items,
@@ -493,12 +494,12 @@ impl StoreProxy {
 
     /// Get all entity types with pagination
     pub fn get_entity_types_paginated(&self, page_opts: Option<&PageOpts>) -> Result<PageResult<EntityType>> {
-        let command = crate::data::resp::GetEntityTypesPaginatedCommand {
+        let command = GetEntityTypesPaginatedCommand {
             page_opts: page_opts.cloned(),
             _marker: std::marker::PhantomData,
         };
         
-        let paginated_response = self.send_command_get_response::<crate::data::resp::GetEntityTypesPaginatedCommand, crate::data::resp::PaginatedEntityTypeResponse>(&command)?;
+        let paginated_response = self.send_command_get_response::<GetEntityTypesPaginatedCommand, PaginatedEntityTypeResponse>(&command)?;
         
         Ok(PageResult::new(
             paginated_response.items,
@@ -508,22 +509,22 @@ impl StoreProxy {
     }
 
     pub fn find_entities(&self, entity_type: EntityType, filter: Option<&str>) -> Result<Vec<EntityId>> {
-        let command = crate::data::resp::FindEntitiesCommand {
+        let command = FindEntitiesCommand {
             entity_type,
             filter: filter.map(|s| s.to_string()),
             _marker: std::marker::PhantomData,
         };
         
-        let entity_list_response = self.send_command_get_response::<crate::data::resp::FindEntitiesCommand, crate::data::resp::EntityListResponse>(&command)?;
+        let entity_list_response = self.send_command_get_response::<FindEntitiesCommand, EntityListResponse>(&command)?;
         Ok(entity_list_response.entities)
     }
 
     pub fn get_entity_types(&self) -> Result<Vec<EntityType>> {
-        let command = crate::data::resp::GetEntityTypesCommand {
+        let command = GetEntityTypesCommand {
             _marker: std::marker::PhantomData,
         };
         
-        let entity_type_list_response = self.send_command_get_response::<crate::data::resp::GetEntityTypesCommand, crate::data::resp::EntityTypeListResponse>(&command)?;
+        let entity_type_list_response = self.send_command_get_response::<GetEntityTypesCommand, EntityTypeListResponse>(&command)?;
         Ok(entity_type_list_response.entity_types)
     }
 
@@ -534,10 +535,10 @@ impl StoreProxy {
     /// and stores the sender locally to forward notifications
     pub fn register_notification(
         &self,
-        config: crate::NotifyConfig,
-        _sender: crate::NotificationQueue,
+        config: NotifyConfig,
+        sender: Sender<Notification>,
     ) -> Result<()> {
-        let command = crate::data::resp::RegisterNotificationCommand {
+        let command = RegisterNotificationCommand {
             config,
             _marker: std::marker::PhantomData,
         };
@@ -549,8 +550,8 @@ impl StoreProxy {
 
     /// Unregister a notification by removing a specific sender
     /// Note: This will remove ALL notifications matching the config for proxy
-   pub fn unregister_notification(&self, target_config: &crate::NotifyConfig, _sender: &crate::NotificationQueue) -> bool {
-        let command = crate::data::resp::UnregisterNotificationCommand {
+   pub fn unregister_notification(&self, target_config: &NotifyConfig, _sender: &Sender<Notification>) -> bool {
+        let command = UnregisterNotificationCommand {
             config: target_config.clone(),
             _marker: std::marker::PhantomData,
         };
@@ -605,7 +606,7 @@ impl StoreTrait for StoreProxy {
             default_value: schema.default_value(),
         };
 
-        let command = crate::data::resp::SetFieldSchemaCommand {
+        let command = SetFieldSchemaCommand {
             entity_type,
             field_type,
             schema: schema_resp,
@@ -653,12 +654,12 @@ impl StoreTrait for StoreProxy {
             _marker: std::marker::PhantomData,
         };
         
-        let create_response = self.send_command_get_response::<CreateEntityCommand, crate::data::resp::CreateEntityResponse>(&command)?;
+        let create_response = self.send_command_get_response::<CreateEntityCommand, CreateEntityResponse>(&command)?;
         Ok(create_response.entity_id)
     }
 
     fn delete_entity(&mut self, entity_id: EntityId) -> Result<()> {
-        let command = crate::data::resp::DeleteEntityCommand {
+        let command = DeleteEntityCommand {
             entity_id,
             _marker: std::marker::PhantomData,
         };
@@ -685,7 +686,7 @@ impl StoreTrait for StoreProxy {
             fields: fields_resp,
         };
         
-        let command = crate::data::resp::UpdateSchemaCommand {
+        let command = UpdateSchemaCommand {
             schema: schema_resp,
             _marker: std::marker::PhantomData,
         };
