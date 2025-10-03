@@ -555,8 +555,8 @@ impl StoreProxy {
         // Deserialize the notification from JSON
         let notification: Notification = match serde_json::from_str(&notification_cmd.notification_data) {
             Ok(n) => n,
-            Err(e) => {
-                eprintln!("Failed to deserialize notification: {}", e);
+            Err(_e) => {
+                // Silently ignore deserialization errors - they shouldn't happen in normal operation
                 return;
             }
         };
