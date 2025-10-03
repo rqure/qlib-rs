@@ -2,7 +2,7 @@ use cel::{Context, Program};
 use lru::LruCache;
 use std::num::NonZeroUsize;
 
-use crate::{to_base64, EntityId, IndirectFieldType, Result, Store, StoreTrait, Value, INDIRECTION_DELIMITER};
+use crate::{to_base64, EntityId, IndirectFieldType, Result, StoreTrait, Value, INDIRECTION_DELIMITER};
 
 /// CelExecutor with LRU cache for compiled CEL programs
 #[derive(Debug)]
@@ -64,7 +64,7 @@ impl CelExecutor {
         Ok(self.cache.get(source).unwrap())
     }
 
-    pub fn execute(&mut self, source: &str, relative_id: EntityId, store: &Store) -> Result<cel::Value> {
+    pub fn execute(&mut self, source: &str, relative_id: EntityId, store: &impl StoreTrait) -> Result<cel::Value> {
         let program = self.get_or_compile(source.replace(INDIRECTION_DELIMITER, "_").as_str())?;
         let mut context = Context::default();
         let references = program.references();

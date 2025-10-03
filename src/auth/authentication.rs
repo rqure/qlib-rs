@@ -6,8 +6,18 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     now, EntityId, Error, Result,
-    Value, Store, StoreTrait,
+    Value, StoreProxy,
 };
+
+const USER_ENTITY_NAME: &str = "User";
+const SUBJECT_ENTITY_NAME: &str = "Subject";
+const NAME_FIELD_NAME: &str = "Name";
+const SECRET_FIELD_NAME: &str = "Secret";
+const AUTH_METHOD_FIELD_NAME: &str = "AuthMethod";
+const ACTIVE_FIELD_NAME: &str = "Active";
+const LOCKED_UNTIL_FIELD_NAME: &str = "LockedUntil";
+const FAILED_ATTEMPTS_FIELD_NAME: &str = "FailedAttempts";
+const LAST_LOGIN_FIELD_NAME: &str = "LastLogin";
 
 /// Authentication methods supported by the system
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -68,7 +78,7 @@ impl Default for AuthConfig {
 /// This function determines the authentication method from the user's AuthMethod field
 /// and delegates to the appropriate authentication mechanism
 pub fn authenticate_user(
-    store: &mut Store,
+    store: &StoreProxy,
     name: &str,
     password: &str,
     config: &AuthConfig,
@@ -112,7 +122,7 @@ pub fn authenticate_user(
 
 /// Authenticate a user using native (password hash) authentication
 pub fn authenticate_native(
-    store: &mut Store,
+    store: &StoreProxy,
     user_id: EntityId,
     password: &str,
     config: &AuthConfig,
@@ -133,7 +143,7 @@ pub fn authenticate_native(
 /// Authenticate a user using LDAP
 /// Note: This is a placeholder - actual LDAP implementation would require LDAP client
 pub fn authenticate_ldap(
-    _store: &mut Store,
+    _store: &StoreProxy,
     _user_id: EntityId,
     _name: &str,
     _password: &str,
@@ -146,7 +156,7 @@ pub fn authenticate_ldap(
 
 /// Authenticate a user using OpenID Connect token validation
 pub fn authenticate_openid_connect(
-    _store: &mut Store,
+    _store: &StoreProxy,
     _user_id: EntityId,
     _id_token: &str,
     _config: &AuthConfig,
@@ -157,15 +167,8 @@ pub fn authenticate_openid_connect(
 }
 
 /// Get user authentication method
-pub fn get_user_auth_method(store: &mut Store, user_id: EntityId) -> Result<AuthMethod> {
-    let ft = match store.ft.as_ref() {
-        Some(ft) => ft,
-        None => return Err(Error::InvalidRequest("Field types not initialized".to_string())),
-    };
-    let auth_method_ft = match ft.auth_method {
-        Some(field) => field,
-        None => return Err(Error::InvalidRequest("Auth method field type not initialized".to_string())),
-    };
+pub fn get_user_auth_method(store: &StoreProxy, user_id: EntityId) -> Result<AuthMethod> {
+    let auth_method_ft = store.get_field_type(AUTH_METHOD_FIELD_NAME)?;
     let result = store.read(user_id, &[auth_method_ft]);
     
     // If the store operation failed, default to Native
@@ -181,15 +184,8 @@ pub fn get_user_auth_method(store: &mut Store, user_id: EntityId) -> Result<Auth
 }
 
 /// Get user secret (password hash for native auth, or other secret data)
-pub fn get_user_secret(store: &mut Store, user_id: EntityId) -> Result<String> {
-    let ft = match store.ft.as_ref() {
-        Some(ft) => ft,
-        None => return Err(Error::InvalidRequest("Field types not initialized".to_string())),
-    };
-    let secret_ft = match ft.secret {
-        Some(field) => field,
-        None => return Err(Error::InvalidRequest("Secret field type not initialized".to_string())),
-    };
+pub fn get_user_secret(store: &StoreProxy, user_id: EntityId) -> Result<String> {
+    let secret_ft = store.get_field_type(SECRET_FIELD_NAME)?;
     let (value, _, _) = store.read(user_id, &[secret_ft])?;
 
     match value {
@@ -200,7 +196,7 @@ pub fn get_user_secret(store: &mut Store, user_id: EntityId) -> Result<String> {
 
 /// Change a user's password (only for Native authentication)
 pub fn change_password(
-    store: &mut Store,
+    store: &StoreProxy,
     user_id: EntityId,
     new_password: &str,
     config: &AuthConfig,
@@ -217,40 +213,17 @@ pub fn change_password(
     // Hash the new password
     let password_hash = hash_password(new_password, config)?;
 
-    let ft = match store.ft.as_ref() {
-        Some(ft) => ft,
-        None => return Err(Error::InvalidRequest("Field types not initialized".to_string())),
-    };
-    let secret_ft = match ft.secret {
-        Some(field) => field,
-        None => return Err(Error::InvalidRequest("Secret field type not initialized".to_string())),
-    };
+    let secret_ft = store.get_field_type(SECRET_FIELD_NAME)?;
     store.write(user_id, &[secret_ft], Value::String(password_hash.into()), None, None, None, None)?;
 
     Ok(())
 }
 
 /// Find a user by name
-pub fn find_user_by_name(store: &Store, name: &str) -> Result<Option<EntityId>> {
-    // Use the store's find_entities method to search for users with matching name
-    let et = match store.et.as_ref() {
-        Some(et) => et,
-        None => return Ok(None),
-    };
-    let ft = match store.ft.as_ref() {
-        Some(ft) => ft,
-        None => return Ok(None),
-    };
-
-    let user_et = match et.user {
-        Some(user_et) => user_et,
-        None => return Err(Error::InvalidRequest("User entity type not initialized".to_string())),
-    };
+pub fn find_user_by_name(store: &StoreProxy, name: &str) -> Result<Option<EntityId>> {
+    let user_et = store.get_entity_type(USER_ENTITY_NAME)?;
     let entities = store.find_entities(user_et, None)?;
-    let name_ft = match ft.name {
-        Some(field) => field,
-        None => return Err(Error::InvalidRequest("Name field type not initialized".to_string())),
-    };
+    let name_ft = store.get_field_type(NAME_FIELD_NAME)?;
     for entity_id in entities {
         let (value, _, _) = store.read(entity_id, &[name_ft])?;
 
@@ -265,16 +238,8 @@ pub fn find_user_by_name(store: &Store, name: &str) -> Result<Option<EntityId>> 
 }
 
 /// Check if a user is active
-pub fn is_user_active(store: &mut Store, user_id: EntityId) -> Result<bool> {
-    let ft = match store.ft.as_ref() {
-        Some(ft) => ft,
-        None => return Ok(false),
-    };
-
-    let active_ft = match ft.active {
-        Some(field) => field,
-        None => return Err(Error::InvalidRequest("Active field type not initialized".to_string())),
-    };
+pub fn is_user_active(store: &StoreProxy, user_id: EntityId) -> Result<bool> {
+    let active_ft = store.get_field_type(ACTIVE_FIELD_NAME)?;
     
     let (value, _, _) = store.read(user_id, &[active_ft])?;
 
@@ -285,15 +250,8 @@ pub fn is_user_active(store: &mut Store, user_id: EntityId) -> Result<bool> {
 }
 
 /// Check if a user is locked
-pub fn is_user_locked(store: &mut Store, user_id: EntityId) -> Result<bool> {
-    let ft = match store.ft.as_ref() {
-        Some(ft) => ft,
-        None => return Err(Error::InvalidRequest("Field types not initialized".to_string())),
-    };
-    let locked_until_ft = match ft.locked_until {
-        Some(field) => field,
-        None => return Err(Error::InvalidRequest("Locked until field type not initialized".to_string())),
-    };
+pub fn is_user_locked(store: &StoreProxy, user_id: EntityId) -> Result<bool> {
+    let locked_until_ft = store.get_field_type(LOCKED_UNTIL_FIELD_NAME)?;
     let (value, _, _) = match store.read(user_id, &[locked_until_ft]) {
         Ok(value) => value,
         Err(_) => return Ok(false), // If read fails, assume not locked
@@ -351,23 +309,13 @@ pub fn validate_password(password: &str, config: &AuthConfig) -> Result<()> {
 
 /// Increment failed login attempts and lock account if needed
 pub fn increment_failed_attempts(
-    store: &mut Store,
+    store: &StoreProxy,
     user_id: EntityId,
     config: &AuthConfig,
 ) -> Result<()> {
     // Get current failed attempts
-    let ft = match store.ft.as_ref() {
-        Some(ft) => ft,
-        None => return Err(Error::InvalidRequest("Field types not initialized".to_string())),
-    };
-    let failed_attempts_ft = match ft.failed_attempts {
-        Some(field) => field,
-        None => return Err(Error::InvalidRequest("Failed attempts field type not initialized".to_string())),
-    };
-    let locked_until_ft = match ft.locked_until {
-        Some(field) => field,
-        None => return Err(Error::InvalidRequest("Locked until field type not initialized".to_string())),
-    };
+    let failed_attempts_ft = store.get_field_type(FAILED_ATTEMPTS_FIELD_NAME)?;
+    let locked_until_ft = store.get_field_type(LOCKED_UNTIL_FIELD_NAME)?;
     let current_attempts = store.read(user_id, &[failed_attempts_ft]).map_or(0, |(value, _, _)| {
         if let Value::Int(attempts) = value {
             attempts
@@ -391,30 +339,16 @@ pub fn increment_failed_attempts(
 }
 
 /// Reset failed login attempts
-pub fn reset_failed_attempts(store: &mut Store, user_id: EntityId) -> Result<()> {
-    let ft = match store.ft.as_ref() {
-        Some(ft) => ft,
-        None => return Err(Error::InvalidRequest("Field types not initialized".to_string())),
-    };
-    let failed_attempts_ft = match ft.failed_attempts {
-        Some(field) => field,
-        None => return Err(Error::InvalidRequest("Failed attempts field type not initialized".to_string())),
-    };
+pub fn reset_failed_attempts(store: &StoreProxy, user_id: EntityId) -> Result<()> {
+    let failed_attempts_ft = store.get_field_type(FAILED_ATTEMPTS_FIELD_NAME)?;
     store.write(user_id, &[failed_attempts_ft], Value::Int(0), None, None, None, None)?;
 
     Ok(())
 }
 
 /// Update last login timestamp
-pub fn update_last_login(store: &mut Store, user_id: EntityId) -> Result<()> {
-    let ft = match store.ft.as_ref() {
-        Some(ft) => ft,
-        None => return Err(Error::InvalidRequest("Field types not initialized".to_string())),
-    };
-    let last_login_ft = match ft.last_login {
-        Some(field) => field,
-        None => return Err(Error::InvalidRequest("Last login field type not initialized".to_string())),
-    };
+pub fn update_last_login(store: &StoreProxy, user_id: EntityId) -> Result<()> {
+    let last_login_ft = store.get_field_type(LAST_LOGIN_FIELD_NAME)?;
     store.write(user_id, &[last_login_ft], Value::Timestamp(now()), None, None, None, None)?;
 
     Ok(())
@@ -422,7 +356,7 @@ pub fn update_last_login(store: &mut Store, user_id: EntityId) -> Result<()> {
 
 /// Create a new user with specified authentication method
 pub fn create_user(
-    store: &mut Store,
+    store: &StoreProxy,
     name: &str,
     auth_method: AuthMethod,
     parent_id: EntityId,
@@ -433,33 +367,13 @@ pub fn create_user(
     }
 
     // Create the user entity
-    let et = match store.et.as_ref() {
-        Some(et) => et,
-        None => return Err(Error::InvalidRequest("Entity types not initialized".to_string())),
-    };
-    let entity_type = match et.user {
-        Some(user_et) => user_et,
-        None => return Err(Error::InvalidRequest("User entity type not initialized".to_string())),
-    };
+    let entity_type = store.get_entity_type(USER_ENTITY_NAME)?;
     let user_id = store.create_entity(entity_type, Some(parent_id), name)?;
 
     // Set authentication method and default values
-    let ft = match store.ft.as_ref() {
-        Some(ft) => ft,
-        None => return Err(Error::InvalidRequest("Field types not initialized".to_string())),
-    };
-    let auth_method_ft = match ft.auth_method {
-        Some(field) => field,
-        None => return Err(Error::InvalidRequest("Auth method field type not initialized".to_string())),
-    };
-    let active_ft = match ft.active {
-        Some(field) => field,
-        None => return Err(Error::InvalidRequest("Active field type not initialized".to_string())),
-    };
-    let failed_attempts_ft = match ft.failed_attempts {
-        Some(field) => field,
-        None => return Err(Error::InvalidRequest("Failed attempts field type not initialized".to_string())),
-    };
+    let auth_method_ft = store.get_field_type(AUTH_METHOD_FIELD_NAME)?;
+    let active_ft = store.get_field_type(ACTIVE_FIELD_NAME)?;
+    let failed_attempts_ft = store.get_field_type(FAILED_ATTEMPTS_FIELD_NAME)?;
     store.write(user_id, &[auth_method_ft], Value::Choice(i64::from(auth_method)), None, None, None, None)?;
     store.write(user_id, &[active_ft], Value::Bool(true), None, None, None, None)?;
     store.write(user_id, &[failed_attempts_ft], Value::Int(0), None, None, None, None)?;
@@ -469,7 +383,7 @@ pub fn create_user(
 
 /// Set user password (only for Native authentication method)
 pub fn set_user_password(
-    store: &mut Store,
+    store: &StoreProxy,
     user_id: EntityId,
     password: &str,
     config: &AuthConfig,
@@ -487,14 +401,7 @@ pub fn set_user_password(
     let password_hash = hash_password(password, config)?;
 
     // Store in Secret field
-    let ft = match store.ft.as_ref() {
-        Some(ft) => ft,
-        None => return Err(Error::InvalidRequest("Field types not initialized".to_string())),
-    };
-    let secret_ft = match ft.secret {
-        Some(field) => field,
-        None => return Err(Error::InvalidRequest("Secret field type not initialized".to_string())),
-    };
+    let secret_ft = store.get_field_type(SECRET_FIELD_NAME)?;
     store.write(user_id, &[secret_ft], Value::String(password_hash.into()), None, None, None, None)?;
 
     Ok(())
@@ -502,18 +409,11 @@ pub fn set_user_password(
 
 /// Set user authentication method
 pub fn set_user_auth_method(
-    store: &mut Store,
+    store: &StoreProxy,
     user_id: EntityId,
     auth_method: AuthMethod,
 ) -> Result<()> {
-    let ft = match store.ft.as_ref() {
-        Some(ft) => ft,
-        None => return Err(Error::InvalidRequest("Field types not initialized".to_string())),
-    };
-    let auth_method_ft = match ft.auth_method {
-        Some(field) => field,
-        None => return Err(Error::InvalidRequest("Auth method field type not initialized".to_string())),
-    };
+    let auth_method_ft = store.get_field_type(AUTH_METHOD_FIELD_NAME)?;
     store.write(user_id, &[auth_method_ft], Value::Choice(i64::from(auth_method)), None, None, None, None)?;
 
     Ok(())
@@ -521,7 +421,7 @@ pub fn set_user_auth_method(
 
 /// Authenticate a service using its secret key
 pub fn authenticate_service(
-    store: &mut Store,
+    store: &StoreProxy,
     name: &str,
     secret_key: &str,
 ) -> Result<EntityId> {
@@ -545,24 +445,10 @@ pub fn authenticate_service(
 }
 
 /// Find a subject by name
-pub fn find_subject_by_name(store: &mut Store, name: &str) -> Result<Option<EntityId>> {
-    let et = match store.et.as_ref() {
-        Some(et) => et,
-        None => return Err(Error::InvalidRequest("Entity types not initialized".to_string())),
-    };
-    let entities = match et.subject {
-        Some(subject_et) => store.find_entities(subject_et, None)?,
-        None => return Err(Error::InvalidRequest("Subject entity type not initialized".to_string())),
-    };
+pub fn find_subject_by_name(store: &StoreProxy, name: &str) -> Result<Option<EntityId>> {
+    let entities = store.find_entities(store.get_entity_type(SUBJECT_ENTITY_NAME)?, None)?;
 
-    let ft = match store.ft.as_ref() {
-        Some(ft) => ft,
-        None => return Err(Error::InvalidRequest("Field types not initialized".to_string())),
-    };
-    let name_ft = match ft.name {
-        Some(field) => field,
-        None => return Err(Error::InvalidRequest("Name field type not initialized".to_string())),
-    };
+    let name_ft = store.get_field_type(NAME_FIELD_NAME)?;
     for entity_id in entities {
         let (value, _, _) = store.read(entity_id, &[name_ft])?;
         if let Value::String(stored_name) = value {
@@ -576,15 +462,8 @@ pub fn find_subject_by_name(store: &mut Store, name: &str) -> Result<Option<Enti
 }
 
 /// Check if a service is active
-pub fn is_service_active(store: &mut Store, service_id: EntityId) -> Result<bool> {
-    let ft = match store.ft.as_ref() {
-        Some(ft) => ft,
-        None => return Err(Error::InvalidRequest("Field types not initialized".to_string())),
-    };
-    let active_ft = match ft.active {
-        Some(field) => field,
-        None => return Err(Error::InvalidRequest("Active field type not initialized".to_string())),
-    };
+pub fn is_service_active(store: &StoreProxy, service_id: EntityId) -> Result<bool> {
+    let active_ft = store.get_field_type(ACTIVE_FIELD_NAME)?;
     let (value, _, _) = store.read(service_id, &[active_ft])?;
     match value {
         Value::Bool(active) => Ok(active),
@@ -593,15 +472,8 @@ pub fn is_service_active(store: &mut Store, service_id: EntityId) -> Result<bool
 }
 
 /// Get service secret key
-pub fn get_service_secret(store: &mut Store, service_id: EntityId) -> Result<String> {
-    let ft = match store.ft.as_ref() {
-        Some(ft) => ft,
-        None => return Err(Error::InvalidRequest("Field types not initialized".to_string())),
-    };
-    let secret_ft = match ft.secret {
-        Some(field) => field,
-        None => return Err(Error::InvalidRequest("Secret field type not initialized".to_string())),
-    };
+pub fn get_service_secret(store: &StoreProxy, service_id: EntityId) -> Result<String> {
+    let secret_ft = store.get_field_type(SECRET_FIELD_NAME)?;
     let (value, _, _) = store.read(service_id, &[secret_ft])?;
     match value {
         Value::String(secret) => Ok(secret.to_string()),
@@ -611,25 +483,18 @@ pub fn get_service_secret(store: &mut Store, service_id: EntityId) -> Result<Str
 
 /// Set service secret key
 pub fn set_service_secret(
-    store: &mut Store,
+    store: &StoreProxy,
     service_id: EntityId,
     secret_key: &str,
 ) -> Result<()> {
-    let ft = match store.ft.as_ref() {
-        Some(ft) => ft,
-        None => return Err(Error::InvalidRequest("Field types not initialized".to_string())),
-    };
-    let secret_ft = match ft.secret {
-        Some(field) => field,
-        None => return Err(Error::InvalidRequest("Secret field type not initialized".to_string())),
-    };
+    let secret_ft = store.get_field_type(SECRET_FIELD_NAME)?;
     store.write(service_id, &[secret_ft], Value::String(secret_key.to_string().into()), None, None, None, None)?;
     Ok(())
 }
 
 /// Generic subject authentication - determines if it's a user or service and authenticates accordingly
 pub fn authenticate_subject(
-    store: &mut Store,
+    store: &StoreProxy,
     name: &str,
     credential: &str,
     config: &AuthConfig,

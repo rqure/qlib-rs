@@ -1,16 +1,14 @@
-use crate::{Store, Cache, CelExecutor, EntityId, Error, FieldType, Result, Value, StoreTrait};
+use crate::{Cache, CelExecutor, EntityId, Error, FieldType, Result, Value, StoreProxy};
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-#[allow(dead_code)]
 pub enum AuthorizationScope {
     None,
     ReadOnly,
     ReadWrite,
 }
 
-#[allow(dead_code)]
 pub fn get_scope(
-    store: &Store,
+    store: &StoreProxy,
     executor: &mut CelExecutor,
     permission_cache: &Cache,
     subject_entity_id: EntityId,
@@ -26,9 +24,8 @@ pub fn get_scope(
         entity_types
     };
 
-    let ft = store.ft.as_ref().unwrap();
-    let scope_ft = ft.scope.unwrap();
-    let condition_ft = ft.condition.unwrap();
+    let scope_ft = store.get_field_type("Scope")?;
+    let condition_ft = store.get_field_type("Condition")?;
 
     for entity_type in entity_types.iter() {
         let entity_type_str = store.resolve_entity_type(*entity_type)?;
