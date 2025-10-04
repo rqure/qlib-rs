@@ -29,7 +29,11 @@ pub fn get_scope(
 
     for entity_type in entity_types.iter() {
         let entity_type_str = store.resolve_entity_type(*entity_type)?;
-        let resource_field_str = store.resolve_field_type(resource_field)?;
+        let resource_field_str = if resource_field.0 == 0 {
+            "*".to_string()
+        } else {
+            store.resolve_field_type(resource_field)?
+        };
         
         let permissions = permission_cache.get(vec![
             Value::String(entity_type_str.into()),
