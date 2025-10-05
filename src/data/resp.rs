@@ -1253,6 +1253,14 @@ pub struct GetEntitySchemaCommand<'a> {
     pub _marker: std::marker::PhantomData<&'a ()>,
 }
 
+/// Get complete entity schema (with inheritance resolved)
+#[respc(name = "GETCSCH")]
+#[derive(Debug, Clone)]
+pub struct GetCompleteEntitySchemaCommand<'a> {
+    pub entity_type: EntityType,
+    pub _marker: std::marker::PhantomData<&'a ()>,
+}
+
 #[respc(name = "SETSCH")]
 #[derive(Debug, Clone)]
 pub struct UpdateSchemaCommand<'a> {

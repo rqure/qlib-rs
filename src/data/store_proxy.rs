@@ -6,7 +6,7 @@ use crossbeam::channel::Sender;
 use mio::{Events, Interest, Poll, Token};
 use ahash::AHashMap;
 
-use crate::data::resp::{BooleanResponse, CreateEntityCommand, CreateEntityResponse, DeleteEntityCommand, EntityExistsCommand, EntityListResponse, EntityTypeListResponse, FieldExistsCommand, FieldSchemaResponse, FindEntitiesCommand, FindEntitiesExactCommand, FindEntitiesPaginatedCommand, GetEntitySchemaCommand, GetEntityTypeCommand, GetEntityTypesCommand, GetEntityTypesPaginatedCommand, GetFieldSchemaCommand, GetFieldTypeCommand, IntegerResponse, NotificationCommand, PaginatedEntityResponse, PaginatedEntityTypeResponse, ReadCommand, ReadResponse, RegisterNotificationCommand, ResolveEntityTypeCommand, ResolveFieldTypeCommand, ResolveIndirectionCommand, ResolveIndirectionResponse, RespCommand, RespDecode, RespFromBytes, RespToBytes, RespValue, SetFieldSchemaCommand, SnapshotResponse, StringResponse, TakeSnapshotCommand, UnregisterNotificationCommand, UpdateSchemaCommand, WriteCommand};
+use crate::data::resp::{BooleanResponse, CreateEntityCommand, CreateEntityResponse, DeleteEntityCommand, EntityExistsCommand, EntityListResponse, EntityTypeListResponse, FieldExistsCommand, FieldSchemaResponse, FindEntitiesCommand, FindEntitiesExactCommand, FindEntitiesPaginatedCommand, GetCompleteEntitySchemaCommand, GetEntitySchemaCommand, GetEntityTypeCommand, GetEntityTypesCommand, GetEntityTypesPaginatedCommand, GetFieldSchemaCommand, GetFieldTypeCommand, IntegerResponse, NotificationCommand, PaginatedEntityResponse, PaginatedEntityTypeResponse, ReadCommand, ReadResponse, RegisterNotificationCommand, ResolveEntityTypeCommand, ResolveFieldTypeCommand, ResolveIndirectionCommand, ResolveIndirectionResponse, RespCommand, RespDecode, RespFromBytes, RespToBytes, RespValue, SetFieldSchemaCommand, SnapshotResponse, StringResponse, TakeSnapshotCommand, UnregisterNotificationCommand, UpdateSchemaCommand, WriteCommand};
 use crate::{
     AdjustBehavior, Complete, EntityId, EntitySchema, EntitySchemaResp, EntityType, Error, FieldSchema, FieldType, Notification, NotifyConfig, PageOpts, PageResult, PushCondition, Result, Single, Timestamp, Value
 };
@@ -303,9 +303,21 @@ impl StoreProxy {
     }
 
     /// Get complete entity schema
-    pub fn get_complete_entity_schema(&self, _entity_type: EntityType) -> Result<EntitySchema<Complete>> {
-        // TODO: Implement RESP command for complete entity schema
-        unimplemented!("Complete entity schema not yet implemented with RESP")
+    pub fn get_complete_entity_schema(&self, entity_type: EntityType) -> Result<EntitySchema<Complete>> {
+        let command = GetCompleteEntitySchemaCommand {
+            entity_type,
+            _marker: std::marker::PhantomData,
+        };
+        
+        let schema_resp = self.send_command_get_response::<GetCompleteEntitySchemaCommand, EntitySchemaResp>(&command)?;
+        
+        // Convert EntitySchemaResp back to EntitySchema<Single, String, String>
+        let schema_string = schema_resp.to_entity_schema(self)?;
+        
+        // Convert from string-based schema to typed schema, then to Complete
+        let typed_schema = EntitySchema::from_string_schema(schema_string, self);
+        
+        Ok(EntitySchema::<Complete>::from(typed_schema))
     }
 
     /// Set field schema
