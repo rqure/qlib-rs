@@ -538,7 +538,17 @@ impl StoreProxy {
         ))
     }
 
-    /// Get all entity types with pagination
+    /// Get machine info (machine ID/name)
+    pub fn machine_info(&self) -> Result<String> {
+        let command = crate::data::resp::MachineInfoCommand {
+            _marker: std::marker::PhantomData,
+        };
+        
+        let string_response = self.send_command_get_response::<_, StringResponse>(&command)?;
+        Ok(string_response.value)
+    }
+
+    /// Get entity types with pagination
     pub fn get_entity_types_paginated(&self, page_opts: Option<&PageOpts>) -> Result<PageResult<EntityType>> {
         let command = GetEntityTypesPaginatedCommand {
             page_opts: page_opts.cloned(),

@@ -1364,6 +1364,13 @@ pub struct TakeSnapshotCommand<'a> {
     pub _marker: std::marker::PhantomData<&'a ()>,
 }
 
+/// Get machine info command
+#[respc(name = "MACHINE")]
+#[derive(Debug, Clone)]
+pub struct MachineInfoCommand<'a> {
+    pub _marker: std::marker::PhantomData<&'a ()>,
+}
+
 /// Register notification command
 #[respc(name = "LISTEN")]
 #[derive(Debug, Clone)]
