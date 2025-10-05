@@ -507,7 +507,7 @@ impl<'a> Pipeline<'a> {
         let mut command_index = 0;
         loop {
             // Try to parse response
-            let consumed_opt = {
+            let consumed_and_result = {
                 let conn_ref = &conn;
                 match RespValue::from_bytes(&conn_ref.read_buffer) {
                     Ok((resp_value, remaining)) => {
@@ -518,15 +518,16 @@ impl<'a> Pipeline<'a> {
                                 Ok(decoded) => {
                                     responses.push(decoded);
                                     command_index += 1;
-                                    Some((consumed, true))
+                                    Some((consumed, Ok(true)))
                                 }
-                                Err(_) => {
+                                Err(e) => {
                                     // Try as notification
                                     if let Ok(notification) = NotificationCommand::decode(resp_value.clone()) {
                                         self.proxy.handle_notification(notification);
-                                        Some((consumed, false))
+                                        Some((consumed, Ok(false)))
                                     } else {
-                                        return Err(Error::StoreProxyError(format!("Failed to decode response or notification")));
+                                        // Consume bytes before returning error
+                                        Some((consumed, Err(Error::StoreProxyError(format!("Failed to decode response or notification: {}", e)))))
                                     }
                                 }
                             }
@@ -534,9 +535,10 @@ impl<'a> Pipeline<'a> {
                             // Extra response, try as notification
                             if let Ok(notification) = NotificationCommand::decode(resp_value.clone()) {
                                 self.proxy.handle_notification(notification);
-                                Some((consumed, false))
+                                Some((consumed, Ok(false)))
                             } else {
-                                return Err(Error::StoreProxyError("Unexpected extra response".to_string()));
+                                // Consume bytes before returning error
+                                Some((consumed, Err(Error::StoreProxyError("Unexpected extra response".to_string()))))
                             }
                         }
                     }
@@ -544,10 +546,15 @@ impl<'a> Pipeline<'a> {
                 }
             };
 
-            if let Some((consumed, _is_response)) = consumed_opt {
+            if let Some((consumed, result)) = consumed_and_result {
                 conn.read_buffer.drain(..consumed);
-                if command_index >= self.commands.len() {
-                    break;
+                match result {
+                    Ok(_is_response) => {
+                        if command_index >= self.commands.len() {
+                            break;
+                        }
+                    }
+                    Err(e) => return Err(e),
                 }
             } else {
                 // Need more data
@@ -894,7 +901,7 @@ impl<'a> AsyncPipeline<'a> {
         let mut command_index = 0;
         loop {
             // Try to parse response
-            let consumed_opt = match RespValue::from_bytes(&conn.read_buffer) {
+            let consumed_and_result = match RespValue::from_bytes(&conn.read_buffer) {
                 Ok((resp_value, remaining)) => {
                     let consumed = conn.read_buffer.len() - remaining.len();
                     if command_index < self.commands.len() {
@@ -903,15 +910,16 @@ impl<'a> AsyncPipeline<'a> {
                             Ok(decoded) => {
                                 responses.push(decoded);
                                 command_index += 1;
-                                Some((consumed, true))
+                                Some((consumed, Ok(true)))
                             }
-                            Err(_) => {
+                            Err(e) => {
                                 // Try as notification
                                 if let Ok(notification) = NotificationCommand::decode(resp_value.clone()) {
                                     self.proxy.handle_notification(notification);
-                                    Some((consumed, false))
+                                    Some((consumed, Ok(false)))
                                 } else {
-                                    return Err(Error::StoreProxyError(format!("Failed to decode response or notification")));
+                                    // Consume bytes before returning error
+                                    Some((consumed, Err(Error::StoreProxyError(format!("Failed to decode response or notification: {}", e)))))
                                 }
                             }
                         }
@@ -919,19 +927,25 @@ impl<'a> AsyncPipeline<'a> {
                         // Extra response, try as notification
                         if let Ok(notification) = NotificationCommand::decode(resp_value.clone()) {
                             self.proxy.handle_notification(notification);
-                            Some((consumed, false))
+                            Some((consumed, Ok(false)))
                         } else {
-                            return Err(Error::StoreProxyError("Unexpected extra response".to_string()));
+                            // Consume bytes before returning error
+                            Some((consumed, Err(Error::StoreProxyError("Unexpected extra response".to_string()))))
                         }
                     }
                 }
                 Err(_) => None
             };
 
-            if let Some((consumed, _is_response)) = consumed_opt {
+            if let Some((consumed, result)) = consumed_and_result {
                 conn.read_buffer.drain(..consumed);
-                if command_index >= self.commands.len() {
-                    break;
+                match result {
+                    Ok(_is_response) => {
+                        if command_index >= self.commands.len() {
+                            break;
+                        }
+                    }
+                    Err(e) => return Err(e),
                 }
             } else {
                 // Need more data
