@@ -98,17 +98,15 @@ impl CelExecutor {
                 Value::EntityReference(v) => {
                     match v {
                         Some(e) => {
-                            // EntityId no longer implements Display, so we use debug formatting
-                            // or convert to a meaningful string representation
-                            context.add_variable_from_value(cel_field.clone(), format!("{:?}", e));
+                            context.add_variable_from_value(cel_field.clone(), e.0);
                         },
                         None => {
-                            context.add_variable_from_value(cel_field.clone(), "");
+                            let _ = context.add_variable(cel_field.clone(), cel::Value::Null);
                         }
                     }
                 },
                 Value::EntityList(v) => {
-                    let list: Vec<String> = v.iter().map(|e| format!("{:?}", e)).collect();
+                    let list: Vec<u64> = v.iter().map(|e| e.0).collect();
                     context.add_variable_from_value(cel_field.clone(), list);
                 },
                 Value::Float(v) => {
@@ -134,7 +132,7 @@ impl CelExecutor {
             }
         }
 
-        context.add_variable_from_value("EntityId", format!("{:?}", relative_id));
+        context.add_variable_from_value("EntityId", relative_id.0);
 
         context.add_variable_from_value("EntityType", store.resolve_entity_type(relative_id.extract_type()).unwrap_or_else(|_| format!("{:?}", relative_id.extract_type())));
 
