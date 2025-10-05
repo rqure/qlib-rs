@@ -138,39 +138,41 @@ impl StoreProxy {
 
         loop {
             // Try to parse and get the number of bytes consumed
-            let consumed_opt = {
+            let consumed_and_result = {
                 let conn = self.tcp_connection.borrow();
                 match RespValue::from_bytes(&conn.read_buffer) {
                     Ok((resp_value, remaining)) => {
+                        let consumed = conn.read_buffer.len() - remaining.len();
                         match R::decode(resp_value.clone()) {
                             Ok(response_struct) => {
-                                let consumed = conn.read_buffer.len() - remaining.len();
-                                Ok(Some((consumed, Some(response_struct))))
+                                Some((consumed, Ok(Some(response_struct))))
                             }
                             Err(e) => {
                                 if let Ok(notification) = NotificationCommand::decode(resp_value.clone()) {
-                                    let consumed = conn.read_buffer.len() - remaining.len();
                                     self.handle_notification(notification);
-                                    Ok(Some((consumed, None)))
+                                    Some((consumed, Ok(None)))
                                 } else {
-                                    Err(Error::StoreProxyError(format!("Failed to decode response: {}", e)))
+                                    // We need to consume the bytes even on error, otherwise subsequent commands will fail
+                                    Some((consumed, Err(Error::StoreProxyError(format!("Failed to decode response: {}", e)))))
                                 }
                             },
                         }
                     }
-                    Err(_) => Ok(None)
+                    Err(_) => None
                 }
-            }?;
+            };
             
-            if let Some((consumed, response_struct)) = consumed_opt {
+            if let Some((consumed, result)) = consumed_and_result {
                 // Remove only the consumed bytes, keeping the remaining unparsed data
                 self.tcp_connection.borrow_mut().read_buffer.drain(..consumed);
-                if let Some(response_struct) = response_struct {
-                    return Ok(response_struct);
-                } else {
-                    // Continue loop to see if we can get the actual response
-                    // without having to read more data
-                    continue; 
+                match result {
+                    Ok(Some(response_struct)) => return Ok(response_struct),
+                    Ok(None) => {
+                        // Notification handled, continue loop to see if we can get the actual response
+                        // without having to read more data
+                        continue;
+                    }
+                    Err(e) => return Err(e),
                 }
             }
             
