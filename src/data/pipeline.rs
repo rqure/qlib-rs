@@ -572,6 +572,11 @@ impl<'a> Pipeline<'a> {
 
     /// Decode a response based on its type
     fn decode_response(&self, resp_value: RespValue, response_type: &ResponseType) -> Result<DecodedResponse> {
+        // Check if this is an error response from the server
+        if let RespValue::Error(error_msg) = &resp_value {
+            return Err(Error::StoreProxyError(error_msg.to_string()));
+        }
+        
         match response_type {
             ResponseType::Read => {
                 let response = crate::data::resp::ReadResponse::decode(resp_value)
@@ -960,6 +965,11 @@ impl<'a> AsyncPipeline<'a> {
 
     /// Decode a response based on its type
     async fn decode_response(&self, resp_value: RespValue<'_>, response_type: &ResponseType) -> Result<DecodedResponse> {
+        // Check if this is an error response from the server
+        if let RespValue::Error(error_msg) = &resp_value {
+            return Err(Error::StoreProxyError(error_msg.to_string()));
+        }
+        
         match response_type {
             ResponseType::Read => {
                 let response = crate::data::resp::ReadResponse::decode(resp_value)

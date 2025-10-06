@@ -161,19 +161,25 @@ impl StoreProxy {
                 match RespValue::from_bytes(&conn.read_buffer) {
                     Ok((resp_value, remaining)) => {
                         let consumed = conn.read_buffer.len() - remaining.len();
-                        match R::decode(resp_value.clone()) {
-                            Ok(response_struct) => {
-                                Some((consumed, Ok(Some(response_struct))))
-                            }
-                            Err(e) => {
-                                if let Ok(notification) = NotificationCommand::decode(resp_value.clone()) {
-                                    self.handle_notification(notification);
-                                    Some((consumed, Ok(None)))
-                                } else {
-                                    // We need to consume the bytes even on error, otherwise subsequent commands will fail
-                                    Some((consumed, Err(Error::StoreProxyError(format!("Failed to decode response: {}", e)))))
+                        
+                        // Check if this is an error response from the server
+                        if let RespValue::Error(error_msg) = &resp_value {
+                            Some((consumed, Err(Error::StoreProxyError(error_msg.to_string()))))
+                        } else {
+                            match R::decode(resp_value.clone()) {
+                                Ok(response_struct) => {
+                                    Some((consumed, Ok(Some(response_struct))))
                                 }
-                            },
+                                Err(e) => {
+                                    if let Ok(notification) = NotificationCommand::decode(resp_value.clone()) {
+                                        self.handle_notification(notification);
+                                        Some((consumed, Ok(None)))
+                                    } else {
+                                        // We need to consume the bytes even on error, otherwise subsequent commands will fail
+                                        Some((consumed, Err(Error::StoreProxyError(format!("Failed to decode response: {}", e)))))
+                                    }
+                                },
+                            }
                         }
                     }
                     Err(_) => None
