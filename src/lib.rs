@@ -64,6 +64,7 @@ pub enum Error {
 
     // StoreProxy related errors
     StoreProxyError(String),
+    ConnectionLost,
 
     // Scripting related errors
     ExecutionError(String),
@@ -99,6 +100,7 @@ impl std::fmt::Display for Error {
             Error::InvalidAuthenticationMethod => write!(f, "Invalid authentication method for this operation"),
             Error::AuthenticationMethodNotImplemented(method) => write!(f, "Authentication method '{}' is not implemented", method),
             Error::StoreProxyError(msg) => write!(f, "Store proxy error: {}", msg),
+            Error::ConnectionLost => write!(f, "Connection to store lost"),
             Error::ExecutionError(msg) => write!(f, "Execution error: {}", msg),
         }
     }

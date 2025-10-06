@@ -125,6 +125,24 @@ impl StoreProxy {
         })
     }
 
+    /// Convert TCP connection errors to appropriate Error variants
+    fn convert_tcp_error(e: anyhow::Error) -> Error {
+        if let Some(io_err) = e.downcast_ref::<std::io::Error>() {
+            match io_err.kind() {
+                std::io::ErrorKind::ConnectionAborted |
+                std::io::ErrorKind::ConnectionReset |
+                std::io::ErrorKind::BrokenPipe |
+                std::io::ErrorKind::ConnectionRefused |
+                std::io::ErrorKind::TimedOut => {
+                    Error::ConnectionLost
+                }
+                _ => Error::StoreProxyError(e.to_string()),
+            }
+        } else {
+            Error::StoreProxyError(e.to_string())
+        }
+    }
+
     fn send_command_get_response<C, R>(&self, command: &C) -> Result<R>
     where
         C: RespCommand<'static>,
@@ -134,7 +152,7 @@ impl StoreProxy {
         let encoded_bytes = encoded.to_bytes();
         
         self.tcp_connection.borrow_mut().send_bytes(&encoded_bytes)
-            .map_err(|e| Error::StoreProxyError(format!("Failed to send command: {}", e)))?;
+            .map_err(Self::convert_tcp_error)?;
 
         loop {
             // Try to parse and get the number of bytes consumed
@@ -179,10 +197,10 @@ impl StoreProxy {
             // Need more data
             let readable = self.tcp_connection.borrow_mut()
                 .wait_for_readable(Some(READ_POLL_INTERVAL))
-                .map_err(|e| Error::StoreProxyError(format!("Poll error: {}", e)))?;
+                .map_err(Self::convert_tcp_error)?;
             if readable {
                 self.tcp_connection.borrow_mut().read_bytes()
-                    .map_err(|e| Error::StoreProxyError(format!("Failed to read bytes: {}", e)))?;
+                    .map_err(Self::convert_tcp_error)?;
             }
         }
     }
@@ -197,7 +215,7 @@ impl StoreProxy {
         let encoded_bytes = encoded.to_bytes();
         
         self.tcp_connection.borrow_mut().send_bytes(&encoded_bytes)
-            .map_err(|e| Error::StoreProxyError(format!("Failed to send command: {}", e)))?;
+            .map_err(Self::convert_tcp_error)?;
 
         loop {
             // Try to parse and get the number of bytes consumed
@@ -234,10 +252,10 @@ impl StoreProxy {
             // Need more data
             let readable = self.tcp_connection.borrow_mut()
                 .wait_for_readable(Some(READ_POLL_INTERVAL))
-                .map_err(|e| Error::StoreProxyError(format!("Poll error: {}", e)))?;
+                .map_err(Self::convert_tcp_error)?;
             if readable {
                 self.tcp_connection.borrow_mut().read_bytes()
-                    .map_err(|e| Error::StoreProxyError(format!("Failed to read bytes: {}", e)))?;
+                    .map_err(Self::convert_tcp_error)?;
             }
         }
     }
@@ -650,10 +668,10 @@ impl StoreProxy {
                 // Read more data
                 let readable = self.tcp_connection.borrow_mut()
                     .wait_for_readable(Some(READ_POLL_INTERVAL))
-                    .map_err(|e| Error::StoreProxyError(format!("Poll error: {}", e)))?;
+                    .map_err(Self::convert_tcp_error)?;
                 if readable {
                     self.tcp_connection.borrow_mut().read_bytes()
-                        .map_err(|e| Error::StoreProxyError(format!("Failed to read bytes: {}", e)))?;
+                        .map_err(Self::convert_tcp_error)?;
                 }
                 
                 break;
