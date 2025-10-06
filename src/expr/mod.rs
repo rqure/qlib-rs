@@ -12,7 +12,7 @@ pub struct CelExecutor {
 
 impl CelExecutor {
     pub fn new() -> Self {
-        Self::with_capacity(100) // Default capacity of 100 compiled programs
+        Self::with_capacity(4096)
     }
 
     pub fn with_capacity(capacity: usize) -> Self {
@@ -98,22 +98,22 @@ impl CelExecutor {
                 Value::EntityReference(v) => {
                     match v {
                         Some(e) => {
-                            context.add_variable_from_value(cel_field.clone(), e.0);
+                            context.add_variable_from_value(cel_field, e.0);
                         },
                         None => {
-                            let _ = context.add_variable(cel_field.clone(), cel::Value::Null);
+                            let _ = context.add_variable(cel_field, 0);
                         }
                     }
                 },
                 Value::EntityList(v) => {
                     let list: Vec<u64> = v.iter().map(|e| e.0).collect();
-                    context.add_variable_from_value(cel_field.clone(), list);
+                    context.add_variable_from_value(cel_field, list);
                 },
                 Value::Float(v) => {
-                    context.add_variable_from_value(cel_field.clone(), v);
+                    context.add_variable_from_value(cel_field, v);
                 },
                 Value::String(v) => {
-                    context.add_variable_from_value(cel_field.clone(), v.as_str());
+                    context.add_variable_from_value(cel_field, v.as_str());
                 },
                 Value::Timestamp(v) => {
                     // Convert time::OffsetDateTime to chrono::DateTime<chrono::FixedOffset>
@@ -124,10 +124,10 @@ impl CelExecutor {
                         nanoseconds
                     ).ok_or_else(|| crate::Error::ExecutionError("Failed to convert timestamp".to_string()))?
                         .with_timezone(&chrono::FixedOffset::east_opt(0).unwrap());
-                    context.add_variable_from_value(cel_field.clone(), datetime);
+                    context.add_variable_from_value(cel_field, datetime);
                 },
                 Value::Int(v) => {
-                    context.add_variable_from_value(cel_field.clone(), v);
+                    context.add_variable_from_value(cel_field, v);
                 },
             }
         }
