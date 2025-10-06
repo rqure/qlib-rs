@@ -1426,7 +1426,17 @@ impl StoreTrait for Store {
         if let Some(field) = self.fields.get(&field_key) {
             Ok((field.value.clone(), field.write_time, field.writer_id))
         } else {
-            Err(Error::FieldTypeNotFound(resolved_entity_id, resolved_field_type))
+            // Try to provide a more helpful error message
+            let field_name = self.resolve_field_type(resolved_field_type)
+                .unwrap_or_else(|_| format!("FieldType({})", resolved_field_type.0));
+            let entity_type = resolved_entity_id.extract_type();
+            let entity_type_name = self.resolve_entity_type(entity_type)
+                .unwrap_or_else(|_| format!("EntityType({})", entity_type.0));
+            
+            return Err(Error::InvalidRequest(format!(
+                "Field '{}' not found for entity {} (type: {}). The field may not exist or has never been set.",
+                field_name, resolved_entity_id.0, entity_type_name
+            )));
         }
     }
 

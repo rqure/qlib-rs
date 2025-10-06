@@ -1413,21 +1413,64 @@ pub struct CreateEntityResponse {
 }
 
 /// Response for simple boolean operations (exists checks)
-#[derive(Debug, Clone, RespEncode, RespDecode)]
+#[derive(Debug, Clone)]
 pub struct BooleanResponse {
     pub result: bool,
 }
 
 /// Response for string operations (resolve operations)
-#[derive(Debug, Clone, RespEncode, RespDecode)]
+#[derive(Debug, Clone)]
 pub struct StringResponse {
     pub value: String,
 }
 
 /// Response for integer operations (get operations)
-#[derive(Debug, Clone, RespEncode, RespDecode)]
+#[derive(Debug, Clone)]
 pub struct IntegerResponse {
     pub value: i64,
+}
+
+// Manual implementations for simple response types to encode them as direct values
+impl RespEncode for BooleanResponse {
+    fn encode(&self) -> OwnedRespValue {
+        self.result.encode()
+    }
+}
+
+impl<'a> RespDecode<'a> for BooleanResponse {
+    fn decode(value: RespValue<'a>) -> crate::Result<Self> {
+        Ok(BooleanResponse {
+            result: bool::decode(value).map_err(|e| crate::Error::StoreProxyError(e.to_string()))?,
+        })
+    }
+}
+
+impl RespEncode for StringResponse {
+    fn encode(&self) -> OwnedRespValue {
+        self.value.encode()
+    }
+}
+
+impl<'a> RespDecode<'a> for StringResponse {
+    fn decode(value: RespValue<'a>) -> crate::Result<Self> {
+        Ok(StringResponse {
+            value: String::decode(value).map_err(|e| crate::Error::StoreProxyError(e.to_string()))?,
+        })
+    }
+}
+
+impl RespEncode for IntegerResponse {
+    fn encode(&self) -> OwnedRespValue {
+        self.value.encode()
+    }
+}
+
+impl<'a> RespDecode<'a> for IntegerResponse {
+    fn decode(value: RespValue<'a>) -> crate::Result<Self> {
+        Ok(IntegerResponse {
+            value: i64::decode(value).map_err(|e| crate::Error::StoreProxyError(e.to_string()))?,
+        })
+    }
 }
 
 /// Response for entity list operations
