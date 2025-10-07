@@ -347,6 +347,7 @@ impl StoreProxy {
             field_type: field_type_str,
             rank: schema.rank(),
             default_value: schema.default_value(),
+            choices: schema.choices(),
         };
 
         let command = SetFieldSchemaCommand {
@@ -478,6 +479,7 @@ impl StoreProxy {
                     field_type: field_type_str,
                     rank: field_schema.rank(),
                     default_value: field_schema.default_value(),
+                    choices: field_schema.choices(),
                 }
             })
             .collect();
@@ -785,6 +787,7 @@ impl StoreTrait for StoreProxy {
             field_type: field_type_str,
             rank: schema.rank(),
             default_value: schema.default_value(),
+            choices: schema.choices(),
         };
 
         let command = SetFieldSchemaCommand {
@@ -857,6 +860,7 @@ impl StoreTrait for StoreProxy {
                     field_type: field_type_str,
                     rank: field_schema.rank(),
                     default_value: field_schema.default_value(),
+                    choices: field_schema.choices(),
                 }
             })
             .collect();

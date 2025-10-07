@@ -122,6 +122,13 @@ impl<T: Clone> FieldSchema<T> {
             FieldSchema::Timestamp { storage_scope, .. } => storage_scope,
         }
     }
+
+    pub fn choices(&self) -> Vec<String> {
+        match self {
+            FieldSchema::Choice { choices, .. } => choices.clone(),
+            _ => Vec::new(),
+        }
+    }
 }
 
 impl FieldSchema {

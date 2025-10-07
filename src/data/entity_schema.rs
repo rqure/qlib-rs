@@ -153,6 +153,7 @@ pub struct FieldSchemaResp {
     pub field_type: String,
     pub rank: i64,
     pub default_value: Value,
+    pub choices: Vec<String>,
 }
 
 impl FieldSchemaResp {
@@ -176,7 +177,7 @@ impl FieldSchemaResp {
                 field_type: self.field_type,
                 default_value: val,
                 rank: self.rank,
-                choices: Vec::new(), // TODO: Consider adding choices to FieldSchemaResp
+                choices: self.choices,
                 storage_scope: crate::data::field_schema::StorageScope::Runtime,
             },
             Value::EntityList(val) => FieldSchema::EntityList {
@@ -221,22 +222,23 @@ impl FieldSchemaResp {
     /// Convert from FieldSchema to FieldSchemaResp
     pub fn from_field_schema(schema: &FieldSchema<FieldType>, store: &impl StoreTrait) -> Self {
         let field_type = store.resolve_field_type(schema.field_type().clone()).expect("Field type does not exist");
-        let (rank, default_value) = match schema {
-            FieldSchema::Blob { rank, default_value, .. } => (*rank, Value::Blob(default_value.clone())),
-            FieldSchema::Bool { rank, default_value, .. } => (*rank, Value::Bool(*default_value)),
-            FieldSchema::Choice { rank, default_value, .. } => (*rank, Value::Choice(*default_value)),
-            FieldSchema::EntityList { rank, default_value, .. } => (*rank, Value::EntityList(default_value.clone())),
-            FieldSchema::EntityReference { rank, default_value, .. } => (*rank, Value::EntityReference(*default_value)),
-            FieldSchema::Float { rank, default_value, .. } => (*rank, Value::Float(*default_value)),
-            FieldSchema::Int { rank, default_value, .. } => (*rank, Value::Int(*default_value)),
-            FieldSchema::String { rank, default_value, .. } => (*rank, Value::String(default_value.clone())),
-            FieldSchema::Timestamp { rank, default_value, .. } => (*rank, Value::Timestamp(*default_value)),
+        let (rank, default_value, choices) = match schema {
+            FieldSchema::Blob { rank, default_value, .. } => (*rank, Value::Blob(default_value.clone()), Vec::new()),
+            FieldSchema::Bool { rank, default_value, .. } => (*rank, Value::Bool(*default_value), Vec::new()),
+            FieldSchema::Choice { rank, default_value, choices, .. } => (*rank, Value::Choice(*default_value), choices.clone()),
+            FieldSchema::EntityList { rank, default_value, .. } => (*rank, Value::EntityList(default_value.clone()), Vec::new()),
+            FieldSchema::EntityReference { rank, default_value, .. } => (*rank, Value::EntityReference(*default_value), Vec::new()),
+            FieldSchema::Float { rank, default_value, .. } => (*rank, Value::Float(*default_value), Vec::new()),
+            FieldSchema::Int { rank, default_value, .. } => (*rank, Value::Int(*default_value), Vec::new()),
+            FieldSchema::String { rank, default_value, .. } => (*rank, Value::String(default_value.clone()), Vec::new()),
+            FieldSchema::Timestamp { rank, default_value, .. } => (*rank, Value::Timestamp(*default_value), Vec::new()),
         };
 
         Self {
             field_type,
             rank,
             default_value,
+            choices,
         }
     }
 }
