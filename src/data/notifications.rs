@@ -77,8 +77,7 @@ impl Serialize for Notification {
         let mut state = serializer.serialize_struct("Notification", 4)?;
         state.serialize_field("current", &self.current)?;
         state.serialize_field("previous", &self.previous)?;
-        // Send as string to avoid JavaScript number precision loss (53-bit vs 64-bit)
-        state.serialize_field("config_hash", &self.config_hash.to_string())?;
+        state.serialize_field("config_hash", &self.config_hash)?;
 
         // Convert context map with Vec<FieldType> keys to string keys
         let context_map: std::collections::BTreeMap<String, &NotifyInfo> = self
