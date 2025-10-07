@@ -692,9 +692,11 @@ impl StoreProxy {
         let config_hash = crate::data::notifications::hash_notify_config(&config);
         
         // Add sender to our local mapping
-        let mut senders = self.notification_senders.borrow_mut();
-        let entry = senders.entry(config_hash).or_insert_with(|| (config.clone(), Vec::new()));
-        entry.1.push(sender);
+        {
+            let mut senders = self.notification_senders.borrow_mut();
+            let entry = senders.entry(config_hash).or_insert_with(|| (config.clone(), Vec::new()));
+            entry.1.push(sender);
+        } // Drop the borrow before calling send_command_ok
         
         let command = RegisterNotificationCommand {
             config,
