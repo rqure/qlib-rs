@@ -18,3 +18,33 @@ impl EntityId {
         EntityType((self.0 >> 32) as u32)
     }
 }
+
+impl From<u64> for EntityId {
+    fn from(value: u64) -> Self {
+        EntityId(value)
+    }
+}
+
+impl From<EntityId> for u64 {
+    fn from(value: EntityId) -> Self {
+        value.0
+    }
+}
+
+impl From<EntityId> for String {
+    fn from(value: EntityId) -> Self {
+        value.0.to_string()
+    }
+}
+
+impl From<String> for EntityId {
+    fn from(value: String) -> Self {
+        EntityId(value.parse().unwrap_or(0))
+    }
+}
+
+impl From<&str> for EntityId {
+    fn from(value: &str) -> Self {
+        EntityId(value.parse().unwrap_or(0))
+    }
+}

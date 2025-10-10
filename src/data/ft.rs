@@ -9,6 +9,8 @@ pub const CONDITION: &str = "Condition";
 pub const CURRENT_LEADER: &str = "CurrentLeader";
 pub const DEATH_DETECTION_TIMEOUT: &str = "DeathDetectionTimeout";
 pub const DESCRIPTION: &str = "Description";
+pub const FAIL_OVER: &str = "FailOver";
+pub const FAIL_OVER_GRACE_PERIOD: &str = "FailOverGracePeriod";
 pub const FAILED_ATTEMPTS: &str = "FailedAttempts";
 pub const HEARTBEAT: &str = "Heartbeat";
 pub const LAST_LOGIN: &str = "LastLogin";
@@ -25,6 +27,7 @@ pub const START_TIME: &str = "StartTime";
 pub const STATUS: &str = "Status";
 pub const SYNC_STATUS: &str = "SyncStatus";
 
+#[derive(Clone)]
 pub struct FT {
     pub active: Option<FieldType>,
     pub auth_method: Option<FieldType>,
@@ -35,6 +38,8 @@ pub struct FT {
     pub current_leader: Option<FieldType>,
     pub death_detection_timeout: Option<FieldType>,
     pub description: Option<FieldType>,
+    pub fail_over: Option<FieldType>,
+    pub fail_over_grace_period: Option<FieldType>,
     pub failed_attempts: Option<FieldType>,
     pub heartbeat: Option<FieldType>,
     pub last_login: Option<FieldType>,
@@ -64,6 +69,8 @@ impl FT {
             current_leader: store.get_field_type(CURRENT_LEADER).ok(),
             death_detection_timeout: store.get_field_type(DEATH_DETECTION_TIMEOUT).ok(),
             description: store.get_field_type(DESCRIPTION).ok(),
+            fail_over: store.get_field_type(FAIL_OVER).ok(),
+            fail_over_grace_period: store.get_field_type(FAIL_OVER_GRACE_PERIOD).ok(),
             failed_attempts: store.get_field_type(FAILED_ATTEMPTS).ok(),
             heartbeat: store.get_field_type(HEARTBEAT).ok(),
             last_login: store.get_field_type(LAST_LOGIN).ok(),

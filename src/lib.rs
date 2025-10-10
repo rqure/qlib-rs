@@ -2,6 +2,7 @@ pub mod data;
 pub mod auth;
 mod test;
 pub mod expr;
+pub mod app;
 
 // Re-export derive macros when derive feature is enabled
 #[cfg(feature = "derive")]

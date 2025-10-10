@@ -11,6 +11,7 @@ pub const SUBJECT: &str = "Subject";
 pub const USER: &str = "User";
 pub const CANDIDATE: &str = "Candidate";
 
+#[derive(Clone)]
 pub struct ET {
     pub fault_tolerance: Option<EntityType>,
     pub folder: Option<EntityType>,
