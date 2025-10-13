@@ -49,7 +49,7 @@ let proxy = StoreProxy::connect("127.0.0.1:8080")?;
 // Same API as Store
 let users = proxy.find_entities(user_type, None)?;
 
-// Async version
+// Async version (use qlib_rs::data::AsyncStoreProxy)
 let async_proxy = AsyncStoreProxy::connect("127.0.0.1:8080").await?;
 let (value, timestamp, writer_id) = async_proxy.read(user_id, &[name_field]).await?;
 ```
@@ -242,7 +242,23 @@ store.write(
 )?;
 ```
 
-Path utilities for navigation:
+### Field Path Helper
+
+For convenience when working with field paths, use the `sfield!` macro:
+
+```rust
+use qlib_rs::sfield;
+
+// Instead of &[field1, field2, field3]
+let (value, timestamp, writer_id) = store.read(
+    entity_id,
+    &sfield![parent_field, name_field]
+)?;
+```
+
+### Path Utilities
+
+Navigate entities using path strings:
 ```rust
 let entity_path = path(&store, entity_id)?;  // "/root/users/john"  
 let entity_id = path_to_entity_id(&store, "/root/users/john")?;
