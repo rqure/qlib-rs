@@ -256,12 +256,13 @@ let entity_id = path_to_entity_id(&store, "/root/users/john")?;
 let all_users = store.find_entities(user_type, None)?;
 
 // With server-side filtering
-let active_users = store.find_entities(user_type, Some("status='active'".to_string()))?;
+let active_users = store.find_entities(user_type, Some("status='active'"))?;
 
 // Paginated results
+let page_opts = PageOpts { page_size: 10, page_number: 1 };
 let page_result = store.find_entities_paginated(
     user_type, 
-    Some(PageOpts { page_size: 10, page_number: 1 }), 
+    Some(&page_opts), 
     None
 )?;
 ```
