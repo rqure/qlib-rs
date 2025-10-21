@@ -161,6 +161,20 @@ impl ServiceState {
 
         Ok(())
     }
+
+    pub fn make_me_available(&mut self, store: &mut StoreProxy) -> Result<()> {
+        if let Some(ref mut candidate) = self.candidate_state {
+            candidate.make_me_available(store)?;
+        }
+        Ok(())
+    }
+
+    pub fn make_me_unavailable(&mut self, store: &mut StoreProxy) -> Result<()> {
+        if let Some(ref mut candidate) = self.candidate_state {
+            candidate.make_me_unavailable(store)?;
+        }
+        Ok(())
+    }
 }
 
 impl CandidateState {
