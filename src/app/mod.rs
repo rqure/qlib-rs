@@ -13,8 +13,7 @@ pub struct CandidateState {
     pub is_leader: bool,
 
     notify_ch: (Sender<Notification>, Receiver<Notification>),
-    #[allow(dead_code)]
-    et: ET,
+
     ft: FT
 }
 
@@ -57,8 +56,6 @@ pub struct ServiceState {
     pub heartbeat_interval_msecs: u64,
     last_heartbeat: std::time::Instant,
 
-    #[allow(dead_code)]
-    et: ET,
     ft: FT
 }
 
@@ -105,7 +102,6 @@ impl ServiceState {
                 candidate_id: service_id,
                 is_leader: false,
                 notify_ch,
-                et: et.clone(),
                 ft: ft.clone(),
             })
         } else {
@@ -119,7 +115,6 @@ impl ServiceState {
             candidate_state,
             heartbeat_interval_msecs,
             last_heartbeat: std::time::Instant::now(),
-            et,
             ft,
         })
     }
@@ -170,7 +165,6 @@ impl ServiceState {
 
 impl CandidateState {
     pub fn new(store: &mut StoreProxy, candidate_id: EntityId) -> Self {
-        let et = ET::new(store);
         let ft = FT::new(store);
         let notify_ch = crossbeam::channel::unbounded();
         
@@ -178,7 +172,6 @@ impl CandidateState {
             candidate_id,
             is_leader: false,
             notify_ch,
-            et,
             ft,
         }
     }
