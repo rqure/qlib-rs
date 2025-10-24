@@ -356,7 +356,8 @@ fn test_cel_executor_execute_with_entity_reference_field() -> Result<()> {
     
     // Test expression using entity reference field
     // The Manager field contains EntityId(4294967419) which is the new u64-based format
-    let result = executor.execute("Manager == 'EntityId(4294967419)'", entity_id, &mut store)?;
+    // CEL executor provides the raw u64 value for comparison
+    let result = executor.execute("Manager == 4294967419", entity_id, &mut store)?;
     
     match result {
         cel::Value::Bool(value) => assert_eq!(value, true),
@@ -866,9 +867,9 @@ fn test_cel_executor_execute_with_indirection_and_entity_lists() -> Result<()> {
         _ => panic!("Expected bool result for entity list size"),
     }
 
-    // Test that entity list is properly converted to list of strings
+    // Test that entity list is properly converted to list of u64 values
     let result = executor.execute(
-        &format!("Projects[0] == '{:?}'", project1_id),
+        &format!("Projects[0] == {}", project1_id.0),
         team_id,
         &mut store
     )?;
@@ -931,8 +932,8 @@ fn test_cel_executor_execute_with_null_entity_reference() -> Result<()> {
 
     let user_id = store.create_entity(et_user, None, "User")?;
 
-    // Manager field should be null/empty
-    let result = executor.execute("Manager == ''", user_id, &mut store)?;
+    // Manager field should be null/empty (represented as 0 in CEL context)
+    let result = executor.execute("Manager == 0", user_id, &mut store)?;
     
     match result {
         cel::Value::Bool(value) => assert_eq!(value, true),
