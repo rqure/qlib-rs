@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 
 use crate::{
-    now, EntityId, EntitySchema, EntityType, Error, FieldSchema, Result, Single, Store, Value
+    now, EntityId, EntitySchema, EntityType, Error, FieldSchema, FieldType, Result, Single, Store, Value
 };
 use crate::data::{StoreTrait, StorageScope};
 
@@ -427,51 +427,133 @@ pub fn json_value_to_value_with_resolution<T: StoreTrait>(
 ) -> Result<Value> {
     match field_schema {
         FieldSchema::EntityList { .. } => {
-            let entity_ids = if let Some(array) = json_value.as_array() {
-                let mut resolved_ids = Vec::new();
-                for v in array {
-                    if let Some(s) = v.as_str() {
-                        // Try to parse as EntityId first, then as path
-                        if let Ok(id_val) = s.parse::<u64>() {
-                            resolved_ids.push(EntityId(id_val));
-                        } else {
-                            // Try to resolve as path
-                            match crate::path_to_entity_id(store, s) {
-                                Ok(entity_id) => resolved_ids.push(entity_id),
-                                Err(_) => {
-                                    // Skip invalid paths/IDs
-                                    continue;
-                                }
-                            }
+            if json_value.is_null() {
+                return Ok(Value::EntityList(Vec::new()));
+            }
+
+            let array = json_value.as_array()
+                .ok_or_else(|| Error::InvalidFieldValue("Expected array for entity list".to_string()))?;
+
+            let mut resolved_ids = Vec::new();
+            let mut unresolved: Vec<String> = Vec::new();
+
+            for v in array {
+                if let Some(s) = v.as_str() {
+                    if let Ok(id_val) = s.parse::<u64>() {
+                        resolved_ids.push(EntityId(id_val));
+                    } else {
+                        match crate::path_to_entity_id(store, s) {
+                            Ok(entity_id) => resolved_ids.push(entity_id),
+                            Err(_) => unresolved.push(s.to_string()),
                         }
                     }
+                } else if let Some(id_val) = v.as_u64() {
+                    resolved_ids.push(EntityId(id_val));
+                } else {
+                    unresolved.push(v.to_string());
                 }
-                resolved_ids
-            } else {
-                Vec::new()
-            };
-            Ok(Value::EntityList(entity_ids))
+            }
+
+            if !unresolved.is_empty() {
+                return Err(Error::InvalidFieldValue(format!(
+                    "Unresolved entity paths: {}",
+                    unresolved.join(", ")
+                )));
+            }
+
+            Ok(Value::EntityList(resolved_ids))
         },
         FieldSchema::EntityReference { .. } => {
+            if json_value.is_null() {
+                return Ok(Value::EntityReference(None));
+            }
+
             let entity_ref = if let Some(id_str) = json_value.as_str() {
-                // Try to parse as EntityId first, then as path
                 if let Ok(id_val) = id_str.parse::<u64>() {
                     Some(EntityId(id_val))
                 } else {
-                    // Try to resolve as path
                     match crate::path_to_entity_id(store, id_str) {
                         Ok(entity_id) => Some(entity_id),
-                        Err(_) => None,
+                        Err(_) => {
+                            return Err(Error::InvalidFieldValue(format!(
+                                "Unresolved entity reference: {}",
+                                id_str
+                            )));
+                        }
                     }
                 }
             } else {
-                None
+                return Err(Error::InvalidFieldValue("Expected string or null for entity reference".to_string()));
             };
+
             Ok(Value::EntityReference(entity_ref))
         },
         // For all other field types, use the regular conversion
         _ => json_value_to_value(json_value, field_schema),
     }
+}
+
+#[derive(Debug, Clone)]
+struct PendingFieldUpdate {
+    entity_id: EntityId,
+    field_type: FieldType,
+    field_schema: FieldSchema,
+    json_value: JsonValue,
+    field_path: String,
+}
+
+fn apply_pending_field_updates<T: StoreTrait>(
+    store: &mut T,
+    mut pending_updates: Vec<PendingFieldUpdate>,
+) -> Result<()> {
+    if pending_updates.is_empty() {
+        return Ok(());
+    }
+
+    const MAX_PASSES: usize = 8;
+
+    for _ in 0..MAX_PASSES {
+        let mut next_round = Vec::new();
+        let mut progress = false;
+
+        for update in pending_updates.into_iter() {
+            match json_value_to_value_with_resolution(store, &update.json_value, &update.field_schema) {
+                Ok(value) => {
+                    store.write(update.entity_id, &[update.field_type], value, None, None, None, None)?;
+                    progress = true;
+                }
+                Err(_) => {
+                    next_round.push(update);
+                }
+            }
+        }
+
+        if next_round.is_empty() {
+            return Ok(());
+        }
+
+        if !progress {
+            let unresolved_fields: Vec<String> = next_round
+                .iter()
+                .map(|u| u.field_path.clone())
+                .collect();
+            return Err(Error::InvalidFieldValue(format!(
+                "Failed to resolve entity references for fields: {}",
+                unresolved_fields.join(", ")
+            )));
+        }
+
+        pending_updates = next_round;
+    }
+
+    let unresolved_fields: Vec<String> = pending_updates
+        .iter()
+        .map(|u| u.field_path.clone())
+        .collect();
+    Err(Error::InvalidFieldValue(format!(
+        "Failed to resolve entity references after multiple attempts for fields: {}",
+        unresolved_fields.join(", ")
+    )))
 }
 
 /// Take a JSON snapshot of the current store state
@@ -747,23 +829,33 @@ pub fn restore_json_snapshot<T: StoreTrait>(store: &mut T, json_snapshot: &JsonS
     }
 
     // Restore the entity tree starting from the root
-    restore_entity_recursive(store, &json_snapshot.tree, None)?;
+    let mut pending_updates = Vec::new();
+    restore_entity_recursive_internal(store, &json_snapshot.tree, None, "", &mut pending_updates)?;
+    apply_pending_field_updates(store, pending_updates)?;
 
     Ok(())
 }
 
 /// Helper function to recursively restore entities from JSON
 /// Works with any type implementing StoreTrait
-pub fn restore_entity_recursive<T: StoreTrait>(
+fn restore_entity_recursive_internal<T: StoreTrait>(
     store: &mut T,
     json_entity: &JsonEntity,
     parent_id: Option<crate::EntityId>,
+    parent_path: &str,
+    pending_updates: &mut Vec<PendingFieldUpdate>,
 ) -> Result<crate::EntityId> {
     // Create the entity
     let name = json_entity.fields.get("Name")
         .and_then(|v| v.as_str())
         .unwrap_or("Unknown")
         .to_string();
+
+    let entity_path = if parent_path.is_empty() {
+        name.clone()
+    } else {
+        format!("{}/{}", parent_path, name)
+    };
 
     let entity_id = store.create_entity(
         store.get_entity_type(&json_entity.entity_type)?,
@@ -786,16 +878,29 @@ pub fn restore_entity_recursive<T: StoreTrait>(
         let field_type = store.get_field_type(field_name)?;
         if let Some(field_schema) = schema_fields.get(&field_type) {
             // Use path resolution for EntityReference and EntityList fields
-            let value_result = match field_schema {
+            match field_schema {
                 crate::FieldSchema::EntityList { .. } | crate::FieldSchema::EntityReference { .. } => {
-                    json_value_to_value_with_resolution(store, json_value, field_schema)
-                },
-                _ => crate::json_value_to_value(json_value, field_schema),
+                    match json_value_to_value_with_resolution(store, json_value, field_schema) {
+                        Ok(value) => {
+                            store.write(entity_id, &[field_type], value, None, None, None, None)?;
+                        }
+                        Err(_) => {
+                            pending_updates.push(PendingFieldUpdate {
+                                entity_id,
+                                field_type,
+                                field_schema: field_schema.clone(),
+                                json_value: json_value.clone(),
+                                field_path: format!("{}::{}", entity_path, field_name),
+                            });
+                        }
+                    }
+                }
+                _ => {
+                    if let Ok(value) = json_value_to_value(json_value, field_schema) {
+                        store.write(entity_id, &[field_type], value, None, None, None, None)?;
+                    }
+                }
             };
-            
-            if let Ok(value) = value_result {
-                store.write(entity_id, &[field_type], value, None, None, None, None)?;
-            }
         }
     }
 
@@ -805,7 +910,13 @@ pub fn restore_entity_recursive<T: StoreTrait>(
             let mut child_ids = Vec::new();
             for child_json in children_array {
                 if let Ok(child_entity) = serde_json::from_value::<JsonEntity>(child_json.clone()) {
-                    let child_id = restore_entity_recursive(store, &child_entity, Some(entity_id))?;
+                    let child_id = restore_entity_recursive_internal(
+                        store,
+                        &child_entity,
+                        Some(entity_id),
+                        &entity_path,
+                        pending_updates,
+                    )?;
                     child_ids.push(child_id);
                 }
             }
@@ -822,6 +933,19 @@ pub fn restore_entity_recursive<T: StoreTrait>(
         }
     }
 
+    Ok(entity_id)
+}
+
+/// Public helper for creating a single entity and its descendants
+/// Preserves the previous API surface while using the new two-pass resolution logic
+pub fn restore_entity_recursive<T: StoreTrait>(
+    store: &mut T,
+    json_entity: &JsonEntity,
+    parent_id: Option<crate::EntityId>,
+) -> Result<crate::EntityId> {
+    let mut pending_updates = Vec::new();
+    let entity_id = restore_entity_recursive_internal(store, json_entity, parent_id, "", &mut pending_updates)?;
+    apply_pending_field_updates(store, pending_updates)?;
     Ok(entity_id)
 }
 
@@ -977,9 +1101,9 @@ fn apply_entity_diff(
     // This is a simplified diff implementation
     // In a full implementation, this would compute a more sophisticated diff
     // For now, we'll do a simple recursive comparison and update approach
-    
-    apply_entity_diff_recursive(store, Some(current_tree), target_tree, None)?;
-    Ok(())
+    let mut pending_updates = Vec::new();
+    apply_entity_diff_recursive(store, Some(current_tree), target_tree, None, "", &mut pending_updates)?;
+    apply_pending_field_updates(store, pending_updates)
 }
 
 /// Recursively apply entity differences
@@ -988,6 +1112,8 @@ fn apply_entity_diff_recursive<'a>(
     current_entity: Option<&'a JsonEntity>,
     target_entity: &'a JsonEntity,
     parent_id: Option<crate::EntityId>,
+    parent_path: &str,
+    pending_updates: &mut Vec<PendingFieldUpdate>,
 ) -> Result<crate::EntityId> {
     // Find if this entity already exists by name and type
     let entity_id = if let Some(current) = current_entity {
@@ -1025,6 +1151,16 @@ fn apply_entity_diff_recursive<'a>(
         // Entity doesn't exist, create it
         create_entity_from_json(store, target_entity, parent_id.clone())?
     };
+
+    let target_name = target_entity.fields.get("Name")
+        .and_then(|v| v.as_str())
+        .unwrap_or("Unknown");
+
+    let entity_path = if parent_path.is_empty() {
+        target_name.to_string()
+    } else {
+        format!("{}/{}", parent_path, target_name)
+    };
     
     // Update entity fields (only configuration fields)
     let entity_type = store.get_entity_type(&target_entity.entity_type)?;
@@ -1042,8 +1178,28 @@ fn apply_entity_diff_recursive<'a>(
         if let Some(field_schema) = schema_fields.get(&field_type) {
             // Only update configuration fields
             if matches!(field_schema.storage_scope(), crate::data::StorageScope::Configuration) {
-                if let Ok(value) = json_value_to_value(json_value, field_schema) {
-                    store.write(entity_id, &[field_type], value, None, None, None, None)?;
+                match field_schema {
+                    crate::FieldSchema::EntityList { .. } | crate::FieldSchema::EntityReference { .. } => {
+                        match json_value_to_value_with_resolution(store, json_value, field_schema) {
+                            Ok(value) => {
+                                store.write(entity_id, &[field_type], value, None, None, None, None)?;
+                            }
+                            Err(_) => {
+                                pending_updates.push(PendingFieldUpdate {
+                                    entity_id,
+                                    field_type,
+                                    field_schema: field_schema.clone(),
+                                    json_value: json_value.clone(),
+                                    field_path: format!("{}::{}", entity_path, field_name),
+                                });
+                            }
+                        }
+                    }
+                    _ => {
+                        if let Ok(value) = json_value_to_value(json_value, field_schema) {
+                            store.write(entity_id, &[field_type], value, None, None, None, None)?;
+                        }
+                    }
                 }
             }
         }
@@ -1073,7 +1229,9 @@ fn apply_entity_diff_recursive<'a>(
                         store, 
                         current_child_entity.as_ref(), 
                         &child_entity, 
-                        Some(entity_id)
+                        Some(entity_id),
+                        &entity_path,
+                        pending_updates
                     )?;
                     child_ids.push(child_id);
                 }
